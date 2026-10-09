@@ -166,13 +166,13 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
   const ids = routes.map((r) => r.id);
   if (new Set(ids).size !== ids.length) fail(`duplicate route ids: ${ids.join(', ')}`);
 
-  // Markers: point objects by name. Both spawns must be on open tiles.
+  // Markers: point objects by name. The player spawn must be on an open tile.
   const markers: Record<string, Vec> = {};
   for (const o of layer('markers', 'objectgroup', true)!.objects ?? []) {
     if (!o.name) { warnings.push(`marker ${o.id} has no name and is ignored`); continue; }
     markers[o.name] = { x: r4(o.x / tw), y: r4(o.y / th) };
   }
-  for (const name of ['playerSpawn', 'horseSpawn']) {
+  for (const name of ['playerSpawn']) {
     const m = markers[name] ?? fail(`missing marker "${name}"`);
     if (!inside(m)) fail(`marker ${name} is outside the map`);
     if (zoneAt(m) !== 'open') fail(`marker ${name} is on a ${zoneAt(m)} tile, not open`);

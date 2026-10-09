@@ -2,11 +2,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { replayText } from './replay';
 import { recordGolden } from './golden';
 import { validateContent } from './validate';
-import { buildMaps } from './maps/cli';
+import { buildMaps, watchMaps } from './maps/cli';
 
 const [cmd, ...args] = process.argv.slice(2);
 
-const commands: Record<string, (args: string[]) => number> = {
+// A command returns an exit code, or null to keep the process running (watchers).
+const commands: Record<string, (args: string[]) => number | null> = {
   replay([file]) {
     if (!file) { console.error('usage: tools replay <commands.ndjson>'); return 2; }
     const r = replayText(readFileSync(file, 'utf8'));
@@ -17,6 +18,7 @@ const commands: Record<string, (args: string[]) => number> = {
     return r.ok ? 0 : 1;
   },
   'build-maps'(args) {
+    if (args.includes('--watch')) { watchMaps(); return null; }
     return buildMaps(args.includes('--check'));
   },
   validate() {
@@ -41,7 +43,8 @@ if (!run) {
   process.exit(cmd ? 1 : 0);
 }
 try {
-  process.exit(run(args));
+  const code = run(args);
+  if (code !== null) process.exit(code);
 } catch (e) {
   console.error(`error: ${(e as Error).message}`);
   process.exit(1);

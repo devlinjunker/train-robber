@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { CONTENT_DIR, REPO_ROOT } from '../content';
 import { buildMapFile, stringifyMap } from './build';
@@ -33,4 +33,24 @@ export function buildMaps(check: boolean): number {
     }
   }
   return failed ? 1 : 0;
+}
+
+/**
+ * Rebuild every map whenever a file in maps-src changes (a .tmj, or a tileset that maps
+ * share), and keep running. Editors often save in several writes, so changes settle first.
+ */
+export function watchMaps(settleMs = 150): void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const rebuild = () => {
+    timer = undefined;
+    console.log(`\n[${new Date().toLocaleTimeString()}] rebuilding maps`);
+    buildMaps(false);
+  };
+  buildMaps(false);
+  watch(MAPS_SRC, (_event, name) => {
+    if (name && !/\.(tmj|tsj|json)$/.test(name)) return;
+    clearTimeout(timer);
+    timer = setTimeout(rebuild, settleMs);
+  });
+  console.log(`watching ${relative(REPO_ROOT, MAPS_SRC)} (Ctrl+C to stop)`);
 }

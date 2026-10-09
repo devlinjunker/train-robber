@@ -1,12 +1,16 @@
-import { Application, Graphics, Text } from 'pixi.js';
+import { Application, Container, Graphics, Text } from 'pixi.js';
 import { commandLogWriter, createSim, eventLogWriter, type Command, type LogKind, type RunHeader } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
+import type { MapDef } from '@train-robber/config';
+import { loadMap, mapIdFromUrl } from './map';
+import { drawMapOverlay } from './mapOverlay';
 import { RingBuffer } from './ringBuffer';
 
 const MAX_CATCHUP = 5;
 const TILE = 24;
+const ZOOM_MIN = 0.1, ZOOM_MAX = 4;
 
 const keys = new Set<string>();
 addEventListener('keydown', (e) => keys.add(e.code));
@@ -28,6 +32,14 @@ async function boot() {
   await app.init({ resizeTo: window, background: '#2b3a2b', antialias: true });
   document.body.appendChild(app.canvas);
 
+  const mapId = mapIdFromUrl();
+  let map: MapDef;
+  try {
+    map = await loadMap(mapId);
+  } catch (e) {
+    app.stage.addChild(new Text({ text: (e as Error).message, style: { fill: '#ff8080', fontSize: 14, fontFamily: 'monospace' } })).position.set(8, 8);
+    throw e;
+  }
   const { config, seed } = setupFromUrl();
   const tickRateHz = config.values.sim.tickRateHz;
   const STEP_MS = 1000 / tickRateHz;
@@ -65,10 +77,20 @@ async function boot() {
   button.addEventListener('click', (e) => { exportLogs(); (e.currentTarget as HTMLButtonElement).blur(); });
   document.body.appendChild(button);
 
-  const player = new Graphics().circle(0, 0, 8).fill(0xffd34d);
+  // The world is drawn in tile units inside a container the camera scales and moves.
+  // Until the horse lands, the sim's player starts at 0, 0, so it is drawn relative to playerSpawn.
+  const world = new Container();
+  const mapOverlay = drawMapOverlay(map);
+  const spawn = map.markers.playerSpawn;
+  const player = new Graphics().circle(0, 0, 8 / TILE).fill(0xffd34d);
+  world.addChild(mapOverlay, player);
   const overlay = new Text({ text: '', style: { fill: '#ffffff', fontSize: 12, fontFamily: 'monospace' } });
   overlay.position.set(8, 8);
-  app.stage.addChild(player, overlay);
+  app.stage.addChild(world, overlay);
+  let zoom = 1;
+  addEventListener('keydown', (e) => { if (e.code === 'KeyO' && !e.repeat) mapOverlay.visible = !mapOverlay.visible; });
+  addEventListener('wheel', (e) => { zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9))); }, { passive: true });
+  const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
 
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
@@ -96,13 +118,16 @@ async function boot() {
     if (steps === MAX_CATCHUP) acc = 0;
     const s = sim.snapshot();
     const p = s.players[0]!;
-    player.position.set(app.screen.width / 2 + p.x * TILE, app.screen.height / 2 + p.y * TILE);
+    player.position.set(spawn.x + p.x, spawn.y + p.y);
+    world.scale.set(TILE * zoom);
+    world.position.set(app.screen.width / 2 - player.x * TILE * zoom, app.screen.height / 2 - player.y * TILE * zoom);
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
     overlay.text = [
       `tick ${s.tick}  tick time ${tickMs.toFixed(3)} ms  fps ${fps.toFixed(0)}`,
       `seed ${seed}  config ${config.hash}  state ${sim.hash()}`,
       `preset ${config.preset}  ${variantText}`,
-      'WASD to move  L or the button exports logs',
+      `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
+      `WASD to move  wheel zooms (${zoom.toFixed(2)}x)  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,
       ...(recent.toArray().length ? ['recent events:', ...recent.toArray().slice(-4)] : []),
     ].join('\n');
   });
