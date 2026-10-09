@@ -62,7 +62,8 @@ async function boot() {
   overlay.position.set(8, 8);
   app.stage.addChild(player, overlay);
 
-  let acc = 0, last = performance.now(), fps = 0;
+  let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
+  const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
   let lastMove = { x: 0, y: 0 };
   app.ticker.add(() => {
     const now = performance.now();
@@ -76,7 +77,9 @@ async function boot() {
       lastMove = { x, y };
       const inputs = [{ player: 1, commands }];
       cmdLog.step(simTick, inputs);
+      const t0 = performance.now();
       const res = sim.step(inputs);
+      tickMs = tickMs * 0.95 + (performance.now() - t0) * 0.05;
       simTick = res.tick;
       cmdLog.checkpoint(simTick, () => sim.hash());
       evLog.events(res.events);
@@ -87,7 +90,12 @@ async function boot() {
     const p = s.players[0]!;
     player.position.set(app.screen.width / 2 + p.x * TILE, app.screen.height / 2 + p.y * TILE);
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
-    overlay.text = `tick ${s.tick}  fps ${fps.toFixed(0)}  hash ${sim.hash()}\nWASD to move  L to download logs`;
+    overlay.text = [
+      `tick ${s.tick}  tick time ${tickMs.toFixed(3)} ms  fps ${fps.toFixed(0)}`,
+      `seed ${seed}  config ${config.hash}  state ${sim.hash()}`,
+      `preset ${config.preset}  ${variantText}`,
+      'WASD to move  L to download logs',
+    ].join('\n');
   });
 }
 void boot();
