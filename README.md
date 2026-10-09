@@ -21,3 +21,5 @@ npm run golden:update                       # rewrite the golden replay after a 
 ```
 
 In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=abc123` picks the setup, and the Export logs button (or L) downloads the session's command and event logs.
+
+Every pull request gets a playable build at `https://devlinjunker.github.io/train-robber/pr-preview/pr-<number>/` (linked in a PR comment), and `main` is published at `https://devlinjunker.github.io/train-robber/`. See `.github/workflows/pages.yml`.
