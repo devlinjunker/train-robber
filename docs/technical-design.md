@@ -731,15 +731,20 @@ interface Rng {
 1. **Command log, for replay.** Only ticks that have commands are written. Replaying the header plus these lines through `createSim` reproduces the run exactly.
 2. **Event log, for analysis.** Every `SimEvent`, filtered by an allowlist in `logging.events`.
 
-Both go to one NDJSON stream. The first line is a header; hashes are interleaved so drift is visible.
+Each log is its own NDJSON stream (`<session>.commands.ndjson` and `<session>.events.ndjson`) and starts with the same header. The commands log interleaves a state hash every `logging.hashEverySec` so drift is visible, and both logs close with an `end` line holding the final tick and hash. A `cmd` line at tick `t` holds the commands for the step that advances the sim from `t` to `t + 1`; a `hash` line at `t` is the hash when the sim's tick counter equals `t`.
 
 ```json
-{"k":"header","logVersion":1,"gameVersion":"0.1.0","configHash":"9f2c…","preset":"alpha-default",
- "variants":{"healthModel":"downed"},"overrides":{},"seed":"abc123","tickRateHz":60,
+{"k":"header","log":"commands","logVersion":1,"gameVersion":"0.1.0","configHash":"9f2c…","preset":"alpha-default",
+ "variants":{"healthModel":"downed"},"overrides":{},"seed":42,"tickRateHz":60,"playerIds":[1],
  "persistentAtStart":{"wantedLevel":1,"bank":120,"lifetimeEarned":450},"startedAt":"2026-10-09T02:11:40Z"}
-{"k":"cmd","t":212,"p":1,"c":[{"t":"move","x":127,"y":0}]}
-{"k":"ev","t":640,"e":"BoardingAttempt","result":"good","attempt":1}
+{"k":"cmd","t":212,"p":1,"c":[{"type":"move","x":127,"y":0}]}
 {"k":"hash","t":600,"h":"41ab…"}
+{"k":"end","t":1800,"h":"77c0…"}
+```
+
+```json
+{"k":"header","log":"events", …same fields…}
+{"k":"ev","t":640,"e":"BoardingAttempt","result":"good","attempt":1}
 ```
 
 The wall-clock `startedAt` exists only in the header, written by the host. The sim never reads time.
@@ -988,24 +993,26 @@ type StreamName = 'gen' | 'schedule' | 'ai' | 'combat' | 'horse' | 'misc';
 type RngState = Record<StreamName, [number, number, number, number]>;  // sfc32: four uint32 words per stream
 ```
 
-### Implementation status (2026-10-08)
+### Implementation status (2026-10-09)
 
 Repo: `devlinjunker/train-robber`, branch `phase-0-scaffold`. Legend: `[x]` done, `[~]` partly done, `[ ]` not started. This repo copy of the document is now the source of truth; the earlier live Claude Doc is a snapshot.
 
 ### Phase 0 checklist
 
+Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, and a variant switches from the URL (`?preset=alpha-default&v=boardingFailure:time-only&seed=42`).
+
 - [x] Monorepo, TypeScript project references, and the lint rules that ban `Date`, `Math.random` and transcendental `Math` in `packages/sim`
-- [~] Dependency check and CI running lint, tests and `tools validate` (CI runs typecheck, lint, tests and build; dependency check and `tools validate` still to do)
-- [x] Sim skeleton: tick loop, state types, command and event types, RNG streams, snapshot and hash (minimal; grows with phase 1)
-- [~] Config pipeline: schemas, merge, resolve, hash, `tools validate` (stub tuning schema with merge, strict validation and hash; resolve step and `tools validate` still to do)
-- [ ] Command and event log with header, an IndexedDB sink, and `tools replay`
-- [x] Golden-run test and snapshot round-trip test (golden is a hash snapshot; replace with a checked-in replay once the log exists)
-- [~] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash) (shows tick, fps, state hash; seed, config hash and tick time still to add)
-- [ ] Minimal `tools build-maps` for the phase 1 map
+- [x] Dependency check and CI running lint, tests and `tools validate` (dependency-cruiser in `.dependency-cruiser.cjs`; `npm run check` runs typecheck, lint, the dependency check, `tools validate`, `tools build-maps --check` and tests, and CI runs it plus the build)
+- [x] Sim skeleton: tick loop, state types, command and event types, RNG streams, snapshot and hash (minimal; grows with phase 1). The sim takes the resolved config through a structural `SimConfig` type, and `GameState` holds the seed, config hash and run count, so `restoreSim(snapshot, config)` needs nothing else and refuses a different config
+- [x] Config pipeline: schemas, merge, resolve, hash, `tools validate` (base `game.json` holds the phase 1 starting values; derive turns `xSec` into `xTicks`, `xPerSec` into `xPerTick`, `xHalfAngleDeg` into a cosine threshold `xCos` and `xDegPerSec` into a per-tick rotation `xCosPerTick`/`xSinPerTick`; first variant group is `boardingFailure`, first preset `alpha-default`)
+- [x] Command and event log with header, an IndexedDB sink, and `tools replay` (the client keeps the newest 20 sessions in IndexedDB and L downloads both logs; `tools replay <commands.ndjson>` checks every logged hash and warns on a config-hash, tick-rate or game-version mismatch)
+- [x] Golden-run test and snapshot round-trip test (golden is the checked-in replay `packages/tools/test/fixtures/golden.commands.ndjson`; `npm run golden:update` rewrites it after a deliberate change)
+- [x] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash, state hash, preset and variants)
+- [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; scenery layers and `maps:watch` are not done yet)
 
 ### Phase 1 checklist
 
-- [ ] Phase 1 Tiled map: flat terrain, one stadium-shaped route, spawn markers
+- [~] Phase 1 Tiled map: flat terrain, one stadium-shaped route, spawn markers (a hand-made placeholder `maps-src/alpha-flats.tmj` exists: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, spawns; redraw or adjust it in Tiled)
 - [ ] Horse riding with steering, throttle and drag
 - [ ] Train and track simulation: an engine plus three blank cars moving along the route, looping
 - [ ] Commit prompt and `startRun`
