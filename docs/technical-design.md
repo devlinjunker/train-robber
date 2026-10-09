@@ -569,7 +569,7 @@ Place points near the middle of a cell. The converter divides pixel positions by
 
 ### Scale placeholders
 
-These live in config and get tuned in phase 1: a map of about 400 × 200 tiles, a stadium-shaped main route of roughly 720 tiles (two 220-tile straights joined by two U-turns of radius 45), a train about 62 tiles long at 9 tiles per second (a loop in about 80 seconds), and a horse top speed of 14 tiles per second. That closes on the train at about 5 tiles per second, so a rider starting 60 tiles away catches up in roughly 12 seconds and has room to match speed before the jump. A missed train returns in about 80 seconds. Map size is the hardest value to change later because it is authored in Tiled, so check the feel early in phase 1.
+These live in config and get tuned in phase 1: a map of about 400 × 200 tiles, a stadium-shaped main route of about 731 tiles (two 240-tile straights joined by two U-turns of radius 40, matching the merged `alpha-flats` map), a train about 62 tiles long at 9 tiles per second (a loop in about 81 seconds), and a horse top speed of 14 tiles per second. That closes on the train at about 5 tiles per second, so a rider starting 60 tiles away catches up in roughly 12 seconds and has room to match speed before the jump. A missed train returns in about 81 seconds. Map size is the hardest value to change later because it is authored in Tiled, so check the feel early in phase 1.
 
 ### Map decisions
 
@@ -1014,7 +1014,7 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 
 ### Phase 1 checklist
 
-- [~] Phase 1 Tiled map: flat terrain, one stadium-shaped route, spawn markers (a hand-made placeholder `maps-src/alpha-flats.tmj` exists: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, spawns; redraw or adjust it in Tiled)
+- [~] Phase 1 Tiled map: flat terrain, one stadium-shaped route, spawn markers (a hand-made placeholder `maps-src/alpha-flats.tmj` exists: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, spawns; the scale placeholders above now match it)
 - [ ] Horse riding with steering, throttle and drag
 - [ ] Train and track simulation: an engine plus three blank cars moving along the route, looping
 - [ ] Commit prompt and `startRun`
