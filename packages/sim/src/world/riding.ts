@@ -101,12 +101,17 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
   const hz = config.values.sim.tickRateHz;
   for (const p of players) {
     const h = horses.find((q) => q.id === p.horseId);
-    if (!h) continue;
-    if (cfg.steering === 'heading') steerHeading(h, axis(p.move.x), cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
+    if (!h || h.mode !== 'physical') continue;
+    // A stunned horse ignores its rider: no steering or throttle, speed held where the failed jump left it.
+    const stunned = h.stunTicks > 0;
+    if (stunned) h.stunTicks -= 1;
+    else if (cfg.steering === 'heading') steerHeading(h, axis(p.move.x), cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
     else steerToward(h, p.steer.x, p.steer.y, cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
 
-    const cap = terrainAt(map, h.x, h.y) === Terrain.Slow ? cfg.maxSpeed * cfg.slowZoneSpeedScale : cfg.maxSpeed;
-    throttle(h, -axis(p.move.y), cfg, hz, cap);
+    if (!stunned) {
+      const cap = terrainAt(map, h.x, h.y) === Terrain.Slow ? cfg.maxSpeed * cfg.slowZoneSpeedScale : cfg.maxSpeed;
+      throttle(h, -axis(p.move.y), cfg, hz, cap);
+    }
 
     const x0 = h.x, y0 = h.y;
     h.x += (h.hx * h.speed) / hz;
@@ -120,5 +125,7 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
       const moved = Math.sqrt(dx * dx + dy * dy) * hz;
       if (moved < h.speed) h.speed = moved;
     }
+    // A mounted player rides in the world frame with the horse.
+    if (p.placement.frame === 'world') { p.placement.x = h.x; p.placement.y = h.y; }
   }
 }

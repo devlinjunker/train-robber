@@ -64,3 +64,16 @@ export function allCarPoses(state: GameState, map: WorldMap, config: SimConfig):
   }
   return out;
 }
+
+/** One train's cars, placed for the current state; empty when the train is gone. */
+export function carPosesOf(state: GameState, map: WorldMap, config: SimConfig, trainId: string): CarPose[] {
+  const t = state.world.trains.find((q) => q.id === trainId);
+  if (!t) return [];
+  const { def, route } = routeOf(map, config, t.type);
+  return placeCars(t.id, expandCars(def.cars), route, t.d);
+}
+
+/** A train's speed along its route in tiles per second. */
+export function trainSpeed(config: SimConfig, type: string): number {
+  return config.values.trains[type]!.speedTilesPerTick * config.values.sim.tickRateHz;
+}

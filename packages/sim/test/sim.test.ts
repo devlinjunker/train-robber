@@ -3,7 +3,8 @@ import { createSim, restoreSim, seedRng, nextU32, eventLogWriter, commandLogWrit
 import { testConfig, testMap } from './fixtures';
 
 const config = testConfig();
-const map = testMap();
+// Spawn just below the top straight, in commit range of the train at both run starts.
+const map = testMap(undefined, { x: 45, y: 38 });
 
 const script = (t: number): InputFrame[] => [{
   player: 1,
@@ -64,7 +65,7 @@ describe('logs', () => {
   it('event log applies the allowlist', () => {
     const lines: string[] = [];
     const log = eventLogWriter(header, (l) => lines.push(l), { allow: ['RunStarted'] });
-    log.events([{ type: 'RunStarted', tick: 3, player: 1 }, { type: 'RunCancelled', tick: 9, player: 1 }]);
-    expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1 }]);
+    log.events([{ type: 'RunStarted', tick: 3, player: 1, runNumber: 1, trainId: 'blank-1' }, { type: 'RunCancelled', tick: 9, player: 1 }]);
+    expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1, runNumber: 1, trainId: 'blank-1' }]);
   });
 });

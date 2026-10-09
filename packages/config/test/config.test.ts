@@ -10,9 +10,11 @@ const base = {
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, zoneWidths: [0.1, 0.25] },
-    failure: { stunSec: 1.5, damageFraction: 0.25 },
+    failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
+    landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5 },
   },
   health: { max: 100 },
+  playtest: { quickRetry: true, quickRetryGapTiles: 60 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
@@ -71,6 +73,7 @@ describe('resolveConfig', () => {
     const a = resolveConfig(loadContent(content()), { preset: 'p' });
     expect(a.values.boarding.failure.stunTicks).toBe(90);
     expect(a.values.boarding.meter.sweepPeriodTicks).toBe(72);
+    expect(a.values.boarding.landing.stumbleTicks).toBe(30);
     expect(a.values.logging.hashEveryTicks).toBe(60);
     expect(a.values.trains.blank!.speedTilesPerTick).toBeCloseTo(0.15, 12);
     expect(a.values.horse.turnRateCosPerTick).toBeCloseTo(Math.cos((2 * Math.PI) / 180), 12);

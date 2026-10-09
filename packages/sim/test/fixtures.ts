@@ -3,20 +3,37 @@
 import type { SimConfig, SimMap, SimRoute } from '../src';
 
 type Horse = SimConfig['values']['horse'];
+type Values = SimConfig['values'];
 
-export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001'): SimConfig {
+/** Like the real base config at 60 Hz; `more` replaces whole sections. */
+export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
   const rad = (120 * Math.PI) / 180 / 60;
   return {
     hash,
     values: {
       sim: { tickRateHz: 60 },
       player: { speedTilesPerTick: 8 / 60 },
+      world: { mode: 'separate' },
+      commit: { rangeTiles: 12 },
+      boarding: {
+        rangeTiles: 2, speedToleranceTilesPerSec: 2,
+        meter: { sweepPeriodTicks: 72, zoneWidths: [0.1, 0.25] },
+        failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
+        landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5 },
+      },
+      health: { max: 100 },
+      playtest: { quickRetry: true, quickRetryGapTiles: 60 },
+      outcomePolicy: {
+        died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
+        cancelled: { bankRunLoot: false, wantedDelta: 0 },
+      },
       horse: {
         maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10, slowZoneSpeedScale: 0.5,
         turnRateCosPerTick: Math.cos(rad), turnRateSinPerTick: Math.sin(rad), steering: 'heading', throttleModel: 'hold',
         ...horse,
       },
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }] } },
+      ...more,
     },
   };
 }

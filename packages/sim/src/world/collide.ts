@@ -51,3 +51,13 @@ export function pointInBox(x: number, y: number, b: Box): boolean {
   const ly = dy * b.ux - dx * b.uy;
   return lx > -b.halfLength && lx < b.halfLength && ly > -b.halfWidth && ly < b.halfWidth;
 }
+
+/** Distance from a point to the nearest point of the box; 0 inside it. */
+export function distanceToBox(x: number, y: number, b: Box): number {
+  const dx = x - b.x, dy = y - b.y;
+  const lx = dx * b.ux + dy * b.uy;
+  const ly = dy * b.ux - dx * b.uy;
+  const ox = lx < -b.halfLength ? -b.halfLength - lx : lx > b.halfLength ? lx - b.halfLength : 0;
+  const oy = ly < -b.halfWidth ? -b.halfWidth - ly : ly > b.halfWidth ? ly - b.halfWidth : 0;
+  return Math.sqrt(ox * ox + oy * oy);
+}

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
-  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunCancelled"] },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "BoardingAttempt", "DamageDealt", "CommandRejected", "RunEnded", "RunCancelled", "PersistentChanged"] },
   "player": { "speedTilesPerSec": 8 },
   "world": { "mode": "separate" },
   "horse": {
@@ -13,9 +13,11 @@
     "rangeTiles": 2,
     "speedToleranceTilesPerSec": 2,
     "meter": { "sweepPeriodSec": 1.2, "zoneWidths": [0.1, 0.25] },
-    "failure": { "stunSec": 1.5, "damageFraction": 0.25 }
+    "failure": { "stunSec": 1.5, "damageFraction": 0.25, "horseSpeedScale": 0.5 },
+    "landing": { "stumbleSec": 0.5, "stumbleSpeedScale": 0.5 }
   },
   "health": { "max": 100 },
+  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60 },
   "countdown": { "enabled": false, "startsAt": "commit", "scale": 1 },
   "trains": {
     "blank": {
