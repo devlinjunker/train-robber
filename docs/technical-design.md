@@ -156,7 +156,8 @@ type Command =
   | { type: 'qte'; key: number }                 // only when quick-time prompts are enabled
   | { type: 'useItem'; slot: number }
   | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
-  | { type: 'cancelRun' };
+  | { type: 'cancelRun' }
+  | { type: 'quickRetry' };                      // playtest only (`playtest.quickRetry`): end the run, wait behind the train
 ```
 
 The sim validates every command against current state (a `jump` outside the boarding phase is ignored and emits `CommandRejected`). Quantizing axes means two inputs either match exactly or differ, which makes replay comparison and later network compression simple. The discriminant is `type`, because `t` means the tick in log lines.
@@ -970,6 +971,7 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | E | Commit to a train, interact |
 | F | Whistle (phase 2) |
 | Esc | Cancel run |
+| R | Quick retry (playtest only, `playtest.quickRetry`) |
 | Q / Z or keys `-` / `=` | Zoom out / in |
 
 Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys above, in line with the input rules earlier.
@@ -985,6 +987,9 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Meter zone widths (perfect, good) | 10%, 25% of the track | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
 | Failure damage | 25% of max health | `boarding.failure.damageFraction` |
+| Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
+| Good-landing stumble | 0.5 s at 50% walk speed | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
+| Quick retry (R) | on, 60 tiles behind the last car | `playtest.quickRetry`, `playtest.quickRetryGapTiles` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
 | Horse acceleration, braking | 7 and 12 tiles/s² (accel was 8 until playtest tuning on 2026-10-09) | `horse.accel`, `horse.brake` |
@@ -1030,10 +1035,10 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 - [x] Phase 1 Tiled map: flat terrain, one stadium-shaped route, a spawn marker (`maps-src/alpha-flats.tmj`: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, `playerSpawn` at (200, 170) with open ground up to the bottom straight, checked by a test; the separate horse spawn was dropped, see Map decisions; the scale placeholders above match it). M1 also added `npm run maps:watch`, `?map=` loading validated through `MapDefSchema`, and the map debug overlay
 - [x] Horse riding with steering, throttle and drag (`packages/sim/src/world/riding.ts`: the player starts mounted and stopped at `playerSpawn`; `steering` and `throttleModel` variant groups chosen by URL, for example `?v=steering:heading&v=throttleModel:coast`; slow tiles cap speed, blocked and water tiles and the map edge stop the horse; the sim receives the map through the structural `SimMap` type and snapshots record its hash, so `restoreSim(snapshot, config, map)` refuses a different map)
 - [x] Train and track simulation: an engine plus three blank cars moving along the route, looping (`trackAt` in `packages/sim/src/world/track.ts` gives position and unit tangent at any distance along a route; `packages/sim/src/world/trains.ts` spawns the one blank train at load and advances it, with `pinTrain` as the hook for the committed train in M3; `packages/sim/src/world/cars.ts` generates the `engine` and `blank-car` templates in code (doors mid-car on both sides of a blank car, none on the engine), places cars as rigid 16 × 6 rectangles, and `entryPointWorld` gives entry points in world space for the boarding rule and the markers; horse against car collision is in, and the top-down debug view draws the cars, entry points and the horse with its heading)
-- [ ] Commit prompt and `startRun`
-- [ ] Boarding rules, meter, success and failure, and the stun
-- [ ] Minimal health, death outcome, and cancel
-- [ ] Separate-mode train scene and the camera transition
-- [ ] HUD: commit prompt, jump rejection reasons, meter, health
-- [ ] Logging of boarding attempts and run outcomes
+- [x] Commit prompt and `startRun` (M3: `commitTarget` is the commit query the prompt reads and `startRun` validates `commit.rangeTiles`, measured to the nearest car body, and that the train is free; it pins the train, refills health and enters `approach`. `interact` while idle commits the same way, so E works without the client naming a train)
+- [x] Boarding rules, meter, success and failure, and the stun (M3, `packages/sim/src/world/boarding.ts` and `run.ts`: `boardingCheck` is the one rule, shared with the debug readout; the meter sweeps back and forth while eligible, losing eligibility restarts the sweep, and the zones re-roll from the `misc` stream only after a jump resolves. A failed jump holds the `boarding` phase for the stun with the horse at `horseSpeedScale` of its speed and deaf to the reins, then returns to `approach`)
+- [x] Minimal health, death outcome, and cancel (M3: health refills at each run start; death ends the run as `died` through `rules/applyOutcome` and `outcomePolicy.died`, then resets like cancel; cancel and quick retry work from every phase but `ended`, and `ended` passes to `idle` on the same tick)
+- [~] Separate-mode train scene and the camera transition (sim side in M3: `world/separate.ts` implements `WorldModel`; boarding moves the placement into the car frame `car:<trainId>:<index>` at the entry cell and the horse turns abstract (`mode: 'away'`); the blank interior is walkable at `player.speedTilesPerSec` with screen-relative WASD, and the debug view turns the camera so the car's front points right. The interior scene and the camera ease wait for M4)
+- [~] HUD: commit prompt, jump rejection reasons, meter, health (M3 shows them in the top-down debug view: the meter above the horse, the rest in the overlay text; the HTML HUD waits for M4)
+- [~] Logging of boarding attempts and run outcomes (M3 emits `RunPhaseChanged`, `BoardingAttempt`, `DamageDealt`, `CommandRejected`, `RunEnded` and `PersistentChanged` and allows them in `logging.events`; `RunCancelled` is still emitted beside `RunEnded` until M5 decides whether to drop it. Reports and bots are M5)
 - [ ] Playtest against the gate: riding and boarding is fun before any loot exists

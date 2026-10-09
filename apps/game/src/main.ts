@@ -1,5 +1,8 @@
 import { Application, Container, Text } from 'pixi.js';
-import { commandLogWriter, createSim, eventLogWriter, mapHash, terrainAt, Terrain, type Command, type LogKind, type RunHeader } from '@train-robber/sim';
+import {
+  boardingCheck, commandLogWriter, commitTarget, createSim, distanceToTrain, eventLogWriter, mapHash, meterPosition, meterZones, parseCarFrame, runPhase,
+  terrainAt, Terrain, type Command, type LogKind, type RunHeader, type SimEvent,
+} from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
@@ -14,8 +17,16 @@ const TILE = 24;
 const ZOOM_MIN = 0.1, ZOOM_MAX = 4;
 
 const keys = new Set<string>();
-const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
-addEventListener('keydown', (e) => { keys.add(e.code); if (ARROWS.has(e.code)) e.preventDefault(); });
+const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+/** One-shot actions, queued on key press and sent with the next tick. */
+const ACTIONS: Record<string, 'commit' | 'jump' | 'cancel' | 'retry'> = { KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry' };
+const pressed: ('commit' | 'jump' | 'cancel' | 'retry')[] = [];
+addEventListener('keydown', (e) => {
+  keys.add(e.code);
+  if (ARROWS.has(e.code)) e.preventDefault();
+  const a = ACTIONS[e.code];
+  if (a && !e.repeat) pressed.push(a);
+});
 addEventListener('keyup', (e) => keys.delete(e.code));
 
 async function openSink(session: string, startedAt: string): Promise<{ writer(log: LogKind): (line: string) => void; read(log: LogKind): Promise<string>; flush(): Promise<void> }> {
@@ -59,6 +70,8 @@ async function boot() {
 
   const sim = createSim({ config, map, seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
   let simTick = 0;
+  // Dev server only: the sim on window for poking at state from the console.
+  if (import.meta.env.DEV) (window as unknown as { trainRobber: unknown }).trainRobber = { sim, config };
   const endLogs = () => {
     const h = sim.hash();
     cmdLog.end(simTick, h); evLog.end(simTick, h);
@@ -96,11 +109,19 @@ async function boot() {
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
   const horseCfg = config.values.horse;
   const screenSteering = horseCfg.steering === 'screen';
-  const controls = screenSteering ? 'arrows steer  W/S throttle' : 'A/D steer  W/S throttle';
+  const controls = `${screenSteering ? 'arrows steer  W/S throttle' : 'A/D steer  W/S throttle'}  E commit  Space jump  Esc cancel${config.values.playtest.quickRetry ? '  R quick retry' : ''}`;
   const axis = (pos: string, neg: string) => (keys.has(pos) ? 127 : 0) - (keys.has(neg) ? 127 : 0);
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked' };
   let lastMove = { x: 0, y: 0 }, lastSteer = { x: 0, y: 0 };
   let zoneSec = 0, bestZoneSec = 0;
+  // Short-lived notices from events: the last rejection and how the last run ended.
+  let notice = '', noticeUntil = 0;
+  const show = (text: string, ms: number) => { notice = text; noticeUntil = performance.now() + ms; };
+  const noticeFor = (e: SimEvent) => {
+    if (e.type === 'CommandRejected') show(`${e.command} rejected: ${e.reason.toUpperCase()}`, 1500);
+    else if (e.type === 'BoardingAttempt') show(`jump ${e.attempt}: ${e.result.toUpperCase()} (meter ${e.meter.toFixed(2)})`, 2000);
+    else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'YOU DIED - back to the spawn' : e.retry ? 'quick retry: catch the train' : 'run cancelled', 2500);
+  };
   app.ticker.add(() => {
     const now = performance.now();
     acc += now - last; last = now;
@@ -109,7 +130,9 @@ async function boot() {
       // W/S throttle in both steering variants. Heading-relative: A/D turn the horse.
       // Screen-relative: the arrow keys give a screen direction the horse turns to face;
       // the top-down view maps screen to world one to one (M4's isometric view will not).
-      const x = screenSteering ? 0 : axis('KeyD', 'KeyA');
+      // Aboard, WASD walk screen-relative in both steering variants.
+      const aboard = runPhase(sim.state) === 'aboard';
+      const x = screenSteering && !aboard ? 0 : axis('KeyD', 'KeyA');
       const y = axis('KeyS', 'KeyW');
       const sx = screenSteering ? axis('ArrowRight', 'ArrowLeft') : 0;
       const sy = screenSteering ? axis('ArrowDown', 'ArrowUp') : 0;
@@ -118,6 +141,15 @@ async function boot() {
       if (x !== lastMove.x || y !== lastMove.y) commands.push({ type: 'move', x, y });
       if (sx !== lastSteer.x || sy !== lastSteer.y) commands.push({ type: 'steer', x: sx, y: sy });
       lastMove = { x, y }; lastSteer = { x: sx, y: sy };
+      for (const a of pressed.splice(0)) {
+        if (a === 'commit') {
+          // Ask the sim which train, if any, can be committed; with none, interact gets the reason.
+          const target = commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!);
+          commands.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: false });
+        } else if (a === 'jump') commands.push({ type: 'jump' });
+        else if (a === 'cancel') commands.push({ type: 'cancelRun' });
+        else commands.push({ type: 'quickRetry' });
+      }
       const inputs = [{ player: 1, commands }];
       cmdLog.step(simTick, inputs);
       const t0 = performance.now();
@@ -126,19 +158,37 @@ async function boot() {
       simTick = res.tick;
       cmdLog.checkpoint(simTick, () => sim.hash());
       evLog.events(res.events);
+      for (const e of res.events) noticeFor(e);
       acc -= STEP_MS; steps++;
     }
     if (steps === MAX_CATCHUP) acc = 0;
     const s = sim.state;
     const horse = s.world.horses[0]!;
-    const train = s.world.trains[0];
-    const trainSpeed = train ? config.values.trains[train.type]!.speedTilesPerSec : 0;
-    const zone = view.update(sim.cars(), horse, { rangeTiles: config.values.boarding.rangeTiles, trainSpeed, toleranceTilesPerSec: config.values.boarding.speedToleranceTilesPerSec });
+    const player = s.players[0]!;
+    const phase = runPhase(s);
+    const run = s.run?.players[player.id];
+    // The boarding readout is against the committed train, or the nearest one while idle.
+    const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, b) => distanceToTrain(s, sim.map, config, a.id, horse.x, horse.y) - distanceToTrain(s, sim.map, config, b.id, horse.x, horse.y))[0]?.id;
+    const train = s.world.trains.find((t) => t.id === readTrain);
+    const check = horse.mode === 'physical' && readTrain ? boardingCheck(s, sim.map, config, readTrain, horse) : null;
+    const b = config.values.boarding;
+    const meter = phase === 'approach' && run
+      ? { position: meterPosition(run.meter.sweep, b.meter.sweepPeriodTicks), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check?.state === 'eligible' }
+      : null;
+    const frame = parseCarFrame(player.placement.frame);
+    const aboardAt = frame ? sim.world.toWorld(s, player.placement) : null;
+    view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt });
     // Seconds spent continuously in the boarding zone, to judge how hard it is to hold.
-    if (zone.state === 'in zone') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
+    if (check?.state === 'eligible') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
+    // Aboard, the camera turns with the car so its front points right, as the interior scene will.
+    const focus = aboardAt ?? horse;
+    const car = frame ? sim.cars().find((c) => c.trainId === frame.trainId && c.index === frame.car) : undefined;
     world.scale.set(TILE * zoom);
-    world.position.set(app.screen.width / 2 - horse.x * TILE * zoom, app.screen.height / 2 - horse.y * TILE * zoom);
+    world.pivot.set(focus.x, focus.y);
+    world.position.set(app.screen.width / 2, app.screen.height / 2);
+    world.rotation = car ? -Math.atan2(car.uy, car.ux) : 0;
     const heading = ((Math.atan2(horse.hx, -horse.hy) * 180) / Math.PI + 360) % 360;
+    const target = phase === 'idle' ? commitTarget(s, sim.map, config, horse) : null;
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
     overlay.text = [
       `tick ${s.tick}  tick time ${tickMs.toFixed(3)} ms  fps ${fps.toFixed(0)}`,
@@ -146,7 +196,11 @@ async function boot() {
       `preset ${config.preset}  ${variantText}`,
       `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
       `horse ${horse.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horse.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horse.x.toFixed(1)}, ${horse.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horse.x, horse.y)]}`,
-      `boarding: ${zone.state.toUpperCase()}  door ${Number.isFinite(zone.distance) ? zone.distance.toFixed(1) : '-'} tiles (range ${config.values.boarding.rangeTiles})  speed vs train ${zone.speedDelta >= 0 ? '+' : ''}${zone.speedDelta.toFixed(2)} (±${config.values.boarding.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s`,
+      `run: ${phase.toUpperCase()}${s.run ? `  train ${s.run.trainId}  health ${run?.health ?? '-'}/${config.values.health.max}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horse.stunTicks > 0 ? `  STUNNED ${(horse.stunTicks / tickRateHz).toFixed(1)} s` : ''}`,
+      target ? `>>> E: commit to ${target} <<<` : phase === 'idle' ? 'ride within commit range of a train to commit' : phase === 'aboard' ? `aboard ${player.placement.frame} at cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}  WASD walk` : '',
+      check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',
+      meter ? `meter ${meter.position.toFixed(2)}${meter.sweeping ? '' : ' (waiting: get in the zone)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
+      performance.now() < noticeUntil ? `!! ${notice}` : '',
       `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
       `${controls}  wheel zooms (${zoom.toFixed(2)}x)  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,
       ...(recent.toArray().length ? ['recent events:', ...recent.toArray().slice(-4)] : []),
