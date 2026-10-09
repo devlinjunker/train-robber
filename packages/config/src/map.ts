@@ -39,7 +39,8 @@ export const MapDefSchema = z.object({
   zones: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0)])),
   routes: z.array(RouteSchema).min(1),
   speedZones: z.array(z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive(), speedScale: z.number().gt(0).max(1) }).strict()),
-  markers: z.object({ playerSpawn: point, horseSpawn: point }).catchall(point),
+  /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
+  markers: z.object({ playerSpawn: point }).catchall(point),
 }).strict().superRefine((m, ctx) => {
   const tiles = m.zones.reduce((n, [count]) => n + count, 0);
   if (tiles !== m.size.cols * m.size.rows) ctx.addIssue({ code: 'custom', path: ['zones'], message: `zones cover ${tiles} tiles, map has ${m.size.cols * m.size.rows}` });

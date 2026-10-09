@@ -16,11 +16,10 @@ describe('alpha-flats stadium route', () => {
     expect(stringifyMap(alpha.map)).toBe(readFileSync(join(MAPS_OUT, 'alpha-flats.json'), 'utf8'));
   });
 
-  it('is a closed 400 x 200 map with one route and both spawns', () => {
+  it('is a closed 400 x 200 map with one route and a player spawn', () => {
     expect(alpha.map.size).toEqual({ cols: 400, rows: 200 });
     expect(alpha.map.routes.map((r) => [r.id, r.closed])).toEqual([['main', true]]);
     expect(alpha.map.markers.playerSpawn).toEqual({ x: 200, y: 170 });
-    expect(alpha.map.markers.horseSpawn).toEqual({ x: 202, y: 171 });
   });
 
   it('has the length of two 240-tile straights and two radius-40 U-turns', () => {
@@ -68,7 +67,7 @@ describe('alpha-flats stadium route', () => {
     expect(alpha.minRadiusTiles).toBeGreaterThan(25);
   });
 
-  it('leaves open ground from the spawns down to the bottom straight', () => {
+  it('leaves open ground from the spawn down to the bottom straight', () => {
     // Phase 1 decision: the rider starts at (200, 170) and heads up to the y = 140 straight.
     const grid = decodeZones(alpha.map);
     const { cols } = alpha.map.size;
@@ -111,7 +110,7 @@ function tmj(opts: { cols?: number; rows?: number; tiles?: (x: number, y: number
     ? { encoding: 'base64', compression: 'zlib', data: deflateSync(Buffer.from(new Uint32Array(data).buffer)).toString('base64') }
     : { data };
   const route = opts.route ?? [{ x: 2, y: 2 }, { x: 10, y: 3 }, { x: 17, y: 2 }];
-  const markers = opts.markers ?? { playerSpawn: [1, 8], horseSpawn: [2, 8] };
+  const markers = opts.markers ?? { playerSpawn: [1, 8] };
   return JSON.stringify({
     orientation: 'orthogonal', infinite: false, width: cols, height: rows, tilewidth: T, tileheight: T,
     tilesets: [{ firstgid: 1, name: 'zones', tiles: ZONES.map((z, id) => ({ id, properties: [{ name: 'zone', type: 'string', value: z }] })) }],
@@ -153,7 +152,7 @@ describe('build-maps rules', () => {
 
   it('rejects a route over water, a missing spawn and a spawn on blocked ground', () => {
     expect(() => build(tmj({ tiles: (x, y) => (x === 10 && y >= 2 && y <= 4 ? 4 : 0) }))).toThrow(/on a water tile/);
-    expect(() => build(tmj({ markers: { playerSpawn: [1, 8] } }))).toThrow(/missing marker "horseSpawn"/);
+    expect(() => build(tmj({ markers: {} }))).toThrow(/missing marker "playerSpawn"/);
     expect(() => build(tmj({ tiles: (x, y) => (x === 1 && y === 8 ? 3 : 0) }))).toThrow(/playerSpawn is on a blocked tile/);
     expect(() => build(tmj({ route: [{ x: 2, y: 2 }, { x: 30, y: 2 }] }))).toThrow(/outside the map/);
   });

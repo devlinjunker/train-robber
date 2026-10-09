@@ -180,18 +180,6 @@
      "point": true,
      "x": 6400,
      "y": 5440
-    },
-    {
-     "id": 3,
-     "type": "",
-     "rotation": 0,
-     "visible": true,
-     "width": 0,
-     "height": 0,
-     "name": "horseSpawn",
-     "point": true,
-     "x": 6464,
-     "y": 5472
     }
    ]
   }

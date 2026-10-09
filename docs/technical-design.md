@@ -388,7 +388,7 @@ The alpha map is drawn in Tiled and converted to our own `MapDef` format: a tile
 
 ### Authoring pipeline
 
-- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds points such as `playerSpawn` and `horseSpawn`. Scenery layers are render-only and ignored by the sim.
+- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds named points such as `playerSpawn`. Scenery layers are render-only and ignored by the sim.
 - `tools build-maps` converts the Tiled file into `base/maps/<id>.json`, validated by the config schemas. The game never reads Tiled files at runtime, so the sim does not depend on Tiled's format. CI runs the conversion.
 
 ### Tiled workflow in detail
@@ -406,7 +406,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - **Terrain.** Paint the `terrain` layer with the zone tiles. An unpainted tile counts as `open`.
 - **Track.** On `track`, use the Insert Polyline tool and click control points. The curve passes through them, so the line you draw is roughly the track. Fewer points give a smoother curve. Add custom properties `route` (string, for example `main`) and `closed` (boolean).
 - **Speed zones.** On `speedZones`, draw rectangles with a float property `speedScale` between 0 and 1. Any stretch of track inside a rectangle runs at that fraction of normal speed.
-- **Markers.** On `markers`, place point objects named `playerSpawn` and `horseSpawn`.
+- **Markers.** On `markers`, place a point object named `playerSpawn`. The player starts there already mounted (see Map decisions).
 
 **What `tools build-maps` does**
 
@@ -421,7 +421,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 
 - Every route has at least two points, or three if closed, and every sample is inside the map.
 - No sample lies on a `blocked` or `water` tile.
-- Both spawns are inside the map on `open` tiles.
+- `playerSpawn` is inside the map on an `open` tile.
 - `speedScale` is greater than 0 and at most 1.
 - Warning: the curve's radius is smaller than the longest car. Cars are rigid rectangles along the track, so a very tight bend would make them cut corners.
 
@@ -447,7 +447,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
       "points": [ { "x": 12, "y": 30 }, { "x": 40, "y": 22 }, { "x": 75, "y": 35 } ] }
   ],
   "speedZones": [ { "x": 30, "y": 15, "w": 20, "h": 14, "speedScale": 0.8 } ],
-  "markers": { "playerSpawn": { "x": 60, "y": 40 }, "horseSpawn": { "x": 58, "y": 42 } }
+  "markers": { "playerSpawn": { "x": 60, "y": 40 } }
 }
 ```
 
@@ -575,6 +575,7 @@ These live in config and get tuned in phase 1: a map of about 400 × 200 tiles, 
 
 1. Alpha: all trains share one route. Longer term, selectable and less predictable routes are wanted, and the model already supports several routes per map.
 2. The first route is a stadium shape, two long straights joined by two wide U-turns (a closed loop has to turn back), so boarding mostly happens on straights and the first test isolates boarding feel. More curves come after that, and complex tracks with hills are a long-term goal.
+3. No separate horse spawn (decided 2026-10-09). The player starts every run already mounted at `playerSpawn`, and cancel puts the mounted player back there, so a second marker for the horse did nothing. The `horseSpawn` marker was removed from the map, the schema and the converter. If a run ever starts on foot (for example walking to the horse in a town), add a marker back then.
 
 ## Configuration format
 
@@ -945,7 +946,7 @@ This section turns the decisions so far into what to build first: the foundation
 
 * **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse against each car's rectangle, computed from the car's place on the route.
 * **Boarding meter use.** While the player is eligible (in range and speed matched), the meter sweeps continuously and a single Space press samples it on that tick. Losing eligibility resets the meter.
-* **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the player and horse back at the spawn while the train keeps looping.
+* **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the mounted player back at `playerSpawn` while the train keeps looping.
 * **Repo.** A new repository using the monorepo layout from Package structure, with this document moved into `docs/`.
 
 ### Riding controls
@@ -1014,7 +1015,7 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 
 ### Phase 1 checklist
 
-- [x] Phase 1 Tiled map: flat terrain, one stadium-shaped route, spawn markers (`maps-src/alpha-flats.tmj`: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, spawns at (200, 170) and (202, 171) with open ground up to the bottom straight, checked by a test; the scale placeholders above match it). M1 also added `npm run maps:watch`, `?map=` loading validated through `MapDefSchema`, and the map debug overlay
+- [x] Phase 1 Tiled map: flat terrain, one stadium-shaped route, a spawn marker (`maps-src/alpha-flats.tmj`: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, `playerSpawn` at (200, 170) with open ground up to the bottom straight, checked by a test; the separate horse spawn was dropped, see Map decisions; the scale placeholders above match it). M1 also added `npm run maps:watch`, `?map=` loading validated through `MapDefSchema`, and the map debug overlay
 - [ ] Horse riding with steering, throttle and drag
 - [~] Train and track simulation: an engine plus three blank cars moving along the route, looping (the track lookup is done: `trackAt` in `packages/sim/src/world/track.ts` gives position and unit tangent at any distance along a route, wrapping on closed routes, from the baked samples with no trig; trains are not built yet)
 - [ ] Commit prompt and `startRun`
