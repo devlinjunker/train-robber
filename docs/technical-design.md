@@ -986,7 +986,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
 | Meter sweep period, in range but speed off | 1.2 s | `boarding.meter.sweepPeriodSec` |
 | Meter sweep period, speed matched | 1.8 s (new after the 2026-10-09 playtest, a first guess) | `boarding.meter.matchedSweepPeriodSec` |
-| Meter zone widths (perfect, good) | 10%, 25% of the track | `boarding.meter.zoneWidths` |
+| Meter zone widths (perfect, good) | 5%, 40% of the track (was 10%, 25%; Devlin, M3 playtest, 2026-10-09) | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
 | Failure damage | 25% of max health | `boarding.failure.damageFraction` |
 | Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |

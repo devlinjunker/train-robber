@@ -90,7 +90,7 @@ export function recordGolden(): string {
         if (s.run && boardingCheck(s, sim.map, config, trainId, h).state === 'eligible') eligibleFor++;
         else eligibleFor = 0;
         // Wait out a little of the sweep, then press Space.
-        if (eligibleFor === 25) { commands.push({ type: 'jump' }); eligibleFor = 0; }
+        if (eligibleFor === 15) { commands.push({ type: 'jump' }); eligibleFor = 0; }
       }
     }
     const inputs: InputFrame[] = [{ player: 1, commands }];

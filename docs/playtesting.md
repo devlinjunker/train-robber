@@ -88,7 +88,7 @@ The loop:
 | How far a commit reaches | `commit.rangeTiles` | 12 tiles |
 | How fast the meter sweeps when speed matched (one full back and forth) | `boarding.meter.matchedSweepPeriodSec` | 1.8 s |
 | How fast it sweeps in range at the wrong speed | `boarding.meter.sweepPeriodSec` | 1.2 s |
-| Perfect and good band widths | `boarding.meter.zoneWidths` | 10%, 25% |
+| Perfect and good band widths | `boarding.meter.zoneWidths` | 5%, 40% |
 | How long a failed jump stuns the horse | `boarding.failure.stunSec` | 1.5 s |
 | Horse speed after a failed jump | `boarding.failure.horseSpeedScale` | 0.5 |
 | Health lost per failed jump | `boarding.failure.damageFraction` | 25% of max |
