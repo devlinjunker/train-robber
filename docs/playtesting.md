@@ -46,7 +46,9 @@ All tuning lives in `packages/content`:
 
 - `base/game.json` holds the base value of every key. Keys carry their unit in the name (`Sec`, `PerSec`, `Tiles`, `Deg`). The resolve step turns these into per-tick values, so never write a tick count by hand.
 - `variants/*.json` each hold the few values one variant changes, as a `patch` over the base.
-- `presets/*.json` pick one variant per group.
+- `presets/*.json` pick one variant per group. A preset always applies: without `?preset=` the game uses `alpha-default`.
+
+Keys that a variant group sets (`horse.steering`, `horse.throttleModel`) are decided by the chosen variant, never by `base/game.json`, because every variant in those groups patches the key. To change which steering or throttle model you get by default, edit the group's entry in `presets/alpha-default.json` (for example `"throttleModel": "coast"`). To change it for one session, use `?v=`.
 
 The loop:
 
