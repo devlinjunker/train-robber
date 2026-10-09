@@ -7,7 +7,10 @@ import { distanceToBox } from './collide';
 import type { WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
 
-/** The boarding rule's verdict; anything but `eligible` is also the jump's rejection reason. */
+/**
+ * The boarding rule's verdict. `too far` refuses a jump; `too fast` and `too slow` allow it on
+ * the fast meter, and `eligible` (in range and speed matched) gets the slow one.
+ */
 export type BoardingState = 'eligible' | 'too far' | 'too fast' | 'too slow';
 
 export interface BoardingCheck {
@@ -33,9 +36,9 @@ export function sideOf(car: CarPose, x: number, y: number): Side {
 const scratch = { x: 0, y: 0 };
 
 /**
- * The boarding rule: within `boarding.rangeTiles` of an entry point on the side the horse
- * is riding, and within `boarding.speedToleranceTilesPerSec` of the train's speed, measured
- * along that car's direction of travel. Too far wins over a speed mismatch.
+ * The boarding rule: a jump needs `boarding.rangeTiles` of an entry point on the side the horse
+ * is riding. Being within `boarding.speedToleranceTilesPerSec` of the train's speed, measured
+ * along that car's direction of travel, slows the meter. Too far wins over a speed mismatch.
  */
 export function boardingCheck(state: GameState, map: WorldMap, config: SimConfig, trainId: string, h: HorseState): BoardingCheck {
   const b = config.values.boarding;
@@ -99,10 +102,20 @@ export function commitTarget(state: GameState, map: WorldMap, config: SimConfig,
   return best;
 }
 
-/** Marker position after `sweep` ticks: 0 to 1 and back over one `period`. */
-export function meterPosition(sweep: number, period: number): number {
-  const u = (sweep % period) / period;
-  return u < 0.5 ? u * 2 : 2 - u * 2;
+/** Marker position for a phase through one back-and-forth: 0 to 1 and back. */
+export function meterPosition(phase: number): number {
+  return phase < 0.5 ? phase * 2 : 2 - phase * 2;
+}
+
+/**
+ * Advance the marker one tick. In boarding range it sweeps, slowly when speed matched and at
+ * the fast period otherwise, so a mismatched jump is possible but harder; out of range it parks
+ * at 0. The phase carries over when the speed changes, so the marker never jumps.
+ */
+export function advanceMeter(meter: MeterState, state: BoardingState, periods: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number }): void {
+  if (state === 'too far') { meter.phase = 0; return; }
+  meter.phase += 1 / (state === 'eligible' ? periods.matchedSweepPeriodTicks : periods.sweepPeriodTicks);
+  if (meter.phase >= 1) meter.phase -= 1;
 }
 
 /** The good zone and the perfect zone centred in it, as [start, end] fractions of the track. */
@@ -111,8 +124,8 @@ export function meterZones(meter: MeterState, widths: readonly [number, number])
   return { perfect: [c - p / 2, c + p / 2], good: [c - g / 2, c + g / 2] };
 }
 
-export function meterResult(meter: MeterState, period: number, widths: readonly [number, number]): { result: BoardingResult; position: number } {
-  const position = meterPosition(meter.sweep, period);
+export function meterResult(meter: MeterState, widths: readonly [number, number]): { result: BoardingResult; position: number } {
+  const position = meterPosition(meter.phase);
   const z = meterZones(meter, widths);
   const result = position >= z.perfect[0] && position <= z.perfect[1] ? 'perfect' : position >= z.good[0] && position <= z.good[1] ? 'good' : 'fail';
   return { result, position };

@@ -6,7 +6,7 @@ import {
 } from '@train-robber/sim';
 import { DEFAULT_MAP, gameVersion, loadConfig, loadMapDef } from './content';
 
-const TICKS = 1650;
+const TICKS = 2100;
 
 const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v)));
 

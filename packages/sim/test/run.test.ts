@@ -45,10 +45,10 @@ function approach(cfg: SimConfig = config): Sim {
 }
 
 /** Jump with the marker set so the sample lands in `zone` (zones centred at 0.5). */
-const SWEEP = { perfect: 18, good: 22, fail: 30 } as const;
-function jump(sim: Sim, zone: keyof typeof SWEEP): SimEvent[] {
+const PHASE = { perfect: 0.25, good: 0.3, fail: 0.4 } as const;
+function jump(sim: Sim, zone: keyof typeof PHASE): SimEvent[] {
   rp(sim).meter.zoneCentre = 0.5;
-  rp(sim).meter.sweep = SWEEP[zone];
+  rp(sim).meter.phase = PHASE[zone];
   return step(sim, { type: 'jump' });
 }
 
@@ -111,7 +111,7 @@ describe('boarding rule', () => {
     }
   });
 
-  it('rejects a jump too far, too fast and too slow, measuring speed along the car', () => {
+  it('reads too far, too fast and too slow, measuring speed along the car', () => {
     const cases: [string, (sim: Sim) => void][] = [
       ['too far', (sim) => alongside(sim, 'left', 9, 3)],
       ['too fast', (sim) => alongside(sim, 'left', 11.5)],
@@ -119,13 +119,32 @@ describe('boarding rule', () => {
       // 9 tiles/s at 45 degrees off the track is 6.4 along it.
       ['too slow', (sim) => { alongside(sim, 'left', 9); Object.assign(horse(sim), { hx: Math.SQRT1_2, hy: -Math.SQRT1_2 }); }],
     ];
-    for (const [reason, place] of cases) {
+    for (const [reading, place] of cases) {
       const sim = setup();
       step(sim, { type: 'interact', held: false });
       place(sim);
-      expect(rejections(step(sim, { type: 'jump' }))).toEqual([`jump: ${reason}`]);
-      expect(S(sim).run!.phase).toBe('approach');
-      expect(rp(sim).boardingAttempts).toBe(0);
+      expect(boardingCheck(S(sim), sim.map, config, 'blank-1', horse(sim)).state).toBe(reading);
+    }
+  });
+
+  it('rejects a jump out of range only', () => {
+    const sim = setup();
+    step(sim, { type: 'interact', held: false });
+    alongside(sim, 'left', 9, 3);
+    expect(rejections(step(sim, { type: 'jump' }))).toEqual(['jump: too far']);
+    expect(S(sim).run!.phase).toBe('approach');
+    expect(rp(sim).boardingAttempts).toBe(0);
+  });
+
+  it('allows a jump in range at the wrong speed, on the fast meter', () => {
+    for (const speed of [11.5, 6.5]) {
+      const sim = setup();
+      step(sim, { type: 'interact', held: false });
+      alongside(sim, 'left', speed);
+      const ev = jump(sim, 'perfect');
+      expect(rejections(ev)).toEqual([]);
+      expect(ev.find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'perfect' });
+      expect(S(sim).run!.phase).toBe('aboard');
     }
   });
 
@@ -142,28 +161,38 @@ describe('boarding rule', () => {
 });
 
 describe('meter', () => {
-  it('sweeps back and forth over the period', () => {
-    expect([0, 18, 36, 54, 72, 90].map((s) => meterPosition(s, 72))).toEqual([0, 0.5, 1, 0.5, 0, 0.5]);
+  it('sweeps back and forth over one phase', () => {
+    expect([0, 0.25, 0.5, 0.75].map((p) => meterPosition(p))).toEqual([0, 0.5, 1, 0.5]);
   });
 
   it('centres the perfect zone in the good zone and reads each zone', () => {
-    const m = { sweep: 0, zoneCentre: 0.5 };
+    const m = { phase: 0, zoneCentre: 0.5 };
     const z = meterZones(m, [0.1, 0.25]);
     expect(z.perfect[0]).toBeCloseTo(0.45, 12); expect(z.perfect[1]).toBeCloseTo(0.55, 12);
     expect(z.good[0]).toBeCloseTo(0.375, 12); expect(z.good[1]).toBeCloseTo(0.625, 12);
-    for (const [zone, sweep] of Object.entries(SWEEP)) expect(meterResult({ ...m, sweep }, 72, [0.1, 0.25]).result).toBe(zone);
+    for (const [zone, phase] of Object.entries(PHASE)) expect(meterResult({ ...m, phase }, [0.1, 0.25]).result).toBe(zone);
   });
 
-  it('sweeps only while eligible, and losing eligibility restarts the sweep but keeps the zones', () => {
+  it('sweeps slowly when speed matched, fast in range otherwise, and parks out of range keeping the zones', () => {
     const sim = approach();
     const centre = rp(sim).meter.zoneCentre;
-    expect(rp(sim).meter.sweep).toBe(1);
+    const m = rp(sim).meter;
+    expect(m.phase).toBeCloseTo(1 / 108, 12);
     steps(sim, 10);
-    expect(rp(sim).meter.sweep).toBe(11);
-    horse(sim).speed = 13;
+    expect(m.phase).toBeCloseTo(11 / 108, 12);
+    // Too fast but in range: the fast period, carrying on from where the marker was.
+    alongside(sim, 'left', 11.5);
     step(sim);
-    expect(rp(sim).meter.sweep).toBe(0);
-    expect(rp(sim).meter.zoneCentre).toBe(centre);
+    expect(m.phase).toBeCloseTo(11 / 108 + 1 / 72, 12);
+    // A full slow sweep wraps back to the start.
+    m.phase = 1 - 0.5 / 108;
+    alongside(sim);
+    step(sim);
+    expect(m.phase).toBeCloseTo(0.5 / 108, 12);
+    alongside(sim, 'left', 9, 3);
+    step(sim);
+    expect(m.phase).toBe(0);
+    expect(m.zoneCentre).toBe(centre);
   });
 
   it('places the zones at random inside the track, re-rolled only after a jump resolves', () => {
@@ -171,7 +200,7 @@ describe('meter', () => {
     const centres = new Set<number>();
     const first = rp(sim).meter.zoneCentre;
     // A rejected jump keeps the zones.
-    horse(sim).speed = 13;
+    alongside(sim, 'left', 9, 3);
     step(sim, { type: 'jump' });
     expect(rp(sim).meter.zoneCentre).toBe(first);
     for (let i = 0; i < 6; i++) {
@@ -180,7 +209,7 @@ describe('meter', () => {
       centres.add(before);
       expect(before - 0.125).toBeGreaterThanOrEqual(0);
       expect(before + 0.125).toBeLessThanOrEqual(1);
-      rp(sim).meter.sweep = 30;
+      rp(sim).meter.phase = 0.4;
       rp(sim).meter.zoneCentre = 0.1; // marker at 0.83: a sure fail
       step(sim, { type: 'jump' });
       expect(rp(sim).meter.zoneCentre).not.toBe(0.1);
@@ -364,6 +393,13 @@ describe('aboard', () => {
     expect(sim.world.toWorld(S(sim), p)).toEqual(carToWorld(car, p.x, p.y));
     // Commands for the horse do nothing aboard; jumps are refused.
     expect(rejections(step(sim, { type: 'jump' }))).toEqual(['jump: aboard']);
+  });
+
+  it('walks at a share of walk speed for a partial axis (the client walks at half, runs at full)', () => {
+    const sim = IN_PHASE.aboard!();
+    const p = S(sim).players[0]!.placement;
+    step(sim, { type: 'move', x: 0, y: 64 });
+    expect(p.y).toBeCloseTo(0.5 + (64 / 127) * (8 / 60), 12);
   });
 
   it('the horse is abstract while aboard: it does not move', () => {

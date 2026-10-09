@@ -12,7 +12,7 @@
   "boarding": {
     "rangeTiles": 2,
     "speedToleranceTilesPerSec": 2,
-    "meter": { "sweepPeriodSec": 1.2, "zoneWidths": [0.1, 0.25] },
+    "meter": { "sweepPeriodSec": 1.2, "matchedSweepPeriodSec": 1.8, "zoneWidths": [0.1, 0.25] },
     "failure": { "stunSec": 1.5, "damageFraction": 0.25, "horseSpeedScale": 0.5 },
     "landing": { "stumbleSec": 0.5, "stumbleSpeedScale": 0.5 }
   },

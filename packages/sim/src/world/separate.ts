@@ -123,10 +123,11 @@ export const WALKER_RADIUS = 0.3;
 const axis = (v: number) => (v < -127 ? -127 : v > 127 ? 127 : v | 0) / 127;
 
 /**
- * Tick system 5: players aboard walk their car at `player.speedTilesPerSec`. The `move`
- * axes are screen-relative in the interior scene, which lays a car with its front to the
- * right: +x walks toward the front (lower cell x), +y toward the right side (higher cell y).
- * Each axis moves on its own so a wall stops one and the player slides along it.
+ * Tick system 5: players aboard walk their car at up to `player.speedTilesPerSec`, scaled by
+ * the length of the `move` axes (the client walks at half and runs at full). Aboard, `move` is
+ * in the car's frame, not the screen's: +x walks toward the front (lower cell x), +y toward the
+ * right side (higher cell y). The client turns its screen keys into that frame, so the sim never
+ * sees the screen. Each axis moves on its own so a wall stops one and the player slides along it.
  */
 export function walkAboard(state: GameState, model: WorldModel, config: SimConfig): void {
   for (const p of state.players) {

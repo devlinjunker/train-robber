@@ -13,6 +13,8 @@ import { createWorldView } from './worldView';
 import { RingBuffer } from './ringBuffer';
 
 const MAX_CATCHUP = 5;
+/** Walking aboard uses half the move axis, so half of `player.speedTilesPerSec`; Shift runs at full. */
+const WALK_AXIS = 64;
 const TILE = 24;
 const ZOOM_MIN = 0.1, ZOOM_MAX = 4;
 
@@ -113,6 +115,18 @@ async function boot() {
   const axis = (pos: string, neg: string) => (keys.has(pos) ? 127 : 0) - (keys.has(neg) ? 127 : 0);
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked' };
   let lastMove = { x: 0, y: 0 }, lastSteer = { x: 0, y: 0 };
+  // Aboard, the sim takes walking intent in the car's frame (+x toward its front, +y toward its
+  // right side). The top-down view shows the car at its real angle, so turn the screen keys into
+  // that frame; walking is half the axis and Shift runs at the full `player.speedTilesPerSec`.
+  const walkAxes = (sx: number, sy: number, run: boolean): [number, number] => {
+    const n = Math.hypot(sx, sy);
+    const frame = parseCarFrame(sim.state.players[0]!.placement.frame);
+    const car = frame && sim.cars().find((c) => c.trainId === frame.trainId && c.index === frame.car);
+    if (n === 0 || !car) return [0, 0];
+    const k = (run ? 127 : WALK_AXIS) / n;
+    const fx = sx * k, fy = sy * k;
+    return [Math.round(fx * car.ux + fy * car.uy), Math.round(fy * car.ux - fx * car.uy)];
+  };
   let zoneSec = 0, bestZoneSec = 0;
   // Short-lived notices from events: the last rejection and how the last run ended.
   let notice = '', noticeUntil = 0;
@@ -130,10 +144,11 @@ async function boot() {
       // W/S throttle in both steering variants. Heading-relative: A/D turn the horse.
       // Screen-relative: the arrow keys give a screen direction the horse turns to face;
       // the top-down view maps screen to world one to one (M4's isometric view will not).
-      // Aboard, WASD walk screen-relative in both steering variants.
+      // Aboard, WASD walk screen-relative in both steering variants, Shift to run.
       const aboard = runPhase(sim.state) === 'aboard';
-      const x = screenSteering && !aboard ? 0 : axis('KeyD', 'KeyA');
-      const y = axis('KeyS', 'KeyW');
+      let x = screenSteering && !aboard ? 0 : axis('KeyD', 'KeyA');
+      let y = axis('KeyS', 'KeyW');
+      if (aboard) [x, y] = walkAxes(x, y, keys.has('ShiftLeft') || keys.has('ShiftRight'));
       const sx = screenSteering ? axis('ArrowRight', 'ArrowLeft') : 0;
       const sy = screenSteering ? axis('ArrowDown', 'ArrowUp') : 0;
       // Commands are intents: only send one when its axes change, which keeps the log small.
@@ -173,20 +188,18 @@ async function boot() {
     const check = horse.mode === 'physical' && readTrain ? boardingCheck(s, sim.map, config, readTrain, horse) : null;
     const b = config.values.boarding;
     const meter = phase === 'approach' && run
-      ? { position: meterPosition(run.meter.sweep, b.meter.sweepPeriodTicks), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check?.state === 'eligible' }
+      ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
       : null;
     const frame = parseCarFrame(player.placement.frame);
     const aboardAt = frame ? sim.world.toWorld(s, player.placement) : null;
     view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt });
     // Seconds spent continuously in the boarding zone, to judge how hard it is to hold.
     if (check?.state === 'eligible') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
-    // Aboard, the camera turns with the car so its front points right, as the interior scene will.
+    // The camera keeps the world's orientation aboard, so the train runs the same way on screen.
     const focus = aboardAt ?? horse;
-    const car = frame ? sim.cars().find((c) => c.trainId === frame.trainId && c.index === frame.car) : undefined;
     world.scale.set(TILE * zoom);
     world.pivot.set(focus.x, focus.y);
     world.position.set(app.screen.width / 2, app.screen.height / 2);
-    world.rotation = car ? -Math.atan2(car.uy, car.ux) : 0;
     const heading = ((Math.atan2(horse.hx, -horse.hy) * 180) / Math.PI + 360) % 360;
     const target = phase === 'idle' ? commitTarget(s, sim.map, config, horse) : null;
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
@@ -197,9 +210,9 @@ async function boot() {
       `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
       `horse ${horse.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horse.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horse.x.toFixed(1)}, ${horse.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horse.x, horse.y)]}`,
       `run: ${phase.toUpperCase()}${s.run ? `  train ${s.run.trainId}  health ${run?.health ?? '-'}/${config.values.health.max}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horse.stunTicks > 0 ? `  STUNNED ${(horse.stunTicks / tickRateHz).toFixed(1)} s` : ''}`,
-      target ? `>>> E: commit to ${target} <<<` : phase === 'idle' ? 'ride within commit range of a train to commit' : phase === 'aboard' ? `aboard ${player.placement.frame} at cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}  WASD walk` : '',
+      target ? `>>> E: commit to ${target} <<<` : phase === 'idle' ? 'ride within commit range of a train to commit' : phase === 'aboard' ? `aboard ${player.placement.frame} at cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}  WASD walk, Shift run` : '',
       check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',
-      meter ? `meter ${meter.position.toFixed(2)}${meter.sweeping ? '' : ' (waiting: get in the zone)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
+      meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
       performance.now() < noticeUntil ? `!! ${notice}` : '',
       `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
       `${controls}  wheel zooms (${zoom.toFixed(2)}x)  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,

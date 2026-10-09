@@ -3,7 +3,7 @@
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
+import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
@@ -51,7 +51,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   pinTrain(state, id, p.id);
   state.runCount += 1;
   state.rng = seedRng(runSeed(state.seed, state.runCount));
-  const rp = { health: config.values.health.max, meter: { sweep: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0 };
+  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0 };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
   ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
@@ -154,6 +154,7 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
 /** Tick system 4: the boarding phase timers, the meter sweep, and jumps sampled on this tick. */
 export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void {
   const { state, map, config } = ctx;
+  const b = config.values.boarding;
   for (const p of state.players) {
     const jumped = jumps.has(p.id);
     const run = state.run;
@@ -170,15 +171,16 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
 
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
-      if (check.state !== 'eligible') {
-        reject(ctx, p.id, 'jump', check.state);
+      // In range is enough to try; a speed mismatch only means the faster meter.
+      if (check.state === 'too far') {
+        reject(ctx, p.id, 'jump', 'too far');
       } else {
         resolveJump(ctx, p, h, check.car!, check.entry!);
         continue;
       }
     }
-    // The meter sweeps while eligible; losing eligibility restarts the sweep but keeps the zones.
-    rp.meter.sweep = check.state === 'eligible' ? rp.meter.sweep + 1 : 0;
+    // Leaving range parks the marker but keeps the zones.
+    advanceMeter(rp.meter, check.state, b.meter);
   }
 }
 
@@ -188,12 +190,12 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   const rp = run.players[p.id]!;
   const b = config.values.boarding;
   rp.boardingAttempts += 1;
-  const { result, position } = meterResult(rp.meter, b.meter.sweepPeriodTicks, b.meter.zoneWidths);
+  const { result, position } = meterResult(rp.meter, b.meter.zoneWidths);
   setPhase(ctx, p.id, 'boarding');
   ctx.emit({ type: 'BoardingAttempt', tick: state.tick, player: p.id, result, attempt: rp.boardingAttempts, meter: position });
   // The jump has resolved, so the next attempt gets new zones.
   rollMeterZones(state, rp.meter, b.meter.zoneWidths);
-  rp.meter.sweep = 0;
+  rp.meter.phase = 0;
   if (result !== 'fail') {
     ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry });
     rp.stumbleTicks = result === 'good' ? b.landing.stumbleTicks : 0;

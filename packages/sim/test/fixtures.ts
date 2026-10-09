@@ -17,7 +17,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       commit: { rangeTiles: 12 },
       boarding: {
         rangeTiles: 2, speedToleranceTilesPerSec: 2,
-        meter: { sweepPeriodTicks: 72, zoneWidths: [0.1, 0.25] },
+        meter: { sweepPeriodTicks: 72, matchedSweepPeriodTicks: 108, zoneWidths: [0.1, 0.25] },
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5 },
       },

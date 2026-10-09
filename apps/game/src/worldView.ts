@@ -31,7 +31,7 @@ export interface ViewInput {
   check: BoardingCheck | null;
   rangeTiles: number;
   /** The meter while approaching: marker position, zones, and whether it is sweeping. */
-  meter: { position: number; perfect: [number, number]; good: [number, number]; sweeping: boolean } | null;
+  meter: { position: number; perfect: [number, number]; good: [number, number]; sweeping: boolean; matched: boolean } | null;
   /** The player's world position while aboard. */
   aboard: { x: number; y: number } | null;
 }
@@ -106,7 +106,8 @@ export function createWorldView(): WorldView {
           meter.rect(x0, y0, METER_W, METER_H).fill({ color: 0x1b1b1f, alpha: 0.85 * a });
           meter.rect(x0 + m.good[0] * METER_W, y0, (m.good[1] - m.good[0]) * METER_W, METER_H).fill({ color: 0xe8c872, alpha: a });
           meter.rect(x0 + m.perfect[0] * METER_W, y0, (m.perfect[1] - m.perfect[0]) * METER_W, METER_H).fill({ color: 0x6bff8a, alpha: a });
-          meter.rect(x0 + m.position * METER_W - 0.06, y0 - 0.15, 0.12, METER_H + 0.3).fill({ color: 0xffffff, alpha: a });
+          // White marker on the slow, speed-matched sweep; orange on the fast one.
+          meter.rect(x0 + m.position * METER_W - 0.06, y0 - 0.15, 0.12, METER_H + 0.3).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a });
           meter.rect(x0, y0, METER_W, METER_H).stroke({ width: 0.06, color: 0xffffff, alpha: 0.6 * a });
         }
       }

@@ -32,8 +32,8 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
 export type RunOutcome = 'died' | 'cancelled';
 export type BoardingResult = 'perfect' | 'good' | 'fail';
-/** Why a `jump` was refused. The first three are the boarding rule; the HUD shows them. */
-export type JumpRejection = 'too far' | 'too fast' | 'too slow' | 'no run' | 'stunned' | 'aboard';
+/** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
+export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
 export type RejectReason = JumpRejection | CommitRejection | 'disabled' | 'nothing to interact with';
 
@@ -53,8 +53,11 @@ export interface PersistentState { wantedLevel: number; bank: number; lifetimeEa
 
 /** The boarding meter: a marker sweeping back and forth over a track from 0 to 1. */
 export interface MeterState {
-  /** Ticks the marker has swept since eligibility began; 0 while not eligible. */
-  sweep: number;
+  /**
+   * How far through one back-and-forth the marker is, 0 to 1. It advances by 1 / period each
+   * tick in boarding range (slower when speed matched) and is 0 out of range.
+   */
+  phase: number;
   /** Centre of the good zone (the perfect zone sits in its middle), re-rolled after each jump. */
   zoneCentre: number;
 }
@@ -151,7 +154,7 @@ export interface SimConfig {
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;
-      meter: { sweepPeriodTicks: number; zoneWidths: readonly [number, number] };
+      meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number };
     };

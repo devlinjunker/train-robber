@@ -20,7 +20,10 @@ export const GameSchema = z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,
     meter: z.object({
+      /** One full back and forth while in range but not speed matched: fast, so a mismatched jump is a long shot. */
       sweepPeriodSec: positive,
+      /** One full back and forth while in range and speed matched: slower, the intended way on. */
+      matchedSweepPeriodSec: positive,
       /** Perfect and good zone widths as fractions of the meter track. */
       zoneWidths: z.tuple([fraction, fraction]),
     }).strict().refine((m) => m.zoneWidths[0] <= m.zoneWidths[1], { message: 'perfect zone must not be wider than good zone', path: ['zoneWidths'] }),
