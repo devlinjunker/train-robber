@@ -100,6 +100,7 @@ async function boot() {
   const axis = (pos: string, neg: string) => (keys.has(pos) ? 127 : 0) - (keys.has(neg) ? 127 : 0);
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked' };
   let lastMove = { x: 0, y: 0 }, lastSteer = { x: 0, y: 0 };
+  let zoneSec = 0, bestZoneSec = 0;
   app.ticker.add(() => {
     const now = performance.now();
     acc += now - last; last = now;
@@ -130,10 +131,13 @@ async function boot() {
     if (steps === MAX_CATCHUP) acc = 0;
     const s = sim.state;
     const horse = s.world.horses[0]!;
-    view.update(sim.cars(), horse);
+    const train = s.world.trains[0];
+    const trainSpeed = train ? config.values.trains[train.type]!.speedTilesPerSec : 0;
+    const zone = view.update(sim.cars(), horse, { rangeTiles: config.values.boarding.rangeTiles, trainSpeed, toleranceTilesPerSec: config.values.boarding.speedToleranceTilesPerSec });
+    // Seconds spent continuously in the boarding zone, to judge how hard it is to hold.
+    if (zone.state === 'in zone') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
     world.scale.set(TILE * zoom);
     world.position.set(app.screen.width / 2 - horse.x * TILE * zoom, app.screen.height / 2 - horse.y * TILE * zoom);
-    const train = s.world.trains[0];
     const heading = ((Math.atan2(horse.hx, -horse.hy) * 180) / Math.PI + 360) % 360;
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
     overlay.text = [
@@ -142,6 +146,7 @@ async function boot() {
       `preset ${config.preset}  ${variantText}`,
       `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
       `horse ${horse.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horse.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horse.x.toFixed(1)}, ${horse.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horse.x, horse.y)]}`,
+      `boarding: ${zone.state.toUpperCase()}  door ${Number.isFinite(zone.distance) ? zone.distance.toFixed(1) : '-'} tiles (range ${config.values.boarding.rangeTiles})  speed vs train ${zone.speedDelta >= 0 ? '+' : ''}${zone.speedDelta.toFixed(2)} (±${config.values.boarding.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s`,
       `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
       `${controls}  wheel zooms (${zoom.toFixed(2)}x)  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,
       ...(recent.toArray().length ? ['recent events:', ...recent.toArray().slice(-4)] : []),

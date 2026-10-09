@@ -23,25 +23,39 @@ function drawCar(template: string): Graphics {
   return g;
 }
 
+/** Debug view of the boarding rule M3 will enforce: distance to a door and speed match. */
+export interface BoardingRule { rangeTiles: number; trainSpeed: number; toleranceTilesPerSec: number }
+export type ZoneState = 'too far' | 'too slow' | 'too fast' | 'in zone';
+export interface ZoneReading {
+  state: ZoneState;
+  /** Distance to the nearest entry point, in tiles. */
+  distance: number;
+  /** Horse speed along that car's direction of travel minus the train's speed. */
+  speedDelta: number;
+}
+
 export interface WorldView {
   layer: Container;
-  update(cars: readonly CarPose[], horse: HorseState): void;
+  update(cars: readonly CarPose[], horse: HorseState, rule: BoardingRule): ZoneReading;
 }
+
+const ZONE_COLOURS: Record<ZoneState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, 'in zone': 0x6bff8a };
 
 export function createWorldView(): WorldView {
   const layer = new Container();
   layer.label = 'world-view';
   const carLayer = new Container();
   const entries = new Graphics();
+  const zones = new Graphics();
   const horse = new Graphics()
     .circle(0, 0, HORSE_RADIUS).fill({ color: 0xffd34d, alpha: 0.35 }).stroke({ width: 0.08, color: 0xffd34d })
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(0xffd34d);
-  layer.addChild(carLayer, entries, horse);
+  layer.addChild(zones, carLayer, entries, horse);
   const pool: Graphics[] = [];
 
   return {
     layer,
-    update(cars, h) {
+    update(cars, h, rule) {
       cars.forEach((car, i) => {
         let g = pool[i];
         if (!g || g.label !== car.template) {
@@ -57,10 +71,32 @@ export function createWorldView(): WorldView {
       for (const g of pool.splice(cars.length)) g.destroy();
       // Entry points come from the sim's shared function, as the M4 markers will.
       entries.clear();
-      for (const car of cars) for (const ep of carEntryPoints(car)) entries.circle(ep.x, ep.y, 0.35);
+      zones.clear();
+      let best: ZoneReading = { state: 'too far', distance: Infinity, speedDelta: 0 };
+      let bestAt: { x: number; y: number } | null = null;
+      for (const car of cars) {
+        for (const ep of carEntryPoints(car)) {
+          entries.circle(ep.x, ep.y, 0.35);
+          zones.circle(ep.x, ep.y, rule.rangeTiles);
+          const distance = Math.hypot(h.x - ep.x, h.y - ep.y);
+          if (distance < best.distance) {
+            const along = (h.hx * car.ux + h.hy * car.uy) * h.speed;
+            best = { state: 'too far', distance, speedDelta: along - rule.trainSpeed };
+            bestAt = ep;
+          }
+        }
+      }
       entries.fill({ color: 0x6bff8a, alpha: 0.9 });
+      zones.stroke({ width: 0.08, color: 0xffffff, alpha: 0.5 });
+      if (best.distance <= rule.rangeTiles) {
+        best.state = best.speedDelta < -rule.toleranceTilesPerSec ? 'too slow' : best.speedDelta > rule.toleranceTilesPerSec ? 'too fast' : 'in zone';
+      }
+      if (bestAt && best.state !== 'too far') {
+        zones.circle(bestAt.x, bestAt.y, rule.rangeTiles).fill({ color: ZONE_COLOURS[best.state], alpha: 0.3 }).stroke({ width: 0.12, color: ZONE_COLOURS[best.state] });
+      }
       horse.position.set(h.x, h.y);
       horse.rotation = Math.atan2(h.hy, h.hx);
+      return best;
     },
   };
 }
