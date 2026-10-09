@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import { decodeZones, ZONES, type Route } from '@train-robber/config';
+import { trackAt } from '@train-robber/sim';
 import { buildMap, buildMapFile, stringifyMap, SAMPLE_SPACING_TILES } from '../src/maps/build';
 import { MAPS_OUT, MAPS_SRC } from '../src/maps/cli';
 
@@ -65,6 +66,34 @@ describe('alpha-flats stadium route', () => {
       expect(Math.abs(s.tx)).toBeCloseTo(1, 4);
     }
     expect(alpha.minRadiusTiles).toBeGreaterThan(25);
+  });
+
+  it('leaves open ground from the spawns down to the bottom straight', () => {
+    // Phase 1 decision: the rider starts at (200, 170) and heads up to the y = 140 straight.
+    const grid = decodeZones(alpha.map);
+    const { cols } = alpha.map.size;
+    for (let y = 138; y <= 172; y++) for (let x = 150; x <= 250; x++) expect(ZONES[grid[y * cols + x]!], `${x},${y}`).toBe('open');
+  });
+
+  it('looks up positions and tangents along the baked route', () => {
+    // The loop starts at (80, 60) heading right and is symmetric about x = 200 and y = 100,
+    // so half way round is (320, 140), and the middle of each U-turn sits half a straight
+    // (about 120 tiles) past each quarter.
+    const near = (d: number, x: number, y: number, tx: number, ty: number) => {
+      const p = trackAt(main, d);
+      expect(p.x).toBeCloseTo(x, 0); expect(p.y).toBeCloseTo(y, 0);
+      expect(p.tx).toBeCloseTo(tx, 1); expect(p.ty).toBeCloseTo(ty, 1);
+    };
+    const L = main.length;
+    near(120, 200, 60, 1, 0);
+    near(L / 4 + 120, 360, 100, 0, 1);
+    near(L / 2, 320, 140, -0.99, 0.13); // the spline leans into the turn near the straight ends
+    near(L / 2 + 120, 200, 140, -1, 0);
+    near(3 * L / 4 + 120, 40, 100, 0, -1);
+    expect(trackAt(main, 0)).toMatchObject({ x: 80, y: 60, tx: main.samples.tx[0], ty: main.samples.ty[0] });
+    expect(trackAt(main, main.samples.s[7]!)).toMatchObject(at(main, 7));
+    expect(trackAt(main, L)).toEqual(trackAt(main, 0));
+    expect(trackAt(main, L + 100)).toEqual(trackAt(main, 100));
   });
 
   it('runs at full speed everywhere (no speed zones yet)', () => {

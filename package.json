@@ -19,7 +19,8 @@
     "deps": "depcruise packages apps --config .dependency-cruiser.cjs",
     "validate": "tsx packages/tools/src/cli.ts validate",
     "maps": "tsx packages/tools/src/cli.ts build-maps",
-    "maps:check": "tsx packages/tools/src/cli.ts build-maps --check"
+    "maps:check": "tsx packages/tools/src/cli.ts build-maps --check",
+    "maps:watch": "tsx packages/tools/src/cli.ts build-maps --watch"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
