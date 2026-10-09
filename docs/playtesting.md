@@ -17,14 +17,14 @@ How to play a build, switch between variants, change tuning values, and record w
 | `seed` | `?seed=abc123` | Fixes the seed so a run can be repeated. Without one the page picks a random seed. |
 | `map` | `?map=alpha-flats` | Picks a built map from `packages/content/base/maps`. |
 
-Join them with `&`, for example `?v=steering:heading-relative&v=throttleModel:coast&seed=test1`. The debug overlay's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
+Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=test1`. The debug overlay's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
 
 ### Variant groups
 
 | Group | Options (default first) | What it changes |
 | --- | --- | --- |
-| `steering` | `screen-relative`, `heading-relative` | Screen-relative: the arrow keys set a direction on screen and the horse turns toward it. Heading-relative: A/D turn the horse. |
-| `throttleModel` | `hold`, `coast`, `cruise` | What releasing W does. Hold keeps your speed, coast slows under drag, and cruise makes W/S move a target speed the horse settles on. |
+| `steering` | `heading`, `screen` | Heading-relative: A/D turn the horse. Screen-relative: the arrow keys set a direction on screen and the horse turns toward it. |
+| `throttleModel` | `coast`, `hold`, `cruise` | What releasing W does. Coast slows under drag, hold keeps your speed, and cruise makes W/S move a target speed the horse settles on. |
 | `boardingFailure` | `time-and-damage`, `time-only` | Whether a failed jump costs health as well as time (from M3). |
 
 ## Controls and the debug view

@@ -6,7 +6,7 @@ import { loadConfig, loadMapDef } from '../src/content';
 const map = loadMapDef('alpha-flats');
 
 describe('riding on alpha-flats', () => {
-  for (const steering of ['screen-relative', 'heading-relative']) {
+  for (const steering of ['screen', 'heading']) {
     for (const throttleModel of ['hold', 'coast', 'cruise']) {
       it(`${steering} + ${throttleModel}: random riders never end a tick inside a car`, () => {
         const config = loadConfig({ preset: 'alpha-default', variants: { steering, throttleModel } });

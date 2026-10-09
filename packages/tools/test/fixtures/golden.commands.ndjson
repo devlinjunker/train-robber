@@ -1,4 +1,4 @@
-{"k":"header","log":"commands","logVersion":1,"gameVersion":"0.0.0","configHash":"181d7471","preset":"alpha-default","variants":{"boardingFailure":"time-only","steering":"heading-relative","throttleModel":"coast"},"overrides":{},"seed":"golden-1","mapId":"alpha-flats","mapHash":"7458e637","tickRateHz":60,"playerIds":[1],"persistentAtStart":{"wantedLevel":1,"bank":120,"lifetimeEarned":450},"startedAt":"2026-10-09T00:00:00Z"}
+{"k":"header","log":"commands","logVersion":1,"gameVersion":"0.0.0","configHash":"181d7471","preset":"alpha-default","variants":{"boardingFailure":"time-only","steering":"heading","throttleModel":"coast"},"overrides":{},"seed":"golden-1","mapId":"alpha-flats","mapHash":"7458e637","tickRateHz":60,"playerIds":[1],"persistentAtStart":{"wantedLevel":1,"bank":120,"lifetimeEarned":450},"startedAt":"2026-10-09T00:00:00Z"}
 {"k":"cmd","t":5,"p":1,"c":[{"type":"startRun"},{"type":"move","x":0,"y":-127}]}
 {"k":"hash","t":60,"h":"435c816f"}
 {"k":"hash","t":120,"h":"93b682de"}

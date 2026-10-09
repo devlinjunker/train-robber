@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "heading-relative",
+  "id": "heading",
   "group": "steering",
   "label": "Heading-relative",
   "question": "Which steering feels better in the isometric view?",

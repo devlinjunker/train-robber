@@ -5,8 +5,9 @@ import { DEFAULT_MAP, gameVersion, loadConfig, loadMapDef } from './content';
 
 const TICKS = 900;
 
-// Default variants (screen-relative steering, hold throttle): ride up toward the bottom
-// straight, turn left alongside it, ease off, brake, then cancel and start another run.
+// Default variants (heading-relative steering, coast throttle): ride up toward the bottom
+// straight, turn with move.x (steer commands are recorded but ignored), ease off and coast,
+// brake, then cancel and start another run.
 function script(t: number): InputFrame[] {
   const commands: InputFrame['commands'] =
     t === 5 ? [{ type: 'startRun' }, { type: 'move', x: 0, y: -127 }]
