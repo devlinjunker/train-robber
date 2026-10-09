@@ -13,11 +13,13 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm run deps && npm run validate && npm run test",
+    "check": "npm run typecheck && npm run lint && npm run deps && npm run validate && npm run maps:check && npm run test",
     "tools": "tsx packages/tools/src/cli.ts",
     "golden:update": "tsx packages/tools/src/cli.ts record-golden packages/tools/test/fixtures/golden.commands.ndjson",
     "deps": "depcruise packages apps --config .dependency-cruiser.cjs",
-    "validate": "tsx packages/tools/src/cli.ts validate"
+    "validate": "tsx packages/tools/src/cli.ts validate",
+    "maps": "tsx packages/tools/src/cli.ts build-maps",
+    "maps:check": "tsx packages/tools/src/cli.ts build-maps --check"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

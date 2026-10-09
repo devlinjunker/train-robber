@@ -4,6 +4,7 @@ import { GameSchema, PresetSchema, VariantSchema, type Game, type Preset, type V
 import { deepFreeze, derive, type Derived } from './derive';
 
 export * from './schema';
+export * from './map';
 export { derive, deepFreeze, type Derived } from './derive';
 
 /** A loaded content file. `file` is only used in error messages. */

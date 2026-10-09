@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { replayText } from './replay';
 import { recordGolden } from './golden';
 import { validateContent } from './validate';
+import { buildMaps } from './maps/cli';
 
 const [cmd, ...args] = process.argv.slice(2);
 
@@ -14,6 +15,9 @@ const commands: Record<string, (args: string[]) => number> = {
     if (r.expectedHash === null) console.error('log has no hash or end line to compare against');
     console.log(`${r.ok ? 'ok' : 'FAILED'}: ${r.finalTick} ticks, ${r.checked} hashes checked, final ${r.actualHash} (log ${r.expectedHash ?? 'none'})`);
     return r.ok ? 0 : 1;
+  },
+  'build-maps'(args) {
+    return buildMaps(args.includes('--check'));
   },
   validate() {
     const r = validateContent();

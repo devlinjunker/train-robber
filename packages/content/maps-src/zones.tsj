@@ -1,0 +1,57 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "tiledversion": "1.10.2",
+ "name": "zones",
+ "tilewidth": 32,
+ "tileheight": 32,
+ "tilecount": 4,
+ "columns": 4,
+ "image": "zones.png",
+ "imagewidth": 128,
+ "imageheight": 32,
+ "margin": 0,
+ "spacing": 0,
+ "tiles": [
+  {
+   "id": 0,
+   "properties": [
+    {
+     "name": "zone",
+     "type": "string",
+     "value": "open"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "properties": [
+    {
+     "name": "zone",
+     "type": "string",
+     "value": "slow"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "properties": [
+    {
+     "name": "zone",
+     "type": "string",
+     "value": "blocked"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "properties": [
+    {
+     "name": "zone",
+     "type": "string",
+     "value": "water"
+    }
+   ]
+  }
+ ]
+}
