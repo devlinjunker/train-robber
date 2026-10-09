@@ -14,6 +14,7 @@
   },
   "include": [
     "src",
+    "test",
     "package.json",
     "../../packages/content/base/*.json"
   ]

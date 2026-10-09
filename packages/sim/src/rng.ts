@@ -22,15 +22,24 @@ function next(s: Sfc32State): number {
   return t >>> 0;
 }
 
-/** Derive independent stream states from one seed. */
-export function seedRng(seed: number): RngState {
+/** FNV-1a over the string's UTF-16 code units, then a final mix. */
+function hashString(s: string, salt: number): number {
+  let h = (0x811c9dc5 ^ salt) >>> 0;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+  return mix(h);
+}
+
+/** Four 32-bit words from a seed string, warmed up so similar seeds diverge. */
+function streamState(seed: string): Sfc32State {
+  const s: Sfc32State = [hashString(seed, 1), hashString(seed, 2), hashString(seed, 3), hashString(seed, 4)];
+  for (let k = 0; k < 12; k++) next(s);
+  return s;
+}
+
+/** Derive independent stream states from one seed string: each stream hashes seed + its name. */
+export function seedRng(seed: string): RngState {
   const out = {} as RngState;
-  STREAM_NAMES.forEach((name, i) => {
-    const base = mix((seed ^ Math.imul(i + 1, 0x9e3779b9)) >>> 0);
-    const s: Sfc32State = [mix(base + 1), mix(base + 2), mix(base + 3), mix(base + 4)];
-    for (let k = 0; k < 12; k++) next(s);
-    out[name] = s;
-  });
+  for (const name of STREAM_NAMES) out[name] = streamState(`${seed}/${name}`);
   return out;
 }
 
@@ -41,7 +50,7 @@ export function nextU32(rng: RngState, stream: StreamName): number {
 export function nextInt(rng: RngState, stream: StreamName, n: number): number {
   return Math.floor((nextU32(rng, stream) / 4294967296) * n);
 }
-/** Run seed derived from the base seed and run number. */
-export function runSeed(seed: number, runNumber: number): number {
-  return mix((seed + Math.imul(runNumber + 1, 0x27d4eb2f)) >>> 0);
+/** Run seed derived from the base seed and run number only, not from earlier play. */
+export function runSeed(seed: string, runNumber: number): string {
+  return `${seed}#run${runNumber}`;
 }

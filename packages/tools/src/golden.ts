@@ -20,7 +20,7 @@ export function recordGolden(): string {
   const lines: string[] = [];
   const header = {
     gameVersion: gameVersion(), configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
-    seed: 42, tickRateHz: config.values.sim.tickRateHz, playerIds: [1], persistentAtStart: { wantedLevel: 1, bank: 120, lifetimeEarned: 450 },
+    seed: 'golden-1', tickRateHz: config.values.sim.tickRateHz, playerIds: [1], persistentAtStart: { wantedLevel: 1, bank: 120, lifetimeEarned: 450 },
     startedAt: '2026-10-09T00:00:00Z',
   };
   const sim = createSim({ config, seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });

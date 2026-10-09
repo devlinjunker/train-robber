@@ -14,6 +14,13 @@ const base = {
   },
   health: { max: 100 },
   horse: { maxSpeed: 14, accel: 8, brake: 12, turnRateDegPerSec: 120 },
+  world: { mode: 'separate' },
+  countdown: { enabled: false, startsAt: 'commit', scale: 1 },
+  trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }] } },
+  outcomePolicy: {
+    died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
+    cancelled: { bankRunLoot: false, wantedDelta: 0 },
+  },
 };
 
 const variant = (group: string, id: string, patch: object) =>
@@ -62,6 +69,8 @@ describe('resolveConfig', () => {
     expect(a.values.boarding.failure.stunTicks).toBe(90);
     expect(a.values.boarding.meter.sweepPeriodTicks).toBe(72);
     expect(a.values.logging.hashEveryTicks).toBe(60);
+    expect(a.values.trains.blank!.speedTilesPerTick).toBeCloseTo(0.15, 12);
+    expect(a.values.horse.turnRateCosPerTick).toBeCloseTo(Math.cos((2 * Math.PI) / 180), 12);
     expect(Object.isFrozen(a.values.boarding.meter.zoneWidths)).toBe(true);
     expect(a.hash).toBe(resolveConfig(loadContent(content()), { preset: 'p' }).hash);
   });

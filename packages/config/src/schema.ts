@@ -27,6 +27,32 @@ export const GameSchema = z.object({
     failure: z.object({ stunSec: z.number().min(0), damageFraction: fraction }).strict(),
   }).strict(),
   health: z.object({ max: positive }).strict(),
+  world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
+  countdown: z.object({
+    /** Off until phase 2 brings the countdown and heat. */
+    enabled: z.boolean(),
+    /** U1: the run and countdown start when the player commits to a train. */
+    startsAt: z.enum(['commit', 'boarding']),
+    /** Multiplies every train's countdown.baseSec (runLength variants). */
+    scale: positive,
+  }).strict(),
+  trains: z.record(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes'), z.object({
+    name: z.string(),
+    /** Route id in the map the train runs on. */
+    route: z.string(),
+    speedTilesPerSec: positive,
+    cars: z.array(z.object({ template: z.string(), count: z.number().int().positive().optional() }).strict()).min(1),
+  }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
+  outcomePolicy: z.object({
+    died: z.object({
+      bankRunLoot: z.boolean(),
+      wantedDelta: z.number().int(),
+      bankLossFraction: fraction,
+      /** Persistent fields a death wipes (roguelike presets). */
+      reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
+    }).strict(),
+    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+  }).strict(),
   horse: z.object({
     maxSpeed: positive,
     accel: positive,

@@ -3,6 +3,7 @@ import { commandLogWriter, createSim, eventLogWriter, type Command, type LogKind
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
+import { RingBuffer } from './ringBuffer';
 
 const MAX_CATCHUP = 5;
 const TILE = 24;
@@ -38,7 +39,9 @@ async function boot() {
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
   const sink = await openSink(session, startedAt);
   const cmdLog = commandLogWriter(header, sink.writer('commands'), { hashEveryTicks: config.values.logging.hashEveryTicks });
-  const evLog = eventLogWriter(header, sink.writer('events'), { allow: config.values.logging.events });
+  const recent = new RingBuffer<string>(8);
+  const storeEvent = sink.writer('events');
+  const evLog = eventLogWriter(header, (line) => { storeEvent(line); recent.push(line); }, { allow: config.values.logging.events });
 
   const sim = createSim({ config, seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
   let simTick = 0;
@@ -48,14 +51,19 @@ async function boot() {
     void sink.flush();
   };
   addEventListener('pagehide', endLogs);
-  addEventListener('keydown', (e) => {
-    if (e.code !== 'KeyL' || e.repeat) return;
+  const exportLogs = () => {
     // The export gets an end line at the current tick so it replays on its own; the stored log continues.
     const end = JSON.stringify({ k: 'end', t: simTick, h: sim.hash() }) + '\n';
     const stamp = `${session}-t${simTick}`.replace(/[:.]/g, '-');
     void sink.read('commands').then((t) => download(`${stamp}.commands.ndjson`, t + end));
     void sink.read('events').then((t) => download(`${stamp}.events.ndjson`, t + end));
-  });
+  };
+  addEventListener('keydown', (e) => { if (e.code === 'KeyL' && !e.repeat) exportLogs(); });
+  const button = document.createElement('button');
+  button.textContent = 'Export logs';
+  button.style.cssText = 'position:fixed;top:8px;right:8px;font:12px monospace;padding:4px 8px';
+  button.addEventListener('click', (e) => { exportLogs(); (e.currentTarget as HTMLButtonElement).blur(); });
+  document.body.appendChild(button);
 
   const player = new Graphics().circle(0, 0, 8).fill(0xffd34d);
   const overlay = new Text({ text: '', style: { fill: '#ffffff', fontSize: 12, fontFamily: 'monospace' } });
@@ -94,7 +102,8 @@ async function boot() {
       `tick ${s.tick}  tick time ${tickMs.toFixed(3)} ms  fps ${fps.toFixed(0)}`,
       `seed ${seed}  config ${config.hash}  state ${sim.hash()}`,
       `preset ${config.preset}  ${variantText}`,
-      'WASD to move  L to download logs',
+      'WASD to move  L or the button exports logs',
+      ...(recent.toArray().length ? ['recent events:', ...recent.toArray().slice(-4)] : []),
     ].join('\n');
   });
 }

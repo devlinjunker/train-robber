@@ -4,7 +4,7 @@ export type PlayerId = number;
 
 export type Command =
   | { type: 'move'; x: number; y: number } // quantized axes -127..127
-  | { type: 'startRun'; trainId?: number }
+  | { type: 'startRun'; trainId?: string }
   | { type: 'cancelRun' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
@@ -31,7 +31,7 @@ export interface SimConfig {
 
 export interface GameState {
   tick: number;
-  seed: number;
+  seed: string;
   /** Snapshots store the config hash, not the config; restoring needs the same config. */
   configHash: string;
   /** Runs started so far; run seeds derive from the seed and this count. */
@@ -44,4 +44,4 @@ export interface GameState {
 
 export interface TickResult { tick: number; events: SimEvent[] }
 
-export interface SimOptions { config: SimConfig; seed: number; playerIds: PlayerId[]; persistent?: PersistentState }
+export interface SimOptions { config: SimConfig; seed: string; playerIds: PlayerId[]; persistent?: PersistentState }

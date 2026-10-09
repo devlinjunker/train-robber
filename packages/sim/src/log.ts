@@ -13,7 +13,7 @@ export interface RunHeader {
   preset: string;
   variants: Record<string, string>;
   overrides: Record<string, unknown>;
-  seed: number;
+  seed: string;
   tickRateHz: number;
   playerIds: PlayerId[];
   persistentAtStart: PersistentState;

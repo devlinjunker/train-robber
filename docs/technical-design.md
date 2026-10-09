@@ -20,7 +20,7 @@ This design follows `train-robber-game-requirements.md` (Oct 8, 2026). Gaps and 
 
 **Decisions made in this draft** (comment on any you want changed)
 
-- TypeScript (strict), pnpm workspaces, Vite, Vitest.
+- TypeScript (strict), npm workspaces, Vite, Vitest.
 - 60 Hz fixed sim tick, configurable per run and recorded in every log (flag U9).
 - Plain floating-point math, with no `sin`, `cos`, `pow` or `exp` in sim code. Multiplayer later is server-authoritative with client prediction, not lockstep.
 - JSON config files validated by zod.
@@ -61,7 +61,7 @@ Not flagged as blockers, but still open: baseline hardware for the 30/60 fps tar
 
 ## Package structure and repo layout
 
-The repo is a pnpm monorepo with five packages, and one rule matters most: `sim` and `config` never import anything from the browser or from PixiJS.
+The repo is an npm workspaces monorepo with five packages, and one rule matters most: `sim` and `config` never import anything from the browser or from PixiJS.
 
 &#91;embedded content: package dependencies · five packages and a later server\]
 
@@ -146,19 +146,19 @@ Commands are intents, not key presses. That keeps keyboard, gamepad and touch in
 
 ```ts
 type Command =
-  | { t: 'move'; x: number; y: number }       // axes quantized to -127..127
-  | { t: 'aim'; x: number; y: number }        // world-space direction, quantized
-  | { t: 'fire' } | { t: 'melee' }
-  | { t: 'interact'; held: boolean }          // loot, inspect, hold up, crack vault
-  | { t: 'jump' }                             // boarding and mounting meter press
-  | { t: 'whistle' }
-  | { t: 'qte'; key: number }                 // only when quick-time prompts are enabled
-  | { t: 'useItem'; slot: number }
-  | { t: 'startRun'; trainId?: string }       // commit to a train (flag U1)
-  | { t: 'cancelRun' };
+  | { type: 'move'; x: number; y: number }       // axes quantized to -127..127
+  | { type: 'aim'; x: number; y: number }        // world-space direction, quantized
+  | { type: 'fire' } | { type: 'melee' }
+  | { type: 'interact'; held: boolean }          // loot, inspect, hold up, crack vault
+  | { type: 'jump' }                             // boarding and mounting meter press
+  | { type: 'whistle' }
+  | { type: 'qte'; key: number }                 // only when quick-time prompts are enabled
+  | { type: 'useItem'; slot: number }
+  | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
+  | { type: 'cancelRun' };
 ```
 
-The sim validates every command against current state (a `jump` outside the boarding phase is ignored and emits `CommandRejected`). Quantizing axes means two inputs either match exactly or differ, which makes replay comparison and later network compression simple.
+The sim validates every command against current state (a `jump` outside the boarding phase is ignored and emits `CommandRejected`). Quantizing axes means two inputs either match exactly or differ, which makes replay comparison and later network compression simple. The discriminant is `type`, because `t` means the tick in log lines.
 
 ### State
 
@@ -425,7 +425,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - `speedScale` is greater than 0 and at most 1.
 - Warning: the curve's radius is smaller than the longest car. Cars are rigid rectangles along the track, so a very tight bend would make them cut corners.
 
-**Edit loop.** A watch command (`pnpm maps:watch`) rebuilds on save and the dev server reloads the map. Loading `?map=alpha-flats` selects it. The debug overlay can draw routes, samples, tangents, zones and speed zones, so you can check what the converter produced against what you drew.
+**Edit loop.** A watch command (`npm run maps:watch`, not built yet) rebuilds on save and the dev server reloads the map. Loading `?map=alpha-flats` selects it. The debug overlay can draw routes, samples, tangents, zones and speed zones, so you can check what the converter produced against what you drew.
 
 **Notes**
 
@@ -553,7 +553,7 @@ Place points near the middle of a cell. The converter divides pixel positions by
 - Warning: no loot slots at all, or fewer slots than the train config's loot density could fill.
 - Train-level check in `tools validate`: all cars in one train have the same number of rows, so they line up end to end.
 
-**Edit loop.** `pnpm cars:watch` rebuilds on save. Loading `?car=mail-car-a` opens a debug scene with just that car, so you can walk it, shoot across it and test sight lines without a full run. The debug overlay colours cells by type and can show cover values, noise values, the reachable area from each entry point, and the loot slots and spawns.
+**Edit loop.** `npm run cars:watch` rebuilds on save. Loading `?car=mail-car-a` opens a debug scene with just that car, so you can walk it, shoot across it and test sight lines without a full run. The debug overlay colours cells by type and can show cover values, noise values, the reachable area from each entry point, and the loot slots and spawns.
 
 **Notes**
 
@@ -735,7 +735,7 @@ Each log is its own NDJSON stream (`<session>.commands.ndjson` and `<session>.ev
 
 ```json
 {"k":"header","log":"commands","logVersion":1,"gameVersion":"0.1.0","configHash":"9f2c…","preset":"alpha-default",
- "variants":{"healthModel":"downed"},"overrides":{},"seed":42,"tickRateHz":60,"playerIds":[1],
+ "variants":{"healthModel":"downed"},"overrides":{},"seed":"abc123","tickRateHz":60,"playerIds":[1],
  "persistentAtStart":{"wantedLevel":1,"bank":120,"lifetimeEarned":450},"startedAt":"2026-10-09T02:11:40Z"}
 {"k":"cmd","t":212,"p":1,"c":[{"type":"move","x":127,"y":0}]}
 {"k":"hash","t":600,"h":"41ab…"}
@@ -999,13 +999,15 @@ Repo: `devlinjunker/train-robber`, branch `phase-0-scaffold`. Legend: `[x]` done
 
 ### Phase 0 checklist
 
-Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, and a variant switches from the URL (`?preset=alpha-default&v=boardingFailure:time-only&seed=42`).
+Naming settled on 2026-10-09: commands use `type` as the discriminant (the doc's earlier `t` clashed with the tick field in log lines), the seed is a string hashed into the stream states, `trainId` is a string, and the repo uses npm workspaces rather than pnpm.
+
+Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, and a variant switches from the URL (`?preset=alpha-default&v=boardingFailure:time-only&seed=abc123`).
 
 - [x] Monorepo, TypeScript project references, and the lint rules that ban `Date`, `Math.random` and transcendental `Math` in `packages/sim`
 - [x] Dependency check and CI running lint, tests and `tools validate` (dependency-cruiser in `.dependency-cruiser.cjs`; `npm run check` runs typecheck, lint, the dependency check, `tools validate`, `tools build-maps --check` and tests, and CI runs it plus the build)
 - [x] Sim skeleton: tick loop, state types, command and event types, RNG streams, snapshot and hash (minimal; grows with phase 1). The sim takes the resolved config through a structural `SimConfig` type, and `GameState` holds the seed, config hash and run count, so `restoreSim(snapshot, config)` needs nothing else and refuses a different config
-- [x] Config pipeline: schemas, merge, resolve, hash, `tools validate` (base `game.json` holds the phase 1 starting values; derive turns `xSec` into `xTicks`, `xPerSec` into `xPerTick`, `xHalfAngleDeg` into a cosine threshold `xCos` and `xDegPerSec` into a per-tick rotation `xCosPerTick`/`xSinPerTick`; first variant group is `boardingFailure`, first preset `alpha-default`)
-- [x] Command and event log with header, an IndexedDB sink, and `tools replay` (the client keeps the newest 20 sessions in IndexedDB and L downloads both logs; `tools replay <commands.ndjson>` checks every logged hash and warns on a config-hash, tick-rate or game-version mismatch)
+- [x] Config pipeline: schemas, merge, resolve, hash, `tools validate` (base `game.json` has the sections `sim`, `logging`, `player`, `world`, `horse`, `commit`, `boarding`, `health`, `countdown`, `trains` (the `blank` train) and `outcomePolicy` (`died`, `cancelled`), holding the phase 1 starting values; `sim.tickRateHz` replaced the old `TICK_RATE` constant; derive turns `xSec` into `xTicks`, `xPerSec` into `xPerTick`, `xHalfAngleDeg` into a cosine threshold `xCos` and `xDegPerSec` into a per-tick rotation `xCosPerTick`/`xSinPerTick`; first variant group is `boardingFailure`, first preset `alpha-default`)
+- [x] Command and event log with header, an IndexedDB sink, and `tools replay` (the client keeps the newest 20 sessions in IndexedDB, an in-memory ring buffer feeds recent events to the overlay, and the Export logs button or L downloads both logs; `tools replay <commands.ndjson>` checks every logged hash and warns on a config-hash, tick-rate or game-version mismatch)
 - [x] Golden-run test and snapshot round-trip test (golden is the checked-in replay `packages/tools/test/fixtures/golden.commands.ndjson`; `npm run golden:update` rewrites it after a deliberate change)
 - [x] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash, state hash, preset and variants)
 - [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; scenery layers and `maps:watch` are not done yet)

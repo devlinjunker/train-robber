@@ -3,6 +3,8 @@
   "sim": { "tickRateHz": 60 },
   "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunCancelled"] },
   "player": { "speedTilesPerSec": 8 },
+  "world": { "mode": "separate" },
+  "horse": { "maxSpeed": 14, "accel": 8, "brake": 12, "turnRateDegPerSec": 120 },
   "commit": { "rangeTiles": 12 },
   "boarding": {
     "rangeTiles": 2,
@@ -11,5 +13,17 @@
     "failure": { "stunSec": 1.5, "damageFraction": 0.25 }
   },
   "health": { "max": 100 },
-  "horse": { "maxSpeed": 14, "accel": 8, "brake": 12, "turnRateDegPerSec": 120 }
+  "countdown": { "enabled": false, "startsAt": "commit", "scale": 1 },
+  "trains": {
+    "blank": {
+      "name": "Blank train",
+      "route": "main",
+      "speedTilesPerSec": 9,
+      "cars": [{ "template": "engine" }, { "template": "blank-car", "count": 3 }]
+    }
+  },
+  "outcomePolicy": {
+    "died": { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [] },
+    "cancelled": { "bankRunLoot": false, "wantedDelta": 0 }
+  }
 }

@@ -8,7 +8,7 @@ const script = (t: number): InputFrame[] => [{
   commands: t === 5 ? [{ type: 'startRun' }, { type: 'move', x: 127, y: -40 }] : t === 90 ? [{ type: 'move', x: 0, y: 127 }] : t === 200 ? [{ type: 'cancelRun' }] : t === 400 ? [{ type: 'startRun' }] : [],
 }];
 
-function run(ticks: number, seed = 42) {
+function run(ticks: number, seed = 'abc123') {
   const sim = createSim({ config, seed, playerIds: [1] });
   for (let t = 0; t < ticks; t++) sim.step(script(t));
   return sim;
@@ -19,7 +19,7 @@ describe('determinism', () => {
     expect(run(600).hash()).toBe(run(600).hash());
   });
   it('different seed gives different rng state after run start', () => {
-    expect(run(600, 1).hash()).not.toBe(run(600, 2).hash());
+    expect(run(600, 'a').hash()).not.toBe(run(600, 'b').hash());
   });
   it('snapshot/restore resumes identically', () => {
     const a = run(300);
@@ -35,14 +35,14 @@ describe('determinism', () => {
 
 describe('rng', () => {
   it('streams are independent', () => {
-    const a = seedRng(7), b = seedRng(7);
+    const a = seedRng('7'), b = seedRng('7');
     nextU32(a, 'gen');
     expect(b.combat).toEqual(a.combat);
   });
 });
 
 const header: RunHeader = {
-  gameVersion: '0.0.0', configHash: 'c0ffee00', preset: 'base', variants: {}, overrides: {}, seed: 42,
+  gameVersion: '0.0.0', configHash: 'c0ffee00', preset: 'base', variants: {}, overrides: {}, seed: 'abc123',
   tickRateHz: 60, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt: '2026-10-09T00:00:00Z',
 };
 
@@ -50,10 +50,10 @@ describe('logs', () => {
   it('command log writes a header, only ticks with commands, and periodic hashes', () => {
     const lines: string[] = [];
     const log = commandLogWriter(header, (l) => lines.push(l), { hashEveryTicks: 2 });
-    const sim = createSim({ config, seed: 42, playerIds: [1] });
+    const sim = createSim({ config, seed: 'abc123', playerIds: [1] });
     for (let t = 0; t < 4; t++) { log.step(t, script(t + 4)); sim.step(script(t + 4)); log.checkpoint(t + 1, () => sim.hash()); }
     const parsed = parseLog<{ k: string; t: number }>(lines.join('\n'));
-    expect(parsed.header).toMatchObject({ k: 'header', log: 'commands', seed: 42 });
+    expect(parsed.header).toMatchObject({ k: 'header', log: 'commands', seed: 'abc123' });
     expect(parsed.lines.map((l) => `${l.k}@${l.t}`)).toEqual(['cmd@1', 'hash@2', 'hash@4']);
   });
   it('event log applies the allowlist', () => {

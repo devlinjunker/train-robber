@@ -20,4 +20,4 @@ npm run maps                                # rebuild base/maps from maps-src/*.
 npm run golden:update                       # rewrite the golden replay after a deliberate sim change
 ```
 
-In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=42` picks the setup, and L downloads the session's command and event logs.
+In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=abc123` picks the setup, and the Export logs button (or L) downloads the session's command and event logs.
