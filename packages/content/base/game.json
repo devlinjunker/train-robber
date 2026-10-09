@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "sim": { "tickRateHz": 60 },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunCancelled"] },
+  "player": { "speedTilesPerSec": 8 },
+  "commit": { "rangeTiles": 12 },
+  "boarding": {
+    "rangeTiles": 2,
+    "speedToleranceTilesPerSec": 1.5,
+    "meter": { "sweepPeriodSec": 1.2, "zoneWidths": [0.1, 0.25] },
+    "failure": { "stunSec": 1.5, "damageFraction": 0.25 }
+  },
+  "health": { "max": 100 },
+  "horse": { "maxSpeed": 14, "accel": 8, "brake": 12, "turnRateDegPerSec": 120 }
+}

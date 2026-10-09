@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "time-and-damage",
+  "group": "boardingFailure",
+  "label": "Time and damage",
+  "question": "Should a failed jump cost health as well as time?",
+  "patch": {}
+}

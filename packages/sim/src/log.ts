@@ -12,7 +12,7 @@ export interface RunHeader {
   configHash: string;
   preset: string;
   variants: Record<string, string>;
-  overrides: unknown;
+  overrides: Record<string, unknown>;
   seed: number;
   tickRateHz: number;
   playerIds: PlayerId[];

@@ -9,6 +9,7 @@ export default tseslint.config(
   js.configs.recommended,
   { files: ['apps/game/**/*.ts'], languageOptions: { globals: globals.browser } },
   { files: ['packages/tools/**/*.ts'], languageOptions: { globals: globals.node } },
+  { files: ['**/*.cjs'], languageOptions: { globals: globals.node, sourceType: 'commonjs' } },
   ...tseslint.configs.recommended,
   {
     // Determinism rules: the sim must not touch time, DOM, randomness or transcendental Math.

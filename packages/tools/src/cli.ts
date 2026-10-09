@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { replayText } from './replay';
 import { recordGolden } from './golden';
+import { validateContent } from './validate';
 
 const [cmd, ...args] = process.argv.slice(2);
 
@@ -14,6 +15,15 @@ const commands: Record<string, (args: string[]) => number> = {
     console.log(`${r.ok ? 'ok' : 'FAILED'}: ${r.finalTick} ticks, ${r.checked} hashes checked, final ${r.actualHash} (log ${r.expectedHash ?? 'none'})`);
     return r.ok ? 0 : 1;
   },
+  validate() {
+    const r = validateContent();
+    for (const ok of r.resolved) {
+      const v = Object.entries(ok.variants).map(([g, id]) => `${g}:${id}`).join(' ');
+      console.log(`ok ${ok.preset} [${v}] ${ok.hash}`);
+    }
+    for (const e of r.errors) console.error(`error: ${e}`);
+    return r.errors.length ? 1 : 0;
+  },
   'record-golden'([out]) {
     const text = recordGolden();
     if (out) writeFileSync(out, text); else process.stdout.write(text);
@@ -26,4 +36,9 @@ if (!run) {
   console.log(`usage: tools <${Object.keys(commands).join('|')}> [args]`);
   process.exit(cmd ? 1 : 0);
 }
-process.exit(run(args));
+try {
+  process.exit(run(args));
+} catch (e) {
+  console.error(`error: ${(e as Error).message}`);
+  process.exit(1);
+}

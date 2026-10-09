@@ -1,9 +1,6 @@
 import { seedRng, runSeed } from './rng';
 import { hashState } from './hash';
-import type { GameState, InputFrame, SimEvent, SimOptions, TickResult } from './types';
-
-export const TICK_RATE = 60;
-const PLAYER_SPEED_PER_TICK = 8 / TICK_RATE; // tiles per tick at full axis (placeholder)
+import type { GameState, InputFrame, SimConfig, SimEvent, SimOptions, TickResult } from './types';
 
 export interface Sim {
   step(inputs: InputFrame[]): TickResult;
@@ -16,19 +13,25 @@ function clone<T>(v: T): T { return JSON.parse(JSON.stringify(v)) as T; }
 export function createSim(opts: SimOptions): Sim {
   return wrap({
     tick: 0,
+    seed: opts.seed,
+    configHash: opts.config.hash,
+    runCount: 0,
     rng: seedRng(opts.seed),
     persistent: opts.persistent ? clone(opts.persistent) : { wantedLevel: 0, bank: 0, lifetimeEarned: 0 },
     run: null,
     players: opts.playerIds.map((id) => ({ id, x: 0, y: 0, vx: 0, vy: 0 })),
-  }, opts.seed);
+  }, opts.config);
 }
 
-export function restoreSim(state: GameState, seed = 0): Sim {
-  return wrap(clone(state), seed);
+export function restoreSim(state: GameState, config: SimConfig): Sim {
+  if (state.configHash !== config.hash) {
+    throw new Error(`snapshot was taken with config ${state.configHash}, got ${config.hash}`);
+  }
+  return wrap(clone(state), config);
 }
 
-function wrap(state: GameState, seed: number): Sim {
-  let runCounter = state.run?.runNumber ?? 0;
+function wrap(state: GameState, config: SimConfig): Sim {
+  const speed = config.values.player.speedTilesPerTick;
   return {
     step(inputs) {
       const events: SimEvent[] = [];
@@ -37,12 +40,12 @@ function wrap(state: GameState, seed: number): Sim {
         if (!p) continue;
         for (const c of frame.commands) {
           if (c.type === 'move') {
-            p.vx = Math.max(-127, Math.min(127, c.x | 0)) / 127 * PLAYER_SPEED_PER_TICK;
-            p.vy = Math.max(-127, Math.min(127, c.y | 0)) / 127 * PLAYER_SPEED_PER_TICK;
+            p.vx = Math.max(-127, Math.min(127, c.x | 0)) / 127 * speed;
+            p.vy = Math.max(-127, Math.min(127, c.y | 0)) / 127 * speed;
           } else if (c.type === 'startRun' && !state.run) {
-            runCounter += 1;
-            state.rng = seedRng(runSeed(seed, runCounter));
-            state.run = { runNumber: runCounter, startedTick: state.tick };
+            state.runCount += 1;
+            state.rng = seedRng(runSeed(state.seed, state.runCount));
+            state.run = { runNumber: state.runCount, startedTick: state.tick };
             events.push({ type: 'RunStarted', tick: state.tick, player: frame.player });
           } else if (c.type === 'cancelRun' && state.run) {
             state.run = null;

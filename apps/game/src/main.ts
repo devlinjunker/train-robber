@@ -1,14 +1,11 @@
 import { Application, Graphics, Text } from 'pixi.js';
-import { commandLogWriter, createSim, eventLogWriter, TICK_RATE, type Command, type LogKind, type RunHeader } from '@train-robber/sim';
-import { resolveConfig } from '@train-robber/config';
-import tuning from '@train-robber/content/base/tuning.json';
+import { commandLogWriter, createSim, eventLogWriter, type Command, type LogKind, type RunHeader } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
+import { setupFromUrl } from './setup';
 
-const STEP_MS = 1000 / TICK_RATE;
 const MAX_CATCHUP = 5;
 const TILE = 24;
-const HASH_EVERY_TICKS = TICK_RATE;
 
 const keys = new Set<string>();
 addEventListener('keydown', (e) => keys.add(e.code));
@@ -30,18 +27,20 @@ async function boot() {
   await app.init({ resizeTo: window, background: '#2b3a2b', antialias: true });
   document.body.appendChild(app.canvas);
 
-  const config = resolveConfig(tuning);
+  const { config, seed } = setupFromUrl();
+  const tickRateHz = config.values.sim.tickRateHz;
+  const STEP_MS = 1000 / tickRateHz;
   const startedAt = new Date().toISOString();
   const header: RunHeader = {
-    gameVersion: pkg.version, configHash: config.hash, preset: 'base', variants: {}, overrides: {},
-    seed: 1, tickRateHz: TICK_RATE, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt,
+    gameVersion: pkg.version, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
+    seed, tickRateHz, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt,
   };
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
   const sink = await openSink(session, startedAt);
-  const cmdLog = commandLogWriter(header, sink.writer('commands'), { hashEveryTicks: HASH_EVERY_TICKS });
-  const evLog = eventLogWriter(header, sink.writer('events'));
+  const cmdLog = commandLogWriter(header, sink.writer('commands'), { hashEveryTicks: config.values.logging.hashEveryTicks });
+  const evLog = eventLogWriter(header, sink.writer('events'), { allow: config.values.logging.events });
 
-  const sim = createSim({ seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
+  const sim = createSim({ config, seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
   let simTick = 0;
   const endLogs = () => {
     const h = sim.hash();

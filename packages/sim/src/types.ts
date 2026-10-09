@@ -17,8 +17,25 @@ export interface PersistentState { wantedLevel: number; bank: number; lifetimeEa
 export interface RunState { runNumber: number; startedTick: number }
 export interface PlayerState { id: PlayerId; x: number; y: number; vx: number; vy: number }
 
+/**
+ * The resolved config values the sim reads. `@train-robber/config`'s ResolvedConfig
+ * satisfies this structurally, so the sim does not depend on the config package.
+ */
+export interface SimConfig {
+  hash: string;
+  values: {
+    sim: { tickRateHz: number };
+    player: { speedTilesPerTick: number };
+  };
+}
+
 export interface GameState {
   tick: number;
+  seed: number;
+  /** Snapshots store the config hash, not the config; restoring needs the same config. */
+  configHash: string;
+  /** Runs started so far; run seeds derive from the seed and this count. */
+  runCount: number;
   rng: RngState;
   persistent: PersistentState;
   run: RunState | null;
@@ -27,4 +44,4 @@ export interface GameState {
 
 export interface TickResult { tick: number; events: SimEvent[] }
 
-export interface SimOptions { seed: number; playerIds: PlayerId[]; persistent?: PersistentState }
+export interface SimOptions { config: SimConfig; seed: number; playerIds: PlayerId[]; persistent?: PersistentState }
