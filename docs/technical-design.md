@@ -980,16 +980,16 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | --- | --- | --- |
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
-| Speed match tolerance | 1.5 tiles/s | `boarding.speedToleranceTilesPerSec` |
+| Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
 | Meter sweep period | 1.2 s | `boarding.meter.sweepPeriodSec` |
 | Meter zone widths (perfect, good) | 10%, 25% of the track | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
 | Failure damage | 25% of max health | `boarding.failure.damageFraction` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
-| Horse acceleration, braking | 8 and 12 tiles/s² | `horse.accel`, `horse.brake` |
+| Horse acceleration, braking | 7 and 12 tiles/s² (accel was 8 until playtest tuning on 2026-10-09) | `horse.accel`, `horse.brake` |
 | Horse turn rate | 120°/s (converted to a per-tick rotation at resolve) | `horse.turnRateDegPerSec` |
-| Horse drag, throttle released (coast) | 4 tiles/s² | `horse.dragTilesPerSec2` |
+| Horse drag, throttle released (coast) | 3 tiles/s² (4 until playtest tuning on 2026-10-09) | `horse.dragTilesPerSec2` |
 | Cruise target rate | 10 tiles/s² | `horse.cruiseTargetRateTilesPerSec2` |
 | Horse top speed on slow ground | 50% | `horse.slowZoneSpeedScale` |
 | Train | engine plus 3 cars, 9 tiles/s | `trains.blank` |

@@ -61,15 +61,15 @@ The loop:
 
 | What it feels like | Key | Now |
 | --- | --- | --- |
-| How fast the horse gets going | `horse.accel` | 8 tiles/s² |
+| How fast the horse gets going | `horse.accel` | 7 tiles/s² |
 | How hard S stops it | `horse.brake` | 12 tiles/s² |
 | Top speed (and how fast you close on the train) | `horse.maxSpeed` | 14 tiles/s |
-| How quickly coast bleeds speed | `horse.dragTilesPerSec2` | 4 tiles/s² |
+| How quickly coast bleeds speed | `horse.dragTilesPerSec2` | 3 tiles/s² |
 | How fast W/S move the cruise target | `horse.cruiseTargetRateTilesPerSec2` | 10 tiles/s² |
 | How sharp the horse turns | `horse.turnRateDegPerSec` | 120°/s |
 | How much slow ground hurts | `horse.slowZoneSpeedScale` | 0.5 |
 | How close to a door counts | `boarding.rangeTiles` | 2 tiles |
-| How exactly you must match speed | `boarding.speedToleranceTilesPerSec` | 1.5 tiles/s |
+| How exactly you must match speed | `boarding.speedToleranceTilesPerSec` | 2 tiles/s |
 | Train speed | `trains.blank.speedTilesPerSec` | 9 tiles/s |
 
 Map changes (zones, the route, the spawn) are made in Tiled in `packages/content/maps-src/`; `npm run maps:watch` rebuilds the map on every save. See "Tiled workflow in detail" in the design doc.
