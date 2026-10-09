@@ -323,11 +323,11 @@ describe('quick retry', () => {
         const h = horse(sim);
         expect(h).toMatchObject({ speed: 0, stunTicks: 0, mode: 'physical' });
         expect(S(sim).players[0]!.placement).toMatchObject({ frame: 'world', x: h.x, y: h.y });
-        // 60 tiles behind the 64-tile train, on the same side as before.
+        // 60 tiles behind the 64-tile train, 1.5 tiles out from its side, on the same side as before.
         // Commands apply before the train advances this tick.
         const at = trackAt(map.routes[0]!, S(sim).world.trains[0]!.d - 9 / 60 - 64 - 60);
         expect(h.hx * at.tx + h.hy * at.ty).toBeCloseTo(1, 9);
-        expect(Math.hypot(h.x - at.x, h.y - at.y)).toBeCloseTo(5, 9);
+        expect(Math.hypot(h.x - at.x, h.y - at.y)).toBeCloseTo(4.5, 9);
         const left = (h.x - at.x) * at.ty - (h.y - at.y) * at.tx > 0;
         expect(left ? 'left' : 'right').toBe(side);
       });

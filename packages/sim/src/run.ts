@@ -125,8 +125,8 @@ function retrySide(ctx: RunCtx, p: PlayerState, h: HorseState, trainId: string):
   return side;
 }
 
-/** Gap from the track centre to the waiting horse: half a car plus two tiles. */
-const RETRY_SIDE_OFFSET = CAR_WIDTH / 2 + 2;
+/** Track centre to the waiting horse: half a car plus 1.5 tiles, so it lines up inside boarding range of the doors. */
+const RETRY_SIDE_OFFSET = CAR_WIDTH / 2 + 1.5;
 
 /**
  * R, with `playtest.quickRetry` on: end any run as a cancel and wait on the horse, stopped and
