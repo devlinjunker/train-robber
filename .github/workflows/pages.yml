@@ -1,0 +1,51 @@
+# Publishes the built game to GitHub Pages (gh-pages branch):
+#   main          -> https://devlinjunker.github.io/train-robber/
+#   pull request  -> https://devlinjunker.github.io/train-robber/pr-preview/pr-<number>/
+# The PR preview is removed when the PR closes. One-time setup: Settings > Pages >
+# "Deploy from a branch", branch gh-pages, folder / (root).
+name: pages
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Fork PRs get a read-only token and cannot push to gh-pages.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: github.event.action != 'closed'
+        with: { node-version: 22, cache: npm }
+      - if: github.event.action != 'closed'
+        run: npm ci
+      # Relative base so the same build works at the site root and under pr-preview/pr-N/.
+      - if: github.event.action != 'closed'
+        run: npx tsc -b && npm run build -w @train-robber/game -- --base ./
+
+      - name: Deploy main
+        if: github.event_name == 'push'
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: apps/game/dist
+          branch: gh-pages
+          clean-exclude: pr-preview/
+
+      - name: Deploy or remove PR preview
+        if: github.event_name == 'pull_request'
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: apps/game/dist
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview

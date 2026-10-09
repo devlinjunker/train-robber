@@ -1,0 +1,201 @@
+{
+ "type": "map",
+ "version": "1.10",
+ "tiledversion": "1.10.2",
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "width": 400,
+ "height": 200,
+ "tilewidth": 32,
+ "tileheight": 32,
+ "infinite": false,
+ "compressionlevel": -1,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "zones.tsj"
+  }
+ ],
+ "layers": [
+  {
+   "id": 1,
+   "name": "terrain",
+   "type": "tilelayer",
+   "x": 0,
+   "y": 0,
+   "width": 400,
+   "height": 200,
+   "opacity": 1,
+   "visible": true,
+   "encoding": "base64",
+   "compression": "zlib",
+   "data": "eJzt3dFOW1EMRNEI+v/fXPWxEgrJwL22j9eS5pmkQd6N2sDn4/H4tKP3YVa06u99u36crfqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xLv3YofqG2N5xrsp+6NZ9qm+I7R3nursffgZwjeobYnvHue683X6OfJ3qG2J7x7nuutt+F0mt6htie8e59GOH6htie8e59GOH6htie8e57rjZfp9uveobYnvHubz/2KH6htjecS79ACChHwAkfP4DgITPnwOQqLzdmgEwl7/7A5DQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChH/DcR/UDgKb0g40+LhxsoR+c7spWaAqb6Qcnqu6FlrCBfnCK6i5oCdvoB9NdfeP/6Ah8ST+Y6qdNuGo6whb6wUSdevHbPYEp9INJpjTjN1oC3ekHU0zuRtoR6Ew/mOCUbiQdga70g+5O7Ma7HYGO9IPONrRDQ5hKP+hqSzfe6Qh0oh90tbEd3zUEOtEPOtr63sN7ECbRDzra3A7vQZhCP+hIP/SD/vSDjvRDP+hPP+hGOzSEGfSDjjREO+hPP+hIP/SD/vSDjvRDP+hPP+jI5z/0g/70g670QzvoTT/oaut7EO89mEI/6OzZLT2tI989V+hGP+huQ0O0g4n0gwm+u69TO/LK84Ku9IMpXrm1Uzry6nOBzvSDSV69u1078s7jh+70g4neucPVLXn3scIU+sFU797lu3ryk8cFk+gH0/3kXr/amqu/BkykH5zi6huvG/A//eBE1V3QDDbQD05X3QvN4FT6wUZaAT+nH/CcJsDX9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AnOPOe64fALN9PtkdXxeAeZ614+r7rh8AM73SjitvvH4AzPNOO6668/oBMI9+AJDQDwDelbTjiluvHwDzVLfjoR8AI+kHAAn9ACDl8x8ApKra8dAPgPEq2vHQD4Cj3HnP9QOAhH4AkNAPYBL3qg/9ACa4+9+G+Z7XAeiu6v8X8ZzXAOhOP3ryGgCdVX4+juf8+QPdaUdPXgOgO/3oyWsATKAd/XgdgEncqz70A4CEfgCQ0A8AEvoBQCL5HbpmZmb/9hc3T0YZ"
+  },
+  {
+   "id": 2,
+   "name": "track",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 1,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "main",
+     "x": 2560,
+     "y": 1920,
+     "polyline": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1920,
+       "y": 0
+      },
+      {
+       "x": 3840,
+       "y": 0
+      },
+      {
+       "x": 5760,
+       "y": 0
+      },
+      {
+       "x": 7680,
+       "y": 0
+      },
+      {
+       "x": 8320,
+       "y": 171.49
+      },
+      {
+       "x": 8788.51,
+       "y": 640
+      },
+      {
+       "x": 8960,
+       "y": 1280
+      },
+      {
+       "x": 8788.51,
+       "y": 1920
+      },
+      {
+       "x": 8320,
+       "y": 2388.51
+      },
+      {
+       "x": 7680,
+       "y": 2560
+      },
+      {
+       "x": 5760,
+       "y": 2560
+      },
+      {
+       "x": 3840,
+       "y": 2560
+      },
+      {
+       "x": 1920,
+       "y": 2560
+      },
+      {
+       "x": 0,
+       "y": 2560
+      },
+      {
+       "x": -640,
+       "y": 2388.51
+      },
+      {
+       "x": -1108.51,
+       "y": 1920
+      },
+      {
+       "x": -1280,
+       "y": 1280
+      },
+      {
+       "x": -1108.51,
+       "y": 640
+      },
+      {
+       "x": -640,
+       "y": 171.49
+      }
+     ],
+     "properties": [
+      {
+       "name": "closed",
+       "type": "bool",
+       "value": true
+      },
+      {
+       "name": "route",
+       "type": "string",
+       "value": "main"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "speedZones",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": []
+  },
+  {
+   "id": 4,
+   "name": "markers",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 2,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "playerSpawn",
+     "point": true,
+     "x": 6400,
+     "y": 5440
+    },
+    {
+     "id": 3,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "horseSpawn",
+     "point": true,
+     "x": 6464,
+     "y": 5472
+    }
+   ]
+  }
+ ],
+ "nextlayerid": 5,
+ "nextobjectid": 4
+}

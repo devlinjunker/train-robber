@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "time-only",
+  "group": "boardingFailure",
+  "label": "Time only",
+  "question": "Should a failed jump cost health as well as time?",
+  "patch": { "boarding": { "failure": { "damageFraction": 0 } } }
+}

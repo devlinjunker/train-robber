@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "id": "alpha-default",
+  "variants": { "boardingFailure": "time-and-damage" }
+}

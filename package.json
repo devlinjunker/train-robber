@@ -1,0 +1,35 @@
+{
+  "name": "train-robber",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @train-robber/game",
+    "build": "tsc -b && npm run build -w @train-robber/game",
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run deps && npm run validate && npm run maps:check && npm run test",
+    "tools": "tsx packages/tools/src/cli.ts",
+    "golden:update": "tsx packages/tools/src/cli.ts record-golden packages/tools/test/fixtures/golden.commands.ndjson",
+    "deps": "depcruise packages apps --config .dependency-cruiser.cjs",
+    "validate": "tsx packages/tools/src/cli.ts validate",
+    "maps": "tsx packages/tools/src/cli.ts build-maps",
+    "maps:check": "tsx packages/tools/src/cli.ts build-maps --check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^26.6.4",
+    "dependency-cruiser": "^18.5.0",
+    "eslint": "^9.0.0",
+    "globals": "^17.13.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.1.0"
+  }
+}
