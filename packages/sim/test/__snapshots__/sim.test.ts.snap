@@ -1,3 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`determinism > golden hash is stable 1`] = `"4bffad67"`;

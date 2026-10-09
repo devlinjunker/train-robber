@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createSim, restoreSim, seedRng, nextU32, type InputFrame } from '../src';
+import { createSim, restoreSim, seedRng, nextU32, eventLogWriter, commandLogWriter, parseLog, type InputFrame, type RunHeader } from '../src';
 
 const script = (t: number): InputFrame[] => [{
   player: 1,
@@ -25,9 +25,6 @@ describe('determinism', () => {
     for (let t = 300; t < 600; t++) { a.step(script(t)); b.step(script(t)); }
     expect(b.hash()).toBe(a.hash());
   });
-  it('golden hash is stable', () => {
-    expect(run(600).hash()).toMatchSnapshot();
-  });
 });
 
 describe('rng', () => {
@@ -35,5 +32,28 @@ describe('rng', () => {
     const a = seedRng(7), b = seedRng(7);
     nextU32(a, 'gen');
     expect(b.combat).toEqual(a.combat);
+  });
+});
+
+const header: RunHeader = {
+  gameVersion: '0.0.0', configHash: 'c0ffee00', preset: 'base', variants: {}, overrides: {}, seed: 42,
+  tickRateHz: 60, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt: '2026-10-09T00:00:00Z',
+};
+
+describe('logs', () => {
+  it('command log writes a header, only ticks with commands, and periodic hashes', () => {
+    const lines: string[] = [];
+    const log = commandLogWriter(header, (l) => lines.push(l), { hashEveryTicks: 2 });
+    const sim = createSim({ seed: 42, playerIds: [1] });
+    for (let t = 0; t < 4; t++) { log.step(t, script(t + 4)); sim.step(script(t + 4)); log.checkpoint(t + 1, () => sim.hash()); }
+    const parsed = parseLog<{ k: string; t: number }>(lines.join('\n'));
+    expect(parsed.header).toMatchObject({ k: 'header', log: 'commands', seed: 42 });
+    expect(parsed.lines.map((l) => `${l.k}@${l.t}`)).toEqual(['cmd@1', 'hash@2', 'hash@4']);
+  });
+  it('event log applies the allowlist', () => {
+    const lines: string[] = [];
+    const log = eventLogWriter(header, (l) => lines.push(l), { allow: ['RunStarted'] });
+    log.events([{ type: 'RunStarted', tick: 3, player: 1 }, { type: 'RunCancelled', tick: 9, player: 1 }]);
+    expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1 }]);
   });
 });

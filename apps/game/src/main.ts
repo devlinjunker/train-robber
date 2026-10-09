@@ -1,26 +1,70 @@
 import { Application, Graphics, Text } from 'pixi.js';
-import { createSim, TICK_RATE } from '@train-robber/sim';
+import { commandLogWriter, createSim, eventLogWriter, TICK_RATE, type Command, type LogKind, type RunHeader } from '@train-robber/sim';
+import { resolveConfig } from '@train-robber/config';
+import tuning from '@train-robber/content/base/tuning.json';
+import pkg from '../package.json';
+import { download, IndexedDbLogSink } from './logSink';
 
 const STEP_MS = 1000 / TICK_RATE;
 const MAX_CATCHUP = 5;
 const TILE = 24;
+const HASH_EVERY_TICKS = TICK_RATE;
 
 const keys = new Set<string>();
 addEventListener('keydown', (e) => keys.add(e.code));
 addEventListener('keyup', (e) => keys.delete(e.code));
+
+async function openSink(session: string, startedAt: string): Promise<{ writer(log: LogKind): (line: string) => void; read(log: LogKind): Promise<string>; flush(): Promise<void> }> {
+  try {
+    return await IndexedDbLogSink.open(session, startedAt);
+  } catch (e) {
+    // Private windows can refuse IndexedDB; keep the session in memory instead.
+    console.warn('IndexedDB unavailable, logging to memory', e);
+    const mem: Record<LogKind, string[]> = { commands: [], events: [] };
+    return { writer: (log) => (line) => void mem[log].push(line), read: async (log) => mem[log].join('\n') + '\n', flush: async () => {} };
+  }
+}
 
 async function boot() {
   const app = new Application();
   await app.init({ resizeTo: window, background: '#2b3a2b', antialias: true });
   document.body.appendChild(app.canvas);
 
-  const sim = createSim({ seed: 1, playerIds: [1] });
+  const config = resolveConfig(tuning);
+  const startedAt = new Date().toISOString();
+  const header: RunHeader = {
+    gameVersion: pkg.version, configHash: config.hash, preset: 'base', variants: {}, overrides: {},
+    seed: 1, tickRateHz: TICK_RATE, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt,
+  };
+  const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
+  const sink = await openSink(session, startedAt);
+  const cmdLog = commandLogWriter(header, sink.writer('commands'), { hashEveryTicks: HASH_EVERY_TICKS });
+  const evLog = eventLogWriter(header, sink.writer('events'));
+
+  const sim = createSim({ seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
+  let simTick = 0;
+  const endLogs = () => {
+    const h = sim.hash();
+    cmdLog.end(simTick, h); evLog.end(simTick, h);
+    void sink.flush();
+  };
+  addEventListener('pagehide', endLogs);
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'KeyL' || e.repeat) return;
+    // The export gets an end line at the current tick so it replays on its own; the stored log continues.
+    const end = JSON.stringify({ k: 'end', t: simTick, h: sim.hash() }) + '\n';
+    const stamp = `${session}-t${simTick}`.replace(/[:.]/g, '-');
+    void sink.read('commands').then((t) => download(`${stamp}.commands.ndjson`, t + end));
+    void sink.read('events').then((t) => download(`${stamp}.events.ndjson`, t + end));
+  });
+
   const player = new Graphics().circle(0, 0, 8).fill(0xffd34d);
   const overlay = new Text({ text: '', style: { fill: '#ffffff', fontSize: 12, fontFamily: 'monospace' } });
   overlay.position.set(8, 8);
   app.stage.addChild(player, overlay);
 
   let acc = 0, last = performance.now(), fps = 0;
+  let lastMove = { x: 0, y: 0 };
   app.ticker.add(() => {
     const now = performance.now();
     acc += now - last; last = now;
@@ -28,7 +72,15 @@ async function boot() {
     while (acc >= STEP_MS && steps < MAX_CATCHUP) {
       const x = (keys.has('KeyD') ? 127 : 0) - (keys.has('KeyA') ? 127 : 0);
       const y = (keys.has('KeyS') ? 127 : 0) - (keys.has('KeyW') ? 127 : 0);
-      sim.step([{ player: 1, commands: [{ type: 'move', x, y }] }]);
+      // Commands are intents: only send a move when the axes change, which keeps the log small.
+      const commands: Command[] = x !== lastMove.x || y !== lastMove.y ? [{ type: 'move', x, y }] : [];
+      lastMove = { x, y };
+      const inputs = [{ player: 1, commands }];
+      cmdLog.step(simTick, inputs);
+      const res = sim.step(inputs);
+      simTick = res.tick;
+      cmdLog.checkpoint(simTick, () => sim.hash());
+      evLog.events(res.events);
       acc -= STEP_MS; steps++;
     }
     if (steps === MAX_CATCHUP) acc = 0;
@@ -36,7 +88,7 @@ async function boot() {
     const p = s.players[0]!;
     player.position.set(app.screen.width / 2 + p.x * TILE, app.screen.height / 2 + p.y * TILE);
     fps = fps * 0.9 + app.ticker.FPS * 0.1;
-    overlay.text = `tick ${s.tick}  fps ${fps.toFixed(0)}  hash ${sim.hash()}\nWASD to move`;
+    overlay.text = `tick ${s.tick}  fps ${fps.toFixed(0)}  hash ${sim.hash()}\nWASD to move  L to download logs`;
   });
 }
 void boot();
