@@ -13,7 +13,10 @@ const base = {
     failure: { stunSec: 1.5, damageFraction: 0.25 },
   },
   health: { max: 100 },
-  horse: { maxSpeed: 14, accel: 8, brake: 12, turnRateDegPerSec: 120 },
+  horse: {
+    maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
+    slowZoneSpeedScale: 0.5, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+  },
   world: { mode: 'separate' },
   countdown: { enabled: false, startsAt: 'commit', scale: 1 },
   trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }] } },

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "hold",
+  "group": "throttleModel",
+  "label": "Hold speed",
+  "question": "What should releasing W do?",
+  "patch": { "horse": { "throttleModel": "hold" } }
+}

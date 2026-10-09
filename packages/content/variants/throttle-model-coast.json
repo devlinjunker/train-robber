@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "coast",
+  "group": "throttleModel",
+  "label": "Coast under drag",
+  "question": "What should releasing W do?",
+  "patch": { "horse": { "throttleModel": "coast" } }
+}

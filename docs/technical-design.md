@@ -147,6 +147,7 @@ Commands are intents, not key presses. That keeps keyboard, gamepad and touch in
 ```ts
 type Command =
   | { type: 'move'; x: number; y: number }       // axes quantized to -127..127
+  | { type: 'steer'; x: number; y: number }      // world-space heading target for screen-relative steering, quantized
   | { type: 'aim'; x: number; y: number }        // world-space direction, quantized
   | { type: 'fire' } | { type: 'melee' }
   | { type: 'interact'; held: boolean }          // loot, inspect, hold up, crack vault
@@ -672,6 +673,8 @@ A preset chooses exactly one variant per group, so two options from the same tes
 | `worldMode` | `continuous`, `separate` | `world.mode` |
 | `lootCarry` | `limit-and-slowdown`, `unlimited` | `carry.limitEnabled`, `carry.slowdownEnabled` |
 | `graceWindow` | `small`, `medium`, `large` | `countdown.graceSec` |
+| `steering` | `screen`, `heading` | `horse.steering` (phase 1, see Riding controls) |
+| `throttleModel` | `hold`, `coast`, `cruise` | `horse.throttleModel` (phase 1, see Riding controls) |
 
 Additional groups (horse handling, structure preset) follow the same pattern.
 
@@ -944,19 +947,25 @@ This section turns the decisions so far into what to build first: the foundation
 - **Failure cost.** A failed jump always costs time, and damage is a toggle. A failed player is thrown clear and the horse is stunned for `boarding.failure.stunSec`, so the train pulls ahead before a retry. Damage is `boarding.failure.damageFraction` of max health. A variant group `boardingFailure` has `time-and-damage` and `time-only` (damage fraction 0). Phase 1 includes a minimal health value so the failure and death paths are real; the full health system waits for phase 3.
 - **No countdown in phase 1.** The countdown and heat arrive in phase 2, so `countdown.enabled` is false until then. Cancel works from the start.
 
-* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse against each car's rectangle, computed from the car's place on the route.
+* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and water tiles and the map edge collide the same way; slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed.
 * **Boarding meter use.** While the player is eligible (in range and speed matched), the meter sweeps continuously and a single Space press samples it on that tick. Losing eligibility resets the meter.
 * **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the mounted player back at `playerSpawn` while the train keeps looping.
 * **Repo.** A new repository using the monorepo layout from Package structure, with this document moved into `docs/`.
 
 ### Riding controls
 
-Steering plus throttle, because a keyboard cannot otherwise hold a speed of 9 when the horse tops out at 14. The `move` command's x axis steers relative to the horse's heading, not the screen, so it works the same on a straight, a U-turn or any track direction, and its y axis is throttle: positive accelerates, negative brakes, and releasing coasts to a stop under drag. The `handlingModel` variants (stamina, speed tiers) can reinterpret the same commands later. A screen-relative steering variant, where direction keys set the target heading on screen and throttle is separate, is worth playtesting because heading-relative steering can feel odd in an isometric view.
+Steering plus throttle, because a keyboard cannot otherwise hold a speed of 9 when the horse tops out at 14. Steering ships as the `steering` variant group with two options. The Phase 1 review chose screen-relative as the default; after the first playtests on 2026-10-09 Devlin switched the `alpha-default` preset to heading-relative steering and the coast throttle model:
+
+- **Screen-relative** (`screen`): the arrow keys give a direction on screen, diagonals included, and the horse turns toward it at the turn rate; releasing the arrows keeps the current heading. W/S are the throttle, so direction and speed sit under separate hands. The client turns the screen direction into a world direction (the identity in the top-down debug view, the inverse isometric projection from M4) and sends it as a `steer` command, so the sim never sees the screen.
+- **Heading-relative** (`heading`, default): the `move` command's x axis (A/D) turns the horse relative to its heading, the same on a straight, a U-turn or any track direction.
+
+The `move` command's y axis is the throttle in both. Axes are in screen sense, so W sends y = -127 and the sim treats -y as throttle: W accelerates at `horse.accel` and S brakes at `horse.brake`. What releasing W does is the `throttleModel` variant group (decided in review): `hold` keeps the current speed, `coast` (default since the 2026-10-09 playtests) slows under `horse.dragTilesPerSec2`, and `cruise` makes W and S raise and lower a target speed at `horse.cruiseTargetRateTilesPerSec2` that the horse then accelerates or brakes to. In every model holding W reaches and holds top speed. The `handlingModel` variants (stamina, speed tiers) can reinterpret the same commands later.
 
 | Input | Action |
 | --- | --- |
-| A / D | Steer |
-| W / S | Accelerate / brake |
+| A / D | Steer, heading-relative (default) |
+| Arrow keys | Steer, screen-relative |
+| W / S | Accelerate / brake (throttle under cruise) |
 | Space | Boarding jump (and mount jump later) |
 | E | Commit to a train, interact |
 | F | Whistle (phase 2) |
@@ -971,15 +980,18 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | --- | --- | --- |
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
-| Speed match tolerance | 1.5 tiles/s | `boarding.speedToleranceTilesPerSec` |
+| Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
 | Meter sweep period | 1.2 s | `boarding.meter.sweepPeriodSec` |
 | Meter zone widths (perfect, good) | 10%, 25% of the track | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
 | Failure damage | 25% of max health | `boarding.failure.damageFraction` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
-| Horse acceleration, braking | 8 and 12 tiles/s² | `horse.accel`, `horse.brake` |
+| Horse acceleration, braking | 7 and 12 tiles/s² (accel was 8 until playtest tuning on 2026-10-09) | `horse.accel`, `horse.brake` |
 | Horse turn rate | 120°/s (converted to a per-tick rotation at resolve) | `horse.turnRateDegPerSec` |
+| Horse drag, throttle released (coast) | 3 tiles/s² (4 until playtest tuning on 2026-10-09) | `horse.dragTilesPerSec2` |
+| Cruise target rate | 10 tiles/s² | `horse.cruiseTargetRateTilesPerSec2` |
+| Horse top speed on slow ground | 50% | `horse.slowZoneSpeedScale` |
 | Train | engine plus 3 cars, 9 tiles/s | `trains.blank` |
 | Tick rate | 60 Hz | `sim.tickRateHz` |
 
@@ -1016,8 +1028,8 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 ### Phase 1 checklist
 
 - [x] Phase 1 Tiled map: flat terrain, one stadium-shaped route, a spawn marker (`maps-src/alpha-flats.tmj`: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, `playerSpawn` at (200, 170) with open ground up to the bottom straight, checked by a test; the separate horse spawn was dropped, see Map decisions; the scale placeholders above match it). M1 also added `npm run maps:watch`, `?map=` loading validated through `MapDefSchema`, and the map debug overlay
-- [ ] Horse riding with steering, throttle and drag
-- [~] Train and track simulation: an engine plus three blank cars moving along the route, looping (the track lookup is done: `trackAt` in `packages/sim/src/world/track.ts` gives position and unit tangent at any distance along a route, wrapping on closed routes, from the baked samples with no trig; trains are not built yet)
+- [x] Horse riding with steering, throttle and drag (`packages/sim/src/world/riding.ts`: the player starts mounted and stopped at `playerSpawn`; `steering` and `throttleModel` variant groups chosen by URL, for example `?v=steering:heading&v=throttleModel:coast`; slow tiles cap speed, blocked and water tiles and the map edge stop the horse; the sim receives the map through the structural `SimMap` type and snapshots record its hash, so `restoreSim(snapshot, config, map)` refuses a different map)
+- [x] Train and track simulation: an engine plus three blank cars moving along the route, looping (`trackAt` in `packages/sim/src/world/track.ts` gives position and unit tangent at any distance along a route; `packages/sim/src/world/trains.ts` spawns the one blank train at load and advances it, with `pinTrain` as the hook for the committed train in M3; `packages/sim/src/world/cars.ts` generates the `engine` and `blank-car` templates in code (doors mid-car on both sides of a blank car, none on the engine), places cars as rigid 16 × 6 rectangles, and `entryPointWorld` gives entry points in world space for the boarding rule and the markers; horse against car collision is in, and the top-down debug view draws the cars, entry points and the horse with its heading)
 - [ ] Commit prompt and `startRun`
 - [ ] Boarding rules, meter, success and failure, and the stun
 - [ ] Minimal health, death outcome, and cancel

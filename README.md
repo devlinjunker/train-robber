@@ -8,7 +8,7 @@ Isometric browser train-robbery game. TypeScript monorepo.
 - `packages/tools` – CLI (map/car builders, replay, report)
 - `apps/game` – PixiJS client
 
-Design: [docs/technical-design.md](docs/technical-design.md)
+Design: [docs/technical-design.md](docs/technical-design.md). Playing builds and tuning values: [docs/playtesting.md](docs/playtesting.md).
 
 ```
 npm install

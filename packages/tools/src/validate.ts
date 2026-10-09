@@ -2,6 +2,7 @@
 // swap from it, so a broken variant fails CI even if no preset picks it yet.
 import { join, relative } from 'node:path';
 import { MapDefSchema, resolveConfig } from '@train-robber/config';
+import { CAR_TEMPLATES } from '@train-robber/sim';
 import { CONTENT_DIR, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
 
 export interface ValidateResult { errors: string[]; resolved: { preset: string; variants: Record<string, string>; hash: string }[] }
@@ -24,6 +25,11 @@ export function validateContent(dir?: string): ValidateResult {
     for (const variants of selections) {
       try {
         const r = resolveConfig(content, { preset: preset.id, variants });
+        for (const [id, train] of Object.entries(r.values.trains)) {
+          for (const car of train.cars) {
+            if (!CAR_TEMPLATES[car.template]) throw new Error(`train ${id} uses unknown car template ${car.template}`);
+          }
+        }
         resolved.push({ preset: r.preset, variants: r.variants, hash: r.hash });
       } catch (e) {
         const swap = Object.entries(variants).map(([g, id]) => ` with ${g}:${id}`).join('');
