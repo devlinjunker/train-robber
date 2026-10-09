@@ -44,7 +44,7 @@ export interface WorldView {
 const ZONE_COLOURS: Record<BoardingState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
 /** Meter size in tiles, drawn above the horse. */
-const METER_W = 5, METER_H = 0.5, METER_UP = 2.2;
+const METER_W = 8, METER_H = 0.9, METER_UP = 2.6;
 
 export function createWorldView(): WorldView {
   const layer = new Container();
@@ -56,7 +56,7 @@ export function createWorldView(): WorldView {
     .circle(0, 0, HORSE_RADIUS).fill({ color: 0xffd34d, alpha: 0.35 }).stroke({ width: 0.08, color: 0xffd34d })
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(0xffd34d);
   const meter = new Graphics();
-  const player = new Graphics().circle(0, 0, WALKER_RADIUS).fill(0x6bd3ff).stroke({ width: 0.06, color: 0x0b2a3a });
+  const player = new Graphics().circle(0, 0, WALKER_RADIUS).fill(0x6bd3ff).stroke({ width: 0.08, color: 0x0b2a3a });
   layer.addChild(zones, carLayer, entries, horse, player, meter);
   const pool: Graphics[] = [];
 
@@ -107,8 +107,8 @@ export function createWorldView(): WorldView {
           meter.rect(x0 + m.good[0] * METER_W, y0, (m.good[1] - m.good[0]) * METER_W, METER_H).fill({ color: 0xe8c872, alpha: a });
           meter.rect(x0 + m.perfect[0] * METER_W, y0, (m.perfect[1] - m.perfect[0]) * METER_W, METER_H).fill({ color: 0x6bff8a, alpha: a });
           // White marker on the slow, speed-matched sweep; orange on the fast one.
-          meter.rect(x0 + m.position * METER_W - 0.06, y0 - 0.15, 0.12, METER_H + 0.3).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a });
-          meter.rect(x0, y0, METER_W, METER_H).stroke({ width: 0.06, color: 0xffffff, alpha: 0.6 * a });
+          meter.rect(x0 + m.position * METER_W - 0.1, y0 - 0.25, 0.2, METER_H + 0.5).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a });
+          meter.rect(x0, y0, METER_W, METER_H).stroke({ width: 0.08, color: 0xffffff, alpha: 0.6 * a });
         }
       }
       player.visible = input.aboard !== null;
