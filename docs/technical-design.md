@@ -988,15 +988,19 @@ type StreamName = 'gen' | 'schedule' | 'ai' | 'combat' | 'horse' | 'misc';
 type RngState = Record<StreamName, [number, number, number, number]>;  // sfc32: four uint32 words per stream
 ```
 
+### Implementation status (2026-10-08)
+
+Repo: `devlinjunker/train-robber`, branch `phase-0-scaffold`. Legend: `[x]` done, `[~]` partly done, `[ ]` not started. This repo copy of the document is now the source of truth; the earlier live Claude Doc is a snapshot.
+
 ### Phase 0 checklist
 
-- [ ] Monorepo, TypeScript project references, and the lint rules that ban `Date`, `Math.random` and transcendental `Math` in `packages/sim`
-- [ ] Dependency check and CI running lint, tests and `tools validate`
-- [ ] Sim skeleton: tick loop, state types, command and event types, RNG streams, snapshot and hash
-- [ ] Config pipeline: schemas, merge, resolve, hash, `tools validate`
+- [x] Monorepo, TypeScript project references, and the lint rules that ban `Date`, `Math.random` and transcendental `Math` in `packages/sim`
+- [~] Dependency check and CI running lint, tests and `tools validate` (CI runs typecheck, lint, tests and build; dependency check and `tools validate` still to do)
+- [x] Sim skeleton: tick loop, state types, command and event types, RNG streams, snapshot and hash (minimal; grows with phase 1)
+- [~] Config pipeline: schemas, merge, resolve, hash, `tools validate` (stub tuning schema with merge, strict validation and hash; resolve step and `tools validate` still to do)
 - [ ] Command and event log with header, an IndexedDB sink, and `tools replay`
-- [ ] Golden-run test and snapshot round-trip test
-- [ ] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash)
+- [x] Golden-run test and snapshot round-trip test (golden is a hash snapshot; replace with a checked-in replay once the log exists)
+- [~] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash) (shows tick, fps, state hash; seed, config hash and tick time still to add)
 - [ ] Minimal `tools build-maps` for the phase 1 map
 
 ### Phase 1 checklist
