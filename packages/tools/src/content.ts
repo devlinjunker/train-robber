@@ -1,11 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadContent, resolveConfig, type ContentFile, type LoadedContent, type ResolvedConfig, type Selection } from '@train-robber/config';
+import { loadContent, MapDefSchema, resolveConfig, type ContentFile, type MapDef, type LoadedContent, type ResolvedConfig, type Selection } from '@train-robber/config';
 
 export const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 export const CONTENT_DIR = join(REPO_ROOT, 'packages/content');
 export const DEFAULT_PRESET = 'alpha-default';
+export const DEFAULT_MAP = 'alpha-flats';
 
 export function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -42,4 +43,15 @@ export function loadContentDir(dir = CONTENT_DIR): LoadedContent {
 
 export function loadConfig(sel: Selection = { preset: DEFAULT_PRESET }): ResolvedConfig {
   return resolveConfig(loadContentDir(), sel);
+}
+
+/** A built map from packages/content/base/maps, validated. */
+export function loadMapDef(id = DEFAULT_MAP, dir = CONTENT_DIR): MapDef {
+  const path = join(dir, 'base/maps', `${id}.json`);
+  const r = MapDefSchema.safeParse(file(path).data);
+  if (!r.success) {
+    const issue = r.error.issues[0]!;
+    throw new Error(`${relative(REPO_ROOT, path)} at ${issue.path.join('.')}: ${issue.message}`);
+  }
+  return r.data;
 }

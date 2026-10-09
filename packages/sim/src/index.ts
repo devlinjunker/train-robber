@@ -4,3 +4,8 @@ export * from './hash';
 export * from './sim';
 export * from './log';
 export * from './world/track';
+export * from './world/map';
+export * from './world/cars';
+export * from './world/collide';
+export * from './world/trains';
+export * from './world/riding';

@@ -54,10 +54,22 @@ export const GameSchema = z.object({
     cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   horse: z.object({
+    /** Tiles per second. */
     maxSpeed: positive,
+    /** Tiles per second squared, as are the rates below. */
     accel: positive,
     brake: positive,
+    /** Slowdown with the throttle released, under the coast throttle model. */
+    dragTilesPerSec2: positive,
+    /** How fast W and S move the target speed under the cruise throttle model. */
+    cruiseTargetRateTilesPerSec2: positive,
+    /** Top speed on slow ground, as a fraction of maxSpeed. */
+    slowZoneSpeedScale: z.number().gt(0).max(1),
     turnRateDegPerSec: positive,
+    /** steering variant group: direction keys set a screen heading, or A/D turn the horse. */
+    steering: z.enum(['screen', 'heading']),
+    /** throttleModel variant group: what releasing W does. */
+    throttleModel: z.enum(['hold', 'coast', 'cruise']),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

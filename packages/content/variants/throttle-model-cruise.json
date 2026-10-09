@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "cruise",
+  "group": "throttleModel",
+  "label": "Cruise target",
+  "question": "What should releasing W do?",
+  "patch": { "horse": { "throttleModel": "cruise" } }
+}

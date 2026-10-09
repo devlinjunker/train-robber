@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "screen-relative",
+  "group": "steering",
+  "label": "Screen-relative",
+  "question": "Which steering feels better in the isometric view?",
+  "patch": { "horse": { "steering": "screen" } }
+}

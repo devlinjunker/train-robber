@@ -14,6 +14,9 @@ export interface RunHeader {
   variants: Record<string, string>;
   overrides: Record<string, unknown>;
   seed: string;
+  /** The map the run is played on, and the sim's hash of it. */
+  mapId: string;
+  mapHash: string;
   tickRateHz: number;
   playerIds: PlayerId[];
   persistentAtStart: PersistentState;
