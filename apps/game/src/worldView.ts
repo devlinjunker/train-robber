@@ -44,7 +44,7 @@ export interface WorldView {
 const ZONE_COLOURS: Record<BoardingState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
 /** Meter size in tiles, drawn above the horse. */
-const METER_W = 8, METER_H = 0.9, METER_UP = 2.6;
+const METER_W = 14, METER_H = 0.9, METER_UP = 2.6;
 
 export function createWorldView(): WorldView {
   const layer = new Container();
