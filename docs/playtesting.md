@@ -40,7 +40,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 | W A S D, aboard | Walk inside the car, screen-relative (W+D walks toward the front); hold Shift to run |
 | Esc | Cancel the run: back to the spawn, mounted and stopped |
 | R | Quick retry: ends any run and puts you on the horse, stopped, 60 tiles behind the train on the side you were on |
-| Q / Z, `-` / `=`, mouse wheel | Zoom out / in |
+| Q / Z, `-` / `=`, mouse wheel | Zoom out / in (locked at 1.75 during a run) |
 | V | Switch between the isometric view and the top-down debug view |
 | O | Toggle the map overlay (speed zones, track samples, tangents, markers) |
 | B | Toggle the boarding range circles around every door |
@@ -55,7 +55,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a half-second stumble at half walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 25 health under `time-and-damage`, and the train pulls ahead. Four failures at full health kill you: "YOU DIED", and you are back at the spawn.
 5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen. Esc or R ends the run.
 
-The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Aboard, the view eases into the car at zoom 1.75: one plain car, front up-right, with stripes and track sliding past at the train's speed. Zoom still works aboard, and leaving the car puts back the zoom you rode with.
+The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Committing to a train locks the zoom at 1.75 for the whole run, aboard too; the zoom keys and wheel come back when the run ends, at the zoom you rode with. Aboard, the view eases into the car: one plain car, front up-right, with stripes and track sliding past at the train's speed.
 
 The debug readout (top left, backquote hides it) keeps the details: the `run:` line with the phase and jump count, the `boarding:` line with the door distance and speed difference, the meter position and bands, and the in-zone timer for how long you have held the zone. B shows the boarding range circles around every door.
 
