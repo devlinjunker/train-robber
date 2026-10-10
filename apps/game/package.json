@@ -8,10 +8,10 @@
     "build": "vite build"
   },
   "dependencies": {
-    "pixi.js": "^8.5.0",
     "@train-robber/sim": "*",
     "@train-robber/config": "*",
-    "@train-robber/content": "*"
+    "@train-robber/content": "*",
+    "@train-robber/client": "*"
   },
   "devDependencies": {
     "vite": "^5.4.0"

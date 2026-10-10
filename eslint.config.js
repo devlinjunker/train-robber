@@ -7,7 +7,7 @@ const bannedMath = ['sin','cos','tan','asin','acos','atan','atan2','exp','log','
 export default tseslint.config(
   { ignores: ['**/dist/**', '**/node_modules/**'] },
   js.configs.recommended,
-  { files: ['apps/game/**/*.ts'], languageOptions: { globals: globals.browser } },
+  { files: ['apps/game/**/*.ts', 'packages/client/**/*.ts'], languageOptions: { globals: globals.browser } },
   { files: ['packages/tools/**/*.ts'], languageOptions: { globals: globals.node } },
   { files: ['**/*.cjs'], languageOptions: { globals: globals.node, sourceType: 'commonjs' } },
   ...tseslint.configs.recommended,

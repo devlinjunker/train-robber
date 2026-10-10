@@ -11,6 +11,9 @@
       "path": "packages/tools"
     },
     {
+      "path": "packages/client"
+    },
+    {
       "path": "apps/game"
     }
   ]
