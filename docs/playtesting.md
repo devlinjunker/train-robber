@@ -144,6 +144,8 @@ It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A 
 
 ## Recording a session
 
+When a PR comes with playtest questions, it adds a template under [`playtests/`](playtests/) with each question and a space for the answer; fill it in on the PR branch (or paste it into a PR comment).
+
 1. Note the URL you played (it carries the seed and the variants).
 2. Press L to export the logs. The command log replays the session exactly: `npm run tools -- replay <file>.commands.ndjson` reruns it and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
 3. Write down what you tried and how it felt, alongside the setup. Ideas for new features go in [ideas.md](ideas.md). Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
