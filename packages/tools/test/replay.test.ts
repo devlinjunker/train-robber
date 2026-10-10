@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { replayText } from '../src/replay';
+import { configDiff, replayText } from '../src/replay';
+import { loadConfig } from '../src/content';
 import { recordGolden } from '../src/golden';
 
 const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/golden.commands.ndjson');
@@ -23,5 +24,33 @@ describe('golden replay', () => {
   it('a tampered command is detected', () => {
     const text = readFileSync(GOLDEN, 'utf8').replace('"x":127', '"x":126');
     expect(replayText(text).ok).toBe(false);
+  });
+});
+
+describe('notes and config in the log', () => {
+  const golden = readFileSync(GOLDEN, 'utf8');
+  it('note lines are reported and do not affect the replay', () => {
+    const [header, ...rest] = golden.trimEnd().split('\n');
+    const text = [header, '{"k":"note","t":0,"text":"start"}', ...rest, '{"k":"note","t":9999,"text":"felt slow"}'].join('\n');
+    const r = replayText(text);
+    expect(r.ok).toBe(true);
+    expect(r.notes).toEqual([{ t: 0, text: 'start' }, { t: 9999, text: 'felt slow' }]);
+  });
+  it('a config hash mismatch names the parameters that changed', () => {
+    const [headerText, ...rest] = golden.trimEnd().split('\n');
+    const header = JSON.parse(headerText!) as Record<string, unknown>;
+    const current = loadConfig({ preset: header.preset as string, variants: header.variants as Record<string, string> });
+    const logged = structuredClone(current.values) as { horse: { accel: number } };
+    logged.horse.accel += 1;
+    const text = [JSON.stringify({ ...header, configHash: 'other', config: logged }), ...rest].join('\n');
+    const w = replayText(text).warnings;
+    expect(w[0]).toMatch(/^config hash differs/);
+    expect(w).toContain(`  horse.accel: log ${current.values.horse.accel + 1}, current ${current.values.horse.accel}`);
+  });
+});
+
+describe('configDiff', () => {
+  it('lists differing leaves only', () => {
+    expect(configDiff({ a: { b: 1, c: 2 }, d: [1] }, { a: { b: 1, c: 3 }, d: [1], e: true })).toEqual(['a.c: log 2, current 3', 'e: log missing, current true']);
   });
 });

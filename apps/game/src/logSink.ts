@@ -1,13 +1,15 @@
 // IndexedDB sink for the command and event logs, so a session survives a reload.
 // Lines are buffered and written in batches off the tick; the sim never waits on it.
+// It also keeps one summary row per run for the Playtests page; those are never pruned.
 import type { LogKind } from '@train-robber/sim';
+import type { RunRecord } from './runTracker';
 
 const DB_NAME = 'train-robber-logs';
 const KEEP_SESSIONS = 20;
 const FLUSH_MS = 1000;
 const FLUSH_LINES = 500;
 
-interface SessionRow { id: string; startedAt: string }
+export interface SessionRow { id: string; startedAt: string }
 interface LineRow { session: string; log: LogKind; line: string }
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
@@ -17,14 +19,31 @@ function done(tx: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = tx.onabort = () => reject(tx.error); });
 }
 
-function openDb(): Promise<IDBDatabase> {
-  const open = indexedDB.open(DB_NAME, 1);
-  open.onupgradeneeded = () => {
+export function openDb(): Promise<IDBDatabase> {
+  const open = indexedDB.open(DB_NAME, 2);
+  open.onupgradeneeded = (e) => {
     const db = open.result;
-    db.createObjectStore('sessions', { keyPath: 'id' });
-    db.createObjectStore('lines', { autoIncrement: true }).createIndex('bySession', ['session', 'log']);
+    if (e.oldVersion < 1) {
+      db.createObjectStore('sessions', { keyPath: 'id' });
+      db.createObjectStore('lines', { autoIncrement: true }).createIndex('bySession', ['session', 'log']);
+    }
+    if (e.oldVersion < 2) db.createObjectStore('runs', { keyPath: 'id' });
   };
   return req(open);
+}
+
+/** A stored log as NDJSON, in write order; empty when the session was pruned. */
+export async function readLog(db: IDBDatabase, session: string, log: LogKind): Promise<string> {
+  const rows = await req(db.transaction('lines', 'readonly').objectStore('lines').index('bySession').getAll([session, log])) as LineRow[];
+  return rows.length ? rows.map((r) => r.line).join('\n') + '\n' : '';
+}
+
+export async function listRuns(db: IDBDatabase): Promise<RunRecord[]> {
+  return await req(db.transaction('runs', 'readonly').objectStore('runs').getAll()) as RunRecord[];
+}
+
+export async function listSessions(db: IDBDatabase): Promise<SessionRow[]> {
+  return await req(db.transaction('sessions', 'readonly').objectStore('sessions').getAll()) as SessionRow[];
 }
 
 export class IndexedDbLogSink {
@@ -68,9 +87,14 @@ export class IndexedDbLogSink {
   /** The stored log as NDJSON, in write order. */
   async read(log: LogKind): Promise<string> {
     await this.flush();
-    const tx = this.db.transaction('lines', 'readonly');
-    const rows = await req(tx.objectStore('lines').index('bySession').getAll([this.session, log])) as LineRow[];
-    return rows.map((r) => r.line).join('\n') + '\n';
+    return readLog(this.db, this.session, log);
+  }
+
+  /** Store or replace a run's summary row. */
+  saveRun(run: RunRecord): void {
+    const tx = this.db.transaction('runs', 'readwrite');
+    tx.objectStore('runs').put(run);
+    done(tx).catch((e: unknown) => console.warn('run summary write failed', e));
   }
 }
 
@@ -93,9 +117,9 @@ async function prune(db: IDBDatabase): Promise<void> {
   await done(tx);
 }
 
-export function download(name: string, text: string): void {
+export function download(name: string, text: string, type = 'text/plain'): void {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+  a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 0);
