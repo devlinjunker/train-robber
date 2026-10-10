@@ -1,6 +1,6 @@
-// Occlusion in the isometric view: whether a car hides a point, so the view can draw an x-ray
-// silhouette of the horse and rider when they ride behind the train (the design's first
-// occlusion rule after the roof). Pure maths over the projection, no drawing.
+// Occlusion in the isometric view: whether a car hides a point, so the view can cut that car away
+// when the horse and rider (or the player aboard) are behind it (Devlin, 2026-10-10). Pure maths
+// over the projection, no drawing.
 import type { CarPose } from '@train-robber/sim';
 import { boxCorners } from './draw';
 import { depthOf, isoX, isoY } from '../projection';
@@ -25,18 +25,18 @@ export function insideConvex(hull: readonly Pt[], q: Pt): boolean {
 }
 
 /**
- * True when some car of `height` tiles is nearer the viewer than the point (x, y) and covers it on
- * screen at any of the heights `zs`. Depth is compared at the car's nearest footprint corner to the
- * point's own depth, so a horse beside the near side is never counted as hidden.
+ * True when the car, `height` tiles tall, is nearer the viewer than the point (x, y) and covers it
+ * on screen at any of the heights `zs`. Depth is compared at the car's centre, so a horse beside
+ * the near side is never counted as hidden.
  */
+export function carHides(car: CarPose, height: number, x: number, y: number, zs: readonly number[]): boolean {
+  if (depthOf(x, y) >= depthOf(car.x, car.y)) return false;
+  const corners = boxCorners({ ...car, z0: 0, z1: height });
+  const hull = convexHull(corners.flatMap(([cx, cy]) => [[isoX(cx, cy), isoY(cx, cy, 0)], [isoX(cx, cy), isoY(cx, cy, height)]] as Pt[]));
+  return zs.some((z) => insideConvex(hull, [isoX(x, y), isoY(x, y, z)]));
+}
+
+/** True when any of the cars hides the point; see `carHides`. */
 export function hiddenByCars(cars: readonly CarPose[], height: number, x: number, y: number, zs: readonly number[]): boolean {
-  const d = depthOf(x, y);
-  for (const car of cars) {
-    const corners = boxCorners({ ...car, z0: 0, z1: height });
-    // The point must be behind the car: farther from the viewer than the car's centre line.
-    if (d >= depthOf(car.x, car.y)) continue;
-    const hull = convexHull(corners.flatMap(([cx, cy]) => [[isoX(cx, cy), isoY(cx, cy, 0)], [isoX(cx, cy), isoY(cx, cy, height)]] as Pt[]));
-    if (zs.some((z) => insideConvex(hull, [isoX(x, y), isoY(x, y, z)]))) return true;
-  }
-  return false;
+  return cars.some((car) => carHides(car, height, x, y, zs));
 }

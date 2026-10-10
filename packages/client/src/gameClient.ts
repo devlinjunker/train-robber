@@ -17,16 +17,18 @@ import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
+export type ViewMode = 'iso' | 'topdown';
+
 const TOPDOWN_PX = 24;
 /**
- * Committing to a train locks the zoom here until the run ends, aboard too (Devlin, 2026-10-10):
- * the wheel and zoom keys do nothing during a run, and the riding zoom comes back after it.
+ * Committing to a train locks the zoom until the run ends, aboard too (Devlin, 2026-10-10): the
+ * wheel and zoom keys do nothing during a run, and the riding zoom comes back after it. Devlin
+ * picked 1.75 in the top-down view and 1 in iso; `?runZoom=` overrides both for playtests.
  */
-export const RUN_ZOOM = 1.75;
+export const RUN_ZOOM: Record<ViewMode, number> = { iso: 1, topdown: 1.75 };
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
 
-export type ViewMode = 'iso' | 'topdown';
 
 /** Numbers only the host knows, for the debug readout. */
 export interface HostStats {
@@ -59,6 +61,8 @@ export function showFatal(app: Application, message: string): void {
 }
 
 const params = new URLSearchParams(location.search);
+const runZoomParam = Number(params.get('runZoom'));
+const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
 
 export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef; config: ResolvedConfig; onExportLogs(): void }): GameClient {
   const { sim, map, config } = opts;
@@ -85,7 +89,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
 
   const onView = (a: ViewAction) => {
     if (a === 'zoomIn' || a === 'zoomOut') { if (!zoomLocked) zoom = stepZoom(zoom, a === 'zoomIn' ? 1 : -1); }
-    else if (a === 'toggleView') mode = mode === 'iso' ? 'topdown' : 'iso';
+    else if (a === 'toggleView') { mode = mode === 'iso' ? 'topdown' : 'iso'; if (zoomLocked) zoom = runZoom(mode); }
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
@@ -173,7 +177,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
-        if (zoomLocked) { ridingZoom = zoom; zoom = RUN_ZOOM; } else zoom = ridingZoom;
+        if (zoomLocked) { ridingZoom = zoom; zoom = runZoom(mode); } else zoom = ridingZoom;
       }
 
       // Camera: lead the horse along its velocity. Aboard, follow the player, leading by the

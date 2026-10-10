@@ -5,7 +5,7 @@ import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type Boardi
 import type { MapDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
-import { hiddenByCars } from './occlusion';
+import { carHides } from './occlusion';
 import { depthOf, isoX, isoY } from '../projection';
 import type { ActorPose } from '../interp';
 
@@ -14,12 +14,12 @@ const DOOR_COLOUR = 0xe8c872;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
-/** The car the player is in is drawn open: no roof, low walls and a plank floor, so they show inside it. */
+/** An open car (the one you are in, or one hiding you or the horse) has a plank floor, low walls and no roof. */
 const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
 const PLAYER_COLOUR = 0x6bd3ff;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
-/** Behind a car, the horse and rider (or the player) show through it as a flat see-through silhouette. */
-const XRAY_COLOUR = 0xdff4ff, XRAY_ALPHA = 0.5, XRAY_HEIGHTS = [0.6, 1.6];
+/** Heights checked when a car may hide the horse and rider or the player; a car that does is cut away. */
+const HIDDEN_HEIGHTS = [0.6, 1.6];
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -83,11 +83,9 @@ export function createWorldScene(map: MapDef): WorldScene {
   objects.sortableChildren = true;
   const markers = new Graphics();
   const zoneOverlay = new Graphics();
-  const xray = new Graphics();
-  xray.alpha = XRAY_ALPHA;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  root.addChild(terrain, mapOverlay, shadows, floors, objects, xray, zoneOverlay, markers);
+  root.addChild(terrain, mapOverlay, shadows, floors, objects, zoneOverlay, markers);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -150,7 +148,12 @@ export function createWorldScene(map: MapDef): WorldScene {
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
-        const open = input.aboard && input.aboard.trainId === car.trainId && input.aboard.index === car.index;
+        // The car you are in is open, and so is any car hiding the horse and rider or you: it is
+        // cut away to the same low walls rather than hiding who is behind it.
+        const a = input.aboard, h = input.horse;
+        const open = (a && a.trainId === car.trainId && a.index === car.index)
+          || (a && carHides(car, CAR_HEIGHT, a.x, a.y, HIDDEN_HEIGHTS))
+          || (h && carHides(car, CAR_HEIGHT, h.x, h.y, HIDDEN_HEIGHTS));
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
           const g = piece();
@@ -177,11 +180,6 @@ export function createWorldScene(map: MapDef): WorldScene {
       }
       for (let i = used; i < slicePool.length; i++) slicePool[i]!.visible = false;
 
-      // Cars that can hide someone: every closed car (the open one has low walls).
-      const closed = input.aboard ? input.cars.filter((c) => !(c.trainId === input.aboard!.trainId && c.index === input.aboard!.index)) : input.cars;
-      const hidden = (x: number, y: number) => hiddenByCars(closed, CAR_HEIGHT, x, y, XRAY_HEIGHTS);
-      xray.clear();
-
       // The player aboard, walking in the open car.
       playerG.clear();
       playerG.visible = input.aboard !== null;
@@ -190,7 +188,6 @@ export function createWorldScene(map: MapDef): WorldScene {
         groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
         drawBox(playerG, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, PLAYER_COLOUR);
         playerG.zIndex = depthOf(p.x, p.y);
-        if (hidden(p.x, p.y)) drawBox(xray, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, XRAY_COLOUR);
       }
 
       // The horse: a body box along its heading, a head, and the rider on top.
@@ -210,7 +207,6 @@ export function createWorldScene(map: MapDef): WorldScene {
         drawBox(horseG, head, c);
         drawBox(horseG, rider, flash ? 0xffffff : RIDER_COLOUR);
         horseG.zIndex = depthOf(h.x, h.y);
-        if (hidden(h.x, h.y)) for (const b of [legs, body, head, rider]) drawBox(xray, b, XRAY_COLOUR);
       }
 
       // Debug zones: the boarding range around every entry point (B toggles).
