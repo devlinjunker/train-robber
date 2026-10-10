@@ -54,7 +54,7 @@ const commands: Record<string, (args: string[]) => number | null> = {
     return ok ? 0 : 1;
   },
   report(files) {
-    if (!files.length) { console.error('usage: tools report <events.ndjson>...'); return 2; }
+    if (!files.length) { console.error('usage: tools report <file>.events.log...'); return 2; }
     console.log(formatReport(reportFromLogs(files.map((f) => readFileSync(f, 'utf8')))));
     return 0;
   },
