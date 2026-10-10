@@ -1,0 +1,173 @@
+{
+ "compressionlevel": -1,
+ "height": 200,
+ "infinite": false,
+ "layers": [
+  {
+   "compression": "zlib",
+   "data": "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",
+   "encoding": "base64",
+   "height": 200,
+   "id": 1,
+   "name": "terrain",
+   "opacity": 1,
+   "type": "tilelayer",
+   "visible": true,
+   "width": 400,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 2,
+   "name": "track",
+   "objects": [
+    {
+     "height": 0,
+     "id": 10,
+     "name": "main",
+     "polyline": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1920.0,
+       "y": 0.0
+      },
+      {
+       "x": 3840.0,
+       "y": 0.0
+      },
+      {
+       "x": 4256.0,
+       "y": 111.47
+      },
+      {
+       "x": 4560.53,
+       "y": 416.0
+      },
+      {
+       "x": 4672.0,
+       "y": 832.0
+      },
+      {
+       "x": 4560.53,
+       "y": 1248.0
+      },
+      {
+       "x": 4256.0,
+       "y": 1552.53
+      },
+      {
+       "x": 3840.0,
+       "y": 1664.0
+      },
+      {
+       "x": 1920.0,
+       "y": 1664.0
+      },
+      {
+       "x": 0.0,
+       "y": 1664.0
+      },
+      {
+       "x": -416.0,
+       "y": 1552.53
+      },
+      {
+       "x": -720.53,
+       "y": 1248.0
+      },
+      {
+       "x": -832.0,
+       "y": 832.0
+      },
+      {
+       "x": -720.53,
+       "y": 416.0
+      },
+      {
+       "x": -416.0,
+       "y": 111.47
+      }
+     ],
+     "properties": [
+      {
+       "name": "closed",
+       "type": "bool",
+       "value": true
+      },
+      {
+       "name": "route",
+       "type": "string",
+       "value": "main"
+      }
+     ],
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 0,
+     "x": 4480,
+     "y": 2368
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 3,
+   "name": "speedZones",
+   "objects": [],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 4,
+   "name": "markers",
+   "objects": [
+    {
+     "id": 2,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "playerSpawn",
+     "point": true,
+     "x": 6400,
+     "y": 5824
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 5,
+ "nextobjectid": 20,
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "tiledversion": "1.10.2",
+ "tileheight": 32,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "zones.tsj"
+  }
+ ],
+ "tilewidth": 32,
+ "type": "map",
+ "version": "1.10",
+ "width": 400
+}

@@ -13,8 +13,12 @@ export interface SimMap {
   /** Row-major run-length encoding: [count, legend index] pairs. */
   zones: readonly (readonly [number, number])[];
   routes: readonly SimRoute[];
+  /** Trains the map starts with; without it the sim starts its default train. */
+  trains?: readonly MapTrain[];
   markers: { playerSpawn: { x: number; y: number } };
 }
+
+export interface MapTrain { type: string; route: string; d: number }
 
 /** How a tile affects the horse. */
 export const Terrain = { Open: 0, Slow: 1, Blocked: 2 } as const;
@@ -29,6 +33,7 @@ export interface WorldMap {
   /** One Terrain per tile, row-major. */
   terrain: Uint8Array;
   routes: ReadonlyMap<string, SimRoute>;
+  trains: readonly MapTrain[] | undefined;
   playerSpawn: { x: number; y: number };
 }
 
@@ -38,7 +43,7 @@ export function mapHash(map: SimMap): string {
     const { x, y, s, tx, ty } = route.samples;
     return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty } };
   };
-  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn });
+  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}) });
 }
 
 export function prepareMap(map: SimMap): WorldMap {
@@ -58,6 +63,7 @@ export function prepareMap(map: SimMap): WorldMap {
     rows,
     terrain,
     routes: new Map(map.routes.map((r) => [r.id, r])),
+    trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
   };
 }

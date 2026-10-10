@@ -39,12 +39,20 @@ export const MapDefSchema = z.object({
   zones: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0)])),
   routes: z.array(RouteSchema).min(1),
   speedZones: z.array(z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive(), speedScale: z.number().gt(0).max(1) }).strict()),
+  /**
+   * Trains this map starts with, each on one of its routes at distance `d`. Without it the sim
+   * starts the one blank train on the route its config names.
+   */
+  trains: z.array(z.object({ type: z.string(), route: z.string(), d: z.number().min(0) }).strict()).min(1).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
 }).strict().superRefine((m, ctx) => {
   const tiles = m.zones.reduce((n, [count]) => n + count, 0);
   if (tiles !== m.size.cols * m.size.rows) ctx.addIssue({ code: 'custom', path: ['zones'], message: `zones cover ${tiles} tiles, map has ${m.size.cols * m.size.rows}` });
   if (m.zones.some(([, i]) => i >= m.zoneLegend.length)) ctx.addIssue({ code: 'custom', path: ['zones'], message: 'zone index outside the legend' });
+  m.trains?.forEach((t, i) => {
+    if (!m.routes.some((r) => r.id === t.route)) ctx.addIssue({ code: 'custom', path: ['trains', i, 'route'], message: `no route ${t.route}` });
+  });
 });
 export type MapDef = z.infer<typeof MapDefSchema>;
 

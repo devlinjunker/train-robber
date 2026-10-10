@@ -1,7 +1,7 @@
 // Scripted golden run. `npm run golden:update` rewrites the checked-in replay
 // after a deliberate sim change; the replay test then guards it.
 import {
-  boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, trackAt, trainSpeed,
+  boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, routeOf, trackAt, trainSpeed,
   type Command, type GameState, type InputFrame, type RunHeader, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import { DEFAULT_MAP, gameVersion, loadConfig, loadMapDef } from './content';
@@ -31,7 +31,7 @@ function riderCommands(sim: Sim, config: SimConfig, trainId: string, side: 'left
   const s = sim.state as GameState;
   const h = s.world.horses[0]!;
   const train = s.world.trains.find((t) => t.id === trainId)!;
-  const route = sim.map.routes.get(config.values.trains[train.type]!.route)!;
+  const { route } = routeOf(sim.map, config, train);
   const door = carPosesOf(s, sim.map, config, trainId)[1]!;
   const doorD = routeDistance(route, door.x, door.y);
   const horseD = routeDistance(route, h.x, h.y);
