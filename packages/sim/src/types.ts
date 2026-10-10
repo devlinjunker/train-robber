@@ -46,7 +46,6 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
   /** `retry` marks a quick retry, which ends the run as a cancel. */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean }
-  | { type: 'RunCancelled'; tick: number; player: PlayerId }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState };
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }

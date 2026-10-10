@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createSim, parseLog, type CommandLogLine, type InputFrame } from '@train-robber/sim';
 import { configDiff, replayText } from '../src/replay';
-import { loadConfig } from '../src/content';
+import { loadConfig, loadMapDef } from '../src/content';
 import { recordGolden } from '../src/golden';
 
 const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/golden.commands.ndjson');
@@ -20,6 +21,24 @@ describe('golden replay', () => {
   it('the golden script still records the checked-in file', () => {
     // Fails when the sim, config or script changes; rerun `npm run golden:update` if intended.
     expect(recordGolden()).toBe(readFileSync(GOLDEN, 'utf8'));
+  });
+  it('the golden run commits, fails two jumps, lands the third as good, and cancels aboard', () => {
+    const log = parseLog<CommandLogLine>(readFileSync(GOLDEN, 'utf8'));
+    const h = log.header;
+    const sim = createSim({ config: loadConfig({ preset: h.preset, variants: h.variants }), map: loadMapDef(h.mapId), seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
+    const byTick = new Map<number, InputFrame['commands']>();
+    for (const l of log.lines) if (l.k === 'cmd') byTick.set(l.t, l.c);
+    const seen: string[] = [];
+    const end = log.lines.find((l) => l.k === 'end')!.t;
+    for (let t = 0; t < end; t++) {
+      for (const e of sim.step([{ player: 1, commands: byTick.get(t) ?? [] }]).events) {
+        if (e.type === 'RunStarted') seen.push('commit');
+        else if (e.type === 'BoardingAttempt') seen.push(e.result);
+        else if (e.type === 'RunPhaseChanged' && e.to === 'aboard') seen.push('aboard');
+        else if (e.type === 'RunEnded') seen.push(e.outcome);
+      }
+    }
+    expect(seen).toEqual(['commit', 'fail', 'fail', 'good', 'aboard', 'cancelled']);
   });
   it('a tampered command is detected', () => {
     const text = readFileSync(GOLDEN, 'utf8').replace('"x":127', '"x":126');

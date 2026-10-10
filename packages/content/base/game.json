@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
-  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "BoardingAttempt", "DamageDealt", "CommandRejected", "RunEnded", "RunCancelled", "PersistentChanged"] },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "BoardingAttempt", "DamageDealt", "CommandRejected", "RunEnded", "PersistentChanged"] },
   "player": { "speedTilesPerSec": 8 },
   "world": { "mode": "separate" },
   "horse": {

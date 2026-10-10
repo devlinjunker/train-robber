@@ -324,7 +324,7 @@ describe('cancel', () => {
       const ev = step(sim, { type: 'cancelRun' });
       expect(phases(ev)).toEqual([`${phase}>ended`, 'ended>idle']);
       expect(ev.find((e) => e.type === 'RunEnded')).toMatchObject({ outcome: 'cancelled', retry: false });
-      expect(ev.some((e) => e.type === 'RunCancelled')).toBe(true);
+      expect(ev.some((e) => (e.type as string) === 'RunCancelled')).toBe(false);
       expect(S(sim).run).toBeNull();
       expect(horse(sim)).toMatchObject({ x: SPAWN.x, y: SPAWN.y, speed: 0, stunTicks: 0, mode: 'physical' });
       expect(S(sim).players[0]!.placement).toEqual({ frame: 'world', x: SPAWN.x, y: SPAWN.y, layer: 'ground' });
