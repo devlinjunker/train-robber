@@ -14,7 +14,7 @@
     "speedToleranceTilesPerSec": 2,
     "meter": { "sweepPeriodSec": 1.3, "matchedSweepPeriodSec": 1.85, "zoneWidths": [0.03, 0.15] },
     "failure": { "stunSec": 1.5, "damageFraction": 0.15, "horseSpeedScale": 0.5 },
-    "landing": { "stumbleSec": 2.5, "stumbleSpeedScale": 0.33 }
+    "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33 }
   },
   "health": { "max": 100 },
   "playtest": { "quickRetry": true, "quickRetryGapTiles": 60 },
