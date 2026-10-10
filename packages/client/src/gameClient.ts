@@ -26,6 +26,8 @@ const TOPDOWN_PX = 24;
  * picked 1.75 in the top-down view and 1 in iso; `?runZoom=` overrides both for playtests.
  */
 export const RUN_ZOOM: Record<ViewMode, number> = { iso: 1, topdown: 1.75 };
+/** How fast the shown zoom closes on its target, per second (about 0.7 s to settle). */
+const ZOOM_RATE = 5;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
 
@@ -75,6 +77,8 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   let zoom = DEFAULT_ZOOM;
   let showDebug = true;
   let zoomLocked = false, ridingZoom = zoom;
+  // The zoom on screen eases toward `zoom`, so committing, the run ending and zoom keys never jump.
+  let shownZoom = zoom;
 
   // Isometric scenes.
   const isoWorld = createWorldScene(map);
@@ -189,7 +193,9 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
         })() : null;
       if (camTarget) follow(cam, camTarget, dt, Math.hypot(camTarget.x - cam.x, camTarget.y - cam.y) > SNAP_TILES);
       const W = app.screen.width, H = app.screen.height;
-      const camera: Camera = { x: cam.x, y: cam.y, zoom, width: W, height: H };
+      shownZoom *= (zoom / shownZoom) ** (1 - Math.exp(-ZOOM_RATE * dt));
+      if (Math.abs(shownZoom / zoom - 1) < 1e-3) shownZoom = zoom;
+      const camera: Camera = { x: cam.x, y: cam.y, zoom: shownZoom, width: W, height: H };
 
       const iso = mode === 'iso';
       isoWorld.root.visible = iso;
@@ -202,17 +208,17 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
           cars, horse, stunned: horseState.stunTicks > 0, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
         });
-        isoWorld.root.scale.set(zoom);
+        isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
         isoWorld.root.position.set(W / 2, H / 2);
         project = (x, y, z) => worldToScreen(x, y, z, camera);
       } else {
         // Top-down keeps the world's orientation; aboard, it follows the player's place on the car.
         topdownView.update(cars, { horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt });
-        topdown.scale.set(TOPDOWN_PX * zoom);
+        topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
         topdown.position.set(W / 2, H / 2);
-        project = (x, y) => ({ x: (x - cam.x) * TOPDOWN_PX * zoom + W / 2, y: (y - cam.y) * TOPDOWN_PX * zoom + H / 2 });
+        project = (x, y) => ({ x: (x - cam.x) * TOPDOWN_PX * shownZoom + W / 2, y: (y - cam.y) * TOPDOWN_PX * shownZoom + H / 2 });
       }
 
       // Screen-space cues: meter and speed above the horse, arrows to trains off screen.
