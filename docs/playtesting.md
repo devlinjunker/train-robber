@@ -15,7 +15,7 @@ How to play a build, switch between variants, change tuning values, and record w
 | `preset` | `?preset=alpha-default` | Picks a preset (one variant per group). `alpha-default` is the only one so far. |
 | `v` | `?v=throttleModel:coast` | Swaps one group's variant. Repeat it for several groups. |
 | `seed` | `?seed=abc123` | Fixes the seed so a run can be repeated. Without one the page picks a random seed. |
-| `map` | `?map=alpha-flats` | Picks a built map from `packages/content/base/maps`. |
+| `map` | `?map=alpha-flats` | Picks a built map from `packages/content/base/maps` (see [Maps](#maps)). |
 | `view` | `?view=topdown` | Starts in the top-down debug view instead of the isometric one (V switches either way). |
 
 Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=test1`. The debug readout's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
@@ -58,6 +58,22 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Committing to a train locks the zoom for the whole run (1 in iso, 1.75 top-down, or `?runZoom=`), aboard too; the zoom keys and wheel come back when the run ends, at the zoom you rode with. Every zoom change, including those two, eases over about half a second rather than jumping. Aboard, the view stays the same: your car opens up (no roof, low walls) so you can see yourself walking in it, and the camera rides along with the train. When a car is between the camera and your horse and rider (or you, aboard), a round hole is cut through the car around you, so you and the ground behind it show through.
 
 The debug readout (top left, backquote hides it) keeps the details: the `run:` line with the phase and jump count, the `boarding:` line with the door distance and speed difference, the meter position and bands, and the in-zone timer for how long you have held the zone. B shows the boarding range circles around every door.
+
+## Maps
+
+Every map has one closed `main` route that the blank train loops on, and the rider starts mounted and stopped at `playerSpawn`. `alpha-flats` stays the default; the others exist to see how the loop's shape, its length and the ground near it change riding and boarding.
+
+| Map | Size | Loop | What it tests |
+| --- | --- | --- | --- |
+| [`alpha-flats`](https://devlinjunker.github.io/train-robber/?map=alpha-flats) | 400 × 200 | 731 tiles, about 81 s | The baseline stadium: two 240-tile straights, radius-40 U-turns, open ground below the bottom straight. |
+| [`tight-loop`](https://devlinjunker.github.io/train-robber/?map=tight-loop) | 400 × 200 | 403 tiles, about 45 s | A short stadium with 120-tile straights and radius-26 U-turns: more time in the curves, and a missed train is back in half the time. A boulder field and two mud flats sit between the spawn and the bottom straight. |
+| [`long-sweep`](https://devlinjunker.github.io/train-robber/?map=long-sweep) | 400 × 200 | 811 tiles, about 90 s | An irregular loop with gentle curves (radius 48 to 50) and an S-bend dent on the bottom side around a lake, so the train passes the spawn pocket on three sides. |
+| [`canyon-run`](https://devlinjunker.github.io/train-robber/?map=canyon-run) | 400 × 200 | 748 tiles, about 83 s | An irregular loop with a radius-25 hairpin and a kink, and a bottom straight that runs between two rock walls 9 tiles either side of the track. You ride in through gaps in the outer wall, past mud and a creek. |
+| [`big-country`](https://devlinjunker.github.io/train-robber/?map=big-country) | 800 × 400 | 1,767 tiles, about 197 s | Twice the width and height of `alpha-flats`, to judge map size. A long irregular loop around two lakes, with a rock ridge and two passes between the spawn and the track. Use R (quick retry) rather than waiting for the train to come round. |
+
+The loop times are at the blank train's 9 tiles per second. The radii are as drawn; the baked spline is a little tighter where a curve meets a straight (`npm run maps` prints the tightest one), and `packages/tools/test/all-maps.test.ts` keeps every map's tightest curve at 17 tiles or more, keeps rideable ground within 5 tiles of the whole track, and checks the track can be reached from the spawn.
+
+Map changes (zones, the route, the spawn) are made in Tiled: open the `.tmj` in `packages/content/maps-src/` and save, with `npm run maps:watch` rebuilding the map on every save. A new `.tmj` there becomes a new `?map=` id with no other change. See "Tiled workflow in detail" in the design doc.
 
 ## Changing a value
 
@@ -103,7 +119,7 @@ The loop:
 | Quick retry on R, and its gap behind the train | `playtest.quickRetry`, `playtest.quickRetryGapTiles` | on, 60 tiles |
 | Train speed | `trains.blank.speedTilesPerSec` | 9 tiles/s |
 
-Map changes (zones, the route, the spawn) are made in Tiled in `packages/content/maps-src/`; `npm run maps:watch` rebuilds the map on every save. See "Tiled workflow in detail" in the design doc.
+Map changes are covered under [Maps](#maps).
 
 ### Adding a variant
 

@@ -1,0 +1,209 @@
+{
+ "compressionlevel": -1,
+ "height": 200,
+ "infinite": false,
+ "layers": [
+  {
+   "compression": "zlib",
+   "data": "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",
+   "encoding": "base64",
+   "height": 200,
+   "id": 1,
+   "name": "terrain",
+   "opacity": 1,
+   "type": "tilelayer",
+   "visible": true,
+   "width": 400,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 2,
+   "name": "track",
+   "objects": [
+    {
+     "height": 0,
+     "id": 1,
+     "name": "main",
+     "polyline": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1767.85,
+       "y": 0.0
+      },
+      {
+       "x": 3535.69,
+       "y": 0.0
+      },
+      {
+       "x": 5303.54,
+       "y": 0.0
+      },
+      {
+       "x": 7071.38,
+       "y": 0.0
+      },
+      {
+       "x": 7471.38,
+       "y": 107.18
+      },
+      {
+       "x": 7764.2,
+       "y": 400.0
+      },
+      {
+       "x": 7871.38,
+       "y": 800.0
+      },
+      {
+       "x": 7764.2,
+       "y": 1200.0
+      },
+      {
+       "x": 7471.38,
+       "y": 1492.82
+      },
+      {
+       "x": 6640.0,
+       "y": 1972.82
+      },
+      {
+       "x": 6230.05,
+       "y": 2382.77
+      },
+      {
+       "x": 6080.0,
+       "y": 2942.77
+      },
+      {
+       "x": 5908.51,
+       "y": 3582.77
+      },
+      {
+       "x": 5440.0,
+       "y": 4051.28
+      },
+      {
+       "x": 4800.0,
+       "y": 4222.77
+      },
+      {
+       "x": 3200.0,
+       "y": 4222.77
+      },
+      {
+       "x": 1600.0,
+       "y": 4222.77
+      },
+      {
+       "x": 0.0,
+       "y": 4222.77
+      },
+      {
+       "x": -720.0,
+       "y": 4029.85
+      },
+      {
+       "x": -1247.08,
+       "y": 3502.77
+      },
+      {
+       "x": -1440.0,
+       "y": 2782.77
+      },
+      {
+       "x": -1440.0,
+       "y": 1440.0
+      },
+      {
+       "x": -1247.08,
+       "y": 720.0
+      },
+      {
+       "x": -720.0,
+       "y": 192.92
+      }
+     ],
+     "properties": [
+      {
+       "name": "closed",
+       "type": "bool",
+       "value": true
+      },
+      {
+       "name": "route",
+       "type": "string",
+       "value": "main"
+      }
+     ],
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 0,
+     "x": 2880,
+     "y": 576
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 3,
+   "name": "speedZones",
+   "objects": [],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 4,
+   "name": "markers",
+   "objects": [
+    {
+     "id": 2,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "playerSpawn",
+     "point": true,
+     "x": 4800,
+     "y": 6016
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 5,
+ "nextobjectid": 3,
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "tiledversion": "1.10.2",
+ "tileheight": 32,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "zones.tsj"
+  }
+ ],
+ "tilewidth": 32,
+ "type": "map",
+ "version": "1.10",
+ "width": 400
+}
