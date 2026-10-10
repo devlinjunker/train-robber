@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createSim, type BoardingCheck } from '@train-robber/sim';
 import { Interpolator } from '../src/interp';
 import { follow, LEAD_MAX_TILES, lookAheadTarget } from '../src/camera';
-import { carCellToInterior, interiorDirToCar } from '../src/iso/interiorFrame';
+import { worldDirToCar } from '../src/input';
 import { speedLabel } from '../src/cues';
 import { testConfig, testMap } from './fixtures';
 
@@ -55,14 +55,14 @@ describe('camera', () => {
   });
 });
 
-describe('train scene frame', () => {
-  it('puts the front up-right on screen (-y) and the right side toward +x', () => {
-    const front = carCellToInterior('blank-car', 0, 3), rear = carCellToInterior('blank-car', 16, 3);
-    expect(front.y).toBeLessThan(rear.y);
-    expect(carCellToInterior('blank-car', 8, 6).x).toBeGreaterThan(carCellToInterior('blank-car', 8, 0).x);
-    const [f1, r1] = interiorDirToCar(0, -1), [f2, r2] = interiorDirToCar(1, 0);
-    expect([f1 + 0, r1 + 0]).toEqual([1, 0]);
-    expect([f2 + 0, r2 + 0]).toEqual([0, 1]);
+describe('walking aboard', () => {
+  it('turns a world direction into the car frame, front and right side', () => {
+    const car = { ux: 1, uy: 0 }; // front toward +x, so the right side is +y
+    expect(worldDirToCar(1, 0, car)).toEqual([1, 0]);
+    const [f, r] = worldDirToCar(0, 1, car);
+    expect([f + 0, r]).toEqual([0, 1]);
+    const [f2, r2] = worldDirToCar(0, -1, { ux: 0, uy: -1 });
+    expect([f2, r2 + 0]).toEqual([1, 0]);
   });
 });
 

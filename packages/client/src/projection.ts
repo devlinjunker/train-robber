@@ -62,7 +62,7 @@ export function screenDirToWorld(dx: number, dy: number): [number, number] {
 /**
  * A key direction (arrows or WASD, -1..1 per axis) as a unit world direction. Single keys follow
  * the inverse projection exactly (right on screen stays right on screen), and two-key diagonals
- * land on the world axes, the tile edges that tracks, car walls and the train scene run along.
+ * land on the world axes, the tile edges that tracks, car walls and walking aboard run along.
  * Keys only make 45° diagonals, and an axis is 26.6° from horizontal on a 2:1 screen, so the exact
  * inverse would leave no way to ride or walk straight along one.
  */

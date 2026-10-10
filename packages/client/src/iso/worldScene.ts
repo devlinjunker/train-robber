@@ -1,10 +1,11 @@
 // The isometric world: terrain and track, cars drawn as flat-shaded boxes in two-tile slices
 // that depth-sort one by one against the horse, entry markers and the debug overlays.
 import { Container, Graphics } from 'pixi.js';
-import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
+import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
+import { hiddenByCars } from './occlusion';
 import { depthOf, isoX, isoY } from '../projection';
 import type { ActorPose } from '../interp';
 
@@ -13,7 +14,12 @@ const DOOR_COLOUR = 0xe8c872;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
+/** The car the player is in is drawn open: no roof, low walls and a plank floor, so they show inside it. */
+const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
+const PLAYER_COLOUR = 0x6bd3ff;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
+/** Behind a car, the horse and rider (or the player) show through it as a flat see-through silhouette. */
+const XRAY_COLOUR = 0xdff4ff, XRAY_ALPHA = 0.5, XRAY_HEIGHTS = [0.6, 1.6];
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -28,6 +34,8 @@ export interface WorldSceneInput {
   trainId: string | null;
   rangeTiles: number;
   timeSec: number;
+  /** The car the player is aboard, drawn open, and the player's world position in it. */
+  aboard: { trainId: string; index: number; x: number; y: number } | null;
 }
 
 export interface WorldScene {
@@ -70,35 +78,82 @@ export function createWorldScene(map: MapDef): WorldScene {
   root.label = 'iso-world';
   const terrain = drawTerrain(map);
   const shadows = new Graphics();
+  const floors = new Graphics();
   const objects = new Container();
   objects.sortableChildren = true;
   const markers = new Graphics();
   const zoneOverlay = new Graphics();
+  const xray = new Graphics();
+  xray.alpha = XRAY_ALPHA;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  root.addChild(terrain, mapOverlay, shadows, objects, zoneOverlay, markers);
+  root.addChild(terrain, mapOverlay, shadows, floors, objects, xray, zoneOverlay, markers);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
-  objects.addChild(horseG);
+  const playerG = new Graphics();
+  objects.addChild(horseG, playerG);
+  const piece = () => {
+    let g = slicePool[used];
+    if (!g) { g = new Graphics(); slicePool.push(g); objects.addChild(g); }
+    g.visible = true;
+    g.clear();
+    used++;
+    return g;
+  };
+  let used = 0;
+
+  /** One slice of the open car: its floor on the floor layer, then low walls with gaps at the doors, each sorted on its own. */
+  const drawOpenSlice = (s: ReturnType<typeof carSlices>[number], doors: ReturnType<typeof doorSpans>, colour: number) => {
+    const b = s.box;
+    floors.poly(isoPoly(boxCorners(b), 0.02)).fill(FLOOR_COLOUR);
+    const mid = (s.along0 + s.along1) / 2;
+    const wall = (a0: number, a1: number, across: number, halfWidth: number, ux: number, uy: number) => {
+      const am = (a0 + a1) / 2 - mid, lx = b.uy, ly = -b.ux;
+      const box: Box = { x: b.x + b.ux * am + lx * across, y: b.y + b.uy * am + ly * across, ux, uy, halfLength: (a1 - a0) / 2, halfWidth, z0: 0, z1: OPEN_WALL_HEIGHT };
+      const g = piece();
+      drawBox(g, box, colour);
+      g.zIndex = depthOf(box.x, box.y);
+    };
+    const inner = b.halfWidth - OPEN_WALL_THICK / 2;
+    for (const side of ['left', 'right'] as const) {
+      // The side wall over this slice, minus the door openings on that side.
+      let cuts = [[s.along0, s.along1]];
+      for (const d of doors) {
+        if (d.side !== side) continue;
+        cuts = cuts.flatMap(([c0, c1]) => [[c0!, Math.min(c1!, d.a0)], [Math.max(c0!, d.a1), c1!]]).filter(([c0, c1]) => c1! - c0! > 1e-6);
+      }
+      for (const [c0, c1] of cuts) wall(c0!, c1!, side === 'left' ? inner : -inner, OPEN_WALL_THICK / 2, b.ux, b.uy);
+    }
+    // End walls on the car's real ends, across the car.
+    const endWall = (along: number) => {
+      const a = along - mid;
+      const box: Box = { x: b.x + b.ux * a, y: b.y + b.uy * a, ux: b.ux, uy: b.uy, halfLength: OPEN_WALL_THICK / 2, halfWidth: b.halfWidth, z0: 0, z1: OPEN_WALL_HEIGHT };
+      const g = piece();
+      drawBox(g, box, colour);
+      g.zIndex = depthOf(box.x, box.y);
+    };
+    if (s.first) endWall(s.along1 - OPEN_WALL_THICK / 2);
+    if (s.last) endWall(s.along0 + OPEN_WALL_THICK / 2);
+  };
 
   return {
     root, mapOverlay, zoneOverlay,
     update(input) {
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
-      let used = 0;
+      used = 0;
       shadows.clear();
+      floors.clear();
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
+        const open = input.aboard && input.aboard.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
-          let g = slicePool[used];
-          if (!g) { g = new Graphics(); slicePool.push(g); objects.addChild(g); }
-          g.visible = true;
-          g.clear();
+          if (open) { drawOpenSlice(s, doors, colour); continue; }
+          const g = piece();
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
           for (const d of doors) {
@@ -118,10 +173,25 @@ export function createWorldScene(map: MapDef): WorldScene {
             ], CAR_HEIGHT + 0.01)).fill({ color: 0xffffff, alpha: 0.55 });
           }
           g.zIndex = depthOf(s.box.x, s.box.y);
-          used++;
         }
       }
       for (let i = used; i < slicePool.length; i++) slicePool[i]!.visible = false;
+
+      // Cars that can hide someone: every closed car (the open one has low walls).
+      const closed = input.aboard ? input.cars.filter((c) => !(c.trainId === input.aboard!.trainId && c.index === input.aboard!.index)) : input.cars;
+      const hidden = (x: number, y: number) => hiddenByCars(closed, CAR_HEIGHT, x, y, XRAY_HEIGHTS);
+      xray.clear();
+
+      // The player aboard, walking in the open car.
+      playerG.clear();
+      playerG.visible = input.aboard !== null;
+      if (input.aboard) {
+        const p = input.aboard;
+        groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
+        drawBox(playerG, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, PLAYER_COLOUR);
+        playerG.zIndex = depthOf(p.x, p.y);
+        if (hidden(p.x, p.y)) drawBox(xray, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, XRAY_COLOUR);
+      }
 
       // The horse: a body box along its heading, a head, and the rider on top.
       horseG.clear();
@@ -140,6 +210,7 @@ export function createWorldScene(map: MapDef): WorldScene {
         drawBox(horseG, head, c);
         drawBox(horseG, rider, flash ? 0xffffff : RIDER_COLOUR);
         horseG.zIndex = depthOf(h.x, h.y);
+        if (hidden(h.x, h.y)) for (const b of [legs, body, head, rider]) drawBox(xray, b, XRAY_COLOUR);
       }
 
       // Debug zones: the boarding range around every entry point (B toggles).

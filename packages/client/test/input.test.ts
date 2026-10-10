@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { InputMapper, WALK_AXIS, type GameAction, type MapContext } from '../src/input';
+import { InputMapper, WALK_AXIS, worldDirToCar, type GameAction, type MapContext } from '../src/input';
 import { keyDirToWorld } from '../src/projection';
-import { interiorDirToCar } from '../src/iso/interiorFrame';
 
 const snap = (held: string[], actions: GameAction[] = []) => ({ held: new Set(held), actions });
 const iso = (over: Partial<MapContext> = {}): MapContext => ({
   steering: 'heading', aboard: false,
-  keyDirToWorld, keyDirToCar: (dx, dy) => interiorDirToCar(...keyDirToWorld(dx, dy)),
+  // Aboard a car whose front points up-right on screen (world -y).
+  keyDirToWorld, keyDirToCar: (dx, dy) => worldDirToCar(...keyDirToWorld(dx, dy), { ux: 0, uy: -1 }),
   commitTarget: () => null, ...over,
 });
 
@@ -30,10 +30,10 @@ describe('input mapper', () => {
     expect(m.commands(snap(['ArrowRight', 'ArrowUp', 'KeyA', 'KeyW']), ctx)).toEqual([{ type: 'move', x: 0, y: -127 }]);
   });
 
-  it('aboard in iso: WASD walk in the car frame at half axis, Shift runs', () => {
+  it('aboard: WASD walk in the car frame at half axis, Shift runs', () => {
     const m = new InputMapper();
     const ctx = iso({ aboard: true });
-    // Up-right on screen is the car's front, so W+D walks straight toward the front.
+    // Up-right on screen is this car's front, so W+D walks straight toward the front.
     expect(m.commands(snap(['KeyW', 'KeyD']), ctx)).toEqual([{ type: 'move', x: WALK_AXIS, y: 0 }]);
     // Down-right on screen is the car's right side.
     expect(m.commands(snap(['KeyS', 'KeyD', 'ShiftLeft']), ctx)).toEqual([{ type: 'move', x: 0, y: 127 }]);

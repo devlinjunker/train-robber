@@ -2,16 +2,15 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, commitTarget, distanceToTrain, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  boardingCheck, carToWorld, commitTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig } from '@train-robber/config';
-import { InputMapper, KeyboardSource, type MapContext, type ViewAction } from './input';
+import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
 import { Interpolator } from './interp';
-import { follow, lookAheadTarget } from './camera';
+import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
 import { clampZoom, DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
-import { createInteriorScene, interiorDirToCar } from './iso/interiorScene';
 import { createScreenOverlay, type MeterView, type TrainPointer } from './screenOverlay';
 import { createHud } from './hud';
 import { createWorldView } from './topdown/worldView';
@@ -24,8 +23,6 @@ const TOPDOWN_PX = 24;
  * the wheel and zoom keys do nothing during a run, and the riding zoom comes back after it.
  */
 export const RUN_ZOOM = 1.75;
-/** Seconds for the camera ease into the train scene, and back out. */
-const EASE_IN_SEC = 0.5, EASE_OUT_SEC = 0.3;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
 
@@ -61,8 +58,6 @@ export function showFatal(app: Application, message: string): void {
   app.stage.addChild(new Text({ text: message, style: { fill: '#ff8080', fontSize: 14, fontFamily: 'monospace' } })).position.set(8, 8);
 }
 
-const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2);
-const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
 const params = new URLSearchParams(location.search);
 
 export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef; config: ResolvedConfig; onExportLogs(): void }): GameClient {
@@ -79,15 +74,13 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
 
   // Isometric scenes.
   const isoWorld = createWorldScene(map);
-  const interior = createInteriorScene();
-  interior.root.visible = false;
   // Top-down debug view.
   const topdown = new Container();
   const topdownOverlay = drawMapOverlay(map);
   const topdownView = createWorldView();
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
-  app.stage.addChild(isoWorld.root, interior.root, topdown, overlay.root);
+  app.stage.addChild(isoWorld.root, topdown, overlay.root);
   const hud = createHud();
 
   const onView = (a: ViewAction) => {
@@ -119,14 +112,10 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       return n === 0 ? [0, 0] : [dx / n, dy / n];
     },
     keyDirToCar(dx, dy) {
-      const n = Math.hypot(dx, dy);
-      if (n === 0) return [0, 0];
-      if (mode === 'iso') return interiorDirToCar(...keyDirToWorld(dx, dy));
-      // Top-down keeps the world's orientation, so turn the screen direction into the car's axes.
+      // Both views show the car at its real angle in the world, so turn the key's world direction into the car's axes.
       const car = carOf(sim.state.players[0]!.placement.frame);
       if (!car) return null;
-      const wx = dx / n, wy = dy / n;
-      return [wx * car.ux + wy * car.uy, wy * car.ux - wx * car.uy];
+      return worldDirToCar(...ctx.keyDirToWorld(dx, dy), car);
     },
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
   };
@@ -141,9 +130,6 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
-  let scene: 'world' | 'interior' = 'world';
-  let sceneT0 = -Infinity;
-  let doorScreen = { x: 0, y: 0 };
   let zoneSec = 0, bestZoneSec = 0;
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
@@ -181,69 +167,53 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       const cars = interp.cars(alpha);
       const horse = physical ? interp.horse(alpha) : null;
       const placement = interp.placement(alpha);
-      const aboardCar = parseCarFrame(placement.frame) ? carOf(placement.frame) : null;
+      const frame = parseCarFrame(placement.frame);
+      const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
+      const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
         if (zoomLocked) { ridingZoom = zoom; zoom = RUN_ZOOM; } else zoom = ridingZoom;
       }
 
-      // Camera: lead the horse along its velocity; aboard, hold where it was.
-      if (horse) {
-        const target = lookAheadTarget(horse.x, horse.y, horse.hx, horse.hy, horseState.speed);
-        follow(cam, target, dt, Math.hypot(target.x - cam.x, target.y - cam.y) > SNAP_TILES);
-      }
+      // Camera: lead the horse along its velocity. Aboard, follow the player, leading by the
+      // train's velocity just enough that the ease does not trail behind the moving car.
+      const camTarget = horse ? lookAheadTarget(horse.x, horse.y, horse.hx, horse.hy, horseState.speed)
+        : aboardAt && aboardCar ? (() => {
+          const v = trainSpeed(config, s.world.trains.find((t) => t.id === aboardCar.trainId)?.type ?? 'blank') / FOLLOW_RATE;
+          return { x: aboardAt.x + aboardCar.ux * v, y: aboardAt.y + aboardCar.uy * v };
+        })() : null;
+      if (camTarget) follow(cam, camTarget, dt, Math.hypot(camTarget.x - cam.x, camTarget.y - cam.y) > SNAP_TILES);
       const W = app.screen.width, H = app.screen.height;
       const camera: Camera = { x: cam.x, y: cam.y, zoom, width: W, height: H };
 
       const iso = mode === 'iso';
       isoWorld.root.visible = iso;
-      interior.root.visible = iso;
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
       if (iso) {
-        isoWorld.update({ cars, horse, stunned: horseState.stunTicks > 0, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000 });
+        // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
+        isoWorld.update({
+          cars, horse, stunned: horseState.stunTicks > 0, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
+          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+        });
         isoWorld.root.scale.set(zoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
         isoWorld.root.position.set(W / 2, H / 2);
         project = (x, y, z) => worldToScreen(x, y, z, camera);
-        if (check?.at && scene === 'world') doorScreen = project(check.at.x, check.at.y, 1);
-
-        // The train scene: on boarding, ease from the door on screen into the car.
-        const want = aboardCar ? 'interior' : 'world';
-        if (want !== scene) { scene = want; sceneT0 = now; }
-        if (scene === 'interior' && aboardCar) {
-          const trainD = interp.trainD(aboardCar.trainId, alpha) ?? 0;
-          const at = interior.update(aboardCar.template, placement, trainD);
-          const k = easeInOut(clamp01((now - sceneT0) / 1000 / EASE_IN_SEC));
-          interior.root.alpha = k;
-          isoWorld.root.alpha = 1 - k;
-          interior.root.scale.set(zoom * (0.35 + 0.65 * k));
-          interior.root.pivot.set(isoX(at.x, at.y), isoY(at.x, at.y));
-          interior.root.position.set(doorScreen.x + (W / 2 - doorScreen.x) * k, doorScreen.y + (H / 2 - doorScreen.y) * k);
-        } else {
-          const k = clamp01((now - sceneT0) / 1000 / EASE_OUT_SEC);
-          interior.root.alpha = 1 - k;
-          interior.root.visible = k < 1;
-          isoWorld.root.alpha = k;
-        }
       } else {
         // Top-down keeps the world's orientation; aboard, it follows the player's place on the car.
-        scene = 'world';
-        isoWorld.root.alpha = 1;
-        const aboardAt = aboardCar ? sim.world.toWorld(s, player.placement) : null;
         topdownView.update(cars, { horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt });
-        const focus = aboardAt ?? cam;
         topdown.scale.set(TOPDOWN_PX * zoom);
-        topdown.pivot.set(focus.x, focus.y);
+        topdown.pivot.set(cam.x, cam.y);
         topdown.position.set(W / 2, H / 2);
-        project = (x, y) => ({ x: (x - focus.x) * TOPDOWN_PX * zoom + W / 2, y: (y - focus.y) * TOPDOWN_PX * zoom + H / 2 });
+        project = (x, y) => ({ x: (x - cam.x) * TOPDOWN_PX * zoom + W / 2, y: (y - cam.y) * TOPDOWN_PX * zoom + H / 2 });
       }
 
       // Screen-space cues: meter and speed above the horse, arrows to trains off screen.
       const trains: TrainPointer[] = [];
-      if (horse && scene === 'world') {
+      if (horse) {
         for (const t of s.world.trains) {
           let best = cars.find((c) => c.trainId === t.id), bestD = Infinity;
           for (const c of cars) {
@@ -258,7 +228,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       }
       overlay.update({
         width: W, height: H,
-        horse: horse && scene === 'world' ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
+        horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
       });
 

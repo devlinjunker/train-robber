@@ -64,6 +64,14 @@ export interface MapContext {
   commitTarget(): string | null;
 }
 
+/**
+ * A unit world direction in a car's frame, [toward the front, toward the right side], for a car
+ * whose front points along (ux, uy). Right of travel is (-uy, ux), as in the sim's car poses.
+ */
+export function worldDirToCar(wx: number, wy: number, car: { ux: number; uy: number }): [number, number] {
+  return [wx * car.ux + wy * car.uy, wy * car.ux - wx * car.uy];
+}
+
 /** Walking aboard uses half the move axis, so half of `player.speedTilesPerSec`; Shift runs at full. */
 export const WALK_AXIS = 64;
 const FULL = 127;
