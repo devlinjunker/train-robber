@@ -39,7 +39,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 | W A S D, aboard | Walk inside the car, screen-relative; hold Shift to run |
 | Esc | Cancel the run: back to the spawn, mounted and stopped |
 | R | Quick retry: ends any run and puts you on the horse, stopped, 60 tiles behind the train on the side you were on |
-| Mouse wheel | Zoom |
+| Mouse wheel | Zoom while idle; from commit until the run ends the zoom is locked at 1.75x |
 | O | Toggle the map overlay (zones, track samples, tangents) |
 | L, or the Export logs button | Download this session's command and event logs |
 
@@ -49,7 +49,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 2. Ride beside a door on either side. The **boarding** line comes from the sim's own rule: `ELIGIBLE` (in range and speed matched), `TOO FAST`, `TOO SLOW` or `TOO FAR`, the side you are on, the distance to the nearest door on that side, and your speed along the car minus the train's.
 3. In range, the meter above the horse sweeps back and forth: slowly with a white marker when your speed matches the train's, fast with an orange marker when it doesn't. Out of range it is dim and parked. The green band is perfect, the yellow band around it is good, the rest fails. The bands move to a new random place after every jump, never while you are lining up.
 4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a 2.5 s stumble at a third of walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 15 health under `time-and-damage`, and the train pulls ahead. Seven failures from full health kill you: "YOU DIED", and you are back at the spawn.
-5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen and zooms to 1.75x on landing (the wheel still zooms). Esc or R ends the run.
+5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen. Esc or R ends the run.
 
 The overlay's `run:` line shows the phase (`IDLE`, `APPROACH`, `BOARDING` during a failed jump's stun, `ABOARD`), health and jump count, and the last rejection or jump result flashes below it. On the map, each door has a circle of the boarding range; the nearest door on your side fills green when eligible and orange when you are close enough but at the wrong speed. The in-zone timer still shows how long you have held the zone.
 

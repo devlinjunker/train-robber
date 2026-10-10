@@ -17,8 +17,8 @@ const MAX_CATCHUP = 5;
 const WALK_AXIS = 64;
 const TILE = 24;
 const ZOOM_MIN = 0.1, ZOOM_MAX = 4;
-/** Zoom the camera snaps to on landing aboard; the wheel can still change it. */
-const ABOARD_ZOOM = 1.75;
+/** Zoom the camera is locked to from commit until the run ends; the wheel only zooms while idle. */
+const RUN_ZOOM = 1.75;
 
 const keys = new Set<string>();
 const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
@@ -106,7 +106,7 @@ async function boot() {
   app.stage.addChild(world, overlay);
   let zoom = 1;
   addEventListener('keydown', (e) => { if (e.code === 'KeyO' && !e.repeat) mapOverlay.visible = !mapOverlay.visible; });
-  addEventListener('wheel', (e) => { zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9))); }, { passive: true });
+  addEventListener('wheel', (e) => { if (sim.state.run) return; zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9))); }, { passive: true });
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
 
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
@@ -130,7 +130,6 @@ async function boot() {
     return [Math.round(fx * car.ux + fy * car.uy), Math.round(fy * car.ux - fx * car.uy)];
   };
   let zoneSec = 0, bestZoneSec = 0;
-  let lastPhase = runPhase(sim.state);
   // Short-lived notices from events: the last rejection and how the last run ended.
   let notice = '', noticeUntil = 0;
   const show = (text: string, ms: number) => { notice = text; noticeUntil = performance.now() + ms; };
@@ -184,8 +183,7 @@ async function boot() {
     const horse = s.world.horses[0]!;
     const player = s.players[0]!;
     const phase = runPhase(s);
-    if (phase === 'aboard' && lastPhase !== 'aboard') zoom = ABOARD_ZOOM;
-    lastPhase = phase;
+    const camZoom = s.run ? RUN_ZOOM : zoom;
     const run = s.run?.players[player.id];
     // The boarding readout is against the committed train, or the nearest one while idle.
     const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, b) => distanceToTrain(s, sim.map, config, a.id, horse.x, horse.y) - distanceToTrain(s, sim.map, config, b.id, horse.x, horse.y))[0]?.id;
@@ -197,12 +195,12 @@ async function boot() {
       : null;
     const frame = parseCarFrame(player.placement.frame);
     const aboardAt = frame ? sim.world.toWorld(s, player.placement) : null;
-    view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt, zoom });
+    view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt, zoom: camZoom });
     // Seconds spent continuously in the boarding zone, to judge how hard it is to hold.
     if (check?.state === 'eligible') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
     // The camera keeps the world's orientation aboard, so the train runs the same way on screen.
     const focus = aboardAt ?? horse;
-    world.scale.set(TILE * zoom);
+    world.scale.set(TILE * camZoom);
     world.pivot.set(focus.x, focus.y);
     world.position.set(app.screen.width / 2, app.screen.height / 2);
     const heading = ((Math.atan2(horse.hx, -horse.hy) * 180) / Math.PI + 360) % 360;
@@ -220,7 +218,7 @@ async function boot() {
       meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
       performance.now() < noticeUntil ? `!! ${notice}` : '',
       `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
-      `${controls}  wheel zooms (${zoom.toFixed(2)}x)  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,
+      `${controls}  ${s.run ? `zoom locked at ${RUN_ZOOM}x during a run` : `wheel zooms (${zoom.toFixed(2)}x)`}  O map overlay ${mapOverlay.visible ? 'on' : 'off'}  L or the button exports logs`,
       ...(recent.toArray().length ? ['recent events:', ...recent.toArray().slice(-4)] : []),
     ].join('\n');
   });
