@@ -456,7 +456,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 ### Track model
 
 - Each route is a list of points. At build time the tool smooths it into a curve and samples it into short straight segments with an arc-length table and a precomputed unit tangent per segment. The sim therefore does no spline math per tick, and curves work from phase 1.
-- A map can hold several routes. A route is a closed loop or an open line. A train type names the route it runs on in its config, so trains do not have to share one oval. The alpha uses one shared route (see Map decisions).
+- A map can hold several routes. A route is a closed loop or an open line. A train type names the route it runs on in its config, so trains do not have to share one oval. The alpha uses one shared route (see Map decisions). A map can also place its own trains: a track object's `trains` property (a count) and optional `trainType` become a `trains` list in the MapDef, each entry a type, a route and a starting distance, and the sim starts those trains instead of the one blank train. Trains never change route; junctions are not designed yet.
 - Tight bends are a tuning lever. An optional `speedScale` in a speed zone rectangle slows the train over that stretch, which makes boarding on a curve harder than on a straight.
 - Hills later: each point may carry an optional `elevation`. The alpha ignores it. It could later drive train speed (slower uphill) and rendered height without changing the sim's 2D model. Walking over hills or vertical gameplay belongs with 3D.
 

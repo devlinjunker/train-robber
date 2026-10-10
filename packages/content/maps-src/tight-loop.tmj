@@ -24,7 +24,7 @@
    "objects": [
     {
      "height": 0,
-     "id": 1,
+     "id": 10,
      "name": "main",
      "polyline": [
       {
@@ -155,7 +155,7 @@
   }
  ],
  "nextlayerid": 5,
- "nextobjectid": 3,
+ "nextobjectid": 20,
  "orientation": "orthogonal",
  "renderorder": "right-down",
  "tiledversion": "1.10.2",
