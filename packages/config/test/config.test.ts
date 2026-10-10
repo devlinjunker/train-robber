@@ -14,6 +14,7 @@ const base = {
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5 },
   },
   health: { max: 100 },
+  collision: { damageFraction: 0.1, minImpactTilesPerSec: 4, cooldownSec: 1 },
   playtest: { quickRetry: true, quickRetryGapTiles: 60 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,

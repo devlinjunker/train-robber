@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "off",
+  "group": "collisionDamage",
+  "label": "Crashes only stop you",
+  "question": "Should running into the train or a rock cost health?",
+  "patch": { "collision": { "damageFraction": 0 } }
+}

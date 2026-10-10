@@ -17,6 +17,7 @@
     "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33 }
   },
   "health": { "max": 100 },
+  "collision": { "damageFraction": 0.1, "minImpactTilesPerSec": 4, "cooldownSec": 1 },
   "playtest": { "quickRetry": true, "quickRetryGapTiles": 60 },
   "countdown": { "enabled": false, "startsAt": "commit", "scale": 1 },
   "trains": {

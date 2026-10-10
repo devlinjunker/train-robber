@@ -3,7 +3,7 @@ import { createSim, type BoardingCheck } from '@train-robber/sim';
 import { Interpolator } from '../src/interp';
 import { follow, LEAD_MAX_TILES, lookAheadTarget } from '../src/camera';
 import { worldDirToCar } from '../src/input';
-import { speedLabel } from '../src/cues';
+import { collisionNotice, landingCue, speedLabel } from '../src/cues';
 import { testConfig, testMap } from './fixtures';
 
 describe('interpolation', () => {
@@ -74,5 +74,19 @@ describe('speed readout', () => {
     expect(speedLabel(check('too slow', -3), 2).text).toBe('TOO SLOW -3.0');
     expect(speedLabel(check('too far', 4), 2).text).toBe('TOO FAST +4.0');
     expect(speedLabel(check('too far', -1), 2).text).toBe('MATCHED -1.0');
+  });
+});
+
+describe('landing and crash cues', () => {
+  it('a good landing reads differently from a perfect one', () => {
+    const p = landingCue('perfect'), g = landingCue('good');
+    expect(p.title).not.toBe(g.title);
+    expect(p.colour).not.toBe(g.colour);
+    expect(p.size).toBeGreaterThan(g.size);
+    expect(g.notice).toMatch(/stumbl/);
+  });
+  it('names what you crashed into', () => {
+    expect(collisionNotice('train', 10)).toBe('Crashed into the train: -10 health');
+    expect(collisionNotice('obstacle', 10)).toBe('Crashed into a rock: -10 health');
   });
 });

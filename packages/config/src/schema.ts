@@ -37,6 +37,15 @@ export const GameSchema = z.object({
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction }).strict(),
   }).strict(),
   health: z.object({ max: positive }).strict(),
+  /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
+  collision: z.object({
+    /** Health lost per crash, as a fraction of max (collisionDamage variant group: 0 turns it off). */
+    damageFraction: fraction,
+    /** The speed the horse must lose against the obstacle for it to hurt, so brushing a car while matching its speed is free. */
+    minImpactTilesPerSec: z.number().min(0),
+    /** After a crash, further crashes are free for this long, so one crash costs health once. */
+    cooldownSec: z.number().min(0),
+  }).strict(),
   /** Playtest conveniences that later phases switch off. */
   playtest: z.object({
     /** R ends the run and puts the player on the horse, stopped, behind the train. */

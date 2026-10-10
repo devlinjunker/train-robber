@@ -16,9 +16,12 @@ export interface SimMap {
   markers: { playerSpawn: { x: number; y: number } };
 }
 
-/** How a tile affects the horse. */
-export const Terrain = { Open: 0, Slow: 1, Blocked: 2 } as const;
+/** How a tile affects the horse. Blocked and water both stop it; only blocked ground hurts to run into. */
+export const Terrain = { Open: 0, Slow: 1, Blocked: 2, Water: 3 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
+
+/** True for terrain nothing can move through. */
+export const isSolid = (t: Terrain): boolean => t === Terrain.Blocked || t === Terrain.Water;
 
 /** A map prepared for lookups. Built once per sim; never part of state. */
 export interface WorldMap {
@@ -43,7 +46,7 @@ export function mapHash(map: SimMap): string {
 
 export function prepareMap(map: SimMap): WorldMap {
   const { cols, rows } = map.size;
-  const kind = map.zoneLegend.map((z): Terrain => (z === 'slow' ? Terrain.Slow : z === 'blocked' || z === 'water' ? Terrain.Blocked : Terrain.Open));
+  const kind = map.zoneLegend.map((z): Terrain => (z === 'slow' ? Terrain.Slow : z === 'blocked' ? Terrain.Blocked : z === 'water' ? Terrain.Water : Terrain.Open));
   const terrain = new Uint8Array(cols * rows);
   let i = 0;
   for (const [count, zone] of map.zones) {
