@@ -17,8 +17,10 @@ import { createHud } from './hud';
 import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
 
-/** Pixels per tile in the top-down debug view at zoom 1. */
-const TOPDOWN_PX = 32;
+/** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
+const TOPDOWN_PX = 24;
+/** Landing aboard snaps the zoom here (Devlin, 2026-10-10); the wheel and zoom keys still change it, and leaving restores the riding zoom. */
+export const ABOARD_ZOOM = 1.75;
 /** Seconds for the camera ease into the train scene, and back out. */
 const EASE_IN_SEC = 0.5, EASE_OUT_SEC = 0.3;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
@@ -135,6 +137,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
+  let wasAboard = false, ridingZoom = zoom;
   let scene: 'world' | 'interior' = 'world';
   let sceneT0 = -Infinity;
   let doorScreen = { x: 0, y: 0 };
@@ -176,6 +179,10 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       const horse = physical ? interp.horse(alpha) : null;
       const placement = interp.placement(alpha);
       const aboardCar = parseCarFrame(placement.frame) ? carOf(placement.frame) : null;
+      if ((aboardCar !== null) !== wasAboard) {
+        wasAboard = aboardCar !== null;
+        if (wasAboard) { ridingZoom = zoom; zoom = ABOARD_ZOOM; } else zoom = ridingZoom;
+      }
 
       // Camera: lead the horse along its velocity; aboard, hold where it was.
       if (horse) {
