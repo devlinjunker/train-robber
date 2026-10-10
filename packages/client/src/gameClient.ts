@@ -48,6 +48,8 @@ export interface GameClient {
   afterTick(events: readonly SimEvent[]): void;
   /** Draw a frame `alpha` of the way from the previous tick to the current one. */
   render(alpha: number, host: HostStats): void;
+  /** Forget held keys, e.g. after a modal dialog swallowed their keyup. */
+  releaseKeys(): void;
 }
 
 export async function createApp(): Promise<Application> {
@@ -66,7 +68,7 @@ const params = new URLSearchParams(location.search);
 const runZoomParam = Number(params.get('runZoom'));
 const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
 
-export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef; config: ResolvedConfig; onExportLogs(): void }): GameClient {
+export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef; config: ResolvedConfig; onExportLogs(): void; onAddNote(): void }): GameClient {
   const { sim, map, config } = opts;
   const b = config.values.boarding;
   const horseCfg = config.values.horse;
@@ -97,7 +99,8 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
-    else opts.onExportLogs();
+    else if (a === 'addNote') { opts.onAddNote(); keyboard.release(); }
+    else { opts.onExportLogs(); keyboard.release(); }
   };
   // O toggles the active view's map overlay. The top-down one starts on (it is that view's only
   // terrain); the iso one starts off, since the iso view draws the ground and track itself.
@@ -145,11 +148,12 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   const controls = [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     'E commit', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
-    'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'L logs',
+    'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
   ].join('  ·  ');
 
   return {
     app,
+    releaseKeys: () => keyboard.release(),
     poll: () => mapper.commands(keyboard.poll(), ctx),
     afterTick(events) {
       interp.push(sim.state, sim.cars());

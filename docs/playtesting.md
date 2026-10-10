@@ -45,7 +45,8 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 | O | Toggle the map overlay (speed zones, track samples, tangents, markers) |
 | B | Toggle the boarding range circles around every door |
 | backquote (`` ` ``) | Toggle the debug readout |
-| L, or the Export logs button | Download this session's command and event logs |
+| N | Add a note to the logs at the current tick |
+| L, or the Export logs button | Asks for an optional comment, then downloads this session's command and event logs |
 
 ### A run
 
@@ -124,9 +125,10 @@ It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A 
 
 ## Recording a session
 
-1. Note the URL you played (it carries the seed and the variants).
-2. Press L to export the logs. The command log replays the session exactly: `npm run tools -- replay <file>.commands.ndjson` reruns it and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
-3. Write down what you tried and how it felt, alongside the setup. Ideas for new features go in [ideas.md](ideas.md). Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
+1. Press N whenever something is worth remembering ("missed the jump, meter looked off"). The note is saved in both logs at that tick.
+2. Press L to export the logs. It first asks for a comment on the run (optional; cancel skips it), then downloads `<session>.commands.log` and `<session>.events.log`. They are NDJSON with a `.log` extension so GitHub accepts them as issue and PR attachments. The command log replays the session exactly: `npm run tools -- replay <file>.commands.log` reruns it, prints the notes, and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
+3. The log header records the setup: the preset, every variant choice (from the preset and `?v=`), any overrides, the seed, the map, the page's URL (including client-only options such as `?runZoom=`) and the full resolved config values. If the config has changed since, `tools replay` lists each parameter that differs.
+4. Write down what you tried and how it felt, alongside the setup. Ideas for new features go in [ideas.md](ideas.md). Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
 
 The event log now carries `RunStarted`, `RunPhaseChanged`, `BoardingAttempt` (result, attempt number, meter position), `DamageDealt`, `CommandRejected` (with the reason), `RunEnded` (outcome, length, jumps, and whether it was a quick retry) and `PersistentChanged`. The M5 report will read them to give attempts per run and failure reasons.
 

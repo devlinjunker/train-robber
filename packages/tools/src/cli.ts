@@ -9,8 +9,9 @@ const [cmd, ...args] = process.argv.slice(2);
 // A command returns an exit code, or null to keep the process running (watchers).
 const commands: Record<string, (args: string[]) => number | null> = {
   replay([file]) {
-    if (!file) { console.error('usage: tools replay <commands.ndjson>'); return 2; }
+    if (!file) { console.error('usage: tools replay <commands log>'); return 2; }
     const r = replayText(readFileSync(file, 'utf8'));
+    for (const n of r.notes) console.log(`note at tick ${n.t}: ${n.text}`);
     for (const w of r.warnings) console.warn(`warning: ${w}`);
     for (const m of r.mismatches) console.error(`tick ${m.t}: expected ${m.expected}, got ${m.actual}`);
     if (r.expectedHash === null) console.error('log has no hash or end line to compare against');

@@ -22,6 +22,13 @@ export interface RunHeader {
   persistentAtStart: PersistentState;
   /** Wall clock, written by the host. The sim never reads time. */
   startedAt: string;
+  /**
+   * The resolved config values `configHash` was taken from, so a reader can see every parameter
+   * the run used and `tools replay` can name what changed. Optional: older logs lack it.
+   */
+  config?: unknown;
+  /** The page's query string, e.g. `?v=steering:screen&runZoom=2`, including client-only options. */
+  url?: string;
 }
 
 export interface HeaderLine extends RunHeader { k: 'header'; log: LogKind; logVersion: number }
@@ -32,9 +39,11 @@ export interface HashLine { k: 'hash'; t: number; h: string }
 /** Last tick and hash of the session; the replay target. */
 export interface EndLine { k: 'end'; t: number; h: string }
 export interface EventLine { k: 'ev'; t: number; e: SimEvent['type']; [field: string]: unknown }
+/** A playtester's comment, written at tick `t` into both logs. Replay skips it. */
+export interface NoteLine { k: 'note'; t: number; text: string }
 
-export type CommandLogLine = HeaderLine | CmdLine | HashLine | EndLine;
-export type EventLogLine = HeaderLine | EventLine | EndLine;
+export type CommandLogLine = HeaderLine | CmdLine | HashLine | EndLine | NoteLine;
+export type EventLogLine = HeaderLine | EventLine | EndLine | NoteLine;
 
 export type WriteLine = (line: string) => void;
 
@@ -43,11 +52,17 @@ function headerLine(log: LogKind, header: RunHeader): string {
   return JSON.stringify(line);
 }
 
+function noteLine(tick: number, text: string): string {
+  const line: NoteLine = { k: 'note', t: tick, text };
+  return JSON.stringify(line);
+}
+
 export interface CommandLogWriter {
   /** Call before `sim.step(inputs)` with the sim's current tick. Only frames with commands are written. */
   step(tick: number, inputs: readonly InputFrame[]): void;
   /** Call after a step with the new tick; writes a hash line every `hashEveryTicks`. */
   checkpoint(tick: number, hash: () => string): void;
+  note(tick: number, text: string): void;
   end(tick: number, hash: string): void;
 }
 
@@ -67,6 +82,7 @@ export function commandLogWriter(header: RunHeader, write: WriteLine, opts: { ha
         write(JSON.stringify(line));
       }
     },
+    note(tick, text) { write(noteLine(tick, text)); },
     end(tick, hash) {
       const line: EndLine = { k: 'end', t: tick, h: hash };
       write(JSON.stringify(line));
@@ -76,6 +92,7 @@ export function commandLogWriter(header: RunHeader, write: WriteLine, opts: { ha
 
 export interface EventLogWriter {
   events(events: readonly SimEvent[]): void;
+  note(tick: number, text: string): void;
   end(tick: number, hash: string): void;
 }
 
@@ -92,6 +109,7 @@ export function eventLogWriter(header: RunHeader, write: WriteLine, opts: { allo
         write(JSON.stringify(line));
       }
     },
+    note(tick, text) { write(noteLine(tick, text)); },
     end(tick, hash) {
       const line: EndLine = { k: 'end', t: tick, h: hash };
       write(JSON.stringify(line));

@@ -38,6 +38,7 @@ async function boot() {
   const header: RunHeader = {
     gameVersion: pkg.version, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
     seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt,
+    config: config.values, url: location.search,
   };
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
   const sink = await openSink(session, startedAt);
@@ -56,21 +57,29 @@ async function boot() {
     void sink.flush();
   };
   addEventListener('pagehide', endLogs);
+  // Comments go into both logs at the current tick, so they travel with whichever file is shared.
+  const note = (question: string) => {
+    const text = prompt(question)?.trim();
+    if (text) { cmdLog.note(simTick, text); evLog.note(simTick, text); }
+  };
+  const addNote = () => note(`Note at tick ${simTick}:`);
   const exportLogs = () => {
+    note('Comment on this run (optional), saved in the exported logs:');
     // The export gets an end line at the current tick so it replays on its own; the stored log continues.
     const end = JSON.stringify({ k: 'end', t: simTick, h: sim.hash() }) + '\n';
     const stamp = `${session}-t${simTick}`.replace(/[:.]/g, '-');
-    void sink.read('commands').then((t) => download(`${stamp}.commands.ndjson`, t + end));
-    void sink.read('events').then((t) => download(`${stamp}.events.ndjson`, t + end));
+    // NDJSON inside, but .log so GitHub accepts the files as issue and PR attachments.
+    void sink.read('commands').then((t) => download(`${stamp}.commands.log`, t + end));
+    void sink.read('events').then((t) => download(`${stamp}.events.log`, t + end));
   };
   const button = document.createElement('button');
   button.textContent = 'Export logs';
   button.style.cssText = 'position:fixed;top:8px;right:8px;font:12px monospace;padding:4px 8px;z-index:1';
-  button.addEventListener('click', (e) => { exportLogs(); (e.currentTarget as HTMLButtonElement).blur(); });
+  button.addEventListener('click', (e) => { exportLogs(); client.releaseKeys(); (e.currentTarget as HTMLButtonElement).blur(); });
   document.body.appendChild(button);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
-  const client = createGameClient(app, { sim, map, config, onExportLogs: exportLogs });
+  const client = createGameClient(app, { sim, map, config, onExportLogs: exportLogs, onAddNote: addNote });
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();

@@ -95,7 +95,7 @@ async function prune(db: IDBDatabase): Promise<void> {
 
 export function download(name: string, text: string): void {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' }));
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 0);

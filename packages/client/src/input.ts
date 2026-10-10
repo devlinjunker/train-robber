@@ -5,14 +5,14 @@ import type { Command, Steering } from '@train-robber/sim';
 
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
 export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry';
-export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'exportLogs';
+export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'exportLogs' | 'addNote';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
-  KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', Backquote: 'toggleDebug', KeyL: 'exportLogs',
+  KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
 };
 const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry']);
 const NO_SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
@@ -41,6 +41,9 @@ export class KeyboardSource {
     // A key released while the window is unfocused never sends keyup.
     target.addEventListener('blur', () => this.held.clear());
   }
+
+  /** Forget held keys, e.g. after a modal dialog swallowed their keyup. */
+  release(): void { this.held.clear(); }
 
   poll(): InputSnapshot {
     const actions = this.queued;
