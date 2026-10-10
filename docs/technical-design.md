@@ -984,11 +984,11 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
 | Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
-| Meter sweep period, in range but speed off | 1.2 s | `boarding.meter.sweepPeriodSec` |
-| Meter sweep period, speed matched | 1.8 s (new after the 2026-10-09 playtest, a first guess) | `boarding.meter.matchedSweepPeriodSec` |
-| Meter zone widths (perfect, good) | 5%, 40% of the track (was 10%, 25%; Devlin, M3 playtest, 2026-10-09) | `boarding.meter.zoneWidths` |
+| Meter sweep period, in range but speed off | 1.3 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.sweepPeriodSec` |
+| Meter sweep period, speed matched | 1.85 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.matchedSweepPeriodSec` |
+| Meter zone widths (perfect, good) | 3%, 15% of the track (Devlin's 2D tuning, 2026-10-10; was 10%, 25%) | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
-| Failure damage | 25% of max health | `boarding.failure.damageFraction` |
+| Failure damage | 15% of max health (Devlin's 2D tuning, 2026-10-10; was 25%) | `boarding.failure.damageFraction` |
 | Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
 | Walking aboard | half of `player.speedTilesPerSec` (4 tiles/s); Shift runs at the full 8 (client-side, after the 2026-10-09 playtest) | `player.speedTilesPerSec` |
 | Good-landing stumble | 0.5 s at 50% walk speed | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
