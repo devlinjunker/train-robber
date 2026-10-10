@@ -26,6 +26,8 @@ export interface RunRecord extends SessionMeta {
   id: string;
   runNumber: number;
   trainId: string;
+  /** Sim tick of the commit, where the replay viewer opens the run. Missing on records from before it. */
+  startTick?: number;
   startedAt: string;
   endedAt: string;
   outcome: TrackedOutcome;
@@ -68,7 +70,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
   let last: RunRecord | null = null;
 
   const build = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => ({
-    ...meta, id: `${meta.session}#${o.runNumber}`, runNumber: o.runNumber, trainId: o.trainId, startedAt: o.startedAt, endedAt: now,
+    ...meta, id: `${meta.session}#${o.runNumber}`, runNumber: o.runNumber, trainId: o.trainId, startTick: o.startTick, startedAt: o.startedAt, endedAt: now,
     outcome, durationTicks, durationSec: Math.round((durationTicks / meta.tickRateHz) * 10) / 10,
     boardingAttempts: o.boarding.perfect + o.boarding.good + o.boarding.fail, boarding: { ...o.boarding },
     furthestPhase: o.furthest, damageTaken: o.damage,

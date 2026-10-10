@@ -50,6 +50,23 @@ export interface GameClient {
   render(alpha: number, host: HostStats): void;
   /** Forget held keys, e.g. after a modal dialog swallowed their keyup. */
   releaseKeys(): void;
+  /** The sim jumped (a replay seek): drop interpolation and notices so nothing slides from the old tick. */
+  reset(): void;
+}
+
+export interface GameClientOptions {
+  sim: Sim;
+  map: MapDef;
+  config: ResolvedConfig;
+  /** Client options (`view`, `runZoom`) come from this query string; a replay passes the logged one. */
+  search?: string;
+  onExportLogs?(): void;
+  onAddNote?(): void;
+  /**
+   * Watching a log: the keyboard only drives the view, `poll` always returns no commands, and the
+   * controls line shows `replayControls` in place of the game keys.
+   */
+  replayControls?: string;
 }
 
 export async function createApp(): Promise<Application> {
@@ -64,12 +81,12 @@ export function showFatal(app: Application, message: string): void {
   app.stage.addChild(new Text({ text: message, style: { fill: '#ff8080', fontSize: 14, fontFamily: 'monospace' } })).position.set(8, 8);
 }
 
-const params = new URLSearchParams(location.search);
-const runZoomParam = Number(params.get('runZoom'));
-const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
-
-export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef; config: ResolvedConfig; onExportLogs(): void; onAddNote(): void }): GameClient {
+export function createGameClient(app: Application, opts: GameClientOptions): GameClient {
   const { sim, map, config } = opts;
+  const params = new URLSearchParams(opts.search ?? location.search);
+  const runZoomParam = Number(params.get('runZoom'));
+  const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
+  const replay = opts.replayControls !== undefined;
   const b = config.values.boarding;
   const horseCfg = config.values.horse;
   const tickRateHz = config.values.sim.tickRateHz;
@@ -99,8 +116,8 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
-    else if (a === 'addNote') { opts.onAddNote(); keyboard.release(); }
-    else { opts.onExportLogs(); keyboard.release(); }
+    else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
+    else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
   // O toggles the active view's map overlay. The top-down one starts on (it is that view's only
   // terrain); the iso one starts off, since the iso view draws the ground and track itself.
@@ -145,7 +162,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked' };
-  const controls = [
+  const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     'E commit', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
@@ -154,7 +171,13 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   return {
     app,
     releaseKeys: () => keyboard.release(),
-    poll: () => mapper.commands(keyboard.poll(), ctx),
+    // A replay still drains the keyboard so pressed game keys do not pile up.
+    poll: () => { const snap = keyboard.poll(); return replay ? [] : mapper.commands(snap, ctx); },
+    reset() {
+      interp.push(sim.state, sim.cars());
+      interp.push(sim.state, sim.cars());
+      noticeUntil = 0; zoneSec = 0;
+    },
     afterTick(events) {
       interp.push(sim.state, sim.cars());
       for (const e of events) noticeFor(e);

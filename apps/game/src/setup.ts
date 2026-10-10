@@ -28,3 +28,8 @@ export function setupFromUrl(search = location.search): Setup {
   const seed = q.get('seed') || Math.random().toString(36).slice(2, 10);
   return { config, seed };
 }
+
+/** The config a logged run used, rebuilt from its header's preset, variants and overrides on this build's content. */
+export function configForHeader(h: { preset: string; variants: Record<string, string>; overrides: Record<string, unknown> }): ResolvedConfig {
+  return resolveConfig(content, { preset: h.preset, variants: h.variants, overrides: h.overrides });
+}

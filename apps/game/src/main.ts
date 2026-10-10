@@ -8,6 +8,8 @@ import { loadMap, mapIdFromUrl } from './map';
 import { RingBuffer } from './ringBuffer';
 import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
+import { installLogDrop, replaySourceFromUrl } from './logDrop';
+import { bootReplay } from './replay';
 
 const MAX_CATCHUP = 5;
 
@@ -26,6 +28,10 @@ async function openSink(session: string, startedAt: string): Promise<Sink> {
 
 async function boot() {
   const app = await createApp();
+  // Dropping a .commands.log anywhere on the page opens it in the replay viewer.
+  installLogDrop();
+  const replay = replaySourceFromUrl();
+  if (replay) return bootReplay(app, replay);
 
   const mapId = mapIdFromUrl();
   let map: MapDef;

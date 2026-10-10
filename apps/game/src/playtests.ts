@@ -54,7 +54,7 @@ async function main() {
       sum.map((s) => `<tr><td>${esc(s.setup)}</td><td class="num">${s.runs}</td><td class="num">${s.testers}</td><td class="num">${s.outcomes.died}</td><td class="num">${s.outcomes.cancelled}</td><td class="num">${s.outcomes.retry}</td><td class="num">${s.outcomes.abandoned}</td><td class="num">${s.avgSec.toFixed(1)} s</td><td class="num">${s.avgAttempts.toFixed(1)}</td><td class="num">${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)}</td><td class="num">${pct(s.aboard)}</td><td class="num">${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`}</td><td class="num">${s.notes}</td></tr>`).join('');
     $('runs').innerHTML = rs.length === 0 ? '' :
       `<tr><th>When</th><th>Tester</th><th>Setup</th><th>Seed</th><th>Map</th><th>Train</th><th>Outcome</th><th class="num">Length</th><th class="num">Jumps (P/G/F)</th><th>Furthest</th><th class="num">Damage</th><th>Notes</th><th>Logs</th></tr>` +
-      rs.map((r) => `<tr><td>${esc(new Date(r.startedAt).toLocaleString())}</td><td>${esc(r.tester || '–')}</td><td>${esc(setupKey(r))}</td><td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td>${stored.has(r.session) ? `<button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
+      rs.map((r) => `<tr><td>${esc(new Date(r.startedAt).toLocaleString())}</td><td>${esc(r.tester || '–')}</td><td>${esc(setupKey(r))}</td><td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td>${stored.has(r.session) ? `<a class="watch" href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
   }
 
   $('runs').addEventListener('click', async (e) => {
@@ -94,6 +94,13 @@ async function main() {
   });
   addEventListener('focus', () => void load());
   await load();
+}
+
+/** The game page in replay mode, opened at the run's commit when the record knows it. */
+function watchUrl(r: RunRecord): string {
+  const q = new URLSearchParams({ replay: r.session });
+  if (r.startTick !== undefined) q.set('t', String(r.startTick));
+  return `./?${q}`;
 }
 
 function filterValue(r: RunRecord, key: string): string {
