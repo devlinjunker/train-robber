@@ -13,6 +13,7 @@ This list is an index, not the source of truth. Where an idea came from a docume
 | More track layouts and terrain, to see whether runs vary enough to stay fun | Devlin, M3 playtest, 2026-10-09 | The map pipeline already supports several routes per map, speed zones and terrain zones. This needs new maps drawn in Tiled. See also "World and schedule" below. |
 | Moving between cars and onto the roof | Devlin, M3 playtest, 2026-10-09 | The requirements make the roof a traversal route for bypassing or surrounding a car, but no phase builds it yet. Multi-car interiors were deferred to phase 2. |
 | A deliberate camera and zoom design for the final game (how far out while riding, aboard and boarding); free wheel zoom is fine for the alpha | Devlin, M3 playtest, 2026-10-09 | Pairs with the renderer choice under "Presentation, input and platform". The boarding meter was enlarged for the alpha at the same time. |
+| Track playtest responses in the repo (answers to each PR's playtest questions, and Playtests page exports, kept as files) | Devlin, 2026-10-10 | For now the answers go in a PR comment and run history stays local on the Playtests page, with an optional GitHub issue. Doing this means picking a folder layout and possibly a GitHub Action that collects `playtest` issues. |
 
 ## Riding and boarding
 
