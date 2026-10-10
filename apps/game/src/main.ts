@@ -17,6 +17,8 @@ const MAX_CATCHUP = 5;
 const WALK_AXIS = 64;
 const TILE = 24;
 const ZOOM_MIN = 0.1, ZOOM_MAX = 4;
+/** Zoom the camera snaps to on landing aboard; the wheel can still change it. */
+const ABOARD_ZOOM = 1.75;
 
 const keys = new Set<string>();
 const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
@@ -128,6 +130,7 @@ async function boot() {
     return [Math.round(fx * car.ux + fy * car.uy), Math.round(fy * car.ux - fx * car.uy)];
   };
   let zoneSec = 0, bestZoneSec = 0;
+  let lastPhase = runPhase(sim.state);
   // Short-lived notices from events: the last rejection and how the last run ended.
   let notice = '', noticeUntil = 0;
   const show = (text: string, ms: number) => { notice = text; noticeUntil = performance.now() + ms; };
@@ -181,6 +184,8 @@ async function boot() {
     const horse = s.world.horses[0]!;
     const player = s.players[0]!;
     const phase = runPhase(s);
+    if (phase === 'aboard' && lastPhase !== 'aboard') zoom = ABOARD_ZOOM;
+    lastPhase = phase;
     const run = s.run?.players[player.id];
     // The boarding readout is against the committed train, or the nearest one while idle.
     const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, b) => distanceToTrain(s, sim.map, config, a.id, horse.x, horse.y) - distanceToTrain(s, sim.map, config, b.id, horse.x, horse.y))[0]?.id;
