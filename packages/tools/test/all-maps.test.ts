@@ -1,0 +1,73 @@
+// Rules every playtest map in maps-src must keep, whatever its shape: it builds to the checked-in
+// file, the blank train has its route, there is room to ride beside the whole track, and the rider
+// can reach the track from the spawn.
+import { describe, it, expect } from 'vitest';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { decodeZones, ZONES } from '@train-robber/config';
+import { createSim } from '@train-robber/sim';
+import { buildMapFile, stringifyMap } from '../src/maps/build';
+import { MAPS_OUT, MAPS_SRC } from '../src/maps/cli';
+import { loadConfig } from '../src/content';
+
+/** Open or slow ground this close to every track sample, so a rider fits beside the cars. */
+const LANE_TILES = 5;
+/** Tightest baked curve allowed; rigid 16-tile cars cut visibly inside anything tighter. */
+const MIN_RADIUS_TILES = 17;
+
+const ids = readdirSync(MAPS_SRC).filter((f) => f.endsWith('.tmj')).map((f) => f.replace(/\.tmj$/, '')).sort();
+
+describe.each(ids)('map %s', (id) => {
+  const { map, minRadiusTiles } = buildMapFile(join(MAPS_SRC, `${id}.tmj`));
+  const { cols, rows } = map.size;
+  const grid = decodeZones(map);
+  const zone = (x: number, y: number) => ZONES[grid[y * cols + x]!]!;
+  const rideable = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && (zone(x, y) === 'open' || zone(x, y) === 'slow');
+  const main = map.routes.find((r) => r.id === 'main');
+
+  it('matches the checked-in build', () => {
+    expect(stringifyMap(map)).toBe(readFileSync(join(MAPS_OUT, `${id}.json`), 'utf8'));
+  });
+
+  it('has a closed main route for the blank train, with no curve tighter than the cars allow', () => {
+    expect(main?.closed).toBe(true);
+    expect(minRadiusTiles).toBeGreaterThanOrEqual(MIN_RADIUS_TILES);
+  });
+
+  it(`leaves rideable ground within ${LANE_TILES} tiles of every track sample`, () => {
+    const { x: xs, y: ys } = main!.samples;
+    for (let i = 0; i < xs.length; i++) {
+      for (let dy = -LANE_TILES; dy <= LANE_TILES; dy++) {
+        for (let dx = -LANE_TILES; dx <= LANE_TILES; dx++) {
+          if (dx * dx + dy * dy > LANE_TILES * LANE_TILES) continue;
+          const x = Math.floor(xs[i]! + dx), y = Math.floor(ys[i]! + dy);
+          expect(rideable(x, y), `${id}: ${x},${y} beside sample ${i}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('lets the rider reach the track from the spawn', () => {
+    const start = map.markers.playerSpawn;
+    const seen = new Uint8Array(cols * rows);
+    const queue = [Math.floor(start.y) * cols + Math.floor(start.x)];
+    seen[queue[0]!] = 1;
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q]!, x = i % cols, y = (i - x) / cols;
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
+        if (rideable(nx, ny) && !seen[ny * cols + nx]) { seen[ny * cols + nx] = 1; queue.push(ny * cols + nx); }
+      }
+    }
+    const { x: xs, y: ys } = main!.samples;
+    for (let i = 0; i < xs.length; i += 50) expect(seen[Math.floor(ys[i]!) * cols + Math.floor(xs[i]!)], `${id}: sample ${i}`).toBe(1);
+  });
+
+  it('runs the sim for a full lap', () => {
+    const config = loadConfig();
+    const sim = createSim({ config, map, seed: id, playerIds: [1] });
+    expect(sim.state.world.horses[0]).toMatchObject({ x: map.markers.playerSpawn.x, y: map.markers.playerSpawn.y, speed: 0 });
+    const lapTicks = Math.ceil(main!.length / config.values.trains.blank!.speedTilesPerTick);
+    for (let t = 0; t < lapTicks; t++) sim.step([{ player: 1, commands: [] }]);
+    expect(sim.cars()).toHaveLength(4);
+  });
+});
