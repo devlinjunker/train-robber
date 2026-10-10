@@ -126,7 +126,7 @@ It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A 
 
 1. Note the URL you played (it carries the seed and the variants).
 2. Press L to export the logs. The command log replays the session exactly: `npm run tools -- replay <file>.commands.ndjson` reruns it and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
-3. Write down what you tried and how it felt, alongside the setup. Ideas for new features go in [ideas.md](ideas.md). Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
+3. Write down what you tried and how it felt, alongside the setup. Ideas for new features go on the [Ideas wiki page](https://github.com/devlinjunker/train-robber/wiki/Ideas). Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
 
 The event log now carries `RunStarted`, `RunPhaseChanged`, `BoardingAttempt` (result, attempt number, meter position), `DamageDealt`, `CommandRejected` (with the reason), `RunEnded` (outcome, length, jumps, and whether it was a quick retry) and `PersistentChanged`. The M5 report will read them to give attempts per run and failure reasons.
 
