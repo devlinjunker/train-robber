@@ -15,6 +15,8 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run deps && npm run validate && npm run maps:check && npm run test",
     "tools": "tsx packages/tools/src/cli.ts",
+    "bots": "tsx packages/tools/src/cli.ts bots",
+    "bench": "tsx packages/tools/src/cli.ts bench",
     "golden:update": "tsx packages/tools/src/cli.ts record-golden packages/tools/test/fixtures/golden.commands.ndjson",
     "deps": "depcruise packages apps --config .dependency-cruiser.cjs",
     "validate": "tsx packages/tools/src/cli.ts validate",

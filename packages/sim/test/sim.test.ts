@@ -65,7 +65,7 @@ describe('logs', () => {
   it('event log applies the allowlist', () => {
     const lines: string[] = [];
     const log = eventLogWriter(header, (l) => lines.push(l), { allow: ['RunStarted'] });
-    log.events([{ type: 'RunStarted', tick: 3, player: 1, runNumber: 1, trainId: 'blank-1' }, { type: 'RunCancelled', tick: 9, player: 1 }]);
+    log.events([{ type: 'RunStarted', tick: 3, player: 1, runNumber: 1, trainId: 'blank-1' }, { type: 'RunPhaseChanged', tick: 9, player: 1, from: 'approach', to: 'ended' }]);
     expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1, runNumber: 1, trainId: 'blank-1' }]);
   });
 });
