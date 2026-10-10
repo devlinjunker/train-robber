@@ -23,6 +23,13 @@ module.exports = {
       to: { path: '^(apps/|packages/(tools|client)/)|(^|node_modules/)(pixi\\.js|three)(/|$)' },
     },
     {
+      name: 'client-no-game-tools',
+      comment: 'packages/client draws the sim and maps input; it never imports the game app or the tools.',
+      severity: 'error',
+      from: { path: '^packages/client/src' },
+      to: { path: '^(apps/|packages/tools/)' },
+    },
+    {
       name: 'no-circular',
       severity: 'error',
       from: {},

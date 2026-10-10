@@ -1,6 +1,6 @@
 // Debug drawing of a map as the converter built it, in tile units, top-down (x right,
-// y down, as in Tiled). The isometric projection comes later; this is for checking the
-// build against the Tiled file.
+// y down, as in Tiled), for checking the build against the Tiled file. The top-down debug
+// view (V) draws it; the isometric view has its own overlay in iso/terrain.ts.
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
 
