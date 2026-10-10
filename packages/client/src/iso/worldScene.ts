@@ -5,8 +5,8 @@ import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type Boardi
 import type { MapDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
-import { carHides } from './occlusion';
-import { depthOf, isoX, isoY } from '../projection';
+import { carHides, screenHull } from './occlusion';
+import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
 
 export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, 'blank-car': 0x9a5534 };
@@ -14,12 +14,15 @@ const DOOR_COLOUR = 0xe8c872;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
-/** An open car (the one you are in, or one hiding you or the horse) has a plank floor, low walls and no roof. */
+/** The car you are in is drawn open: no roof, low walls and a plank floor, so you show inside it. */
 const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
 const PLAYER_COLOUR = 0x6bd3ff;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
-/** Heights checked when a car may hide the horse and rider or the player; a car that does is cut away. */
-const HIDDEN_HEIGHTS = [0.6, 1.6];
+/**
+ * When a car hides the horse and rider (or you aboard), a round hole around them darkens that part
+ * of the car like a shadow and shows them through it (Devlin, 2026-10-10). Radius in tiles.
+ */
+const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 1.7, CUTOUT_SHADE = 0.6;
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -73,6 +76,23 @@ function doorSpans(template: string): { side: 'left' | 'right'; a0: number; a1: 
   return spans;
 }
 
+function drawPlayer(g: Graphics, p: { x: number; y: number }): void {
+  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, PLAYER_COLOUR);
+}
+
+/** The horse: a body box along its heading, a head, legs, and the rider on top. */
+function drawHorse(g: Graphics, h: ActorPose, flash: boolean): void {
+  const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
+  const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
+  const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
+  const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
+  const c = flash ? 0xffffff : HORSE_COLOUR;
+  drawBox(g, legs, shade(c, 0.7));
+  drawBox(g, body, c);
+  drawBox(g, head, c);
+  drawBox(g, rider, flash ? 0xffffff : RIDER_COLOUR);
+}
+
 export function createWorldScene(map: MapDef): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
@@ -85,7 +105,13 @@ export function createWorldScene(map: MapDef): WorldScene {
   const zoneOverlay = new Graphics();
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  root.addChild(terrain, mapOverlay, shadows, floors, objects, zoneOverlay, markers);
+  // The shadow cutout: dark car outlines and a copy of the hidden actor, masked to a circle.
+  const cutout = new Container();
+  const cutShade = new Graphics(), cutActors = new Graphics(), cutMask = new Graphics();
+  cutShade.alpha = CUTOUT_SHADE; // on the layer, so overlapping slices shade evenly
+  cutout.addChild(cutShade, cutActors);
+  cutout.mask = cutMask;
+  root.addChild(terrain, mapOverlay, shadows, floors, objects, cutout, cutMask, zoneOverlay, markers);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -142,20 +168,30 @@ export function createWorldScene(map: MapDef): WorldScene {
       used = 0;
       shadows.clear();
       floors.clear();
+      // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
+      const actor = input.aboard ?? input.horse;
+      const keep: [number, number][] = [];
+      if (input.aboard) keep.push([input.aboard.x, input.aboard.y]);
+      else if (input.horse) {
+        const h = input.horse;
+        for (const k of [-0.8, 0, 0.8]) keep.push([h.x + h.hx * k, h.y + h.hy * k]);
+      }
+      cutShade.clear(); cutActors.clear(); cutMask.clear();
+      let hidden = false;
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
-        // The car you are in is open, and so is any car hiding the horse and rider or you: it is
-        // cut away to the same low walls rather than hiding who is behind it.
-        const a = input.aboard, h = input.horse;
-        const open = (a && a.trainId === car.trainId && a.index === car.index)
-          || (a && carHides(car, CAR_HEIGHT, a.x, a.y, HIDDEN_HEIGHTS))
-          || (h && carHides(car, CAR_HEIGHT, h.x, h.y, HIDDEN_HEIGHTS));
+        const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
+          // A slice in front of who we keep in sight goes dark inside the cutout.
+          if (keep.some(([x, y]) => carHides(s.box, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS))) {
+            cutShade.poly(screenHull(s.box, CAR_HEIGHT).flat()).fill(0x000000);
+            hidden = true;
+          }
           const g = piece();
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
@@ -186,7 +222,8 @@ export function createWorldScene(map: MapDef): WorldScene {
       if (input.aboard) {
         const p = input.aboard;
         groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
-        drawBox(playerG, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, PLAYER_COLOUR);
+        drawPlayer(playerG, p);
+        if (hidden) drawPlayer(cutActors, p);
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
@@ -197,17 +234,14 @@ export function createWorldScene(map: MapDef): WorldScene {
         const h = input.horse;
         const flash = input.stunned && Math.floor(input.timeSec * 8) % 2 === 0;
         groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
-        const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
-        const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
-        const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
-        const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
-        const c = flash ? 0xffffff : HORSE_COLOUR;
-        drawBox(horseG, legs, shade(c, 0.7));
-        drawBox(horseG, body, c);
-        drawBox(horseG, head, c);
-        drawBox(horseG, rider, flash ? 0xffffff : RIDER_COLOUR);
+        drawHorse(horseG, h, flash);
+        if (hidden) drawHorse(cutActors, h, flash);
         horseG.zIndex = depthOf(h.x, h.y);
       }
+
+      // The cutout: a circle around who is hidden, at about chest height.
+      if (hidden && actor) cutMask.circle(isoX(actor.x, actor.y), isoY(actor.x, actor.y, 1), CUTOUT_RADIUS * TILE_H).fill(0xffffff);
+      cutout.visible = hidden;
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
