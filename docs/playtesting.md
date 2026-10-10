@@ -40,7 +40,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 | W A S D, aboard | Walk inside the car, screen-relative (W+D walks toward the front); hold Shift to run |
 | Esc | Cancel the run: back to the spawn, mounted and stopped |
 | R | Quick retry: ends any run and puts you on the horse, stopped, 60 tiles behind the train on the side you were on |
-| Q / Z, `-` / `=`, mouse wheel | Zoom out / in (locked at 1.75 during a run) |
+| Q / Z, `-` / `=`, mouse wheel | Zoom out / in while idle; from commit until the run ends the zoom is locked at 1.75x |
 | V | Switch between the isometric view and the top-down debug view |
 | O | Toggle the map overlay (speed zones, track samples, tangents, markers) |
 | B | Toggle the boarding range circles around every door |
@@ -52,7 +52,7 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 1. Ride within 12 tiles of the train (`commit.rangeTiles`, measured to the nearest car) and press E. The run starts in `approach`, the train is yours, and health is full.
 2. Ride beside a door on either side. The **boarding** line comes from the sim's own rule: `ELIGIBLE` (in range and speed matched), `TOO FAST`, `TOO SLOW` or `TOO FAR`, the side you are on, the distance to the nearest door on that side, and your speed along the car minus the train's.
 3. In range, the meter above the horse sweeps back and forth: slowly with a white marker when your speed matches the train's, fast with an orange marker when it doesn't. Out of range it is dim and parked. The green band is perfect, the yellow band around it is good, the rest fails. The bands move to a new random place after every jump, never while you are lining up.
-4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a half-second stumble at half walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 25 health under `time-and-damage`, and the train pulls ahead. Four failures at full health kill you: "YOU DIED", and you are back at the spawn.
+4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a 2.5 s stumble at a third of walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 15 health under `time-and-damage`, and the train pulls ahead. Seven failures from full health kill you: "YOU DIED", and you are back at the spawn.
 5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen. Esc or R ends the run.
 
 The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Committing to a train locks the zoom at 1.75 for the whole run, aboard too; the zoom keys and wheel come back when the run ends, at the zoom you rode with. Aboard, the view eases into the car: one plain car, front up-right, with stripes and track sliding past at the train's speed.
@@ -92,13 +92,13 @@ The loop:
 | How close to a door counts | `boarding.rangeTiles` | 2 tiles |
 | How exactly you must match speed | `boarding.speedToleranceTilesPerSec` | 2 tiles/s |
 | How far a commit reaches | `commit.rangeTiles` | 12 tiles |
-| How fast the meter sweeps when speed matched (one full back and forth) | `boarding.meter.matchedSweepPeriodSec` | 1.8 s |
-| How fast it sweeps in range at the wrong speed | `boarding.meter.sweepPeriodSec` | 1.2 s |
-| Perfect and good band widths | `boarding.meter.zoneWidths` | 5%, 40% |
+| How fast the meter sweeps when speed matched (one full back and forth) | `boarding.meter.matchedSweepPeriodSec` | 1.85 s |
+| How fast it sweeps in range at the wrong speed | `boarding.meter.sweepPeriodSec` | 1.3 s |
+| Perfect and good band widths | `boarding.meter.zoneWidths` | 3%, 15% |
 | How long a failed jump stuns the horse | `boarding.failure.stunSec` | 1.5 s |
 | Horse speed after a failed jump | `boarding.failure.horseSpeedScale` | 0.5 |
-| Health lost per failed jump | `boarding.failure.damageFraction` | 25% of max |
-| Good-landing stumble | `boarding.landing.stumbleSec`, `stumbleSpeedScale` | 0.5 s at 0.5 |
+| Health lost per failed jump | `boarding.failure.damageFraction` | 15% of max |
+| Good-landing stumble | `boarding.landing.stumbleSec`, `stumbleSpeedScale` | 2.5 s at 0.33 |
 | Running speed aboard (walking is half, in `packages/client/src/input.ts` as `WALK_AXIS`) | `player.speedTilesPerSec` | 8 tiles/s |
 | Quick retry on R, and its gap behind the train | `playtest.quickRetry`, `playtest.quickRetryGapTiles` | on, 60 tiles |
 | Train speed | `trains.blank.speedTilesPerSec` | 9 tiles/s |
