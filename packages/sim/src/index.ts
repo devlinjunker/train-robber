@@ -9,3 +9,7 @@ export * from './world/cars';
 export * from './world/collide';
 export * from './world/trains';
 export * from './world/riding';
+export * from './world/boarding';
+export * from './world/separate';
+export * from './run';
+export * from './rules/outcome';

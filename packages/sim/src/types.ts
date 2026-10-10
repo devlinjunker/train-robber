@@ -15,17 +15,81 @@ export type Command =
    * sees the screen. 0, 0 keeps the current heading. Ignored under heading-relative steering.
    */
   | { type: 'steer'; x: number; y: number }
+  /** E: commit to the train in range when idle (as `startRun` with no id); later loot, inspect and so on. */
+  | { type: 'interact'; held: boolean }
+  /** Space: the boarding jump, sampling the meter on this tick. */
+  | { type: 'jump' }
+  /** Commit to a train; without an id, the nearest one that can be committed to. */
   | { type: 'startRun'; trainId?: string }
-  | { type: 'cancelRun' };
+  /** Esc: end the run in any phase but `ended` and reset to playerSpawn. */
+  | { type: 'cancelRun' }
+  /** R, while `playtest.quickRetry` is on: end the run and wait on the horse behind the train. */
+  | { type: 'quickRetry' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
+/** `idle` means no run; the others are `RunState.phase`. */
+export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
+export type RunOutcome = 'died' | 'cancelled';
+export type BoardingResult = 'perfect' | 'good' | 'fail';
+/** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
+export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
+export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
+export type RejectReason = JumpRejection | CommitRejection | 'disabled' | 'nothing to interact with';
+
 export type SimEvent =
-  | { type: 'RunStarted'; tick: number; player: PlayerId }
-  | { type: 'RunCancelled'; tick: number; player: PlayerId };
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string }
+  | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
+  | { type: 'CommandRejected'; tick: number; player: PlayerId; command: Command['type']; reason: RejectReason }
+  /** `meter` is the sampled position, 0 to 1. */
+  | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
+  /** `retry` marks a quick retry, which ends the run as a cancel. */
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean }
+  | { type: 'RunCancelled'; tick: number; player: PlayerId }
+  | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState };
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
-export interface RunState { runNumber: number; startedTick: number }
+
+/** The boarding meter: a marker sweeping back and forth over a track from 0 to 1. */
+export interface MeterState {
+  /**
+   * How far through one back-and-forth the marker is, 0 to 1. It advances by 1 / period each
+   * tick in boarding range (slower when speed matched) and is 0 out of range.
+   */
+  phase: number;
+  /** Centre of the good zone (the perfect zone sits in its middle), re-rolled after each jump. */
+  zoneCentre: number;
+}
+
+export interface PlayerRunState {
+  health: number;
+  meter: MeterState;
+  boardingAttempts: number;
+  /** Ticks of good-landing stumble left; walk speed is scaled while above 0. */
+  stumbleTicks: number;
+}
+
+export interface RunState {
+  runNumber: number;
+  startedTick: number;
+  /** The committed (pinned) train. */
+  trainId: string;
+  phase: Exclude<RunPhase, 'idle'>;
+  /** Integer keys only, so key order is stable. */
+  players: Record<PlayerId, PlayerRunState>;
+}
+
+/**
+ * Where a player is. `world` while mounted, with x and y following the horse; `car:<trainId>:<index>`
+ * aboard, with x along the car's cells (0 at the front) and y across them (0 on the left side).
+ */
+export interface Placement {
+  frame: string;
+  x: number;
+  y: number;
+  layer: 'ground' | 'interior' | 'roof';
+}
 
 export interface PlayerState {
   id: PlayerId;
@@ -34,6 +98,7 @@ export interface PlayerState {
   /** Latest intents. Commands only arrive when they change, so they persist here. */
   move: { x: number; y: number };
   steer: { x: number; y: number };
+  placement: Placement;
 }
 
 export interface HorseState {
@@ -47,6 +112,13 @@ export interface HorseState {
   speed: number;
   /** Target speed for the cruise throttle model, tiles per second. */
   cruiseTarget: number;
+  /** Ticks of stun left after a failed jump: no steering or throttle, speed held. */
+  stunTicks: number;
+  /**
+   * `physical` rides the map. `away` is the separate world mode's abstract horse while its
+   * rider is aboard: not simulated and not drawn (extraction adds the other states in phase 2).
+   */
+  mode: 'physical' | 'away';
 }
 
 export interface TrainState {
@@ -77,6 +149,21 @@ export interface SimConfig {
   values: {
     sim: { tickRateHz: number };
     player: { speedTilesPerTick: number };
+    world: { mode: 'separate' | 'continuous' };
+    commit: { rangeTiles: number };
+    boarding: {
+      rangeTiles: number;
+      speedToleranceTilesPerSec: number;
+      meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
+      failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
+      landing: { stumbleTicks: number; stumbleSpeedScale: number };
+    };
+    health: { max: number };
+    playtest: { quickRetry: boolean; quickRetryGapTiles: number };
+    outcomePolicy: {
+      died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
+      cancelled: { bankRunLoot: boolean; wantedDelta: number };
+    };
     horse: {
       /** Tiles per second. */
       maxSpeed: number;

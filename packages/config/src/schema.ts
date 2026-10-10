@@ -20,13 +20,30 @@ export const GameSchema = z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,
     meter: z.object({
+      /** One full back and forth while in range but not speed matched: fast, so a mismatched jump is a long shot. */
       sweepPeriodSec: positive,
+      /** One full back and forth while in range and speed matched: slower, the intended way on. */
+      matchedSweepPeriodSec: positive,
       /** Perfect and good zone widths as fractions of the meter track. */
       zoneWidths: z.tuple([fraction, fraction]),
     }).strict().refine((m) => m.zoneWidths[0] <= m.zoneWidths[1], { message: 'perfect zone must not be wider than good zone', path: ['zoneWidths'] }),
-    failure: z.object({ stunSec: z.number().min(0), damageFraction: fraction }).strict(),
+    failure: z.object({
+      stunSec: z.number().min(0),
+      damageFraction: fraction,
+      /** The horse's speed is scaled by this when a jump fails, and held there during the stun. */
+      horseSpeedScale: fraction,
+    }).strict(),
+    /** A good landing stumbles: walk speed is scaled for a moment after boarding. */
+    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction }).strict(),
   }).strict(),
   health: z.object({ max: positive }).strict(),
+  /** Playtest conveniences that later phases switch off. */
+  playtest: z.object({
+    /** R ends the run and puts the player on the horse, stopped, behind the train. */
+    quickRetry: z.boolean(),
+    /** How far behind the train's last car quick retry places the horse. */
+    quickRetryGapTiles: positive,
+  }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
   countdown: z.object({
     /** Off until phase 2 brings the countdown and heat. */

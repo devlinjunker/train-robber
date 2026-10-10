@@ -156,7 +156,8 @@ type Command =
   | { type: 'qte'; key: number }                 // only when quick-time prompts are enabled
   | { type: 'useItem'; slot: number }
   | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
-  | { type: 'cancelRun' };
+  | { type: 'cancelRun' }
+  | { type: 'quickRetry' };                      // playtest only (`playtest.quickRetry`): end the run, wait behind the train
 ```
 
 The sim validates every command against current state (a `jump` outside the boarding phase is ignored and emits `CommandRejected`). Quantizing axes means two inputs either match exactly or differ, which makes replay comparison and later network compression simple. The discriminant is `type`, because `t` means the tick in log lines.
@@ -943,12 +944,12 @@ This section turns the decisions so far into what to build first: the foundation
 ### Decisions
 
 - **Committing to a train.** Ride toward a train. When one is within `commit.rangeTiles`, a prompt appears, and pressing the interact key sends `startRun` with that train's id. The sim validates the range and that the train is free, and the run and countdown start (U1). The rule lives in the sim, so the client only asks it which train, if any, can be committed.
-- **Boarding jump rules.** The jump is allowed only when the player is within `boarding.rangeTiles` of an entry point on the right side and within `boarding.speedToleranceTilesPerSec` of the train's speed. Otherwise `jump` is rejected and the HUD says why (too far, too fast, or too slow). When allowed, the meter decides the landing.
+- **Boarding jump rules.** The jump is allowed when the player is within `boarding.rangeTiles` of an entry point on the side they are riding; out of range, `jump` is rejected and the HUD says so. Speed matching (within `boarding.speedToleranceTilesPerSec` of the train) no longer gates the jump: after the M3 playtest on 2026-10-09 Devlin chose to let a mismatched rider try on a faster meter, so matching makes the jump easier rather than possible. The HUD still reads too fast, too slow or matched. The meter decides the landing.
 - **Failure cost.** A failed jump always costs time, and damage is a toggle. A failed player is thrown clear and the horse is stunned for `boarding.failure.stunSec`, so the train pulls ahead before a retry. Damage is `boarding.failure.damageFraction` of max health. A variant group `boardingFailure` has `time-and-damage` and `time-only` (damage fraction 0). Phase 1 includes a minimal health value so the failure and death paths are real; the full health system waits for phase 3.
 - **No countdown in phase 1.** The countdown and heat arrive in phase 2, so `countdown.enabled` is false until then. Cancel works from the start.
 
 * **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and water tiles and the map edge collide the same way; slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed.
-* **Boarding meter use.** While the player is eligible (in range and speed matched), the meter sweeps continuously and a single Space press samples it on that tick. Losing eligibility resets the meter.
+* **Boarding meter use.** In boarding range the meter sweeps continuously: at `boarding.meter.matchedSweepPeriodSec` when speed matched, and at the faster `boarding.meter.sweepPeriodSec` when not (changed after the 2026-10-09 playtest, see Boarding jump rules). The marker keeps its place when the speed changes, a single Space press samples it on that tick, and leaving range parks it at the start.
 * **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the mounted player back at `playerSpawn` while the train keeps looping.
 * **Repo.** A new repository using the monorepo layout from Package structure, with this document moved into `docs/`.
 
@@ -970,6 +971,8 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | E | Commit to a train, interact |
 | F | Whistle (phase 2) |
 | Esc | Cancel run |
+| R | Quick retry (playtest only, `playtest.quickRetry`) |
+| Shift | Run aboard (walking is the default) |
 | Q / Z or keys `-` / `=` | Zoom out / in |
 
 Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys above, in line with the input rules earlier.
@@ -981,10 +984,15 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
 | Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
-| Meter sweep period | 1.2 s | `boarding.meter.sweepPeriodSec` |
-| Meter zone widths (perfect, good) | 10%, 25% of the track | `boarding.meter.zoneWidths` |
+| Meter sweep period, in range but speed off | 1.3 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.sweepPeriodSec` |
+| Meter sweep period, speed matched | 1.85 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.matchedSweepPeriodSec` |
+| Meter zone widths (perfect, good) | 3%, 15% of the track (Devlin's 2D tuning, 2026-10-10; was 10%, 25%) | `boarding.meter.zoneWidths` |
 | Failure stun | 1.5 s | `boarding.failure.stunSec` |
-| Failure damage | 25% of max health | `boarding.failure.damageFraction` |
+| Failure damage | 15% of max health (Devlin's 2D tuning, 2026-10-10; was 25%) | `boarding.failure.damageFraction` |
+| Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
+| Walking aboard | half of `player.speedTilesPerSec` (4 tiles/s); Shift runs at the full 8 (client-side, after the 2026-10-09 playtest) | `player.speedTilesPerSec` |
+| Good-landing stumble | 2.5 s at 33% walk speed (Devlin's 2D tuning, 2026-10-10; was 0.5 s at 50%) | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
+| Quick retry (R) | on, 60 tiles behind the last car | `playtest.quickRetry`, `playtest.quickRetryGapTiles` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
 | Horse acceleration, braking | 7 and 12 tiles/s² (accel was 8 until playtest tuning on 2026-10-09) | `horse.accel`, `horse.brake` |
@@ -1030,10 +1038,10 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 - [x] Phase 1 Tiled map: flat terrain, one stadium-shaped route, a spawn marker (`maps-src/alpha-flats.tmj`: 400 × 200, stadium route with 240-tile straights and radius-40 U-turns, a pond, `playerSpawn` at (200, 170) with open ground up to the bottom straight, checked by a test; the separate horse spawn was dropped, see Map decisions; the scale placeholders above match it). M1 also added `npm run maps:watch`, `?map=` loading validated through `MapDefSchema`, and the map debug overlay
 - [x] Horse riding with steering, throttle and drag (`packages/sim/src/world/riding.ts`: the player starts mounted and stopped at `playerSpawn`; `steering` and `throttleModel` variant groups chosen by URL, for example `?v=steering:heading&v=throttleModel:coast`; slow tiles cap speed, blocked and water tiles and the map edge stop the horse; the sim receives the map through the structural `SimMap` type and snapshots record its hash, so `restoreSim(snapshot, config, map)` refuses a different map)
 - [x] Train and track simulation: an engine plus three blank cars moving along the route, looping (`trackAt` in `packages/sim/src/world/track.ts` gives position and unit tangent at any distance along a route; `packages/sim/src/world/trains.ts` spawns the one blank train at load and advances it, with `pinTrain` as the hook for the committed train in M3; `packages/sim/src/world/cars.ts` generates the `engine` and `blank-car` templates in code (doors mid-car on both sides of a blank car, none on the engine), places cars as rigid 16 × 6 rectangles, and `entryPointWorld` gives entry points in world space for the boarding rule and the markers; horse against car collision is in, and the top-down debug view draws the cars, entry points and the horse with its heading)
-- [ ] Commit prompt and `startRun`
-- [ ] Boarding rules, meter, success and failure, and the stun
-- [ ] Minimal health, death outcome, and cancel
-- [ ] Separate-mode train scene and the camera transition
-- [ ] HUD: commit prompt, jump rejection reasons, meter, health
-- [ ] Logging of boarding attempts and run outcomes
+- [x] Commit prompt and `startRun` (M3: `commitTarget` is the commit query the prompt reads and `startRun` validates `commit.rangeTiles`, measured to the nearest car body, and that the train is free; it pins the train, refills health and enters `approach`. `interact` while idle commits the same way, so E works without the client naming a train)
+- [x] Boarding rules, meter, success and failure, and the stun (M3, `packages/sim/src/world/boarding.ts` and `run.ts`: `boardingCheck` is the one rule, shared with the debug readout; in range the meter sweeps back and forth, slower when speed matched, and the zones re-roll from the `misc` stream only after a jump resolves. A failed jump holds the `boarding` phase for the stun with the horse at `horseSpeedScale` of its speed and deaf to the reins, then returns to `approach`)
+- [x] Minimal health, death outcome, and cancel (M3: health refills at each run start; death ends the run as `died` through `rules/applyOutcome` and `outcomePolicy.died`, then resets like cancel; cancel and quick retry work from every phase but `ended`, and `ended` passes to `idle` on the same tick)
+- [~] Separate-mode train scene and the camera transition (sim side in M3: `world/separate.ts` implements `WorldModel`; boarding moves the placement into the car frame `car:<trainId>:<index>` at the entry cell and the horse turns abstract (`mode: 'away'`); the blank interior is walkable with screen-relative WASD (walk at half `player.speedTilesPerSec`, Shift runs); `move` aboard is in the car's frame and the client maps the screen into it, so the view keeps the train's direction on screen. The interior scene and the camera ease wait for M4)
+- [~] HUD: commit prompt, jump rejection reasons, meter, health (M3 shows them in the top-down debug view: the meter above the horse, the rest in the overlay text; the HTML HUD waits for M4)
+- [~] Logging of boarding attempts and run outcomes (M3 emits `RunPhaseChanged`, `BoardingAttempt`, `DamageDealt`, `CommandRejected`, `RunEnded` and `PersistentChanged` and allows them in `logging.events`; `RunCancelled` is still emitted beside `RunEnded` until M5 decides whether to drop it. Reports and bots are M5)
 - [ ] Playtest against the gate: riding and boarding is fun before any loot exists

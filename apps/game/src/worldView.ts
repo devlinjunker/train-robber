@@ -1,7 +1,7 @@
 // Top-down debug drawing of the sim's trains and horse, in tile units like the map overlay.
 // The isometric renderer replaces this in M4.
 import { Container, Graphics } from 'pixi.js';
-import { CAR_TEMPLATES, HORSE_RADIUS, carEntryPoints, type CarPose, type HorseState } from '@train-robber/sim';
+import { CAR_TEMPLATES, HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, type BoardingCheck, type BoardingState, type CarPose, type HorseState } from '@train-robber/sim';
 
 const CAR_COLOURS: Record<string, number> = { engine: 0x3a3a46, 'blank-car': 0x8a4b2d };
 
@@ -23,23 +23,30 @@ function drawCar(template: string): Graphics {
   return g;
 }
 
-/** Debug view of the boarding rule M3 will enforce: distance to a door and speed match. */
-export interface BoardingRule { rangeTiles: number; trainSpeed: number; toleranceTilesPerSec: number }
-export type ZoneState = 'too far' | 'too slow' | 'too fast' | 'in zone';
-export interface ZoneReading {
-  state: ZoneState;
-  /** Distance to the nearest entry point, in tiles. */
-  distance: number;
-  /** Horse speed along that car's direction of travel minus the train's speed. */
-  speedDelta: number;
+/** What the view draws besides the cars, read from the sim each frame. */
+export interface ViewInput {
+  /** The horse, unless it is abstract (its rider is aboard). */
+  horse: HorseState | null;
+  /** The boarding rule against the committed train, or the nearest one while idle. */
+  check: BoardingCheck | null;
+  rangeTiles: number;
+  /** The meter while approaching: marker position, zones, and whether it is sweeping. */
+  meter: { position: number; perfect: [number, number]; good: [number, number]; sweeping: boolean; matched: boolean } | null;
+  /** The player's world position while aboard. */
+  aboard: { x: number; y: number } | null;
+  /** The camera zoom, so the meter can keep one size on screen. */
+  zoom: number;
 }
 
 export interface WorldView {
   layer: Container;
-  update(cars: readonly CarPose[], horse: HorseState, rule: BoardingRule): ZoneReading;
+  update(cars: readonly CarPose[], input: ViewInput): void;
 }
 
-const ZONE_COLOURS: Record<ZoneState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, 'in zone': 0x6bff8a };
+const ZONE_COLOURS: Record<BoardingState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
+
+/** Meter size in tiles at `METER_ZOOM`; at other zooms it is scaled to keep the same size on screen. */
+const METER_W = 14, METER_H = 0.9, METER_UP = 2.6, METER_ZOOM = 1.75;
 
 export function createWorldView(): WorldView {
   const layer = new Container();
@@ -50,12 +57,14 @@ export function createWorldView(): WorldView {
   const horse = new Graphics()
     .circle(0, 0, HORSE_RADIUS).fill({ color: 0xffd34d, alpha: 0.35 }).stroke({ width: 0.08, color: 0xffd34d })
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(0xffd34d);
-  layer.addChild(zones, carLayer, entries, horse);
+  const meter = new Graphics();
+  const player = new Graphics().circle(0, 0, WALKER_RADIUS).fill(0x6bd3ff).stroke({ width: 0.08, color: 0x0b2a3a });
+  layer.addChild(zones, carLayer, entries, horse, player, meter);
   const pool: Graphics[] = [];
 
   return {
     layer,
-    update(cars, h, rule) {
+    update(cars, input) {
       cars.forEach((car, i) => {
         let g = pool[i];
         if (!g || g.label !== car.template) {
@@ -72,31 +81,43 @@ export function createWorldView(): WorldView {
       // Entry points come from the sim's shared function, as the M4 markers will.
       entries.clear();
       zones.clear();
-      let best: ZoneReading = { state: 'too far', distance: Infinity, speedDelta: 0 };
-      let bestAt: { x: number; y: number } | null = null;
       for (const car of cars) {
         for (const ep of carEntryPoints(car)) {
           entries.circle(ep.x, ep.y, 0.35);
-          zones.circle(ep.x, ep.y, rule.rangeTiles);
-          const distance = Math.hypot(h.x - ep.x, h.y - ep.y);
-          if (distance < best.distance) {
-            const along = (h.hx * car.ux + h.hy * car.uy) * h.speed;
-            best = { state: 'too far', distance, speedDelta: along - rule.trainSpeed };
-            bestAt = ep;
-          }
+          zones.circle(ep.x, ep.y, input.rangeTiles);
         }
       }
       entries.fill({ color: 0x6bff8a, alpha: 0.9 });
       zones.stroke({ width: 0.08, color: 0xffffff, alpha: 0.5 });
-      if (best.distance <= rule.rangeTiles) {
-        best.state = best.speedDelta < -rule.toleranceTilesPerSec ? 'too slow' : best.speedDelta > rule.toleranceTilesPerSec ? 'too fast' : 'in zone';
+      // The nearest door on the riding side fills by the sim's verdict.
+      const c = input.check;
+      if (input.horse && c?.at && c.state !== 'too far') {
+        zones.circle(c.at.x, c.at.y, input.rangeTiles).fill({ color: ZONE_COLOURS[c.state], alpha: 0.3 }).stroke({ width: 0.12, color: ZONE_COLOURS[c.state] });
       }
-      if (bestAt && best.state !== 'too far') {
-        zones.circle(bestAt.x, bestAt.y, rule.rangeTiles).fill({ color: ZONE_COLOURS[best.state], alpha: 0.3 }).stroke({ width: 0.12, color: ZONE_COLOURS[best.state] });
+      horse.visible = input.horse !== null;
+      meter.clear();
+      if (input.horse) {
+        const h = input.horse;
+        horse.position.set(h.x, h.y);
+        horse.rotation = Math.atan2(h.hy, h.hx);
+        const m = input.meter;
+        if (m) {
+          // Track, good zone, perfect zone, then the marker; dim while not sweeping.
+          // Drawn around the horse, then scaled against the zoom so its screen size never changes.
+          meter.position.set(h.x, h.y);
+          meter.scale.set(METER_ZOOM / input.zoom);
+          const x0 = -METER_W / 2, y0 = -METER_UP - METER_H;
+          const a = m.sweeping ? 1 : 0.4;
+          meter.rect(x0, y0, METER_W, METER_H).fill({ color: 0x1b1b1f, alpha: 0.85 * a });
+          meter.rect(x0 + m.good[0] * METER_W, y0, (m.good[1] - m.good[0]) * METER_W, METER_H).fill({ color: 0xe8c872, alpha: a });
+          meter.rect(x0 + m.perfect[0] * METER_W, y0, (m.perfect[1] - m.perfect[0]) * METER_W, METER_H).fill({ color: 0x6bff8a, alpha: a });
+          // White marker on the slow, speed-matched sweep; orange on the fast one.
+          meter.rect(x0 + m.position * METER_W - 0.1, y0 - 0.25, 0.2, METER_H + 0.5).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a });
+          meter.rect(x0, y0, METER_W, METER_H).stroke({ width: 0.08, color: 0xffffff, alpha: 0.6 * a });
+        }
       }
-      horse.position.set(h.x, h.y);
-      horse.rotation = Math.atan2(h.hy, h.hx);
-      return best;
+      player.visible = input.aboard !== null;
+      if (input.aboard) player.position.set(input.aboard.x, input.aboard.y);
     },
   };
 }
