@@ -10,6 +10,7 @@
   .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
   button, select, input { font:inherit; font-size:13px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; }
   button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  a.watch { color:var(--accent); font-size:13px; margin-right:4px; }
   label { font-size:12px; color:var(--muted); display:flex; gap:4px; align-items:center; }
   .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:6px; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
@@ -23,7 +24,7 @@
 </style></head>
 <body><main>
   <h1>Playtests</h1>
-  <div class="muted">Every run played in this browser is recorded here automatically, with its outcome and notes (N in game). Import other testers' JSON exports to compare.</div>
+  <div class="muted">Every run played in this browser is recorded here automatically, with its outcome and notes (N in game). Import other testers' JSON exports to compare. Watch replays a stored run in the game; to watch someone else's run, drop their .commands.log file onto the game page.</div>
   <div class="bar">
     <label>Your name <input id="tester" placeholder="for runs from now on" size="16" /></label>
     <button id="csv">Download CSV</button>
