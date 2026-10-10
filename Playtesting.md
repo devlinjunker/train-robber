@@ -1,0 +1,176 @@
+How to play a build, switch between variants, change tuning values, and record what you found. The numbers in [technical-design.md](https://github.com/devlinjunker/train-robber/blob/main/docs/technical-design.md) are placeholders for exactly this: Phase 1's gate is a judgement call ("is riding and boarding fun?"), so play, tweak and write down what changed your mind.
+
+## Where to play
+
+- **A pull request:** `https://devlinjunker.github.io/train-robber/pr-preview/pr-<number>/`, linked from a bot comment on the PR. It rebuilds on every push.
+- **`main`:** `https://devlinjunker.github.io/train-robber/`.
+- **Locally:** `npm install`, then `npm run dev`. Saving a file reloads the page, so this is the fastest loop for tuning values.
+
+## Choosing a setup from the URL
+
+| Parameter | Example | What it does |
+| --- | --- | --- |
+| `preset` | `?preset=alpha-default` | Picks a preset (one variant per group). `alpha-default` is the only one so far. |
+| `v` | `?v=throttleModel:coast` | Swaps one group's variant. Repeat it for several groups. |
+| `seed` | `?seed=abc123` | Fixes the seed so a run can be repeated. Without one the page picks a random seed. |
+| `map` | `?map=alpha-flats` | Picks a built map from `packages/content/base/maps` (see [Maps](#maps)). |
+| `view` | `?view=topdown` | Starts in the top-down debug view instead of the isometric one (V switches either way). |
+
+Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=test1`. The debug readout's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
+
+### Variant groups
+
+| Group | Options (default first) | What it changes |
+| --- | --- | --- |
+| `steering` | `heading`, `screen` | Heading-relative: A/D turn the horse. Screen-relative: the arrow keys set a direction on screen and the horse turns toward it. |
+| `throttleModel` | `coast`, `hold`, `cruise` | What releasing W does. Coast slows under drag, hold keeps your speed, and cruise makes W/S move a target speed the horse settles on. |
+| `boardingFailure` | `time-and-damage`, `time-only` | Whether a failed jump costs health as well as time. |
+
+## Controls and the debug view
+
+| Key | Action |
+| --- | --- |
+| W / S | Throttle up / down |
+| Arrow keys | Steer (screen-relative). In the isometric view one arrow is that direction on screen, and two arrows ride along the tile axis on that diagonal, the way the track and the cars run |
+| A / D | Steer (heading-relative) |
+| E | Commit to the train in range (the prompt at the bottom says `E: commit to blank-1` when you can) |
+| Space | Boarding jump: samples the meter on that tick |
+| W A S D, aboard | Walk inside the car, screen-relative (W+D walks toward the front); hold Shift to run |
+| Esc | Cancel the run: back to the spawn, mounted and stopped |
+| R | Quick retry: ends any run and puts you on the horse, stopped, 60 tiles behind the train on the side you were on |
+| Q / Z, `-` / `=`, mouse wheel | Zoom out / in while idle; from commit until the run ends the zoom is locked (1x in iso, 1.75x top-down; `?runZoom=1.4` overrides) |
+| V | Switch between the isometric view and the top-down debug view |
+| O | Toggle the map overlay (speed zones, track samples, tangents, markers) |
+| B | Toggle the boarding range circles around every door |
+| backquote (`` ` ``) | Toggle the debug readout |
+| N | Add a note to the logs at the current tick |
+| L, or the Export logs button | Asks for an optional comment, then downloads this session's command and event logs |
+
+### A run
+
+1. Ride within 12 tiles of the train (`commit.rangeTiles`, measured to the nearest car) and press E. The run starts in `approach`, the train is yours, and health is full.
+2. Ride beside a door on either side. The **boarding** line comes from the sim's own rule: `ELIGIBLE` (in range and speed matched), `TOO FAST`, `TOO SLOW` or `TOO FAR`, the side you are on, the distance to the nearest door on that side, and your speed along the car minus the train's.
+3. In range, the meter above the horse sweeps back and forth: slowly with a white marker when your speed matches the train's, fast with an orange marker when it doesn't. Out of range it is dim and parked. The green band is perfect, the yellow band around it is good, the rest fails. The bands move to a new random place after every jump, never while you are lining up.
+4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a 1.5 s stumble at a third of walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 15 health under `time-and-damage`, and the train pulls ahead. Seven failures from full health kill you: "YOU DIED", and you are back at the spawn.
+5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen. Esc or R ends the run.
+
+The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Committing to a train locks the zoom for the whole run (1 in iso, 1.75 top-down, or `?runZoom=`), aboard too; the zoom keys and wheel come back when the run ends, at the zoom you rode with. Every zoom change, including those two, eases over about half a second rather than jumping. Aboard, the view stays the same: your car opens up (no roof, low walls) so you can see yourself walking in it, and the camera rides along with the train. When a car is between the camera and your horse and rider (or you, aboard), a round hole is cut through the car around you, so you and the ground behind it show through.
+
+The debug readout (top left, backquote hides it) keeps the details: the `run:` line with the phase and jump count, the `boarding:` line with the door distance and speed difference, the meter position and bands, and the in-zone timer for how long you have held the zone. B shows the boarding range circles around every door.
+
+## Maps
+
+Every map has a closed `main` route, and the rider starts mounted and stopped at `playerSpawn`. Without a train list, one blank train loops on `main`. A map can list its own trains instead: in Tiled, give a track object an int property `trains` (how many, spaced evenly round it) and optionally `trainType` (default `blank`). `big-country` does this. Trains never switch between routes yet. `alpha-flats` stays the default; the others exist to see how the loop's shape, its length and the ground near it change riding and boarding.
+
+| Map | Size | Loop | What it tests |
+| --- | --- | --- | --- |
+| [`alpha-flats`](https://devlinjunker.github.io/train-robber/?map=alpha-flats) | 400 × 200 | 731 tiles, about 81 s | The baseline stadium: two 240-tile straights, radius-40 U-turns, open ground below the bottom straight. |
+| [`tight-loop`](https://devlinjunker.github.io/train-robber/?map=tight-loop) | 400 × 200 | 403 tiles, about 45 s | A short stadium with 120-tile straights and radius-26 U-turns: more time in the curves, and a missed train is back in half the time. A boulder field and two mud flats sit between the spawn and the bottom straight. |
+| [`long-sweep`](https://devlinjunker.github.io/train-robber/?map=long-sweep) | 400 × 200 | 811 tiles, about 90 s | An irregular loop with gentle curves (radius 48 to 50) and an S-bend dent on the bottom side around a lake, so the train passes the spawn pocket on three sides. |
+| [`canyon-run`](https://devlinjunker.github.io/train-robber/?map=canyon-run) | 400 × 200 | 748 tiles, about 83 s | An irregular loop with a radius-25 hairpin and a kink, and a bottom straight that runs between two rock walls 9 tiles either side of the track. You ride in through gaps in the outer wall, past mud and a creek. |
+| [`big-country`](https://devlinjunker.github.io/train-robber/?map=big-country) | 800 × 400 | main 1,767 tiles (~197 s), west 793 (~88 s), east 730 (~81 s) | Twice the width and height of `alpha-flats`, to judge map size, and four trains at once: two on the long `main` loop and one each on two inner loops. The inner loops run 16 tiles inside the main line, then split away around the lakes, so you can ride between two tracks or pick the train going your way. A rock ridge with two passes lies between the spawn and the track. |
+
+Layouts (track in red, the white dot is where the train starts, the red dot is the spawn; grey is blocked, blue water, brown mud): [alpha-flats](https://github.com/devlinjunker/train-robber/blob/main/docs/maps/alpha-flats.png), [tight-loop](https://github.com/devlinjunker/train-robber/blob/main/docs/maps/tight-loop.png), [long-sweep](https://github.com/devlinjunker/train-robber/blob/main/docs/maps/long-sweep.png), [canyon-run](https://github.com/devlinjunker/train-robber/blob/main/docs/maps/canyon-run.png), [big-country](https://github.com/devlinjunker/train-robber/blob/main/docs/maps/big-country.png).
+
+On the four new maps, the track runs past stretches of mud and boulders right beside it, one side at a time: mud in the lane halves the horse's speed (slower than the train), so pick the open side or weave between the rocks while you match speed. A few stretches squeeze both sides with rocks 6 tiles out, leaving a 3-tile lane between car and rock. Every stretch leaves at least one side open.
+
+The loop times are at the blank train's 9 tiles per second. The radii are as drawn; the baked spline is a little tighter where a curve meets a straight (`npm run maps` prints the tightest one), and `packages/tools/test/all-maps.test.ts` keeps every map's tightest curve at 17 tiles or more, keeps rock and water off the cars and one side of the track open to ride beside, and checks the track can be reached from the spawn.
+
+To make a new map, see [Creating maps](Creating-maps). Map changes (zones, the route, the spawn) are made in Tiled: open the `.tmj` in `packages/content/maps-src/` and save, with `npm run maps:watch` rebuilding the map on every save. A new `.tmj` there becomes a new `?map=` id with no other change. See "Tiled workflow in detail" in the design doc.
+
+## Changing a value
+
+All tuning lives in `packages/content`:
+
+- `base/game.json` holds the base value of every key. Keys carry their unit in the name (`Sec`, `PerSec`, `Tiles`, `Deg`). The resolve step turns these into per-tick values, so never write a tick count by hand.
+- `variants/*.json` each hold the few values one variant changes, as a `patch` over the base.
+- `presets/*.json` pick one variant per group. A preset always applies: without `?preset=` the game uses `alpha-default`.
+
+Keys that a variant group sets (`horse.steering`, `horse.throttleModel`) are decided by the chosen variant, never by `base/game.json`, because every variant in those groups patches the key. To change which steering or throttle model you get by default, edit the group's entry in `presets/alpha-default.json` (for example `"throttleModel": "coast"`). To change it for one session, use `?v=`.
+
+The loop:
+
+1. Edit the value. For a quick experiment, edit `base/game.json`. When you want to compare two settings side by side, make it a variant instead (see below).
+2. Play it with `npm run dev`, or push and use the PR preview.
+3. When you keep a change, run `npm run golden:update`, then `npm run check`. Any config change alters the config hash, so the golden replay test fails until it is re-recorded. That is expected, and the re-recorded file goes in the same commit.
+4. If the value is in the "Starting values" table of `technical-design.md`, update the table in the same PR. The doc is the record of decided values, so a change there should say why (a line in the PR description is enough).
+
+`npm run check` also runs `tools validate`, which resolves every preset with every single-variant swap, so a typo in a key or a value out of range fails there with the file and path.
+
+### Values worth tuning now
+
+| What it feels like | Key | Now |
+| --- | --- | --- |
+| How fast the horse gets going | `horse.accel` | 7 tiles/s² |
+| How hard S stops it | `horse.brake` | 12 tiles/s² |
+| Top speed (and how fast you close on the train) | `horse.maxSpeed` | 14 tiles/s |
+| How quickly coast bleeds speed | `horse.dragTilesPerSec2` | 3 tiles/s² |
+| How fast W/S move the cruise target | `horse.cruiseTargetRateTilesPerSec2` | 10 tiles/s² |
+| How sharp the horse turns | `horse.turnRateDegPerSec` | 120°/s |
+| How much slow ground hurts | `horse.slowZoneSpeedScale` | 0.5 |
+| How close to a door counts | `boarding.rangeTiles` | 2 tiles |
+| How exactly you must match speed | `boarding.speedToleranceTilesPerSec` | 2 tiles/s |
+| How far a commit reaches | `commit.rangeTiles` | 12 tiles |
+| How fast the meter sweeps when speed matched (one full back and forth) | `boarding.meter.matchedSweepPeriodSec` | 1.85 s |
+| How fast it sweeps in range at the wrong speed | `boarding.meter.sweepPeriodSec` | 1.3 s |
+| Perfect and good band widths | `boarding.meter.zoneWidths` | 3%, 15% |
+| How long a failed jump stuns the horse | `boarding.failure.stunSec` | 1.5 s |
+| Horse speed after a failed jump | `boarding.failure.horseSpeedScale` | 0.5 |
+| Health lost per failed jump | `boarding.failure.damageFraction` | 15% of max |
+| Good-landing stumble | `boarding.landing.stumbleSec`, `stumbleSpeedScale` | 1.5 s at 0.33 |
+| Running speed aboard (walking is half, in `packages/client/src/input.ts` as `WALK_AXIS`) | `player.speedTilesPerSec` | 8 tiles/s |
+| Quick retry on R, and its gap behind the train | `playtest.quickRetry`, `playtest.quickRetryGapTiles` | on, 60 tiles |
+| Train speed | `trains.blank.speedTilesPerSec` | 9 tiles/s |
+
+Map changes are covered under [Maps](#maps).
+
+### Adding a variant
+
+Copy an existing file in `packages/content/variants/`, name it `<group>-<id>.json`, and give it a new `id` and a `patch` with only the values that differ. For example, a heavier coast:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "coast-heavy",
+  "group": "throttleModel",
+  "label": "Coast, heavy drag",
+  "question": "What should releasing W do?",
+  "patch": { "horse": { "throttleModel": "coast", "dragTilesPerSec2": 8 } }
+}
+```
+
+It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A new group also needs an entry in every preset, and two groups may not patch the same key. Validation catches both.
+
+## Playtests page
+
+Every run is recorded automatically, whether or not you export logs. The **Playtests** link next to Export logs (or `playtests.html` on any build, including PR previews) opens the history kept in this browser:
+
+- **By setup** groups runs by preset and variant choices: runs, testers, outcomes (died, cancelled, quick retry, abandoned when the tab closed mid-run), average length, jumps per run, perfect/good/fail share, how often the run got aboard, and the median time from commit to landing aboard (the same measure as `tools report`).
+- **Runs** lists each run with its tester, seed, map, train, outcome, jumps, furthest phase, damage and notes, plus its `.log` files while the session is still among the newest 20 kept in storage.
+- Filters narrow both tables by tester, outcome, game version, map or any variant group.
+- Set **Your name** once per browser so runs from different testers stay apart.
+- **Download CSV / JSON** exports the filtered runs. **Import JSON** merges another tester's JSON export into your view.
+- **Send to GitHub** opens a new issue prefilled with the summary table and every note; attach the `.log` files of any run worth replaying.
+
+Run summaries are small and are never pruned, unlike the full logs.
+
+## Recording a session
+
+When a PR comes with playtest questions, it has a comment listing each question with a space for the answer: copy it into a new comment (or edit it) and fill it in.
+
+1. Press N whenever something is worth remembering ("missed the jump, meter looked off"). The note is saved in both logs at that tick.
+2. Press L to export the logs. It first asks for a comment on the run (optional; cancel skips it), then downloads `<session>.commands.log` and `<session>.events.log`. They are NDJSON with a `.log` extension so GitHub accepts them as issue and PR attachments. The command log replays the session exactly: `npm run tools -- replay <file>.commands.log` reruns it, prints the notes, and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
+3. The log header records the setup: the preset, every variant choice (from the preset and `?v=`), any overrides, the seed, the map, the page's URL (including client-only options such as `?runZoom=`) and the full resolved config values. If the config has changed since, `tools replay` lists each parameter that differs.
+4. If the PR has a playtest comment with questions, answer them there. Otherwise write down what you tried and how it felt, alongside the setup. Ideas for new features go on the [Ideas](Ideas) page. Short notes are fine, for example "coast + heading-relative, seed test1: matching 9 tiles/s is easy, staying in the zone for 1 s is hard."
+
+The event log carries `RunStarted`, `RunPhaseChanged`, `BoardingAttempt` (result, attempt number, meter position), `DamageDealt`, `CommandRejected` (with the reason), `RunEnded` (outcome `died` or `cancelled`, length, jumps, and whether it was a quick retry) and `PersistentChanged`. To get the playtest numbers, run the report over one or more exported event logs:
+
+```
+npm run tools -- report ~/Downloads/*.events.log
+```
+
+It prints runs and how many boarded, outcomes (with quick retries counted), jumps per run with perfect, good and fail counts and the fail rate, rejections by command and reason, and the median time from commit to landing aboard. The gate has no pass mark, so read these beside how it felt.
+
+`npm run bots` prints the same report for each bot kind over 1,000 seeds, which is a quick read on how a change moves the numbers before anyone plays it (the chaser bot jumps at a random moment in range, so its fail rate reflects the band widths rather than a player's skill).
+
+On the dev server (`npm run dev`, not the PR preview), `window.trainRobber.sim` is the live sim, for poking at state from the browser console.
