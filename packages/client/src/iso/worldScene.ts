@@ -23,7 +23,7 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
  * front of them, so they and the ground around them show through (Devlin, 2026-10-10). Radius in
  * tiles.
  */
-const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 1.7;
+const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
