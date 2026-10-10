@@ -7,7 +7,7 @@ import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
-import { carPosesOf, pinTrain, unpinTrain } from './world/trains';
+import { carPosesOf, pinTrain, routeOf, unpinTrain } from './world/trains';
 import { trackAt } from './world/track';
 
 export interface RunCtx {
@@ -143,8 +143,7 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   const side = retrySide(ctx, p, h, trainId);
   if (state.run) endRun(ctx, p, 'cancelled', true);
   const train = state.world.trains.find((t) => t.id === trainId)!;
-  const def = config.values.trains[train.type]!;
-  const route = map.routes.get(def.route)!;
+  const { def, route } = routeOf(map, config, train);
   const at = trackAt(route, train.d - trainLength(expandCars(def.cars)) - config.values.playtest.quickRetryGapTiles);
   // Left of travel is (ty, -tx).
   const s = side === 'left' ? RETRY_SIDE_OFFSET : -RETRY_SIDE_OFFSET;

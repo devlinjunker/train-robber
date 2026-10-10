@@ -61,7 +61,7 @@ The debug readout (top left, backquote hides it) keeps the details: the `run:` l
 
 ## Maps
 
-Every map has one closed `main` route that the blank train loops on, and the rider starts mounted and stopped at `playerSpawn`. `alpha-flats` stays the default; the others exist to see how the loop's shape, its length and the ground near it change riding and boarding.
+Every map has a closed `main` route, and the rider starts mounted and stopped at `playerSpawn`. Without a train list, one blank train loops on `main`. A map can list its own trains instead: in Tiled, give a track object an int property `trains` (how many, spaced evenly round it) and optionally `trainType` (default `blank`). `big-country` does this. Trains never switch between routes yet. `alpha-flats` stays the default; the others exist to see how the loop's shape, its length and the ground near it change riding and boarding.
 
 | Map | Size | Loop | What it tests |
 | --- | --- | --- | --- |
@@ -69,7 +69,7 @@ Every map has one closed `main` route that the blank train loops on, and the rid
 | [`tight-loop`](https://devlinjunker.github.io/train-robber/?map=tight-loop) | 400 × 200 | 403 tiles, about 45 s | A short stadium with 120-tile straights and radius-26 U-turns: more time in the curves, and a missed train is back in half the time. A boulder field and two mud flats sit between the spawn and the bottom straight. |
 | [`long-sweep`](https://devlinjunker.github.io/train-robber/?map=long-sweep) | 400 × 200 | 811 tiles, about 90 s | An irregular loop with gentle curves (radius 48 to 50) and an S-bend dent on the bottom side around a lake, so the train passes the spawn pocket on three sides. |
 | [`canyon-run`](https://devlinjunker.github.io/train-robber/?map=canyon-run) | 400 × 200 | 748 tiles, about 83 s | An irregular loop with a radius-25 hairpin and a kink, and a bottom straight that runs between two rock walls 9 tiles either side of the track. You ride in through gaps in the outer wall, past mud and a creek. |
-| [`big-country`](https://devlinjunker.github.io/train-robber/?map=big-country) | 800 × 400 | 1,767 tiles, about 197 s | Twice the width and height of `alpha-flats`, to judge map size. A long irregular loop around two lakes, with a rock ridge and two passes between the spawn and the track. Use R (quick retry) rather than waiting for the train to come round. |
+| [`big-country`](https://devlinjunker.github.io/train-robber/?map=big-country) | 800 × 400 | main 1,767 tiles (~197 s), west 793 (~88 s), east 730 (~81 s) | Twice the width and height of `alpha-flats`, to judge map size, and four trains at once: two on the long `main` loop and one each on two inner loops. The inner loops run 16 tiles inside the main line, then split away around the lakes, so you can ride between two tracks or pick the train going your way. A rock ridge with two passes lies between the spawn and the track. |
 
 Layouts (track in red, the white dot is where the train starts, the red dot is the spawn; grey is blocked, blue water, brown mud): [alpha-flats](maps/alpha-flats.png), [tight-loop](maps/tight-loop.png), [long-sweep](maps/long-sweep.png), [canyon-run](maps/canyon-run.png), [big-country](maps/big-country.png).
 

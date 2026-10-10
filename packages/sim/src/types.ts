@@ -126,6 +126,8 @@ export interface TrainState {
   id: string;
   /** Key into `config.trains`. */
   type: string;
+  /** The route it runs on, when the map placed it; otherwise the one its config names. */
+  route?: string;
   /** Distance of the engine's front along its route, wrapped. */
   d: number;
   /** Set when a run commits to this train (M3); the scheduler never replaces a pinned train. */
