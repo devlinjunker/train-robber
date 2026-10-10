@@ -77,7 +77,7 @@ On the four new maps, the track runs past stretches of mud and boulders right be
 
 The loop times are at the blank train's 9 tiles per second. The radii are as drawn; the baked spline is a little tighter where a curve meets a straight (`npm run maps` prints the tightest one), and `packages/tools/test/all-maps.test.ts` keeps every map's tightest curve at 17 tiles or more, keeps rock and water off the cars and one side of the track open to ride beside, and checks the track can be reached from the spawn.
 
-Map changes (zones, the route, the spawn) are made in Tiled: open the `.tmj` in `packages/content/maps-src/` and save, with `npm run maps:watch` rebuilding the map on every save. A new `.tmj` there becomes a new `?map=` id with no other change. See "Tiled workflow in detail" in the design doc.
+To make a new map, see [Creating maps](creating-maps.md). Map changes (zones, the route, the spawn) are made in Tiled: open the `.tmj` in `packages/content/maps-src/` and save, with `npm run maps:watch` rebuilding the map on every save. A new `.tmj` there becomes a new `?map=` id with no other change. See "Tiled workflow in detail" in the design doc.
 
 ## Changing a value
 
