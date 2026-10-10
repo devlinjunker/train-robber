@@ -34,6 +34,8 @@ export interface ViewInput {
   meter: { position: number; perfect: [number, number]; good: [number, number]; sweeping: boolean; matched: boolean } | null;
   /** The player's world position while aboard. */
   aboard: { x: number; y: number } | null;
+  /** The camera zoom, so the meter can keep one size on screen. */
+  zoom: number;
 }
 
 export interface WorldView {
@@ -43,8 +45,8 @@ export interface WorldView {
 
 const ZONE_COLOURS: Record<BoardingState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
-/** Meter size in tiles, drawn above the horse. */
-const METER_W = 14, METER_H = 0.9, METER_UP = 2.6;
+/** Meter size in tiles at `METER_ZOOM`; at other zooms it is scaled to keep the same size on screen. */
+const METER_W = 14, METER_H = 0.9, METER_UP = 2.6, METER_ZOOM = 1.75;
 
 export function createWorldView(): WorldView {
   const layer = new Container();
@@ -101,7 +103,10 @@ export function createWorldView(): WorldView {
         const m = input.meter;
         if (m) {
           // Track, good zone, perfect zone, then the marker; dim while not sweeping.
-          const x0 = h.x - METER_W / 2, y0 = h.y - METER_UP - METER_H;
+          // Drawn around the horse, then scaled against the zoom so its screen size never changes.
+          meter.position.set(h.x, h.y);
+          meter.scale.set(METER_ZOOM / input.zoom);
+          const x0 = -METER_W / 2, y0 = -METER_UP - METER_H;
           const a = m.sweeping ? 1 : 0.4;
           meter.rect(x0, y0, METER_W, METER_H).fill({ color: 0x1b1b1f, alpha: 0.85 * a });
           meter.rect(x0 + m.good[0] * METER_W, y0, (m.good[1] - m.good[0]) * METER_W, METER_H).fill({ color: 0xe8c872, alpha: a });

@@ -192,7 +192,7 @@ async function boot() {
       : null;
     const frame = parseCarFrame(player.placement.frame);
     const aboardAt = frame ? sim.world.toWorld(s, player.placement) : null;
-    view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt });
+    view.update(sim.cars(), { horse: horse.mode === 'physical' ? horse : null, check, rangeTiles: b.rangeTiles, meter, aboard: aboardAt, zoom });
     // Seconds spent continuously in the boarding zone, to judge how hard it is to hold.
     if (check?.state === 'eligible') { zoneSec += app.ticker.deltaMS / 1000; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
     // The camera keeps the world's orientation aboard, so the train runs the same way on screen.
