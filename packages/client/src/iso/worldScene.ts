@@ -181,10 +181,10 @@ export function createWorldScene(map: MapDef): WorldScene {
         const h = input.horse;
         for (const k of [-0.8, 0, 0.8]) keep.push([h.x + h.hx * k, h.y + h.hy * k]);
       }
-      // Hidden behind any car, they get a hole through the slices nearer the viewer than them.
+      // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
+      // behind them can still cover the ground around them, so the hole is cut through all of them.
       const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
       hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1) } : null;
-      const actorDepth = actor ? depthOf(actor.x, actor.y) : 0;
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
@@ -194,7 +194,7 @@ export function createWorldScene(map: MapDef): WorldScene {
         const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
-          const g = piece(hole !== null && depthOf(s.box.x, s.box.y) > actorDepth);
+          const g = piece(hole !== null);
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
           for (const d of doors) {
