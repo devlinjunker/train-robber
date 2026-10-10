@@ -1,5 +1,5 @@
 {
   "schemaVersion": 1,
   "id": "alpha-default",
-  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast" }
+  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast", "collisionDamage": "on" }
 }

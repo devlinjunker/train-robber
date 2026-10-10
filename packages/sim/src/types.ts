@@ -32,6 +32,8 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
 export type RunOutcome = 'died' | 'cancelled';
 export type BoardingResult = 'perfect' | 'good' | 'fail';
+/** What a horse ran into: a train car, or blocked ground (water and the map edge never hurt). */
+export type CollisionTarget = 'train' | 'obstacle';
 /** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
 export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
@@ -44,6 +46,8 @@ export type SimEvent =
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
+  /** Running into a train or blocked ground; `impact` is the speed the horse lost, tiles/s. */
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; impact: number }
   /** `retry` marks a quick retry, which ends the run as a cancel. */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean }
   | { type: 'RunCancelled'; tick: number; player: PlayerId }
@@ -68,6 +72,8 @@ export interface PlayerRunState {
   boardingAttempts: number;
   /** Ticks of good-landing stumble left; walk speed is scaled while above 0. */
   stumbleTicks: number;
+  /** Ticks before another collision can hurt, so one crash costs health once. */
+  hitCooldownTicks: number;
 }
 
 export interface RunState {
@@ -159,6 +165,8 @@ export interface SimConfig {
       landing: { stumbleTicks: number; stumbleSpeedScale: number };
     };
     health: { max: number };
+    /** Running into a train or blocked ground while on a run. */
+    collision: { damageFraction: number; minImpactTilesPerSec: number; cooldownTicks: number };
     playtest: { quickRetry: boolean; quickRetryGapTiles: number };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };

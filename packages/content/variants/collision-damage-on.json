@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "on",
+  "group": "collisionDamage",
+  "label": "Crashes hurt",
+  "question": "Should running into the train or a rock cost health?",
+  "patch": {}
+}

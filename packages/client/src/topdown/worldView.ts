@@ -35,6 +35,9 @@ export interface ViewInput {
   rangeTiles: number;
   /** The player's world position while aboard. */
   aboard: { x: number; y: number } | null;
+  /** Flash colours: the horse red after a crash, the player amber while stumbling; null draws the usual colour. */
+  horseFlash?: number | null;
+  playerFlash?: number | null;
 }
 
 export interface WorldView {
@@ -52,10 +55,12 @@ export function createWorldView(): WorldView {
   const carLayer = new Container();
   const entries = new Graphics();
   const zones = new Graphics();
-  const horse = new Graphics()
-    .circle(0, 0, HORSE_RADIUS).fill({ color: 0xffd34d, alpha: 0.35 }).stroke({ width: 0.08, color: 0xffd34d })
-    .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(0xffd34d);
-  const player = new Graphics().circle(0, 0, WALKER_RADIUS).fill(0x6bd3ff).stroke({ width: 0.08, color: 0x0b2a3a });
+  const horse = new Graphics(), player = new Graphics();
+  const drawHorse = (c: number) => horse.clear()
+    .circle(0, 0, HORSE_RADIUS).fill({ color: c, alpha: 0.35 }).stroke({ width: 0.08, color: c })
+    .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(c);
+  const drawPlayer = (c: number) => player.clear().circle(0, 0, WALKER_RADIUS).fill(c).stroke({ width: 0.08, color: 0x0b2a3a });
+  let horseColour = -1, playerColour = -1;
   layer.addChild(zones, carLayer, entries, horse, player);
   const pool: Graphics[] = [];
 
@@ -92,6 +97,9 @@ export function createWorldView(): WorldView {
       if (input.horse && c?.at && c.state !== 'too far') {
         zones.circle(c.at.x, c.at.y, input.rangeTiles).fill({ color: ZONE_COLOURS[c.state], alpha: 0.3 }).stroke({ width: 0.12, color: ZONE_COLOURS[c.state] });
       }
+      const hc = input.horseFlash ?? 0xffd34d, pc = input.playerFlash ?? 0x6bd3ff;
+      if (hc !== horseColour) { drawHorse(hc); horseColour = hc; }
+      if (pc !== playerColour) { drawPlayer(pc); playerColour = pc; }
       horse.visible = input.horse !== null;
       if (input.horse) {
         horse.position.set(input.horse.x, input.horse.y);
