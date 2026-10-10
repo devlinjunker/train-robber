@@ -6,10 +6,14 @@ import { setupFromUrl } from './setup';
 import type { MapDef } from '@train-robber/config';
 import { loadMap, mapIdFromUrl } from './map';
 import { RingBuffer } from './ringBuffer';
+import { createRunTracker, type RunRecord } from './runTracker';
+import { getTester } from './tester';
 
 const MAX_CATCHUP = 5;
 
-async function openSink(session: string, startedAt: string): Promise<{ writer(log: LogKind): (line: string) => void; read(log: LogKind): Promise<string>; flush(): Promise<void> }> {
+interface Sink { writer(log: LogKind): (line: string) => void; read(log: LogKind): Promise<string>; flush(): Promise<void>; saveRun?(run: RunRecord): void }
+
+async function openSink(session: string, startedAt: string): Promise<Sink> {
   try {
     return await IndexedDbLogSink.open(session, startedAt);
   } catch (e) {
@@ -47,11 +51,18 @@ async function boot() {
   const storeEvent = sink.writer('events');
   const evLog = eventLogWriter(header, (line) => { storeEvent(line); recent.push(line); }, { allow: config.values.logging.events });
 
+  const tracker = createRunTracker({
+    session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants,
+    seed, mapId: header.mapId, url: location.search, tickRateHz,
+  });
+  const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };
+
   const sim = createSim({ config, map, seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
   let simTick = 0;
   // Dev server only: the sim on window for poking at state from the console.
   if (import.meta.env.DEV) (window as unknown as { trainRobber: unknown }).trainRobber = { sim, config };
   const endLogs = () => {
+    saveRun(tracker.abandon(simTick, new Date().toISOString()));
     const h = sim.hash();
     cmdLog.end(simTick, h); evLog.end(simTick, h);
     void sink.flush();
@@ -60,7 +71,7 @@ async function boot() {
   // Comments go into both logs at the current tick, so they travel with whichever file is shared.
   const note = (question: string) => {
     const text = prompt(question)?.trim();
-    if (text) { cmdLog.note(simTick, text); evLog.note(simTick, text); }
+    if (text) { cmdLog.note(simTick, text); evLog.note(simTick, text); saveRun(tracker.note(simTick, text)); }
   };
   const addNote = () => note(`Note at tick ${simTick}:`);
   const exportLogs = () => {
@@ -77,6 +88,12 @@ async function boot() {
   button.style.cssText = 'position:fixed;top:8px;right:8px;font:12px monospace;padding:4px 8px;z-index:1';
   button.addEventListener('click', (e) => { exportLogs(); client.releaseKeys(); (e.currentTarget as HTMLButtonElement).blur(); });
   document.body.appendChild(button);
+  const history = document.createElement('a');
+  history.textContent = 'Playtests';
+  history.href = 'playtests.html';
+  history.target = '_blank';
+  history.style.cssText = 'position:fixed;top:8px;right:110px;font:12px monospace;padding:4px 8px;z-index:1;background:#eee;color:#111;text-decoration:none;border:1px solid #888';
+  document.body.appendChild(history);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
   const client = createGameClient(app, { sim, map, config, onExportLogs: exportLogs, onAddNote: addNote });
@@ -94,6 +111,7 @@ async function boot() {
       simTick = res.tick;
       cmdLog.checkpoint(simTick, () => sim.hash());
       evLog.events(res.events);
+      if (res.events.length) for (const run of tracker.events(res.events, new Date().toISOString())) saveRun(run);
       client.afterTick(res.events);
       acc -= STEP_MS; steps++;
     }

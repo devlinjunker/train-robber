@@ -123,6 +123,19 @@ Copy an existing file in `packages/content/variants/`, name it `<group>-<id>.jso
 
 It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A new group also needs an entry in every preset, and two groups may not patch the same key. Validation catches both.
 
+## Playtests page
+
+Every run is recorded automatically, whether or not you export logs. The **Playtests** link next to Export logs (or `playtests.html` on any build, including PR previews) opens the history kept in this browser:
+
+- **By setup** groups runs by preset and variant choices: runs, testers, outcomes (died, cancelled, quick retry, abandoned when the tab closed mid-run), average length, jumps per run, perfect/good/fail share, how often the run got aboard, and the median time from commit to landing aboard (the same measure as `tools report`).
+- **Runs** lists each run with its tester, seed, map, train, outcome, jumps, furthest phase, damage and notes, plus its `.log` files while the session is still among the newest 20 kept in storage.
+- Filters narrow both tables by tester, outcome, game version, map or any variant group.
+- Set **Your name** once per browser so runs from different testers stay apart.
+- **Download CSV / JSON** exports the filtered runs. **Import JSON** merges another tester's JSON export into your view.
+- **Send to GitHub** opens a new issue prefilled with the summary table and every note; attach the `.log` files of any run worth replaying.
+
+Run summaries are small and are never pruned, unlike the full logs.
+
 ## Recording a session
 
 1. Press N whenever something is worth remembering ("missed the jump, meter looked off"). The note is saved in both logs at that tick.

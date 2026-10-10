@@ -776,6 +776,7 @@ The sim returns events from `step`, and the host forwards them to a sink asynchr
 ### Sinks and reports
 
 - **Sinks.** An in-memory ring buffer for the debug overlay, IndexedDB for sessions that survive a reload (localStorage is too small), and an export button that downloads NDJSON.
+- **Playtests page.** The client also keeps one summary row per run in IndexedDB (a `runs` store, never pruned): tester, setup, seed, map, train, outcome, length, boarding results, furthest phase, damage, commit-to-aboard time, rejections and notes. `playtests.html` groups them by setup, filters, exports CSV or JSON, imports other testers' JSON and prefills a GitHub issue. A row is written when a run starts (as `abandoned`) and replaced when it ends, so a closed tab still counts.
 - **Replay.** `tools replay <commands log>` re-runs the commands and checks every logged hash. A game-version or config-hash mismatch is a warning, not a silent pass; when the header carries `config`, the warning lists each parameter that differs. Notes in the log are printed.
 - **Reports.** `tools report` groups logs by the variants in their headers and prints run length, completion rate, boarding failures per run, deaths and retries, cancels with time left, time to first loot and heat at end. These are the candidates for the "playtest criteria" still undefined in the requirements; this design proposes them without setting pass thresholds.
 
