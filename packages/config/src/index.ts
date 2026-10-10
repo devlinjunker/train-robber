@@ -5,6 +5,7 @@ import { deepFreeze, derive, type Derived } from './derive';
 
 export * from './schema';
 export * from './map';
+export * from './diff';
 export { derive, deepFreeze, type Derived } from './derive';
 
 /** A loaded content file. `file` is only used in error messages. */

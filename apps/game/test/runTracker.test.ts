@@ -33,7 +33,7 @@ describe('run tracker', () => {
   it('summarizes a run from its events', () => {
     const { rec } = playOne();
     expect(rec).toMatchObject({
-      id: 's1#1', trainId: 'bank', startedAt: 'T0', endedAt: 'T2', outcome: 'retry', durationTicks: 120, durationSec: 2,
+      id: 's1#1', trainId: 'bank', startTick: 10, startedAt: 'T0', endedAt: 'T2', outcome: 'retry', durationTicks: 120, durationSec: 2,
       boardingAttempts: 2, boarding: { perfect: 0, good: 1, fail: 1 }, furthestPhase: 'aboard', damageTaken: 25,
       commitToAboardSec: 0.5, rejections: { 'jump: aboard': 1 },
       notes: [{ t: 50, text: 'felt fine' }], tester: 'dev', seed: 'abc',
