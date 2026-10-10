@@ -991,7 +991,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Failure damage | 15% of max health (Devlin's 2D tuning, 2026-10-10; was 25%) | `boarding.failure.damageFraction` |
 | Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
 | Walking aboard | half of `player.speedTilesPerSec` (4 tiles/s); Shift runs at the full 8 (client-side, after the 2026-10-09 playtest) | `player.speedTilesPerSec` |
-| Good-landing stumble | 0.5 s at 50% walk speed | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
+| Good-landing stumble | 2.5 s at 33% walk speed (Devlin's 2D tuning, 2026-10-10; was 0.5 s at 50%) | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
 | Quick retry (R) | on, 60 tiles behind the last car | `playtest.quickRetry`, `playtest.quickRetryGapTiles` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
