@@ -4,8 +4,12 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
 import { speedLabel } from './cues';
 
-/** Meter size in screen pixels: large and readable at every zoom. */
-export const METER_W = 320, METER_H = 30;
+/**
+ * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
+ * (14 by 0.9 tiles at 24 px and zoom 1.75), which Devlin asked for after the M3 playtest, and
+ * never takes more than 90% of a narrow screen.
+ */
+export const METER_W = 588, METER_H = 38;
 const METER_ABOVE = 96;
 const EDGE_MARGIN = 36;
 
@@ -56,18 +60,19 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       meter.clear();
       speed.visible = false;
       if (input.horse) {
-        const x0 = input.horse.x - METER_W / 2, y0 = input.horse.y - METER_ABOVE - METER_H;
+        const w = Math.min(METER_W, input.width * 0.9);
+        const x0 = input.horse.x - w / 2, y0 = input.horse.y - METER_ABOVE - METER_H;
         const m = input.meter;
         if (m) {
           // Track, good zone, perfect zone, then the marker; dim while parked out of range.
           const a = m.sweeping ? 1 : 0.45;
-          meter.roundRect(x0 - 4, y0 - 4, METER_W + 8, METER_H + 8, 6).fill({ color: 0x000000, alpha: 0.55 * a });
-          meter.rect(x0, y0, METER_W, METER_H).fill({ color: 0x2a2a30, alpha: a });
-          meter.rect(x0 + m.good[0] * METER_W, y0, (m.good[1] - m.good[0]) * METER_W, METER_H).fill({ color: 0xe8c872, alpha: a });
-          meter.rect(x0 + m.perfect[0] * METER_W, y0, (m.perfect[1] - m.perfect[0]) * METER_W, METER_H).fill({ color: 0x6bff8a, alpha: a });
+          meter.roundRect(x0 - 4, y0 - 4, w + 8, METER_H + 8, 6).fill({ color: 0x000000, alpha: 0.55 * a });
+          meter.rect(x0, y0, w, METER_H).fill({ color: 0x2a2a30, alpha: a });
+          meter.rect(x0 + m.good[0] * w, y0, (m.good[1] - m.good[0]) * w, METER_H).fill({ color: 0xe8c872, alpha: a });
+          meter.rect(x0 + m.perfect[0] * w, y0, (m.perfect[1] - m.perfect[0]) * w, METER_H).fill({ color: 0x6bff8a, alpha: a });
           // White marker on the slow, speed-matched sweep; orange on the fast one.
-          meter.rect(x0 + m.position * METER_W - 3, y0 - 8, 6, METER_H + 16).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a }).stroke({ width: 1.5, color: 0x000000, alpha: a });
-          meter.rect(x0, y0, METER_W, METER_H).stroke({ width: 2, color: 0xffffff, alpha: 0.7 * a });
+          meter.rect(x0 + m.position * w - 3, y0 - 8, 6, METER_H + 16).fill({ color: m.matched ? 0xffffff : 0xff9f43, alpha: a }).stroke({ width: 1.5, color: 0x000000, alpha: a });
+          meter.rect(x0, y0, w, METER_H).stroke({ width: 2, color: 0xffffff, alpha: 0.7 * a });
         }
         if (input.showSpeed && input.check) {
           const l = speedLabel(input.check, input.toleranceTilesPerSec);

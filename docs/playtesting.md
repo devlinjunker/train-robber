@@ -16,8 +16,9 @@ How to play a build, switch between variants, change tuning values, and record w
 | `v` | `?v=throttleModel:coast` | Swaps one group's variant. Repeat it for several groups. |
 | `seed` | `?seed=abc123` | Fixes the seed so a run can be repeated. Without one the page picks a random seed. |
 | `map` | `?map=alpha-flats` | Picks a built map from `packages/content/base/maps`. |
+| `view` | `?view=topdown` | Starts in the top-down debug view instead of the isometric one (V switches either way). |
 
-Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=test1`. The debug overlay's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
+Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=test1`. The debug readout's third line shows the preset and the variants that are actually in effect, so check it before you judge a setting.
 
 ### Variant groups
 
@@ -32,15 +33,18 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 | Key | Action |
 | --- | --- |
 | W / S | Throttle up / down |
-| Arrow keys | Steer (screen-relative) |
+| Arrow keys | Steer (screen-relative). In the isometric view one arrow is that direction on screen, and two arrows ride along the tile axis on that diagonal, the way the track and the cars run |
 | A / D | Steer (heading-relative) |
-| E | Commit to the train in range (the overlay shows `E: commit to blank-1` when you can) |
+| E | Commit to the train in range (the prompt at the bottom says `E: commit to blank-1` when you can) |
 | Space | Boarding jump: samples the meter on that tick |
-| W A S D, aboard | Walk inside the car, screen-relative; hold Shift to run |
+| W A S D, aboard | Walk inside the car, screen-relative (W+D walks toward the front); hold Shift to run |
 | Esc | Cancel the run: back to the spawn, mounted and stopped |
 | R | Quick retry: ends any run and puts you on the horse, stopped, 60 tiles behind the train on the side you were on |
-| Mouse wheel | Zoom |
-| O | Toggle the map overlay (zones, track samples, tangents) |
+| Q / Z, `-` / `=`, mouse wheel | Zoom out / in |
+| V | Switch between the isometric view and the top-down debug view |
+| O | Toggle the map overlay (speed zones, track samples, tangents, markers) |
+| B | Toggle the boarding range circles around every door |
+| backquote (`` ` ``) | Toggle the debug readout |
 | L, or the Export logs button | Download this session's command and event logs |
 
 ### A run
@@ -51,7 +55,9 @@ Join them with `&`, for example `?v=steering:heading&v=throttleModel:coast&seed=
 4. Space jumps. Out of range it is refused (`TOO FAR`); at the wrong speed it is allowed, just on the faster meter. A **perfect** landing puts you in the car; a **good** one too, with a half-second stumble at half walking speed; a **fail** throws you clear, stuns the horse for 1.5 s at half its speed (it ignores the reins), costs 25 health under `time-and-damage`, and the train pulls ahead. Four failures at full health kill you: "YOU DIED", and you are back at the spawn.
 5. Aboard, walk the empty car with WASD (Shift runs). The view keeps the train's direction on screen. Esc or R ends the run.
 
-The overlay's `run:` line shows the phase (`IDLE`, `APPROACH`, `BOARDING` during a failed jump's stun, `ABOARD`), health and jump count, and the last rejection or jump result flashes below it. On the map, each door has a circle of the boarding range; the nearest door on your side fills green when eligible and orange when you are close enough but at the wrong speed. The in-zone timer still shows how long you have held the zone.
+The HUD shows the phase and health at the top right, and at the bottom what to do next and the last rejection or jump result. The doors on your side of the train carry markers: dim out of range, an orange ring in range at the wrong speed, and a filled green circle when in range and matched. Under the meter, `MATCHED`, `TOO FAST` or `TOO SLOW` gives your speed against the train's. Off-screen trains get an arrow on the screen edge with their distance, gold for the one you committed to. Aboard, the view eases into the car: one plain car, front up-right, with stripes and track sliding past at the train's speed.
+
+The debug readout (top left, backquote hides it) keeps the details: the `run:` line with the phase and jump count, the `boarding:` line with the door distance and speed difference, the meter position and bands, and the in-zone timer for how long you have held the zone. B shows the boarding range circles around every door.
 
 ## Changing a value
 
@@ -93,7 +99,7 @@ The loop:
 | Horse speed after a failed jump | `boarding.failure.horseSpeedScale` | 0.5 |
 | Health lost per failed jump | `boarding.failure.damageFraction` | 25% of max |
 | Good-landing stumble | `boarding.landing.stumbleSec`, `stumbleSpeedScale` | 0.5 s at 0.5 |
-| Running speed aboard (walking is half, in `apps/game/src/main.ts` as `WALK_AXIS`) | `player.speedTilesPerSec` | 8 tiles/s |
+| Running speed aboard (walking is half, in `packages/client/src/input.ts` as `WALK_AXIS`) | `player.speedTilesPerSec` | 8 tiles/s |
 | Quick retry on R, and its gap behind the train | `playtest.quickRetry`, `playtest.quickRetryGapTiles` | on, 60 tiles |
 | Train speed | `trains.blank.speedTilesPerSec` | 9 tiles/s |
 
