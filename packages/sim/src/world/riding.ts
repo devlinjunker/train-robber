@@ -1,8 +1,8 @@
 // Tick system 3: the mounted player's horse. Steering, throttle, terrain and car collision.
-import type { HorseState, PlayerState, SimConfig } from '../types';
+import type { CollisionTarget, HorseState, PlayerId, PlayerState, SimConfig } from '../types';
 import type { CarPose } from './cars';
 import { pushOutOfBox, type Box } from './collide';
-import { Terrain, terrainAt, type WorldMap } from './map';
+import { isSolid, Terrain, terrainAt, type WorldMap } from './map';
 
 /** The horse collides as a circle of this radius. */
 export const HORSE_RADIUS = 0.5;
@@ -64,22 +64,31 @@ export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['h
 
 const tile: Box = { x: 0, y: 0, ux: 1, uy: 0, halfLength: 0.5, halfWidth: 0.5 };
 
-/** Push the horse out of blocked and water tiles (and the map edge). */
-function collideTerrain(h: HorseState, map: WorldMap): boolean {
-  let hit = false;
+/**
+ * Push the horse out of blocked and water tiles (and the map edge). Returns 0 for no contact,
+ * 1 for contact with water or the edge only, and 2 when a blocked tile inside the map was among
+ * them: the only terrain that hurts to run into.
+ */
+function collideTerrain(h: HorseState, map: WorldMap): 0 | 1 | 2 {
+  let hit: 0 | 1 | 2 = 0;
   for (let pass = 0; pass < PASSES; pass++) {
     let moved = false;
     const c0 = Math.floor(h.x - HORSE_RADIUS), c1 = Math.floor(h.x + HORSE_RADIUS);
     const r0 = Math.floor(h.y - HORSE_RADIUS), r1 = Math.floor(h.y + HORSE_RADIUS);
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        if (terrainAt(map, c, r) !== Terrain.Blocked) continue;
+        const t = terrainAt(map, c, r);
+        if (!isSolid(t)) continue;
         tile.x = c + 0.5; tile.y = r + 0.5;
-        if (pushOutOfBox(h, HORSE_RADIUS, tile)) moved = true;
+        if (!pushOutOfBox(h, HORSE_RADIUS, tile)) continue;
+        moved = true;
+        const inside = c >= 0 && r >= 0 && c < map.cols && r < map.rows;
+        if (t === Terrain.Blocked && inside) hit = 2;
+        else if (hit === 0) hit = 1;
       }
     }
     if (!moved) break;
-    hit = true;
+    if (hit === 0) hit = 1;
   }
   return hit;
 }
@@ -96,7 +105,12 @@ function collideCars(h: HorseState, cars: readonly CarPose[]): boolean {
   return hit;
 }
 
-export function ride(players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[]): void {
+/** A horse that ran into something solid this tick, and the speed it lost doing so (tiles/s). */
+export interface Impact { player: PlayerId; target: CollisionTarget; speedLost: number }
+
+/** Tick system 3. Returns the impacts with a train or blocked ground; water and the map edge stop the horse without one. */
+export function ride(players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[]): Impact[] {
+  const impacts: Impact[] = [];
   const cfg = config.values.horse;
   const hz = config.values.sim.tickRateHz;
   for (const p of players) {
@@ -120,12 +134,18 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
     const hitCar = collideCars(h, cars);
     if (hitTerrain || hitCar) {
       // Speed drops to the distance actually covered: head-on stops the horse, a glancing
-      // contact slides it along the obstacle and bleeds speed the steeper the angle.
+      // contact slides it along the obstacle and bleeds speed the steeper the angle. The speed
+      // lost is the impact: riding into the back of a moving car loses only the closing speed.
       const dx = h.x - x0, dy = h.y - y0;
       const moved = Math.sqrt(dx * dx + dy * dy) * hz;
-      if (moved < h.speed) h.speed = moved;
+      if (moved < h.speed) {
+        const target: CollisionTarget | null = hitCar ? 'train' : hitTerrain === 2 ? 'obstacle' : null;
+        if (target) impacts.push({ player: p.id, target, speedLost: h.speed - moved });
+        h.speed = moved;
+      }
     }
     // A mounted player rides in the world frame with the horse.
     if (p.placement.frame === 'world') { p.placement.x = h.x; p.placement.y = h.y; }
   }
+  return impacts;
 }

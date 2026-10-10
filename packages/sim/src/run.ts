@@ -4,6 +4,7 @@ import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
 import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
+import type { Impact } from './world/riding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
@@ -51,7 +52,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   pinTrain(state, id, p.id);
   state.runCount += 1;
   state.rng = seedRng(runSeed(state.seed, state.runCount));
-  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0 };
+  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0 };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
   ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
@@ -210,6 +211,32 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'boarding' });
+  }
+}
+
+/**
+ * After riding: on a run, hitting a train or blocked ground at `collision.minImpactTilesPerSec` or
+ * more costs `collision.damageFraction` of max health, then nothing more for `collision.cooldownTicks`
+ * so one crash (or grinding along a wall) costs health once. Brushing a car while matching its speed
+ * loses little speed and never hurts. No run, no health, so riding about idle is free.
+ */
+export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
+  const { state, config } = ctx;
+  const run = state.run;
+  if (!run) return;
+  const c = config.values.collision;
+  for (const p of state.players) {
+    const rp = run.players[p.id];
+    if (rp && rp.hitCooldownTicks > 0) rp.hitCooldownTicks -= 1;
+  }
+  for (const i of impacts) {
+    const rp = run.players[i.player];
+    if (!rp || rp.hitCooldownTicks > 0 || i.speedLost < c.minImpactTilesPerSec) continue;
+    const amount = config.values.health.max * c.damageFraction;
+    if (amount <= 0) continue;
+    rp.health = Math.max(0, rp.health - amount);
+    rp.hitCooldownTicks = c.cooldownTicks;
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: rp.health, cause: 'collision', against: i.target, impact: i.speedLost });
   }
 }
 

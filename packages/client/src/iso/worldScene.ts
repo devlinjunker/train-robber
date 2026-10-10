@@ -8,6 +8,9 @@ import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
+import { flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR } from '../cues';
+
+const PERFECT_RING_SEC = 0.8;
 
 export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, 'blank-car': 0x9a5534 };
 const DOOR_COLOUR = 0xe8c872;
@@ -32,6 +35,11 @@ export interface WorldSceneInput {
   /** The horse, unless it is abstract (its rider is aboard). */
   horse: ActorPose | null;
   stunned: boolean;
+  /** Seconds since a crash cost health, while its red flash lasts, else null. */
+  hitAge: number | null;
+  /** Aboard: the good-landing stumble is on (amber flash and a wobble), and seconds since a perfect landing for its ring burst. */
+  stumbling: boolean;
+  perfectAge: number | null;
   /** The boarding rule against the committed train, or the nearest one while idle. */
   check: BoardingCheck | null;
   /** The train the check is against: only its markers show. */
@@ -77,21 +85,21 @@ function doorSpans(template: string): { side: 'left' | 'right'; a0: number; a1: 
   return spans;
 }
 
-function drawPlayer(g: Graphics, p: { x: number; y: number }): void {
-  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, PLAYER_COLOUR);
+function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR): void {
+  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, colour);
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
-function drawHorse(g: Graphics, h: ActorPose, flash: boolean): void {
+function drawHorse(g: Graphics, h: ActorPose, flash: number | null): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
   const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
   const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
-  const c = flash ? 0xffffff : HORSE_COLOUR;
+  const c = flash ?? HORSE_COLOUR;
   drawBox(g, legs, shade(c, 0.7));
   drawBox(g, body, c);
   drawBox(g, head, c);
-  drawBox(g, rider, flash ? 0xffffff : RIDER_COLOUR);
+  drawBox(g, rider, flash ?? RIDER_COLOUR);
 }
 
 export function createWorldScene(map: MapDef): WorldScene {
@@ -224,7 +232,15 @@ export function createWorldScene(map: MapDef): WorldScene {
       if (input.aboard) {
         const p = input.aboard;
         groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
-        drawPlayer(playerG, p);
+        if (input.perfectAge !== null && input.perfectAge < PERFECT_RING_SEC) {
+          // A green ring bursting out from the feet.
+          const t = input.perfectAge / PERFECT_RING_SEC;
+          groundEllipse(playerG, p.x, p.y, 0.4 + t * 2.2, 0.05).stroke({ width: 4, color: PERFECT_COLOUR, alpha: 1 - t });
+        }
+        // Stumbling: wobble side to side and flash amber.
+        const wobble = input.stumbling ? Math.sin(input.timeSec * 22) * 0.12 : 0;
+        const colour = input.stumbling && flashOn(input.timeSec) ? GOOD_COLOUR : PLAYER_COLOUR;
+        drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour);
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
@@ -233,7 +249,9 @@ export function createWorldScene(map: MapDef): WorldScene {
       horseG.visible = input.horse !== null;
       if (input.horse) {
         const h = input.horse;
-        const flash = input.stunned && Math.floor(input.timeSec * 8) % 2 === 0;
+        // A crash flashes red, a failed jump's stun white.
+        const flash = input.hitAge !== null && flashOn(input.hitAge) ? HIT_COLOUR
+          : input.stunned && flashOn(input.timeSec) ? 0xffffff : null;
         groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
         drawHorse(horseG, h, flash);
         horseG.zIndex = depthOf(h.x, h.y);

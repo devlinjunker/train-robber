@@ -2,7 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains off screen.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
-import { speedLabel } from './cues';
+import { landingCue, LANDING_CUE_SEC, speedLabel } from './cues';
 
 /**
  * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
@@ -40,6 +40,12 @@ export interface ScreenOverlayInput {
   toleranceTilesPerSec: number;
   showSpeed: boolean;
   trains: readonly TrainPointer[];
+  /** The player's screen position aboard (their head), or null while mounted. */
+  player: { x: number; y: number } | null;
+  /** The last landing and how long ago it was; the banner shows for LANDING_CUE_SEC. */
+  landing: { result: 'perfect' | 'good'; ageSec: number } | null;
+  /** Share of the good-landing stumble left, 1 to 0, or null when not stumbling. */
+  stumble: number | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -52,7 +58,13 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   speed.anchor.set(0.5, 0);
   const arrows = new Graphics();
   const labels: Text[] = [];
-  root.addChild(arrows, meter, speed);
+  // The landing banner over the player: big green PERFECT or smaller amber GOOD, then the stumble bar.
+  const banner = new Text({ text: '', style: style(40) });
+  banner.anchor.set(0.5, 1);
+  const bannerDetail = new Text({ text: '', style: style(16) });
+  bannerDetail.anchor.set(0.5, 0);
+  const stumbleBar = new Graphics();
+  root.addChild(arrows, meter, speed, stumbleBar, banner, bannerDetail);
 
   return {
     root,
@@ -80,6 +92,36 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
           speed.style.fill = l.colour;
           speed.position.set(input.horse.x, (m ? y0 + METER_H + 10 : input.horse.y - METER_ABOVE));
           speed.visible = true;
+        }
+      }
+
+      banner.visible = bannerDetail.visible = false;
+      stumbleBar.clear();
+      if (input.player) {
+        const { x, y } = input.player;
+        const l = input.landing;
+        if (l && l.ageSec < LANDING_CUE_SEC) {
+          const cue = landingCue(l.result);
+          // Pop in over the first 0.15 s, rise a little, fade over the last third.
+          const t = l.ageSec / LANDING_CUE_SEC;
+          const pop = l.result === 'perfect' ? 1 + 0.6 * Math.max(0, 1 - l.ageSec / 0.15) : 1;
+          const alpha = t < 2 / 3 ? 1 : 1 - (t - 2 / 3) * 3;
+          banner.text = cue.title;
+          banner.style.fill = cue.colour;
+          banner.style.fontSize = cue.size;
+          banner.scale.set(pop);
+          banner.alpha = bannerDetail.alpha = alpha;
+          banner.position.set(x, y - 64 - t * 24);
+          bannerDetail.text = cue.detail;
+          bannerDetail.style.fill = cue.colour;
+          bannerDetail.position.set(x, y - 60 - t * 24);
+          banner.visible = bannerDetail.visible = true;
+        }
+        if (input.stumble !== null) {
+          // A shrinking amber bar over the player's head while the stumble lasts.
+          const w = 70, bx = x - w / 2, by = y - 22;
+          stumbleBar.roundRect(bx - 2, by - 2, w + 4, 10, 3).fill({ color: 0x000000, alpha: 0.6 });
+          stumbleBar.rect(bx, by, w * input.stumble, 6).fill(0xffb02e);
         }
       }
 

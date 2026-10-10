@@ -22,6 +22,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5 },
       },
       health: { max: 100 },
+      collision: { damageFraction: 0.1, minImpactTilesPerSec: 4, cooldownTicks: 60 },
       playtest: { quickRetry: true, quickRetryGapTiles: 60 },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },

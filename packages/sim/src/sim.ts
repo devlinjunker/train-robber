@@ -6,7 +6,7 @@ import { advanceTrains, allCarPoses, spawnInitialTrains } from './world/trains';
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { boardingSystem, cancelRun, quickRetry, runEndSystem, startRun, type RunCtx } from './run';
+import { boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, type RunCtx } from './run';
 
 export interface SimOptions {
   config: SimConfig;
@@ -103,9 +103,9 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
           }
         }
       }
-      // 2. Train scheduler, then 3. riding against the cars where they now are.
+      // 2. Train scheduler, then 3. riding against the cars where they now are, and what the crashes cost.
       advanceTrains(state, map, config);
-      ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config));
+      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config)));
       // 4. Boarding, 5. movement aboard, 11. run end.
       boardingSystem(ctx, jumps);
       walkAboard(state, world, config);

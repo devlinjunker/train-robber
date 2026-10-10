@@ -12,7 +12,8 @@ import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
 import { clampZoom, DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
 import { createScreenOverlay, type MeterView, type TrainPointer } from './screenOverlay';
-import { createHud } from './hud';
+import { createHud, type NoticeKind } from './hud';
+import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
 
@@ -129,11 +130,20 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   };
 
   // Notices from events: the last rejection, jump result or run end.
-  let notice = '', noticeKind: 'bad' | 'good' | 'info' = 'info', noticeUntil = 0;
-  const show = (text: string, kind: typeof noticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
+  let notice = '', noticeKind: NoticeKind = 'info', noticeUntil = 0;
+  // When the last crash and landing happened (performance.now ms), for their flashes and banner.
+  let hitAt = -Infinity, landing: { result: 'perfect' | 'good'; at: number } | null = null;
+  const show = (text: string, kind: NoticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
-    else if (e.type === 'BoardingAttempt') show(`jump ${e.attempt}: ${e.result}${e.result === 'fail' ? ' - thrown clear' : ''}`, e.result === 'fail' ? 'bad' : 'good', 2000);
+    else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
+      landing = { result: e.result, at: performance.now() };
+      show(`jump ${e.attempt}: ${landingCue(e.result).notice}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
+    } else if (e.type === 'BoardingAttempt') show(`jump ${e.attempt}: fail - thrown clear`, 'bad', 2000);
+    else if (e.type === 'DamageDealt' && e.cause === 'collision') {
+      hitAt = performance.now();
+      show(collisionNotice(e.against, e.amount), 'bad', 2000);
+    }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };
 
@@ -141,7 +151,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   let zoneSec = 0, bestZoneSec = 0;
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
-  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked' };
+  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water' };
   const controls = [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     'E commit', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
@@ -179,6 +189,10 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
       const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
+      const hitAge = (now - hitAt) / 1000 < HIT_FLASH_SEC ? (now - hitAt) / 1000 : null;
+      const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
+      const stumbling = phase === 'aboard' && !!run && run.stumbleTicks > 0;
+      const perfectAge = landing?.result === 'perfect' && phase === 'aboard' ? landingAge : null;
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
         if (zoomLocked) { ridingZoom = zoom; zoom = runZoom(mode); } else zoom = ridingZoom;
@@ -205,7 +219,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
-          cars, horse, stunned: horseState.stunTicks > 0, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
+          cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
         });
         isoWorld.root.scale.set(shownZoom);
@@ -214,7 +228,11 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
         project = (x, y, z) => worldToScreen(x, y, z, camera);
       } else {
         // Top-down keeps the world's orientation; aboard, it follows the player's place on the car.
-        topdownView.update(cars, { horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt });
+        topdownView.update(cars, {
+          horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt,
+          horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
+          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null,
+        });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
         topdown.position.set(W / 2, H / 2);
@@ -240,6 +258,9 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
         width: W, height: H,
         horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
+        player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
+        landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
+        stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
       });
 
       // HUD.
@@ -248,12 +269,13 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
         ? target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
-            : phase === 'aboard' ? `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
+            : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance' : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
       hud.update({
         phase,
         health: run ? { now: run.health, max: config.values.health.max } : null,
+        hit: hitAge !== null,
         prompt,
         notice: now < noticeUntil ? notice : '',
         noticeKind,
