@@ -5,7 +5,7 @@ import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type Boardi
 import type { MapDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
-import { carHides, screenHull } from './occlusion';
+import { carHides } from './occlusion';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
 
@@ -19,10 +19,11 @@ const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
 const PLAYER_COLOUR = 0x6bd3ff;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
 /**
- * When a car hides the horse and rider (or you aboard), a round hole around them darkens that part
- * of the car like a shadow and shows them through it (Devlin, 2026-10-10). Radius in tiles.
+ * When a car hides the horse and rider (or you aboard), a round hole is cut through the cars in
+ * front of them, so they and the ground around them show through (Devlin, 2026-10-10). Radius in
+ * tiles.
  */
-const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 1.7, CUTOUT_SHADE = 0.6;
+const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 1.7;
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -105,21 +106,25 @@ export function createWorldScene(map: MapDef): WorldScene {
   const zoneOverlay = new Graphics();
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  // The shadow cutout: dark car outlines and a copy of the hidden actor, masked to a circle.
-  const cutout = new Container();
-  const cutShade = new Graphics(), cutActors = new Graphics(), cutMask = new Graphics();
-  cutShade.alpha = CUTOUT_SHADE; // on the layer, so overlapping slices shade evenly
-  cutout.addChild(cutShade, cutActors);
-  cutout.mask = cutMask;
-  root.addChild(terrain, mapOverlay, shadows, floors, objects, cutout, cutMask, zoneOverlay, markers);
+  root.addChild(terrain, mapOverlay, shadows, floors, objects, zoneOverlay, markers);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
   const playerG = new Graphics();
   objects.addChild(horseG, playerG);
-  const piece = () => {
+  // Each pooled slice has its own copy of the hole (a mask serves one object), used inverted.
+  const holes: Graphics[] = [], holed: boolean[] = [];
+  let hole: { x: number; y: number } | null = null;
+  const piece = (cut = false) => {
     let g = slicePool[used];
-    if (!g) { g = new Graphics(); slicePool.push(g); objects.addChild(g); }
+    if (!g) {
+      g = new Graphics(); slicePool.push(g); objects.addChild(g);
+      const m = new Graphics(); holes.push(m); holed.push(false); root.addChild(m);
+    }
+    const m = holes[used]!;
+    m.clear();
+    if (cut && hole) m.circle(hole.x, hole.y, CUTOUT_RADIUS * TILE_H).fill(0xffffff);
+    if (cut !== holed[used]) { g.setMask({ mask: cut ? m : null, inverse: true }); holed[used] = cut; }
     g.visible = true;
     g.clear();
     used++;
@@ -176,8 +181,10 @@ export function createWorldScene(map: MapDef): WorldScene {
         const h = input.horse;
         for (const k of [-0.8, 0, 0.8]) keep.push([h.x + h.hx * k, h.y + h.hy * k]);
       }
-      cutShade.clear(); cutActors.clear(); cutMask.clear();
-      let hidden = false;
+      // Hidden behind any car, they get a hole through the slices nearer the viewer than them.
+      const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
+      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1) } : null;
+      const actorDepth = actor ? depthOf(actor.x, actor.y) : 0;
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
@@ -187,12 +194,7 @@ export function createWorldScene(map: MapDef): WorldScene {
         const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
-          // A slice in front of who we keep in sight goes dark inside the cutout.
-          if (keep.some(([x, y]) => carHides(s.box, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS))) {
-            cutShade.poly(screenHull(s.box, CAR_HEIGHT).flat()).fill(0x000000);
-            hidden = true;
-          }
-          const g = piece();
+          const g = piece(hole !== null && depthOf(s.box.x, s.box.y) > actorDepth);
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
           for (const d of doors) {
@@ -223,7 +225,6 @@ export function createWorldScene(map: MapDef): WorldScene {
         const p = input.aboard;
         groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
         drawPlayer(playerG, p);
-        if (hidden) drawPlayer(cutActors, p);
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
@@ -235,13 +236,8 @@ export function createWorldScene(map: MapDef): WorldScene {
         const flash = input.stunned && Math.floor(input.timeSec * 8) % 2 === 0;
         groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
         drawHorse(horseG, h, flash);
-        if (hidden) drawHorse(cutActors, h, flash);
         horseG.zIndex = depthOf(h.x, h.y);
       }
-
-      // The cutout: a circle around who is hidden, at about chest height.
-      if (hidden && actor) cutMask.circle(isoX(actor.x, actor.y), isoY(actor.x, actor.y, 1), CUTOUT_RADIUS * TILE_H).fill(0xffffff);
-      cutout.visible = hidden;
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
