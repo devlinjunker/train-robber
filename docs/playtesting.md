@@ -73,7 +73,9 @@ Every map has one closed `main` route that the blank train loops on, and the rid
 
 Layouts (track in red, the white dot is where the train starts, the red dot is the spawn; grey is blocked, blue water, brown mud): [alpha-flats](maps/alpha-flats.png), [tight-loop](maps/tight-loop.png), [long-sweep](maps/long-sweep.png), [canyon-run](maps/canyon-run.png), [big-country](maps/big-country.png).
 
-The loop times are at the blank train's 9 tiles per second. The radii are as drawn; the baked spline is a little tighter where a curve meets a straight (`npm run maps` prints the tightest one), and `packages/tools/test/all-maps.test.ts` keeps every map's tightest curve at 17 tiles or more, keeps rideable ground within 5 tiles of the whole track, and checks the track can be reached from the spawn.
+On the four new maps, the track runs past stretches of mud and boulders right beside it, one side at a time: mud in the lane halves the horse's speed (slower than the train), so pick the open side or weave between the rocks while you match speed. A few stretches squeeze both sides with rocks 6 tiles out, leaving a 3-tile lane between car and rock. Every stretch leaves at least one side open.
+
+The loop times are at the blank train's 9 tiles per second. The radii are as drawn; the baked spline is a little tighter where a curve meets a straight (`npm run maps` prints the tightest one), and `packages/tools/test/all-maps.test.ts` keeps every map's tightest curve at 17 tiles or more, keeps rock and water off the cars and one side of the track open to ride beside, and checks the track can be reached from the spawn.
 
 Map changes (zones, the route, the spawn) are made in Tiled: open the `.tmj` in `packages/content/maps-src/` and save, with `npm run maps:watch` rebuilding the map on every save. A new `.tmj` there becomes a new `?map=` id with no other change. See "Tiled workflow in detail" in the design doc.
 

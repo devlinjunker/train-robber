@@ -1,5 +1,5 @@
 // Rules every playtest map in maps-src must keep, whatever its shape: it builds to the checked-in
-// file, the blank train has its route, there is room to ride beside the whole track, and the rider
+// file, the blank train has its route, one side of the track is always open to ride beside, and the rider
 // can reach the track from the spawn.
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -10,8 +10,13 @@ import { buildMapFile, stringifyMap } from '../src/maps/build';
 import { MAPS_OUT, MAPS_SRC } from '../src/maps/cli';
 import { loadConfig } from '../src/content';
 
-/** Open or slow ground this close to every track sample, so a rider fits beside the cars. */
-const LANE_TILES = 5;
+/** No rock or water this close to the centre line: the cars are 6 tiles wide. */
+const CAR_CLEAR_TILES = 3.5;
+/**
+ * Distances from the centre line where a rider lines up with a door (boarding range is 2 tiles).
+ * Mud and rocks may fill this lane on one side, never on both at once.
+ */
+const LANE_TILES = [3.5, 4, 4.5, 5, 5.5];
 /** Tightest baked curve allowed; rigid 16-tile cars cut visibly inside anything tighter. */
 const MIN_RADIUS_TILES = 17;
 
@@ -34,16 +39,15 @@ describe.each(ids)('map %s', (id) => {
     expect(minRadiusTiles).toBeGreaterThanOrEqual(MIN_RADIUS_TILES);
   });
 
-  it(`leaves rideable ground within ${LANE_TILES} tiles of every track sample`, () => {
-    const { x: xs, y: ys } = main!.samples;
+  it('keeps rock and water off the cars and leaves one side of the track open to ride beside', () => {
+    const { x: xs, y: ys, tx, ty } = main!.samples;
+    const at = (i: number, side: number, d: number) => zone(Math.floor(xs[i]! - ty[i]! * d * side), Math.floor(ys[i]! + tx[i]! * d * side));
     for (let i = 0; i < xs.length; i++) {
-      for (let dy = -LANE_TILES; dy <= LANE_TILES; dy++) {
-        for (let dx = -LANE_TILES; dx <= LANE_TILES; dx++) {
-          if (dx * dx + dy * dy > LANE_TILES * LANE_TILES) continue;
-          const x = Math.floor(xs[i]! + dx), y = Math.floor(ys[i]! + dy);
-          expect(rideable(x, y), `${id}: ${x},${y} beside sample ${i}`).toBe(true);
-        }
+      for (let d = 0; d <= CAR_CLEAR_TILES; d += 0.25) {
+        for (const side of [-1, 1]) expect(['open', 'slow'], `${id}: ${at(i, side, d)} ${d} tiles beside sample ${i}`).toContain(at(i, side, d));
       }
+      const open = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open');
+      expect(open(-1) || open(1), `${id}: no open lane beside sample ${i}`).toBe(true);
     }
   });
 
