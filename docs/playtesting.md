@@ -144,7 +144,7 @@ It is then selectable as `?v=throttleModel:coast-heavy` with no other change. A 
 
 ## Recording a session
 
-When a PR comes with playtest questions, it adds a template under [`playtests/`](playtests/) with each question and a space for the answer; fill it in on the PR branch (or paste it into a PR comment).
+When a PR comes with playtest questions, it has a comment listing each question with a space for the answer: copy it into a new comment (or edit it) and fill it in.
 
 1. Note the URL you played (it carries the seed and the variants).
 2. Press L to export the logs. The command log replays the session exactly: `npm run tools -- replay <file>.commands.ndjson` reruns it and checks every state hash. That is the way to hand over a bug: "it happened near the end of this log."
