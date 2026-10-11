@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.0.0",
+  "version": "0.2.0-switch-train",
   "private": true,
   "type": "module",
   "scripts": {

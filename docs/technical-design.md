@@ -46,15 +46,15 @@ Five requirements conflict with each other and twelve are too open to build agai
 | --- | --- | --- | --- |
 | U1 | When does a run start, and when does the countdown start? | A failed boarding "loses time", which implies the clock runs before boarding. The core loop also has you choosing a train before the run is defined. | A run starts when the player commits to a train. The clock starts then (confirmed in review). Config: `countdown.startsAt` = `commit` or `boarding`. |
 | U2 | How does heat shorten the countdown? | No formula. Time spent is also a heat source, but time already drains the countdown, so it counts twice. | Heat runs 0–100. Drain rate is `1 + heatDrainFactor × heat/100`. Per-second heat from time spent defaults to 0. Heat decay defaults to 0 in the alpha. |
-| U3 | What counts as "already jumping off" for the grace window? | The grace window cannot be implemented without a trigger. | Grace applies once the player has started the mount action. Window length is config, with 3 s as a placeholder. |
-| U4 | Horse extraction details | Can you whistle again? What if you miss the pacing window? Does mounting use a timing meter? Is the arrival time shown? | One whistle arms the horse. Arrival delay is drawn from a seeded range at whistle time. The horse paces for a set window, then drops away, and a re-whistle is allowed after a cooldown. Mounting reuses the boarding meter at its own difficulty. Delay is hidden by default. |
+| U3 | What counts as "already jumping off" for the grace window? | The grace window cannot be implemented without a trigger. | Grace applies while the horse is alongside and the player is within reach of a door on its side (decided 2026-10-11 in the Phase 2 plan review: the mount jump resolves on the tick Space is pressed, so "started the mount action" would almost never apply). Expiry then waits up to the window, so the player gets a last try or two. Window length is config, with 3 s as a placeholder. |
+| U4 | Horse extraction details | Can you whistle again? What if you miss the pacing window? Does mounting use a timing meter? Is the arrival time shown? | One whistle arms the horse. When the player boards, the riderless horse runs off away from the track and is removed from the world once out of view (decided 2026-10-11 in the PR #14 review, replacing the scripted lane horse). The whistle puts it back in the world as a physical body behind the train, on the player's side, at a seeded distance that takes 5 to 20 s to close; it then rides up beside the player's car, steering around rocks, water and slow ground like any rider. The horse paces for a set window, then drops away, and a re-whistle is allowed after a cooldown. Mounting reuses the boarding meter at its own difficulty. The delay is not shown as a number by default, but the horse is visible riding up from behind the train with hoofbeats when close; the `horseArrivalCue` variant `visible-timer` adds a HUD timer. The horse comes up on the side of the car the player is nearest when they whistle; pressing the whistle again while it is on its way or alongside sends it to the other side if the player has moved there, and it crosses behind the last car to get there. Mount results: perfect mounts clean; good mounts but spills loot (`mountSpill`); a failure leaves the player on the train, stumbling with the usual failure damage, free to retry while the horse is alongside (all decided 2026-10-11). |
 | U5 | Death and wanted level | Expiry adds a wanted level and cancel adds none. Death is not stated. | Death adds none by default. Each outcome has its own `wantedDelta` in config. |
 | U6 | Cancel loophole | Cancel loses loot but adds no wanted level, so cancelling just before expiry dodges the penalty. The doc defers this to playtests. | Keep the requirement, but log cancels with countdown remaining so abuse is measurable. Config: `cancelWantedDelta` and a `cancelPenaltyBelowSec` threshold, both off. |
-| U7 | Run-length variant scope | Short (2–5 min) vs medium (8–15 min) could be global or per train, and countdown is also per train. | A global profile scales each train's base countdown and loot density. Per-train values stay overridable. The minute ranges are test outcomes, not inputs. |
+| U7 | Run-length variant scope | Short (2–5 min) vs medium (8–15 min) could be global or per train, and countdown is also per train. | A global profile scales each train's base countdown and loot density. Per-train values stay overridable. The minute ranges are test outcomes, not inputs. The profile is the plain value `countdown.scale` (with `loot.densityScale`), not a named variant. Train length (car count) and search pace (search time, hidden loot) are separate values, so a playtest can tell which change made a run better (decided 2026-10-11). |
 | U8 | What is a "separate train map"? | The alpha map already holds the train and its interior, so the variant needs a definition. | See World model: the interior runs in a train-local frame, and the world becomes a lightweight backdrop. Confirmed: build the separate map first. |
 | U9 | Sim tick rate | A fixed timestep is required, but no rate is given, and the floor is 30 fps. | 60 Hz, so timing windows resolve to about 17 ms. A 30 fps device runs two ticks per frame. |
 | U10 | Combat data model | Knock-outs, ammo and healing items are open, but they shape the state schema. | Reserve the fields now: `incapacitated` on actors, nullable `ammo` (null means unlimited), and healing as a weighted loot category. Alpha default: unlimited ammo, no knock-outs. |
-| U11 | Wanted level scale | "A few levels" and decay are undefined. | Levels 0–5, with a config table of extra guards per level. Decay is off. |
+| U11 | Wanted level scale | "A few levels" and decay are undefined. | Levels 0–5, with a config table of extra guards per level. Decay is off. Phase 2 has no way for wanted level to come down (Reset save while playtesting); a way down, such as a clean getaway lowering it by one or decay, is required before progression (decided 2026-10-11). A `wanted.forceLevel` option (preset or `?wanted=`) sets the level a run uses; such runs are practice and save nothing. |
 | U12 | Logging vs replay | Seeded runs must be replayable, but the logged events listed are only summary events. | Log two streams: commands (for exact replay) and events (for analysis). The log header holds the seed, config hash and persistent state at start. |
 
 Not flagged as blockers, but still open: baseline hardware for the 30/60 fps targets (needs picking before phase 2), the timetable's absence from the alpha (trains are simply visible on the map, and the schedule data model leaves room), and when loot is cashed out (default: the moment the extraction mount completes).
@@ -155,6 +155,7 @@ type Command =
   | { type: 'whistle' }
   | { type: 'qte'; key: number }                 // only when quick-time prompts are enabled
   | { type: 'useItem'; slot: number }
+  | { type: 'drop'; slot: number }                // drop a carried item, to swap for another (phase 2)
   | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
   | { type: 'switchTrain'; trainId?: string }    // move the run to another free train, keeping its timer
   | { type: 'cancelRun' }
@@ -272,7 +273,7 @@ The alpha default is the simplest rule from the requirements: death loses the ru
 | Perception and AI | Sight, noise, alert state | Guards patrol, notice by sight cone and noise radius, escalate from suspicious to alert, and call for help, which raises an alarm. | `ai.*` |
 | Combat and health | Health, downed timer, ammo | Projectiles are entities with swept-circle hits. Melee is a range-and-facing check using dot products. Health bar by default, downed state as a variant. | `combat.*`, `health.*` |
 | Loot and carry | Loot entities, carried stacks, weight | The carry limit and weight slowdown are two separate flags (C3). Speed multiplier falls linearly from 1 to a minimum as weight approaches the limit. | `carry.*`, `items.*` |
-| Extraction | Horse call, mount | Whistle draws an arrival delay (U4). The horse paces for a window, then drops away. Mounting uses the boarding meter at its own difficulty. | `extraction.*` |
+| Extraction | Horse call, mount | The whistle places the physical horse behind the train at a seeded catch-up distance, and it rides alongside the player's car on the player's side, steering around terrain (U4). The horse paces for a window, then drops away. Mounting uses the boarding meter at its own difficulty. | `extraction.*` |
 | Heat and countdown | Heat, countdown | Heat sources add fixed amounts per event. Drain rate is `1 + heatDrainFactor × heat/100` (U2). | `heat.*`, `countdown.*` |
 | Wanted level | Persistent level | Read at run generation only. It never changes mid-run. | `wanted.*` |
 
@@ -357,7 +358,7 @@ interface WorldModel {
 | Aspect | Continuous world | Separate train map |
 | --- | --- | --- |
 | Player while aboard | Placement in a car frame; the train visibly moves through the world | Same |
-| Horse while aboard | Physical body riding beside the train, obstacles and all | Abstract state: `away`, `approaching`, `alongside`, `leaving`, driven by timers |
+| Horse while aboard | Physical body riding beside the train, obstacles and all | Was planned as an abstract timer state. Since M4 the client draws the world aboard, and a horse ignoring rocks would look wrong there, so phase 2 makes it physical whenever it is in the world: it runs off and is removed after boarding, and the whistle places it behind the train to ride up (`horseWhileAboard: 'physical'`, decided 2026-10-11) |
 | Boarding and mounting | World ↔ car frame transform at an entry point | Same |
 | Renderer scene | One scene; camera follows the player across the map; roofs fade | Interior scene with cars laid end to end; a scrolling backdrop stands in for scenery |
 | Extra content | None | Interior scene layout per train, plus a backdrop loop |
@@ -370,7 +371,7 @@ The map file is the same for both. The separate mode simply stops drawing terrai
 
 The alpha starts with the separate map, and the continuous world is more work than it. It does not need a redesign, because the train, track, car frames, on-board systems and config schema are shared. The extra work is in four places:
 
-- **A physical horse while aboard.** Today the horse is a timer state while the player is on the train. Continuous needs a real body that paces beside the train, collides with terrain, and can later be hurt. The extraction timings (arrival delay, pace window) then need retuning.
+- **A physical horse while aboard.** Built in phase 2 for the separate mode as well (see Phase 2 starting spec), so this cost is paid early. Being hurt comes with combat.
 - **Real terrain along the whole track.** Rocks, rivers and slow zones only matter near the approach in separate mode. In continuous they matter for the entire run, so the map needs finished content and collision along the full loop.
 - **A second renderer scene.** One large scene with a camera that follows the player, the train moving through scenery, and culling so only nearby terrain is drawn. Roof fading is no longer the only occlusion case.
 - **Tuning and tests twice.** Golden runs and balance checks must cover both modes, because the horse timing differs between them. The world-structure playtest only works once both exist.
@@ -657,8 +658,8 @@ The examples below show the file shapes.
   "schemaVersion": 1,
   "id": "alpha-default",
   "variants": {
-    "runLength": "medium", "boardingInput": "meter", "healthModel": "bar",
-    "worldMode": "separate", "lootCarry": "limit-and-slowdown", "graceWindow": "medium"
+    "boardingInput": "meter", "healthModel": "bar",
+    "worldMode": "separate", "lootCarry": "limit-and-slowdown"
   }
 }
 ```
@@ -669,16 +670,21 @@ A preset chooses exactly one variant per group, so two options from the same tes
 
 | Group | Options | What the patch changes |
 | --- | --- | --- |
-| `runLength` | `short`, `medium` | `countdown.scale` and `loot.densityScale` (U7) |
 | `boardingInput` | `meter`, `meter-qte` | `boarding.qte.enabled` |
 | `healthModel` | `bar`, `downed` | `health.model`, `health.downedWindowSec` |
 | `worldMode` | `continuous`, `separate` | `world.mode` |
 | `lootCarry` | `limit-and-slowdown`, `unlimited` | `carry.limitEnabled`, `carry.slowdownEnabled` |
-| `graceWindow` | `small`, `medium`, `large` | `countdown.graceSec` |
 | `steering` | `screen`, `heading` | `horse.steering` (phase 1, see Riding controls) |
 | `throttleModel` | `hold`, `coast`, `cruise` | `horse.throttleModel` (phase 1, see Riding controls) |
+| `guardCatch` | `heat-only`, `thrown-off` | whether an alert guard chases and throws the player off the train, landing back on the horse stunned as after a failed boarding (phase 2) |
+| `horseArrivalCue` | `visible`, `visible-timer` | whether the HUD adds a timer to the visible approaching horse (phase 2) |
+| `mountSpill` | `random`, `heaviest`, `share` | what a good mount spills: one random item, the heaviest item, or a share of carried value (phase 2) |
+| `trainMix` | `map`, `all-mail`, `mixed`, `mostly-blank` | which trains are mail trains and which are empty decoys. The mix is normally set by config: each map track's `trains` count and `trainType`. `map` (the default) uses exactly that; the other options are overlay files for testing that override it with all mail, about half blank, or mostly blank (phase 2) |
+| `handlingModel` | `arcade-boost`, `arcade` | whether the horse has a short boost above top speed with a cooldown (phase 2, on by default); stamina and speed tiers join later |
 
-Additional groups (horse handling, structure preset) follow the same pattern.
+Additional groups (stamina and speed-tier handling, structure preset) follow the same pattern.
+
+**Numbers are values, not variants** (decided 2026-10-11). A playtest knob that is really a number is a plain config value rather than a named variant group: run length is `countdown.scale` (and `loot.densityScale`), the grace window is `countdown.graceSec`, train length is the train's car count, and search pace is `verbs.search.searchTimeSec` plus a hidden-loot flag. This replaces the earlier `runLength`, `graceWindow`, `trainLength` and `searchPace` groups. Presets may carry values as overrides, and the URL sets any value with `set` (see Selecting a setup). Named groups stay for behaviour choices.
 
 ### Where each requirement's tuning value lives
 
@@ -686,7 +692,7 @@ Additional groups (horse handling, structure preset) follow the same pattern.
 | --- | --- |
 | Boarding meter difficulty | `boarding.meter.speed`, `boarding.meter.zoneWidths` (quick-time prompts, `boarding.qte.*`, come later) |
 | Horse handling | `horse.handling`, `horse.maxSpeed`, `horse.accel`, `horse.turnRate` |
-| Horse arrival delay | `extraction.arrivalDelaySec` as `[min, max]`, `extraction.paceWindowSec` |
+| Horse arrival delay | `extraction.arrivalDelaySec` as `[min, max]` (turned into a spawn distance behind the train), `extraction.paceWindowSec` |
 | Countdown length | `trains.<id>.countdown.baseSec` × `countdown.scale` |
 | Heat rate | `heat.sources.*`, `heat.heatDrainFactor`, `heat.decayPerSec` |
 | Grace window | `countdown.graceSec` |
@@ -707,7 +713,7 @@ The result is a `ResolvedConfig`. Its hash, the preset, the chosen variants and 
 
 ### Selecting a setup
 
-- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&seed=abc123`.
+- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&set=countdown.scale=4&seed=abc123`. Each `set=<path>=<value>` becomes a run-time override (step 2 of the resolve pipeline), recorded in the log header's `overrides` like the variants are (phase 2).
 - A debug panel in `apps/game` lists each variant group and its question, and edits individual values as overrides.
 - `tools validate` runs steps 1 to 5 on every preset and fails CI on any error.
 
@@ -720,7 +726,7 @@ One seed string drives every random choice through separate named streams, and e
 - **Algorithm.** sfc32, a 32-bit generator built only from integer operations, so every JavaScript engine gives the same sequence. The seed string is hashed into four 32-bit words and warmed up for a few rounds.
 - **Streams.** `gen` (run generation and loot placement), `schedule` (train spawns), `ai`, `combat`, `horse` and `misc`. Each stream's state is derived from the seed plus the stream name and stored in `GameState.rng`, so snapshots resume mid-sequence.
 - **Run seeds.** At each run start the `gen` stream is re-derived from `seed` and the run number. Layout and loot therefore depend only on those two values, not on how earlier runs were played. A `retrySameLayout` option restarts a run with the same run seed so variants can be compared on identical trains.
-- **Draw timing.** The horse arrival delay is drawn from the `horse` stream at whistle time, so the Nth whistle on a seed always gets the same delay regardless of what else happened.
+- **Draw timing.** The horse arrival delay is drawn from the `horse` stream at whistle time, so the Nth whistle on a seed always gets the same delay regardless of what else happened. The ride up is then plain simulation.
 
 ```ts
 interface Rng {
@@ -768,7 +774,7 @@ The wall-clock `startedAt` exists only in the header, written by the host. The s
 | `HeatChanged` | heat, delta, cause | Heat tuning |
 | `LootPickedUp` | item, value, weight | Loot density, carry tradeoff |
 | `ActorDowned`, `ActorKilled` | actor, by | Deaths and retries |
-| `HorseWhistled`, `HorseArrived`, `HorseDeparted` | delay drawn, pace window | Extraction tension |
+| `HorseWhistled`, `HorseArrived`, `HorseDeparted`, `HorseSideChanged`, `HorseBlocked` | horse distance and side, pace window | Extraction tension |
 | `RunEnded` | outcome, duration in ticks, countdown left, heat, loot value, boarding attempts, kills | Run length, completion, cancels (with time left, for flag U6) |
 | `PersistentChanged` | before, after | Wanted level and bank effects |
 | `CommandRejected` | command, reason | Input and UX bugs |
@@ -916,7 +922,7 @@ The build follows the requirements' five phases, preceded by a foundation phase 
 | --- | --- | --- |
 | 0. Foundation | Monorepo and CI rules, sim skeleton with tick loop, RNG, snapshot and hash, config pipeline with `tools validate`, command and event logging with replay, debug overlay, blank Pixi scene | A golden replay passes in CI and a variant can be switched from the URL. This phase is new; the requirements don't list it. |
 | 1. Riding and boarding | One map, one blank train, horse, boarding meter, failure and cancel rules, `WorldModel` with the separate-map implementation | Riding and boarding is fun before any loot exists |
-| 2. Mail/express | Countdown, heat, loot, carry flags, extraction with horse delay, wanted level, outcome policy, persistence, the continuous-world implementation (so the world-structure test can run), run-length variants | Compare short and medium runs and pick a target length |
+| 2. Mail/express | Countdown, heat, loot, carry flags, light guards (patrol, sight, noise, alarm; no combat), extraction with a physical horse that is placed behind the train on the whistle, rides up around terrain and can switch sides, wanted level, outcome policy, persistence, run-length variants. With the world view aboard (phase 1 M4) and a physical horse, phase 2 plays much like the continuous world; what the world-structure test still compares is revisited before the prototype ends | Compare short and medium runs and pick a target length |
 | 3. Military payroll | Perception and AI, combat, health bar and the downed variant | Combat feels good and the health variants are compared |
 | 4. Passenger hold-up | `inspect` verb, passenger behaviour, armed passengers | Judging passengers is a decision, not a chore |
 | 5. Bank | `vault` verb, guard interruptions | The minigame holds up under time pressure, and each train favours a style while other approaches still work |
@@ -1059,3 +1065,60 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 - [x] Logging of boarding attempts and run outcomes (M3 emits `RunPhaseChanged`, `BoardingAttempt`, `DamageDealt`, `CommandRejected`, `RunEnded` and `PersistentChanged` and allows them in `logging.events`. M5 dropped `RunCancelled`: a cancel is `RunEnded` with outcome `cancelled`, and `retry` marks a quick retry. `tools report <file>.events.log...` reads exported event logs and prints runs, boardings, outcomes, jumps per run, results, rejections by reason, and the median time from commit to aboard)
 - [x] Phase 1 tests (M5): the golden run now commits, fails two jumps, lands the third as good, walks and cancels, and a test checks that sequence; `npm run bots` (`packages/tools/src/bots.ts`) runs an idle, a random and a chaser bot over 1,000 seeds, cycling the six steering and throttle combinations, for 90 s each, and after every tick checks the invariants (no crash, no physical horse inside a car, horse on the map with a finite unit heading and speed within `horse.maxSpeed`, health and meter in range in a live run, a pinned train exactly when a run is on, a player in a car frame only aboard and on a walkable cell). `npm run bench` times `step` for the chaser bot and fails above a 1 ms mean (the sim's share of a 16.7 ms frame); it runs about 5 µs. Both run in CI after `npm run check`. The snapshot taken mid-boarding was already covered in M3
 - [ ] Playtest against the gate: riding and boarding is fun before any loot exists
+
+## Phase 2 starting spec
+
+Phase 2 builds the mail/express train and the first full run. The live plan is the [Phase 2 implementation plan](https://claude.ai/code/artifact/b87c9954-66b4-4b7d-b759-0f74a8eaf0fd); this section records the decisions from its review on 2026-10-11 that change or add to the design above.
+
+- **Milestones.** M1 countdown and heat, M2 mail train and loot, M3 light guards and the horse boost, M4 extraction, M5 wanted level, saving and score, M6 tests and the run-length playtest.
+- **What fills a medium run.** A longer train (more cars) and slower looting (longer search, hidden loot) are both tested, as plain values separate from `countdown.scale` (U7, and Numbers are values under Variant groups).
+- **Horse.** Physical whenever it is in the world (changed 2026-10-11 in the PR #14 review; the scripted lane horse is dropped). When the player boards, the riderless horse turns away from the track and runs off, and is removed from the world after `horse.runOffSec`, by which time it is out of view at run zoom. On the whistle the sim draws an arrival delay and places the horse behind the last car on the player's side, at the distance that delay takes to close: delay × (`horse.maxSpeed` − train speed), measured back along the track and offset to the lane, moved to the nearest open tile if that spot is blocked. It then rides with the same physics as a ridden horse, driven by a small steering AI that aims at a lane beside the player's car and paths around blocked and water tiles on a coarse grid, so it collides with cars and terrain and is slowed by slow ground; terrain can therefore stretch the 5 to 20 s. It takes no crash damage while riderless. Whistling again while it is on its way or alongside sends it to the side the player is now nearest, crossing behind the last car. If it cannot reach the car, it keeps trying and the HUD says the horse is blocked. When the pace window ends it drops back and is removed again until the next whistle. Arrival, side and mount results are in U4. The horse boost is on by default (`handlingModel: arcade-boost`).
+- **Guards.** Light guards in M3 with perception but no combat. `guardCatch` tests heat only against being thrown off.
+- **Heat.** Only speeds up the countdown in phase 2; the countdown bar shows its drain rate (for example ×1.6) so the effect reads. Heat thresholds that change guard behaviour are on the wiki Ideas page.
+- **Loot.** Mostly small items plus one or two heavy, valuable prizes per train; items can be dropped to swap (`drop` command).
+- **Cars.** Drawn in Tiled with `tools build-cars` (see Car Tiled workflow); three starter mail car layouts are generated to edit.
+- **Boarding.** Only some mail car layouts have side doors; entry points come from each layout's `entryPoints` layer in Tiled and are drawn on the car's outside in the world view. To compare with doors everywhere, a variant limits the train to layouts that have doors on both sides (the train config lists which layouts it may pick), so at least one starter layout has doors on both sides; there is no separate all-doors switch. The horse comes up on the player's side at extraction, so they may need to walk to a car with a door on that side. Roof access, including side ladders for boarding straight onto the roof from the horse, waits for phase 3.
+- **Searching.** Hold E for the search time; the player can slow-walk at 30% speed meanwhile. Releasing E, or moving more than 1.5 tiles from the loot spot, cancels and loses the progress.
+- **Carrying.** A hard max of 10 weight units, with slowdown from 6 units down to 50% speed at the max, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6.
+- **Heat hooks.** `heat.sources.timeAboardPerSec` stays 0 by default and a playtest preset sets 0.2. `heat.boardingResistanceAt` (off by default) is the hook for guards shooting at the rider at high heat once combat exists.
+- **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`), and a client option hides train names on the off-screen arrows.
+- **Grace window.** See U3.
+- **Saving.** One shared save; `wanted.forceLevel` runs save nothing; no way for wanted level to come down yet (U11). A Reset save button in the debug overlay and `?resetSave=1` both confirm before wiping.
+- **Playtesting.** Free play with ready-made presets for the main questions, linked from the wiki Playtesting page, instead of an in-game variant panel. Each preset builds on `alpha-default` and ships in the PR of the milestone that adds its switch:
+
+| Preset | Sets | Question | Milestone |
+| --- | --- | --- | --- |
+| `medium-run` | `countdown.scale` 4, `loot.densityScale` 4 | Short vs medium run (the phase gate) | M1 |
+| `time-aboard-heat` | `heat.sources.timeAboardPerSec` 0.2 | Should lingering aboard raise heat? | M1 |
+| `long-train` | mail train 6 cars, with `countdown.scale` 4 | Does a longer train fill a medium run? | M2 |
+| `slow-search` | `verbs.search.searchTimeSec` 3, hidden loot on, with `countdown.scale` 4 | Does slower looting fill a medium run? | M2 |
+| `no-carry-limit` | `lootCarry: unlimited` | Does carry weight make choices interesting? | M2 |
+| `doors-both-sides` | the mail train picks only layouts with side doors on both sides | Restricted doors vs doors everywhere | M2 |
+| `mixed-trains` | `trainMix: mixed`, train names hidden on the arrows | Are decoy trains interesting? | M2 |
+| `thrown-off` | `guardCatch: thrown-off` | What should an alert guard do without combat? | M3 |
+| `no-boost` | `handlingModel: arcade` | Is the horse boost worth it? | M3 |
+| `arrival-timer` | `horseArrivalCue: visible-timer` | Is seeing the horse enough, or is a timer needed? | M4 |
+| `spill-heaviest`, `spill-share` | `mountSpill: heaviest` or `share` | What should a good mount cost? | M4 |
+| `wanted-3` | `wanted.forceLevel` 3 (saves nothing) | How does a high wanted level play? | M5 |
+
+Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guardCatch:thrown-off` tests two things at once.
+
+### Phase 2 starting values
+
+| Value | Starting value | Config key |
+| --- | --- | --- |
+| Mail countdown base | 150 s | `trains.mail-express.countdown.baseSec` |
+| Countdown multiplier | 1 (a medium-run preset sets 4) | `countdown.scale` |
+| Grace window | 3 s | `countdown.graceSec` |
+| Mail cars | 3 (a preset sets 6) | the train's `cars` count |
+| Search time | 1.2 s (a slow preset sets 3 s with hidden loot) | `verbs.search.searchTimeSec` |
+| Walk speed while searching | 30% | `verbs.search.walkSpeedScale` |
+| Search cancel distance | 1.5 tiles | `verbs.search.cancelRangeTiles` |
+| Horse arrival delay | 5 to 20 s, seeded; the horse is placed that far behind (25 to 100 tiles at 14 vs 9 tiles/s) | `extraction.arrivalDelaySec` |
+| Horse run-off after boarding | 3 s, then removed | `horse.runOffSec` |
+| Horse lane beside the car | 2 tiles out from the car's side | `extraction.laneOffsetTiles` |
+| Horse alongside | 10 s; re-whistle after 5 s | `extraction.paceWindowSec`, `extraction.rewhistleCooldownSec` |
+| Mount meter | zones 3% and 15%, 1.85 s sweep | `extraction.meter.*` |
+| Carry max | 10 weight units, 20 items | `carry.maxWeight`, `carry.maxItems` |
+| Slowdown | from 6 units to 50% speed at the max | `carry.slowdownFromWeight`, `carry.minSpeedScale` |
+| Horse boost | 1.5 s at +40% top speed, 6 s cooldown | `horse.boost.*` |
