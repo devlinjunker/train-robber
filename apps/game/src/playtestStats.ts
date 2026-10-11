@@ -7,6 +7,24 @@ export function setupKey(r: Pick<RunRecord, 'preset' | 'variants'>): string {
   return `${r.preset} · ${v}`;
 }
 
+/** The game version a run was played on; `unknown` for records from before versions were set (0.0.0). */
+export function runVersion(r: Pick<RunRecord, 'gameVersion'>): string {
+  return r.gameVersion && r.gameVersion !== '0.0.0' ? r.gameVersion : 'unknown';
+}
+
+/** Newest version first, `unknown` last. */
+export function compareVersions(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === 'unknown') return 1;
+  if (b === 'unknown') return -1;
+  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pb[i] ?? 0) - (pa[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
 export interface SetupSummary {
   setup: string;
   runs: number;
@@ -76,11 +94,33 @@ export function toCsv(runs: readonly RunRecord[]): string {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
+/**
+ * Every note in `runs` as Markdown, grouped by game version, for pasting into the pull request
+ * that version belongs to. `filters` describes the page filters that picked the runs.
+ */
+export function notesMarkdown(runs: readonly RunRecord[], filters: readonly string[] = []): string {
+  const versions = [...new Set(runs.map(runVersion))].sort(compareVersions);
+  const noteCount = runs.reduce((n, r) => n + r.notes.length, 0);
+  const lines = [`## Playtest notes: ${versions.join(', ') || 'no runs'}`, ''];
+  lines.push(`${runs.length} run${runs.length === 1 ? "" : "s"}, ${noteCount} note${noteCount === 1 ? "" : "s"}${filters.length ? ` (filtered by ${filters.join(', ')})` : ''}.`);
+  for (const v of versions) {
+    const rs = runs.filter((r) => runVersion(r) === v && r.notes.length).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    if (versions.length > 1) lines.push('', `### ${v}`);
+    if (!rs.length) { lines.push('', '_No notes._'); continue; }
+    for (const r of rs) {
+      const who = r.tester ? `${r.tester}, ` : '';
+      lines.push('', `**${who}${r.startedAt.slice(0, 16).replace('T', ' ')}** · ${setupKey(r)} · map \`${r.mapId}\`, seed \`${r.seed}\`, run ${r.runNumber} (${r.outcome}, ${r.durationSec.toFixed(1)} s)`);
+      for (const n of r.notes) lines.push(`- tick ${n.t}: ${n.text}`);
+    }
+  }
+  return lines.join('\n') + '\n';
+}
+
 /** Markdown for a GitHub issue, cut to `maxChars` so the prefilled issue URL stays short enough. */
 export function issueMarkdown(runs: readonly RunRecord[], maxChars = 6000): string {
   const testers = [...new Set(runs.map((r) => r.tester).filter(Boolean))].join(', ') || 'unnamed';
   const lines = [
-    `Playtest results from ${testers}: ${runs.length} runs.`, '',
+    `Playtest results from ${testers}: ${runs.length} runs on version ${[...new Set(runs.map(runVersion))].sort(compareVersions).join(', ')}.`, '',
     '| Setup | Runs | Died | Cancelled | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} |`),

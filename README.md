@@ -42,3 +42,7 @@ npm run golden:update                       # rewrite the golden replay after a 
 In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=abc123` picks the setup, and the Export logs button (or L) downloads the session's command and event logs (N adds a note to them). The Playtests link opens `playtests.html`, a history of every run played in that browser with outcomes grouped by setup.
 
 Every pull request gets a playable build at `https://devlinjunker.github.io/train-robber/pr-preview/pr-<number>/` (linked in a PR comment), and `main` is published at `https://devlinjunker.github.io/train-robber/`. See `.github/workflows/pages.yml`.
+
+## Versions
+
+The game version is `0.<phase>.<milestone>`, set in `apps/game/package.json` (and the root `package.json`). Every run's log header and Playtests record carries it, so playtest notes can be filtered and exported per version. The pull request that finishes a milestone bumps the patch number (Phase 2 M1 → `0.2.1`); the first change of a new phase sets `0.<phase>.0`. Records from before versions were set (`0.0.0`) show as `unknown`.
