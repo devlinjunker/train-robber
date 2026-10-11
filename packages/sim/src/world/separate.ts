@@ -2,7 +2,9 @@
 // into a car frame, and the horse turns abstract until extraction brings it back.
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
-import { CAR_TEMPLATES, carEntryPoints, expandCars, type CarPose, type Side } from './cars';
+import { carCatalog, carEntryPoints, carTemplate, cellOpen, type CarCatalog, type CarPose, type Side } from './cars';
+import { carrySpeedScale, carriedWeight } from './loot';
+import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
 
@@ -23,15 +25,7 @@ export interface WorldModel {
   leaveTrain(state: GameState, player: PlayerId): void;
 }
 
-export const WORLD_FRAME = 'world';
-export const carFrame = (trainId: string, car: number) => `car:${trainId}:${car}`;
-
-/** The train and car index of a car frame, or null for the world frame. */
-export function parseCarFrame(frame: string): { trainId: string; car: number } | null {
-  if (!frame.startsWith('car:')) return null;
-  const i = frame.lastIndexOf(':');
-  return { trainId: frame.slice(4, i), car: Number(frame.slice(i + 1)) };
-}
+export { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 
 /**
  * A car-frame point in world space. Car frames count cells from the front (x) and from the
@@ -45,19 +39,42 @@ export function carToWorld(car: CarPose, x: number, y: number, out: Vec2 = { x: 
   return out;
 }
 
-/** True when (x, y) in a car frame lies on a cell that does not block movement. */
-export function carCellWalkable(template: string, x: number, y: number): boolean {
-  const t = CAR_TEMPLATES[template];
-  if (!t) return false;
-  const c = Math.floor(x), r = Math.floor(y);
-  if (c < 0 || r < 0 || c >= t.size.cols || r >= t.size.rows) return false;
-  return t.cells[r * t.size.cols + c] !== 'wall';
+/**
+ * Where a car-frame point lands in a train: a point past a car's front (x < 0) or rear (x at or
+ * past its length) moves into the neighbouring car's frame, so the cars join end to end and an
+ * end door leads into the next car. Null past the train's own ends.
+ */
+export function trainPoint(catalog: CarCatalog, cars: readonly string[], car: number, x: number): { car: number; x: number } | null {
+  while (x < 0) {
+    if (car === 0) return null;
+    car -= 1;
+    x += carTemplate(catalog, cars[car]!).size.cols;
+  }
+  while (x >= carTemplate(catalog, cars[car]!).size.cols) {
+    if (car === cars.length - 1) return null;
+    x -= carTemplate(catalog, cars[car]!).size.cols;
+    car += 1;
+  }
+  return { car, x };
+}
+
+/** True when (x, y) in car `car`'s frame of a train lies on a cell that does not block movement, past the car's ends included. */
+export function trainCellWalkable(catalog: CarCatalog, cars: readonly string[], car: number, x: number, y: number): boolean {
+  const at = trainPoint(catalog, cars, car, x);
+  return at !== null && cellOpen(carTemplate(catalog, cars[at.car]!), Math.floor(at.x), Math.floor(y));
+}
+
+/** The car templates of a train in state; throws when it is gone. */
+export function trainCars(state: GameState, trainId: string): string[] {
+  const t = state.world.trains.find((q) => q.id === trainId);
+  if (!t) throw new Error(`no train ${trainId}`);
+  return t.cars;
 }
 
 export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldModel {
+  const catalog = carCatalog(config);
   const templateOf = (state: GameState, trainId: string, car: number): string => {
-    const t = state.world.trains.find((q) => q.id === trainId);
-    const id = t ? expandCars(config.values.trains[t.type]!.cars)[car] : undefined;
+    const id = trainCars(state, trainId)[car];
     if (!id) throw new Error(`train ${trainId} has no car ${car}`);
     return id;
   };
@@ -76,7 +93,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
       return {
         pos: { x: engine.x, y: engine.y },
         vel: { x: engine.ux * speed, y: engine.uy * speed },
-        entryPoints: cars.flatMap((c) => carEntryPoints(c).map((e) => ({ car: c.index, ...e }))),
+        entryPoints: cars.flatMap((c) => carEntryPoints(c, catalog).map((e) => ({ car: c.index, ...e }))),
       };
     },
     toWorld(state, p) {
@@ -89,10 +106,10 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     walkable(state, p) {
       const f = parseCarFrame(p.frame);
       if (!f) return !isSolid(terrainAt(map, p.x, p.y));
-      return carCellWalkable(templateOf(state, f.trainId, f.car), p.x, p.y);
+      return trainCellWalkable(catalog, trainCars(state, f.trainId), f.car, p.x, p.y);
     },
     enterTrain(state, player, entry) {
-      const ep = CAR_TEMPLATES[templateOf(state, entry.trainId, entry.car)]!.entryPoints.find((e) => e.id === entry.entry);
+      const ep = carTemplate(catalog, templateOf(state, entry.trainId, entry.car)).entryPoints.find((e) => e.id === entry.entry);
       if (!ep) throw new Error(`no entry point ${entry.entry} on car ${entry.car} of ${entry.trainId}`);
       const p = playerOf(state, player);
       // Land in the middle of the entry cell.
@@ -123,32 +140,49 @@ export const WALKER_RADIUS = 0.3;
 const axis = (v: number) => (v < -127 ? -127 : v > 127 ? 127 : v | 0) / 127;
 
 /**
- * Tick system 5: players aboard walk their car at up to `player.speedTilesPerSec`, scaled by
- * the length of the `move` axes (the client walks at half and runs at full). Aboard, `move` is
- * in the car's frame, not the screen's: +x walks toward the front (lower cell x), +y toward the
+ * Tick system 5: players aboard walk the train at up to `player.speedTilesPerSec`, scaled by the
+ * length of the `move` axes (the client walks at half and runs at full), by the weight they carry
+ * (`carry.slowdownEnabled`), and by `verbs.search.walkSpeedScale` while searching. Aboard, `move`
+ * is in the car's frame, not the screen's: +x walks toward the front (lower cell x), +y toward the
  * right side (higher cell y). The client turns its screen keys into that frame, so the sim never
  * sees the screen. Each axis moves on its own so a wall stops one and the player slides along it.
+ * Walking through an end door carries the player into the next car's frame, so the whole train
+ * is one interior.
  */
-export function walkAboard(state: GameState, model: WorldModel, config: SimConfig): void {
+export function walkAboard(state: GameState, config: SimConfig): void {
+  const catalog = carCatalog(config);
   for (const p of state.players) {
-    if (p.placement.frame === WORLD_FRAME) continue;
+    const f = parseCarFrame(p.placement.frame);
+    if (!f) continue;
     const run = state.run?.players[p.id];
     let speed = config.values.player.speedTilesPerTick;
     if (run && run.stumbleTicks > 0) {
       speed *= config.values.boarding.landing.stumbleSpeedScale;
       run.stumbleTicks -= 1;
     }
+    if (run) {
+      speed *= carrySpeedScale(config, carriedWeight(config, run.carried));
+      if (run.search) speed *= config.values.verbs.search.walkSpeedScale;
+    }
     let mx = -axis(p.move.x), my = axis(p.move.y);
     const n = Math.sqrt(mx * mx + my * my);
     if (n === 0) continue;
     if (n > 1) { mx /= n; my /= n; }
     const pl = p.placement;
+    const cars = trainCars(state, f.trainId);
+    const open = (x: number, y: number) => trainCellWalkable(catalog, cars, f.car, x, y);
     const clear = (x: number, y: number) =>
-      model.walkable(state, { ...pl, x: x - WALKER_RADIUS, y: y - WALKER_RADIUS }) && model.walkable(state, { ...pl, x: x + WALKER_RADIUS, y: y - WALKER_RADIUS })
-      && model.walkable(state, { ...pl, x: x - WALKER_RADIUS, y: y + WALKER_RADIUS }) && model.walkable(state, { ...pl, x: x + WALKER_RADIUS, y: y + WALKER_RADIUS });
+      open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
+      && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
     const nx = pl.x + mx * speed;
     if (clear(nx, pl.y)) pl.x = nx;
     const ny = pl.y + my * speed;
     if (clear(pl.x, ny)) pl.y = ny;
+    // Through an end door: carry on in the neighbouring car's frame.
+    const at = trainPoint(catalog, cars, f.car, pl.x);
+    if (at && at.car !== f.car) {
+      pl.frame = carFrame(f.trainId, at.car);
+      pl.x = at.x;
+    }
   }
 }

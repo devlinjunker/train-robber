@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "long-train",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "trains": {
+      "mail-express": {
+        "carCount": 6
+      }
+    },
+    "countdown": {
+      "scale": 4
+    }
+  }
+}

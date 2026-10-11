@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "limit-and-slowdown",
+  "group": "lootCarry",
+  "label": "Carry limit and weight slowdown",
+  "question": "Does carry weight make choices interesting?",
+  "patch": {
+    "carry": {
+      "limitEnabled": true,
+      "slowdownEnabled": true
+    }
+  }
+}

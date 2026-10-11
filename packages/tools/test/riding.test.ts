@@ -25,12 +25,16 @@ describe('riding on alpha-flats', () => {
     }
   }
 
-  it('the player starts mounted and stopped at playerSpawn, and the blank train loops in about 81 s', () => {
+  it('the player starts mounted and stopped at playerSpawn, and the mail train loops in about 81 s', () => {
     const config = loadConfig();
     const sim = createSim({ config, map, seed: 's', playerIds: [1] });
     expect(sim.state.world.horses[0]).toMatchObject({ x: 200, y: 170, speed: 0 });
-    expect(sim.cars().map((c) => c.template)).toEqual(['engine', 'blank-car', 'blank-car', 'blank-car']);
-    const lapTicks = map.routes[0]!.length / config.values.trains.blank!.speedTilesPerTick;
+    const cars = sim.cars().map((c) => c.template);
+    expect(cars).toHaveLength(5);
+    expect(cars[0]).toBe('engine');
+    expect(cars[4]).toBe('caboose');
+    for (const id of cars.slice(1, 4)) expect(id).toMatch(/^mail-car-[abc]$/);
+    const lapTicks = map.routes[0]!.length / config.values.trains['mail-express']!.speedTilesPerTick;
     expect(lapTicks / 60).toBeCloseTo(81.2, 1);
   });
 });

@@ -6,10 +6,11 @@ import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSe
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
 import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
-import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
+import { carCatalog, carTemplate, type Side } from './world/cars';
+import { generateLoot, repickFreeTrains } from './world/generate';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
-import { carPosesOf, pinTrain, routeOf, unpinTrain } from './world/trains';
+import { carPosesOf, pinTrain, routeOf, trainLengthOf, unpinTrain } from './world/trains';
 import { trackAt } from './world/track';
 
 export interface RunCtx {
@@ -64,16 +65,21 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   pinTrain(state, id, p.id);
   state.runCount += 1;
   state.rng = seedRng(runSeed(state.seed, state.runCount));
-  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0 };
+  const rp = {
+    health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0,
+    carried: [], search: null, searchLatched: false,
+  };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
   const train = state.world.trains.find((t) => t.id === id)!;
   const cd = config.values.countdown;
   const countdownSec = runCountdownSec(config, train.type);
+  // Run generation: the train's layouts were picked for this run number; fill its loot slots.
+  const loot = generateLoot(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp },
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length,
   };
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
@@ -159,6 +165,8 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
   unpinTrain(state, run.trainId);
   setPhase(ctx, p.id, 'idle');
   state.run = null;
+  // Every free train gets the layouts of the next run's seed.
+  repickFreeTrains(state, ctx.config);
 }
 
 /** Esc: accepted in every phase but `ended`; back to playerSpawn while the train keeps looping. */
@@ -183,7 +191,8 @@ function retryTrain(ctx: RunCtx, h: HorseState): string | null {
 /** The side of the train the player is on: from the car cell aboard, else from the nearest car. */
 function retrySide(ctx: RunCtx, p: PlayerState, h: HorseState, trainId: string): Side {
   const f = parseCarFrame(p.placement.frame);
-  if (f) return p.placement.y < CAR_WIDTH / 2 ? 'left' : 'right';
+  const train = ctx.state.world.trains.find((t) => t.id === f?.trainId);
+  if (f && train) return p.placement.y < carTemplate(carCatalog(ctx.config), train.cars[f.car]!).size.rows / 2 ? 'left' : 'right';
   let side: Side = 'left', best = Infinity;
   for (const car of carPosesOf(ctx.state, ctx.map, ctx.config, trainId)) {
     const dx = h.x - car.x, dy = h.y - car.y;
@@ -193,8 +202,8 @@ function retrySide(ctx: RunCtx, p: PlayerState, h: HorseState, trainId: string):
   return side;
 }
 
-/** Track centre to the waiting horse: half a car plus 1.5 tiles, so it lines up inside boarding range of the doors. */
-const RETRY_SIDE_OFFSET = CAR_WIDTH / 2 + 1.5;
+/** Track centre to the waiting horse beyond the car's side, so it lines up inside boarding range of the doors. */
+const RETRY_SIDE_GAP = 1.5;
 
 /**
  * R, with `playtest.quickRetry` on: end any run as a cancel and wait on the horse, stopped and
@@ -211,10 +220,12 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   const side = retrySide(ctx, p, h, trainId);
   if (state.run) endRun(ctx, p, 'cancelled', true);
   const train = state.world.trains.find((t) => t.id === trainId)!;
-  const { def, route } = routeOf(map, config, train);
-  const at = trackAt(route, train.d - trainLength(expandCars(def.cars)) - config.values.playtest.quickRetryGapTiles);
+  const { route } = routeOf(map, config, train);
+  const at = trackAt(route, train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles);
+  const last = carTemplate(carCatalog(config), train.cars[train.cars.length - 1]!);
   // Left of travel is (ty, -tx).
-  const s = side === 'left' ? RETRY_SIDE_OFFSET : -RETRY_SIDE_OFFSET;
+  const off = last.size.rows / 2 + RETRY_SIDE_GAP;
+  const s = side === 'left' ? off : -off;
   remount(state, p, at.x + at.ty * s, at.y - at.tx * s, at.tx, at.ty);
 }
 

@@ -1,24 +1,30 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CAR_TEMPLATES, HORSE_RADIUS, carEntryPoints, createSim, entryPointWorld, expandCars, nextInt, pinTrain, placeCars, pointInBox,
+  HORSE_RADIUS, carCatalog, carEntryPoints, createSim, entryPointWorld, nextInt, pinTrain, placeCars as place, pointInBox,
   pushOutOfBox, restoreSim, seedRng, trackAt, unpinTrain, type CarPose, type Command, type GameState,
 } from '../src';
 import { stadium, testConfig, testMap } from './fixtures';
 
 const route = stadium();
-const BLANK = expandCars([{ template: 'engine' }, { template: 'blank-car', count: 3 }]);
+const BLANK = ['engine', 'blank-car', 'blank-car', 'blank-car'];
+const catalog = carCatalog(testConfig());
+const placeCars = (id: string, cars: readonly string[], r: typeof route, d: number) => place(id, cars, r, d, catalog);
 const pick = (c: CarPose) => ({ x: c.x, y: c.y, ux: c.ux, uy: c.uy });
 
 describe('car templates', () => {
-  it('engine has no doors; a blank car has a door mid-car on both sides', () => {
-    expect(CAR_TEMPLATES.engine!.entryPoints).toEqual([]);
-    expect(CAR_TEMPLATES.engine!.cells).not.toContain('door');
-    const car = CAR_TEMPLATES['blank-car']!;
+  it('decode against the catalog: engine has no doors; a blank car has side doors mid-car and end doors', () => {
+    const engine = catalog.get('engine')!, DOOR = 2;
+    expect(engine.entryPoints).toEqual([]);
+    expect([...engine.cells]).not.toContain(DOOR);
+    const car = catalog.get('blank-car')!;
     expect(car.size).toEqual({ cols: 16, rows: 6 });
-    const doors = car.cells.flatMap((c, i) => (c === 'door' ? [[i % 16, Math.floor(i / 16)]] : []));
-    expect(doors).toEqual([[7, 0], [8, 0], [7, 5], [8, 5]]);
-    expect(car.entryPoints.map((e) => [e.id, e.side, e.along, e.cell])).toEqual([['side-left', 'left', 0, [8, 0]], ['side-right', 'right', 0, [8, 5]]]);
-    for (const e of car.entryPoints) expect(car.cells[e.cell[1] * 16 + e.cell[0]]).toBe('door');
+    const doors = [...car.cells].flatMap((c, i) => (c === DOOR ? [[i % 16, Math.floor(i / 16)]] : []));
+    expect(doors).toEqual([[7, 0], [8, 0], [0, 2], [15, 2], [0, 3], [15, 3], [7, 5], [8, 5]]);
+    expect(car.sideEntries.map((e) => [e.id, e.side, e.along, e.cell])).toEqual([['side-left', 'left', -0.5, [8, 0]], ['side-right', 'right', -0.5, [8, 5]]]);
+    expect(car.sideDoors).toEqual({ left: true, right: true });
+    for (const e of car.entryPoints) expect(car.cells[e.cell[1] * 16 + e.cell[0]]).toBe(DOOR);
+    expect(car.blocks[0]).toBe(1);
+    expect(car.blocks[16 + 1]).toBe(0);
   });
 });
 
@@ -56,11 +62,12 @@ describe('placeCars', () => {
 describe('entry points', () => {
   it('sit on each side wall of a blank car, mid-car, left of travel being left', () => {
     const car = placeCars('t', BLANK, route, 100)[1]!; // centre (116, 30), travelling right
-    const eps = carEntryPoints(car);
+    const eps = carEntryPoints(car, catalog);
     expect(eps.map((e) => e.id)).toEqual(['side-left', 'side-right']);
-    expect(eps[0]!.x).toBeCloseTo(116, 9);
+    // The middle of door cell 8, half a tile behind mid-car.
+    expect(eps[0]!.x).toBeCloseTo(115.5, 9);
     expect(eps[0]!.y).toBeCloseTo(27, 9);
-    expect(eps[1]!.x).toBeCloseTo(116, 9);
+    expect(eps[1]!.x).toBeCloseTo(115.5, 9);
     expect(eps[1]!.y).toBeCloseTo(33, 9);
   });
 
@@ -78,7 +85,7 @@ describe('entry points', () => {
   });
 
   it('engine has none', () => {
-    expect(carEntryPoints(placeCars('t', BLANK, route, 100)[0]!)).toEqual([]);
+    expect(carEntryPoints(placeCars('t', BLANK, route, 100)[0]!, catalog)).toEqual([]);
   });
 });
 
@@ -88,7 +95,7 @@ describe('train scheduler', () => {
 
   it('spawns one blank train at load, engine at the start of its route', () => {
     const sim = createSim({ config, map, seed: 's', playerIds: [1] });
-    expect(sim.state.world.trains).toEqual([{ id: 'blank-1', type: 'blank', d: 0, pinnedBy: null }]);
+    expect(sim.state.world.trains).toEqual([{ id: 'blank-1', type: 'blank', d: 0, pinnedBy: null, cars: BLANK }]);
     expect(sim.cars().map((c) => [c.trainId, c.template])).toEqual([['blank-1', 'engine'], ...Array(3).fill(['blank-1', 'blank-car'])]);
   });
 

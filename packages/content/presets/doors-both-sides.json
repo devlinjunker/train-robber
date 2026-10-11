@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "doors-both-sides",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "trains": {
+      "mail-express": {
+        "layouts": [
+          "mail-car-a"
+        ]
+      }
+    }
+  }
+}

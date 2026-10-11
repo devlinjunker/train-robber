@@ -49,7 +49,7 @@ export const MapDefSchema = z.object({
   speedZones: z.array(z.object({ x: z.number(), y: z.number(), w: z.number().positive(), h: z.number().positive(), speedScale: z.number().gt(0).max(1) }).strict()),
   /**
    * Trains this map starts with, each on one of its routes at distance `d`. Without it the sim
-   * starts the one blank train on the route its config names.
+   * starts one mail train (trainMix `map`), or spreads `trainMix.trainCount` along the mail route.
    */
   trains: z.array(z.object({ type: z.string(), route: z.string(), d: z.number().min(0) }).strict()).min(1).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */

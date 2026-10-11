@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "slow-search",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "verbs": {
+      "search": {
+        "searchTimeSec": 3,
+        "hiddenLoot": true
+      }
+    },
+    "countdown": {
+      "scale": 4
+    }
+  }
+}

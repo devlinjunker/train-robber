@@ -27,10 +27,13 @@ const steps = (sim: Sim, n: number) => { const ev: SimEvent[] = []; for (let i =
 const rejections = (ev: SimEvent[]) => ev.flatMap((e) => (e.type === 'CommandRejected' ? [`${e.command}: ${e.reason}`] : []));
 const phases = (ev: SimEvent[]) => ev.flatMap((e) => (e.type === 'RunPhaseChanged' ? [`${e.from}>${e.to}`] : []));
 
+/** Car 1's side doors: the middle of door cell 8, half a tile behind mid-car. */
+const DOOR_ALONG = -0.5;
+
 /** Put the horse beside car 1's door on the given side, `gap` tiles out, matching the train at `speed`. */
 function alongside(sim: Sim, side: 'left' | 'right' = 'left', speed = 9, gap = 1): void {
   const car = sim.cars()[1]!;
-  const ep = entryPointWorld(car, { side, along: 0 });
+  const ep = entryPointWorld(car, { side, along: DOOR_ALONG });
   const s = side === 'left' ? 1 : -1;
   Object.assign(horse(sim), { x: ep.x + car.uy * gap * s, y: ep.y - car.ux * gap * s, hx: car.ux, hy: car.uy, speed, cruiseTarget: speed });
 }
@@ -38,7 +41,7 @@ function alongside(sim: Sim, side: 'left' | 'right' = 'left', speed = 9, gap = 1
 /** Committed, beside car 1's left door and eligible. */
 function approach(cfg: SimConfig = config): Sim {
   const sim = setup(cfg);
-  step(sim, { type: 'interact', held: false });
+  step(sim, { type: 'interact', held: true });
   alongside(sim);
   step(sim);
   return sim;
@@ -93,8 +96,12 @@ describe('commit', () => {
 
   it('interact while idle commits like startRun with no id', () => {
     const sim = setup();
-    expect(phases(step(sim, { type: 'interact', held: false }))).toEqual(['idle>approach']);
-    expect(rejections(step(sim, { type: 'interact', held: false }))).toEqual(['interact: nothing to interact with']);
+    // Only the press commits; a release while idle does nothing.
+    expect(phases(step(sim, { type: 'interact', held: false }))).toEqual([]);
+    expect(phases(step(sim, { type: 'interact', held: true }))).toEqual(['idle>approach']);
+    // Pressing E on the approach does nothing; releasing it is not an error.
+    expect(rejections(step(sim, { type: 'interact', held: true }))).toEqual(['interact: nothing to interact with']);
+    expect(rejections(step(sim, { type: 'interact', held: false }))).toEqual([]);
   });
 
   it('rejects out of range, a taken train, an unknown train and a second run', () => {
@@ -121,7 +128,7 @@ describe('boarding rule', () => {
   it('is eligible beside a door on either side at train speed', () => {
     for (const side of ['left', 'right'] as const) {
       const sim = setup();
-      step(sim, { type: 'interact', held: false });
+      step(sim, { type: 'interact', held: true });
       alongside(sim, side);
       const c = boardingCheck(S(sim), sim.map, config, 'blank-1', horse(sim));
       expect(c).toMatchObject({ state: 'eligible', side, car: 1, entry: `side-${side}` });
@@ -140,7 +147,7 @@ describe('boarding rule', () => {
     ];
     for (const [reading, place] of cases) {
       const sim = setup();
-      step(sim, { type: 'interact', held: false });
+      step(sim, { type: 'interact', held: true });
       place(sim);
       expect(boardingCheck(S(sim), sim.map, config, 'blank-1', horse(sim)).state).toBe(reading);
     }
@@ -148,7 +155,7 @@ describe('boarding rule', () => {
 
   it('rejects a jump out of range only', () => {
     const sim = setup();
-    step(sim, { type: 'interact', held: false });
+    step(sim, { type: 'interact', held: true });
     alongside(sim, 'left', 9, 3);
     expect(rejections(step(sim, { type: 'jump' }))).toEqual(['jump: too far']);
     expect(S(sim).run!.phase).toBe('approach');
@@ -158,7 +165,7 @@ describe('boarding rule', () => {
   it('allows a jump in range at the wrong speed, on the fast meter', () => {
     for (const speed of [11.5, 6.5]) {
       const sim = setup();
-      step(sim, { type: 'interact', held: false });
+      step(sim, { type: 'interact', held: true });
       alongside(sim, 'left', speed);
       const ev = jump(sim, 'perfect');
       expect(rejections(ev)).toEqual([]);
@@ -169,7 +176,7 @@ describe('boarding rule', () => {
 
   it('only counts doors on the side the horse is riding', () => {
     const sim = setup();
-    step(sim, { type: 'interact', held: false });
+    step(sim, { type: 'interact', held: true });
     alongside(sim, 'left', 9, 1);
     // Across the car the right door is 7 tiles away; it never stands in for the left one.
     const c = boardingCheck(S(sim), sim.map, config, 'blank-1', horse(sim));
@@ -251,7 +258,7 @@ describe('landings', () => {
     expect(rp(sim)).toMatchObject({ stumbleTicks: 0, health: 100 });
     // The entry cell sits just inside the door, where the boarding rule measured.
     const at = sim.world.toWorld(S(sim), S(sim).players[0]!.placement);
-    const ep = entryPointWorld(sim.cars()[1]!, { side: 'left', along: 0 });
+    const ep = entryPointWorld(sim.cars()[1]!, { side: 'left', along: DOOR_ALONG });
     expect(Math.hypot(at.x - ep.x, at.y - ep.y)).toBeLessThan(1);
   });
 
@@ -496,8 +503,8 @@ describe('aboard', () => {
     const v = 8 / 60;
     step(sim, { type: 'move', x: 0, y: 127 });
     expect(p.y).toBeCloseTo(0.5 + v, 12);
-    steps(sim, 14);
-    expect(p.y).toBeCloseTo(2.5, 9);
+    steps(sim, 6);
+    expect(p.y).toBeCloseTo(0.5 + 7 * v, 9);
     step(sim, { type: 'move', x: 127, y: 0 }); // screen right is toward the front, lower cell x
     expect(p.x).toBeCloseTo(8.5 - v, 12);
     steps(sim, 120);
@@ -532,7 +539,7 @@ describe('aboard', () => {
 
 describe('snapshots mid-boarding', () => {
   const script = (t: number): Command[] =>
-    t === 0 ? [{ type: 'interact', held: false }] : t === 3 || t === 140 ? [{ type: 'jump' }] : t === 200 ? [{ type: 'move', x: 0, y: 127 }] : [];
+    t === 0 ? [{ type: 'interact', held: true }] : t === 3 || t === 140 ? [{ type: 'jump' }] : t === 200 ? [{ type: 'move', x: 0, y: 127 }] : [];
 
   function play(sim: Sim, from: number, to: number) {
     for (let t = from; t < to; t++) {

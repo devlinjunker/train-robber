@@ -1090,7 +1090,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 - **Searching.** Hold E for the search time; the player can slow-walk at 30% speed meanwhile. Releasing E, or moving more than 1.5 tiles from the loot spot, cancels and loses the progress.
 - **Carrying.** A hard max of 10 weight units, with slowdown from 6 units down to 50% speed at the max, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6.
 - **Heat hooks.** `heat.sources.timeAboardPerSec` is 0.33 by default (Devlin's M1 playtest, 2026-10-13: lingering aboard should cost something; it was 0 with a 0.2 preset before). The `no-time-aboard-heat` preset, or `?set=heat.sources.timeAboardPerSec=0`, turns it off. `heat.boardingResistanceAt` (off by default) is the hook for guards shooting at the rider at high heat once combat exists.
-- **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`), and a client option hides train names on the off-screen arrows.
+- **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`), and train names are hidden on the off-screen arrows by default (`hud.showTrainNames: false`, Devlin 2026-10-14; `?trainNames=on` shows them).
 - **Grace window.** See U3.
 - **Saving.** One shared save; `wanted.forceLevel` runs save nothing; no way for wanted level to come down yet (U11). A Reset save button in the debug overlay and `?resetSave=1` both confirm before wiping.
 - **Playtesting.** Free play with ready-made presets for the main questions, linked from the wiki Playtesting page, instead of an in-game variant panel. Each preset builds on `alpha-default` and ships in the PR of the milestone that adds its switch:
@@ -1103,7 +1103,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 | `slow-search` | `verbs.search.searchTimeSec` 3, hidden loot on, with `countdown.scale` 4 | Does slower looting fill a medium run? | M2 |
 | `no-carry-limit` | `lootCarry: unlimited` | Does carry weight make choices interesting? | M2 |
 | `doors-both-sides` | the mail train picks only layouts with side doors on both sides | Restricted doors vs doors everywhere | M2 |
-| `mixed-trains` | `trainMix: mixed`, train names hidden on the arrows | Are decoy trains interesting? | M2 |
+| `mixed-trains` | `trainMix: mixed` (train names are hidden by default) | Are decoy trains interesting? | M2 |
 | `thrown-off` | `guardCatch: thrown-off` | What should an alert guard do without combat? | M3 |
 | `no-boost` | `handlingModel: arcade` | Is the horse boost worth it? | M3 |
 | `arrival-timer` | `horseArrivalCue: visible-timer` | Is seeing the horse enough, or is a timer needed? | M4 |

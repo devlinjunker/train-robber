@@ -1,7 +1,7 @@
 // Scripted golden run. `npm run golden:update` rewrites the checked-in replay
 // after a deliberate sim change; the replay test then guards it.
 import {
-  boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, restoreSim, routeOf, trackAt, trainSpeed,
+  boardingCheck, carCatalog, carEntryPoints, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, nearestLoot, parseCarFrame, restoreSim, routeOf, trackAt, trainSpeed,
   type BoardingResult, type Command, type GameState, type InputFrame, type RunHeader, type Sim, type SimConfig, type SimMap,
 } from '@train-robber/sim';
 import { DEFAULT_MAP, loadConfig, loadMapDef } from './content';
@@ -26,8 +26,8 @@ function routeDistance(route: Parameters<typeof trackAt>[0], x: number, y: numbe
 
 /**
  * A rider bot for the default variants (heading-relative steering, coast throttle): it rides
- * a line 4 tiles out from the track centre toward the first car's door, closes the gap, then
- * holds the train's speed. Being a function of state is fine for a golden: the log records
+ * a line 4 tiles out from the track centre toward the nearest door on its side, closes the gap,
+ * then holds the train's speed. Being a function of state is fine for a golden: the log records
  * the commands it chose, and a replay only reads those.
  */
 export function riderCommands(sim: Sim, config: SimConfig, trainId: string, side: 'left' | 'right'): { x: number; y: number } {
@@ -35,12 +35,19 @@ export function riderCommands(sim: Sim, config: SimConfig, trainId: string, side
   const h = s.world.horses[0]!;
   const train = s.world.trains.find((t) => t.id === trainId)!;
   const { route } = routeOf(sim.map, config, train);
-  const door = carPosesOf(s, sim.map, config, trainId)[1]!;
-  const doorD = routeDistance(route, door.x, door.y);
   const horseD = routeDistance(route, h.x, h.y);
-  let gap = doorD - horseD;
-  if (gap < -route.length / 2) gap += route.length;
-  if (gap > route.length / 2) gap -= route.length;
+  const catalog = carCatalog(config);
+  const wrap = (g: number) => (g < -route.length / 2 ? g + route.length : g > route.length / 2 ? g - route.length : g);
+  // Only some cars have a door on each side: aim for the nearest one there.
+  let gap = Infinity;
+  for (const car of carPosesOf(s, sim.map, config, trainId)) {
+    for (const ep of carEntryPoints(car, catalog)) {
+      if (ep.side !== side) continue;
+      const g = wrap(routeDistance(route, ep.x, ep.y) - horseD);
+      if (Math.abs(g) < Math.abs(gap)) gap = g;
+    }
+  }
+  if (gap === Infinity) gap = 0;
   // Steer toward a point a few tiles ahead on the riding line.
   const aim = trackAt(route, horseD + 6);
   const off = side === 'left' ? 4 : -4;
@@ -75,9 +82,10 @@ export function recordGolden(): string {
   const h = s.world.horses[0]!;
   let last = { x: 0, y: 0 };
   let eligibleFor = 0, aboardFor = 0, side: 'left' | 'right' = 'left';
+  let looted = false, doneAt = 0;
   // Ride, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
   // then quick retry behind the train, catch it, commit, fail two jumps and land the third as
-  // good; walk, raise heat with the debug key, then cancel.
+  // good; raise heat with the debug key, walk to the nearest loot, search it, then cancel.
   for (let t = 0; t < TICKS; t++) {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
@@ -88,14 +96,25 @@ export function recordGolden(): string {
     else if (t > 120) {
       const trainId = s.run?.trainId ?? s.world.trains[0]!.id;
       if (!s.run && aboardFor === 0) {
-        if (commitTarget(s, sim.map, config, h)) commands.push({ type: 'interact', held: false });
+        if (commitTarget(s, sim.map, config, h)) commands.push({ type: 'interact', held: true });
       }
       if (s.run?.phase === 'aboard' || aboardFor > 0) {
         aboardFor++;
-        if (aboardFor === 1) move(127, 127);
-        else if (aboardFor === 20) commands.push({ type: 'debugHeat' });
-        else if (aboardFor === 40) move(-127, 0);
-        else if (aboardFor === 90) { move(0, 0); commands.push({ type: 'cancelRun' }); }
+        const p = s.players[0]!;
+        const rp = s.run?.players[1];
+        if (aboardFor === 20) commands.push({ type: 'debugHeat' });
+        if (rp && !looted && rp.carried.length > 0) { looted = true; doneAt = aboardFor; commands.push({ type: 'interact', held: false }); }
+        if (!looted && aboardFor < 900) {
+          // Walk to the nearest loot in this car (in the car's frame: +x toward the front, which
+          // is lower cell x), then hold E on it until it is picked up.
+          const l = nearestLoot(s, p, 99);
+          const pl = p.placement;
+          if (l && parseCarFrame(pl.frame)) {
+            const dx = l.x - pl.x, dy = l.y - pl.y;
+            if (Math.hypot(dx, dy) > 0.8) move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
+            else { move(0, 0); if (!p.interactHeld) commands.push({ type: 'interact', held: true }); }
+          }
+        } else if (aboardFor === (doneAt || 900) + 20) { move(0, 0); commands.push({ type: 'cancelRun' }); }
       } else if (s.run?.phase !== 'boarding') {
         if (t === 121) side = boardingCheck(s, sim.map, config, trainId, h).side;
         // Like a person, the bot adjusts the keys a few times a second, not every tick.

@@ -2,7 +2,7 @@
 // against the horse (cars in two-tile slices, boulders in strips), the mud cue, entry markers and
 // the debug overlays.
 import { Container, Graphics } from 'pixi.js';
-import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
+import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef } from '@train-robber/sim';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
@@ -18,16 +18,19 @@ import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
+import { drawInterior, type InteriorLoot } from './interior';
 
 const PERFECT_RING_SEC = 0.8;
 
-export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, 'blank-car': 0x9a5534 };
+/**
+ * Body colour by car type. Mail and blank cars share one, so a decoy train only gives itself away
+ * by its doors and what is inside (G17).
+ */
+export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x9a5534 };
 const DOOR_COLOUR = 0xe8c872;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
-/** The car you are in is drawn open: no roof, low walls and a plank floor, so you show inside it. */
-const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
 const PLAYER_COLOUR = 0x6bd3ff;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
 /**
@@ -80,6 +83,17 @@ export interface WorldSceneInput {
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
   view: { x0: number; y0: number; x1: number; y1: number };
+  /** Loot lying in the car the player is aboard (its frame), the loot being searched and the one in reach. */
+  loot: readonly InteriorLoot[];
+  searching: number | null;
+  inReach: number | null;
+}
+
+/** What the scene needs from the config once: car layouts, the cell catalog and items. */
+export interface SceneContent {
+  catalog: CarCatalog;
+  cellTypes: readonly CellTypeDef[];
+  items: Readonly<Record<string, { weight: number; category: string }>>;
 }
 
 export interface WorldScene {
@@ -144,14 +158,14 @@ function carSlices(car: CarPose): { box: Box; along0: number; along1: number; fi
   return out;
 }
 
-/** Door spans on each side of a template, as [from, to] along the car from its centre toward the front. */
-function doorSpans(template: string): { side: 'left' | 'right'; a0: number; a1: number }[] {
-  const t = CAR_TEMPLATES[template];
-  if (!t) return [];
+/** Side door spans of a template, as [from, to] along the car from its centre toward the front. End doors are not drawn outside. */
+export function doorSpans(content: SceneContent, template: string): { side: 'left' | 'right'; a0: number; a1: number }[] {
+  const t = carTemplate(content.catalog, template);
+  const door = content.cellTypes.findIndex((c) => c.id === 'door');
   const hl = t.size.cols / 2, spans: { side: 'left' | 'right'; a0: number; a1: number }[] = [];
   t.cells.forEach((cell, i) => {
-    if (cell !== 'door') return;
     const col = i % t.size.cols, row = Math.floor(i / t.size.cols);
+    if (cell !== door || (row !== 0 && row !== t.size.rows - 1)) return;
     spans.push({ side: row === 0 ? 'left' : 'right', a0: hl - col - 1, a1: hl - col });
   });
   return spans;
@@ -176,7 +190,7 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
 }
 
 /** `groundCover`: scatter grass and scrub over open ground from this seed, or none when null. */
-export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
+export function createWorldScene(map: MapDef, content: SceneContent, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
   // What moves (the horse, the player, cars) sorts in `objects`. Static pieces that sort with
@@ -215,6 +229,8 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
   objects.addChild(mud.clods);
 
+  const spans = new Map<string, ReturnType<typeof doorSpans>>();
+  const spansOf = (template: string) => { let v = spans.get(template); if (!v) { v = doorSpans(content, template); spans.set(template, v); } return v; };
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
   const playerG = new Graphics();
@@ -242,40 +258,6 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   };
   let used = 0;
   let lastFadeSec = 0;
-
-  /** One slice of the open car: its floor on the floor layer, then low walls with gaps at the doors, each sorted on its own. */
-  const drawOpenSlice = (s: ReturnType<typeof carSlices>[number], doors: ReturnType<typeof doorSpans>, colour: number) => {
-    const b = s.box;
-    floors.poly(isoPoly(boxCorners(b), 0.02)).fill(FLOOR_COLOUR);
-    const mid = (s.along0 + s.along1) / 2;
-    const wall = (a0: number, a1: number, across: number, halfWidth: number, ux: number, uy: number) => {
-      const am = (a0 + a1) / 2 - mid, lx = b.uy, ly = -b.ux;
-      const box: Box = { x: b.x + b.ux * am + lx * across, y: b.y + b.uy * am + ly * across, ux, uy, halfLength: (a1 - a0) / 2, halfWidth, z0: 0, z1: OPEN_WALL_HEIGHT };
-      const g = piece();
-      drawBox(g, box, colour);
-      g.zIndex = depthOf(box.x, box.y);
-    };
-    const inner = b.halfWidth - OPEN_WALL_THICK / 2;
-    for (const side of ['left', 'right'] as const) {
-      // The side wall over this slice, minus the door openings on that side.
-      let cuts = [[s.along0, s.along1]];
-      for (const d of doors) {
-        if (d.side !== side) continue;
-        cuts = cuts.flatMap(([c0, c1]) => [[c0!, Math.min(c1!, d.a0)], [Math.max(c0!, d.a1), c1!]]).filter(([c0, c1]) => c1! - c0! > 1e-6);
-      }
-      for (const [c0, c1] of cuts) wall(c0!, c1!, side === 'left' ? inner : -inner, OPEN_WALL_THICK / 2, b.ux, b.uy);
-    }
-    // End walls on the car's real ends, across the car.
-    const endWall = (along: number) => {
-      const a = along - mid;
-      const box: Box = { x: b.x + b.ux * a, y: b.y + b.uy * a, ux: b.ux, uy: b.uy, halfLength: OPEN_WALL_THICK / 2, halfWidth: b.halfWidth, z0: 0, z1: OPEN_WALL_HEIGHT };
-      const g = piece();
-      drawBox(g, box, colour);
-      g.zIndex = depthOf(box.x, box.y);
-    };
-    if (s.first) endWall(s.along1 - OPEN_WALL_THICK / 2);
-    if (s.last) endWall(s.along0 + OPEN_WALL_THICK / 2);
-  };
 
   let culledView: TileBox | null = null;
   return {
@@ -339,14 +321,20 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
         // Cars off screen are not drawn at all: big-country has several trains.
         const m = margin(car);
         if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
-        const colour = CAR_COLOURS[car.template] ?? 0x777777;
-        const doors = doorSpans(car.template);
+        const colour = CAR_COLOURS[carTemplate(content.catalog, car.template).carType] ?? 0x777777;
+        const doors = spansOf(car.template);
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
-        const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
+        // The car you are in is drawn open: no roof, its cells as low boxes and its loot, so you show inside it.
+        if (input.aboard?.trainId === car.trainId && input.aboard.index === car.index) {
+          drawInterior(floors, () => piece(), {
+            car, template: carTemplate(content.catalog, car.template), cellTypes: content.cellTypes, items: content.items,
+            loot: input.loot, searching: input.searching, inReach: input.inReach, timeSec: input.timeSec,
+          });
+          continue;
+        }
         for (const s of carSlices(car)) {
-          if (open) { drawOpenSlice(s, doors, colour); continue; }
           // Only slices that reach the hole get it: each masked slice is an extra stencil pass.
           const g = piece(hole !== null && sliceNearHole(s.box, hole));
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
@@ -440,7 +428,7 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
-      for (const car of input.cars) for (const ep of carEntryPoints(car)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+      for (const car of input.cars) for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
       markers.clear();
@@ -462,7 +450,7 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
       if (input.horse && c && input.trainId) {
         for (const car of input.cars) {
           if (car.trainId !== input.trainId) continue;
-          for (const ep of carEntryPoints(car)) {
+          for (const ep of carEntryPoints(car, content.catalog)) {
             if (ep.side !== c.side) continue;
             const isNearest = c.car === car.index && c.entry === ep.id;
             const state: BoardingState = isNearest ? c.state : 'too far';

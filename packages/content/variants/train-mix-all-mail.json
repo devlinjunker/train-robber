@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "all-mail",
+  "group": "trainMix",
+  "label": "Every train a mail train",
+  "question": "Are blank decoy trains interesting?",
+  "patch": {
+    "trainMix": {
+      "mode": "all-mail",
+      "blankShare": 0
+    }
+  }
+}

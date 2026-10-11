@@ -1,0 +1,275 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tools build-cars from packages/content/cars-src/*.tmj; do not edit by hand, run npm run cars",
+  "cars": {
+    "blank-car": {
+      "carType": "blank-car",
+      "size": {"cols":16,"rows":6},
+      "legend": ["floor","wall","door"],
+      "cells": [[7,1],[2,2],[8,1],[14,0],[1,1],[1,2],[14,0],[2,2],[14,0],[1,2],[1,1],[14,0],[8,1],[2,2],[7,1]],
+      "entryPoints": [
+        {
+          "id": "side-left",
+          "side": "left",
+          "cell": [7,0]
+        },
+        {
+          "id": "side-right",
+          "side": "right",
+          "cell": [7,5]
+        },
+        {
+          "id": "front",
+          "side": "front",
+          "cell": [0,2]
+        },
+        {
+          "id": "rear",
+          "side": "rear",
+          "cell": [15,2]
+        }
+      ],
+      "lootSlots": [],
+      "guardSpawns": [],
+      "patrols": {},
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"blank-car.tmj","hash":"bd15da27"}
+    },
+    "caboose": {
+      "carType": "caboose",
+      "size": {"cols":12,"rows":6},
+      "legend": ["floor","wall","door","window","barrel","bench","rug"],
+      "cells": [[4,1],[1,3],[2,1],[1,3],[5,1],[1,5],[6,0],[1,4],[2,0],[1,1],[1,2],[10,0],[1,1],[1,2],[10,0],[2,1],[1,5],[3,0],[1,6],[5,0],[5,1],[1,3],[2,1],[1,3],[4,1]],
+      "entryPoints": [
+        {
+          "id": "front",
+          "side": "front",
+          "cell": [0,2]
+        }
+      ],
+      "lootSlots": [],
+      "guardSpawns": [],
+      "patrols": {},
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"caboose.tmj","hash":"a734936e"}
+    },
+    "engine": {
+      "carType": "engine",
+      "size": {"cols":16,"rows":6},
+      "legend": ["floor","wall","barrel","bench"],
+      "cells": [[17,1],[1,0],[7,2],[5,0],[1,3],[2,1],[1,0],[7,2],[6,0],[2,1],[1,0],[7,2],[6,0],[2,1],[1,0],[7,2],[5,0],[1,3],[17,1]],
+      "entryPoints": [],
+      "lootSlots": [],
+      "guardSpawns": [],
+      "patrols": {},
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"engine.tmj","hash":"3cf6572d"}
+    },
+    "mail-car-a": {
+      "carType": "mail-car",
+      "size": {"cols":16,"rows":6},
+      "legend": ["floor","wall","door","window","crate-stack","barrel","bench"],
+      "cells": [[2,1],[1,3],[4,1],[2,2],[4,1],[1,3],[3,1],[2,0],[1,4],[8,0],[1,4],[2,0],[1,1],[1,2],[4,0],[2,6],[2,0],[2,6],[4,0],[2,2],[14,0],[1,2],[1,1],[1,0],[1,5],[9,0],[2,4],[1,0],[3,1],[1,3],[4,1],[2,2],[4,1],[1,3],[2,1]],
+      "entryPoints": [
+        {
+          "id": "side-left",
+          "side": "left",
+          "cell": [7,0]
+        },
+        {
+          "id": "side-right",
+          "side": "right",
+          "cell": [7,5]
+        },
+        {
+          "id": "front",
+          "side": "front",
+          "cell": [0,2]
+        },
+        {
+          "id": "rear",
+          "side": "rear",
+          "cell": [15,2]
+        }
+      ],
+      "lootSlots": [
+        {
+          "cell": [1,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [8,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [14,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [5,2],
+          "tags": ["small"]
+        },
+        {
+          "cell": [10,2],
+          "tags": ["small"]
+        },
+        {
+          "cell": [6,3],
+          "tags": ["small","hidden"]
+        },
+        {
+          "cell": [1,4],
+          "tags": ["small","hidden"]
+        },
+        {
+          "cell": [11,4],
+          "tags": ["large"]
+        }
+      ],
+      "guardSpawns": [
+        {
+          "cell": [8,3],
+          "facing": "left",
+          "patrol": "aisle"
+        }
+      ],
+      "patrols": {
+        "aisle": [[2,3],[3,3],[4,3],[5,3],[6,3],[7,3],[8,3],[9,3],[10,3],[11,3],[12,3],[13,3]]
+      },
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"mail-car-a.tmj","hash":"aca3989e"}
+    },
+    "mail-car-b": {
+      "carType": "mail-car",
+      "size": {"cols":16,"rows":6},
+      "legend": ["floor","wall","door","crate-stack","barrel","rug","creaky-boards"],
+      "cells": [[5,1],[2,2],[10,1],[3,0],[1,3],[3,0],[1,3],[3,0],[1,3],[2,0],[1,1],[1,2],[3,0],[1,3],[3,0],[1,3],[3,0],[1,3],[2,0],[2,2],[14,0],[1,2],[1,1],[1,0],[1,5],[1,0],[1,3],[1,0],[1,6],[1,0],[1,3],[3,0],[1,3],[1,4],[1,0],[17,1]],
+      "entryPoints": [
+        {
+          "id": "side-left",
+          "side": "left",
+          "cell": [5,0]
+        },
+        {
+          "id": "front",
+          "side": "front",
+          "cell": [0,2]
+        },
+        {
+          "id": "rear",
+          "side": "rear",
+          "cell": [15,2]
+        }
+      ],
+      "lootSlots": [
+        {
+          "cell": [3,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [7,1],
+          "tags": ["small","hidden"]
+        },
+        {
+          "cell": [13,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [11,2],
+          "tags": ["small"]
+        },
+        {
+          "cell": [1,4],
+          "tags": ["small"]
+        },
+        {
+          "cell": [5,4],
+          "tags": ["small"]
+        },
+        {
+          "cell": [9,4],
+          "tags": ["large"]
+        },
+        {
+          "cell": [14,4],
+          "tags": ["small","hidden"]
+        }
+      ],
+      "guardSpawns": [
+        {
+          "cell": [10,3],
+          "facing": "left"
+        }
+      ],
+      "patrols": {},
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"mail-car-b.tmj","hash":"c74956ec"}
+    },
+    "mail-car-c": {
+      "carType": "mail-car",
+      "size": {"cols":16,"rows":6},
+      "legend": ["floor","wall","door","window","crate-stack","barrel","bench","rug","creaky-boards"],
+      "cells": [[4,1],[1,3],[6,1],[1,3],[5,1],[1,0],[1,5],[4,0],[2,6],[4,0],[1,5],[1,0],[1,1],[1,2],[14,0],[2,2],[6,0],[2,8],[6,0],[1,2],[1,1],[1,0],[2,4],[1,0],[1,7],[1,0],[2,6],[1,0],[1,7],[1,0],[2,4],[1,0],[5,1],[1,3],[6,1],[1,3],[4,1]],
+      "entryPoints": [
+        {
+          "id": "front",
+          "side": "front",
+          "cell": [0,2]
+        },
+        {
+          "id": "rear",
+          "side": "rear",
+          "cell": [15,2]
+        }
+      ],
+      "lootSlots": [
+        {
+          "cell": [1,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [5,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [10,1],
+          "tags": ["small","hidden"]
+        },
+        {
+          "cell": [14,1],
+          "tags": ["small"]
+        },
+        {
+          "cell": [6,3],
+          "tags": ["small"]
+        },
+        {
+          "cell": [4,4],
+          "tags": ["large"]
+        },
+        {
+          "cell": [11,4],
+          "tags": ["small","hidden"]
+        }
+      ],
+      "guardSpawns": [
+        {
+          "cell": [8,2],
+          "facing": "right",
+          "patrol": "aisle"
+        }
+      ],
+      "patrols": {
+        "aisle": [[2,2],[3,2],[4,2],[5,2],[6,2],[7,2],[8,2],[9,2],[10,2],[11,2],[12,2],[13,2]]
+      },
+      "roofAccess": [],
+      "corridor": false,
+      "source": {"file":"mail-car-c.tmj","hash":"f266bbd1"}
+    }
+  }
+}

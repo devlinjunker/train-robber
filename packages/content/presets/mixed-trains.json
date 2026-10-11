@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "mixed-trains",
+  "extends": "alpha-default",
+  "variants": {
+    "trainMix": "mixed"
+  }
+}

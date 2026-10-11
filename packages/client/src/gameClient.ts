@@ -2,7 +2,8 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, boardingResistanceActive, carToWorld, commitTarget, switchTarget, distanceToTrain, drainRate, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot,
+  trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -125,15 +126,27 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The zoom on screen eases toward `zoom`, so committing, the run ending and zoom keys never jump.
   let shownZoom = zoom;
 
+  const items = config.values.items;
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items };
+  const search = config.values.verbs.search;
+  // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
+  const namesParam = params.get('trainNames');
+  const showNames = namesParam === 'on' || (namesParam !== 'off' && config.values.hud.showTrainNames);
+  const trainName = (id: string) => {
+    const t = sim.state.world.trains.find((q) => q.id === id);
+    return showNames && t ? config.values.trains[t.type]?.name ?? null : null;
+  };
+  const itemName = (id: string) => items[id]?.name ?? id;
+
   // Isometric scenes.
   const scenery = opts.scenery ?? null;
   // Grass and scrub land differently on every load; ?groundSeed= repeats a layout, ?groundCover=off drops it.
   const groundSeed = params.get('groundCover') === 'off' ? null : Number(params.get('groundSeed')) || Math.floor(Math.random() * 2 ** 32);
-  const isoWorld = createWorldScene(map, scenery, groundSeed);
+  const isoWorld = createWorldScene(map, sceneContent, scenery, groundSeed);
   // Top-down debug view.
   const topdown = new Container();
   const topdownOverlay = drawMapOverlay(map, scenery);
-  const topdownView = createWorldView();
+  const topdownView = createWorldView(sceneContent);
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
   const minimap = createMinimap(map, scenery);
@@ -189,6 +202,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     },
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
     switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
+    carriedCount: () => sim.state.run?.players[sim.state.players[0]!.id]?.carried.length ?? 0,
   };
 
   // Notices from events: the last rejection, jump result or run end.
@@ -223,6 +237,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       audio.play('expired');
       show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
+    else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
+    else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
+    else if (e.type === 'LootDropped') show(`Dropped ${itemName(e.item)}`, 'info', 1500);
+    else if (e.type === 'SearchCancelled' && e.reason === 'moved away') show('Search lost: you moved away', 'warn', 1500);
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
@@ -232,10 +250,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    ...(config.values.commit.auto ? [] : ['E commit']), 'E hold to search', 'X drop', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
+
+  /** What holding E on this loot will do. */
+  const lootPrompt = (item: string, hidden: boolean): string => {
+    if (hidden) return 'Hold E: search the stash';
+    const def = items[item]!;
+    const why = carryRefusal(config, sim.state.run?.players[sim.state.players[0]!.id]?.carried ?? [], item);
+    return `Hold E: take ${def.name} ($${def.value}, weight ${def.weight})${why ? ` - ${why}, X drops your last item` : ''}`;
+  };
 
   return {
     app,
@@ -301,7 +327,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // train's velocity just enough that the ease does not trail behind the moving car.
       const camTarget = horse ? lookAheadTarget(horse.x, horse.y, horse.hx, horse.hy, horseState.speed)
         : aboardAt && aboardCar ? (() => {
-          const v = trainSpeed(config, s.world.trains.find((t) => t.id === aboardCar.trainId)?.type ?? 'blank') / FOLLOW_RATE;
+          const type = s.world.trains.find((t) => t.id === aboardCar.trainId)?.type;
+          const v = (type ? trainSpeed(config, type) : 0) / FOLLOW_RATE;
           return { x: aboardAt.x + aboardCar.ux * v, y: aboardAt.y + aboardCar.uy * v };
         })() : null;
       if (camTarget) follow(cam, camTarget, dt, Math.hypot(camTarget.x - cam.x, camTarget.y - cam.y) > SNAP_TILES);
@@ -319,9 +346,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // The ground under the screen's corners, for culling scenery and the minimap's view box.
       const corners = ([[0, 0], [W, 0], [W, H], [0, H]] as const).map(([sx, sy]) => iso ? screenToWorld(sx, sy, camera)
         : { x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
+      // Loot lying in the committed train, what is in reach of E and what is being searched.
+      const lootLeft = s.run ? s.run.loot.filter((l) => !l.taken) : [];
+      const reachLoot = phase === 'aboard' ? nearestLoot(s, player, search.reachTiles) : null;
+      const searching = run?.search ?? null;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
+          loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
@@ -338,7 +370,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } else {
         // Top-down keeps the world's orientation; aboard, it follows the player's place on the car.
         topdownView.update(cars, {
-          horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt,
+          horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
           playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
         });
@@ -360,7 +392,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
+          trains.push({ id: t.id, name: trainName(t.id), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.
@@ -375,6 +407,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
+        search: searching ? Math.min(1, searching.ticks / search.searchTimeTicks) : null,
       });
       if (minimap.root.visible) {
         minimap.update({
@@ -398,16 +431,26 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
       const basePrompt = phase === 'idle'
         ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
-          : target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
+          : target ? `E: commit to ${trainName(target) ?? 'this train'}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
-            : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance' : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
+            : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance'
+              : searching ? `Searching... keep holding E (${search.searchTimeSec} s)`
+                : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
+                  : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
       const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
+      const carried = run?.carried ?? [];
+      const weight = carriedWeight(config, carried);
+      const carry = run ? {
+        value: carriedValue(config, carried), weight, items: carried.length, maxWeight: config.values.carry.maxWeight, maxItems: config.values.carry.maxItems,
+        limit: config.values.carry.limitEnabled, speed: carrySpeedScale(config, weight),
+      } : null;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
       hud.update({
         phase,
         health: run ? { now: run.health, max: config.values.health.max } : null,
+        carry,
         hit: hitAge !== null,
         prompt,
         notice: now < noticeUntil ? notice : '',
@@ -429,6 +472,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
           `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
+          s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${search.searchTimeTicks} ticks` : ''}` : '',
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),
         ].filter(Boolean).join('\n'),
       });

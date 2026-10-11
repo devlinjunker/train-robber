@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "lootTables": {
+    "mail-small-items": {
+      "items": [
+        { "item": "letter", "weight": 40 },
+        { "item": "parcel", "weight": 25 },
+        { "item": "cash-bundle", "weight": 20 },
+        { "item": "jewellery-pouch", "weight": 10 }
+      ],
+      "prizes": {
+        "count": [1, 2],
+        "items": [
+          { "item": "registered-mail-sack", "weight": 1 },
+          { "item": "strongbox", "weight": 1 }
+        ]
+      }
+    }
+  }
+}

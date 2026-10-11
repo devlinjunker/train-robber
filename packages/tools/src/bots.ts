@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, commitTarget, createSim, nextInt, parseCarFrame, pointInBox, seedRng, WORLD_FRAME,
+  boardingCheck, carriedWeight, commitTarget, createSim, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -12,11 +12,14 @@ import { ReportBuilder, type BoardingReport } from './report';
 /**
  * `idle` sends nothing. `random` mashes every key at random (switching trains and the debug heat keys too), now and then quick retrying so it
  * meets the train. `chaser` quick retries, rides up to a door, commits, jumps after a random wait
- * so the meter results vary, walks around aboard, and goes again.
+ * so the meter results vary, loots aboard (walks to loot, holds E, sometimes drops something,
+ * sometimes lets go early), and goes again.
  */
 export type BotKind = 'idle' | 'random' | 'chaser';
 export const BOT_KINDS: readonly BotKind[] = ['idle', 'random', 'chaser'];
-export const VARIANT_COMBOS = ['screen', 'heading'].flatMap((steering) => ['hold', 'coast', 'cruise'].map((throttleModel) => ({ steering, throttleModel })));
+// The carry flags alternate with the combos, so both lootCarry variants are swept without doubling the runs.
+export const VARIANT_COMBOS = ['screen', 'heading'].flatMap((steering) => ['hold', 'coast', 'cruise'].map((throttleModel) => ({ steering, throttleModel })))
+  .map((v, i) => ({ ...v, lootCarry: i % 2 ? 'unlimited' : 'limit-and-slowdown' }));
 
 export interface BotSweepOptions { seeds: number; seconds: number; kinds?: readonly BotKind[]; map?: MapDef }
 export interface Violation { seed: string; bot: BotKind; variants: string; tick: number; message: string }
@@ -64,6 +67,24 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
       if (!sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
       if (h.mode === 'physical') return `player ${p.id} aboard with the horse still physical`;
     }
+    if (rp) {
+      for (const id of rp.carried) if (!v.items[id]) return `player ${p.id} carries unknown item ${id}`;
+      if (v.carry.limitEnabled) {
+        const w = carriedWeight(config, rp.carried);
+        if (w > v.carry.maxWeight + EPS) return `player ${p.id} carries ${w} over the weight limit`;
+        if (rp.carried.length > v.carry.maxItems) return `player ${p.id} carries ${rp.carried.length} items, over the limit`;
+      }
+      if (rp.search) {
+        const l = run!.loot.find((q) => q.id === rp.search!.loot);
+        if (!l || l.taken) return `player ${p.id} searching loot ${rp.search.loot}, which is gone`;
+        if (run!.phase !== 'aboard') return `player ${p.id} searching in phase ${run!.phase}`;
+      }
+    }
+  }
+  if (run) {
+    const ids = new Set(run.loot.map((l) => l.id));
+    if (ids.size !== run.loot.length) return 'duplicate loot ids';
+    for (const l of run.loot) if (!v.items[l.item]) return `loot ${l.id} is unknown item ${l.item}`;
   }
   return null;
 }
@@ -80,12 +101,14 @@ function randomBot(rng: RngState): Brain {
     if (t % 15 === 0) c.push({ type: 'move', x: axis(rng), y: nextInt(rng, 'misc', 3) === 0 ? axis(rng) : -127 }, { type: 'steer', x: axis(rng), y: axis(rng) });
     const roll = nextInt(rng, 'misc', 1000);
     if (roll < 15) c.push({ type: 'jump' });
+    else if (roll < 18) c.push({ type: 'interact', held: true });
     else if (roll < 20) c.push({ type: 'interact', held: false });
     else if (roll < 22) c.push({ type: 'startRun' });
     else if (roll < 23) c.push({ type: 'cancelRun' });
     else if (roll < 25) c.push({ type: 'switchTrain' });
+    else if (roll < 27) c.push({ type: 'drop', slot: nextInt(rng, 'misc', 4) - 1 });
     // Heat from the debug keys, so the heat range and the faster drain see play.
-    else if (roll < 28) c.push(roll < 27 ? { type: 'debugHeat' } : { type: 'debugHeat', source: 'alarmRaised' });
+    else if (roll < 30) c.push(roll < 29 ? { type: 'debugHeat' } : { type: 'debugHeat', source: 'alarmRaised' });
     // Keep it in sight of the track: the stadium sits between y 30 and 170 on alpha-flats.
     const h = (sim.state as GameState).world.horses[0]!;
     if (h.y > sim.map.rows - 20 || h.y < 20 || h.x < 20 || h.x > sim.map.cols - 20) c.push({ type: 'quickRetry' });
@@ -104,12 +127,31 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
     if (t === 0) { c.push({ type: 'quickRetry' }); return c; }
     if (s.run?.phase === 'aboard') {
       aboardFor++;
-      if (aboardFor % 20 === 1) move(axis(rng), axis(rng));
-      if (aboardFor > 60 * (2 + nextInt(rng, 'misc', 4))) { aboardFor = 0; move(0, 0); c.push({ type: 'quickRetry' }); }
+      const p = s.players[0]!;
+      const rp = s.run.players[1]!;
+      // Walk to the nearest loot in this car (+x is toward the front, lower cell x) and hold E on it.
+      const l = nearestLoot(s, p, 99);
+      if (l && aboardFor < 60 * 12) {
+        const dx = l.x - p.placement.x, dy = l.y - p.placement.y;
+        if (Math.hypot(dx, dy) > 0.8) {
+          // Now and then wander instead, to get round props.
+          if (aboardFor % 60 < 15) { if (aboardFor % 15 === 1) move(axis(rng), axis(rng)); }
+          else move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
+          if (p.interactHeld) c.push({ type: 'interact', held: false });
+        } else {
+          move(0, 0);
+          // Sometimes let go early, losing the progress.
+          if (!p.interactHeld) c.push({ type: 'interact', held: true });
+          else if (nextInt(rng, 'misc', 200) === 0) c.push({ type: 'interact', held: false });
+        }
+      } else if (aboardFor % 20 === 1) move(axis(rng), axis(rng));
+      if (p.interactHeld && !rp.search && rp.searchLatched) c.push({ type: 'interact', held: false });
+      if (rp.carried.length && nextInt(rng, 'misc', 600) === 0) c.push({ type: 'drop', slot: nextInt(rng, 'misc', rp.carried.length) });
+      if (aboardFor > 60 * (14 + nextInt(rng, 'misc', 4))) { aboardFor = 0; move(0, 0); c.push({ type: 'interact', held: false }, { type: 'quickRetry' }); }
       return c;
     }
     if (!s.run) {
-      if (commitTarget(s, sim.map, config, h)) c.push({ type: 'interact', held: false });
+      if (commitTarget(s, sim.map, config, h)) c.push({ type: 'interact', held: true });
       else if (t % 1800 === 0) c.push({ type: 'quickRetry' });
     }
     const trainId = s.run?.trainId ?? s.world.trains[0]!.id;
@@ -143,7 +185,7 @@ export function runBotSweep(opts: BotSweepOptions): BotSweepResult {
   let runs = 0, total = 0;
   for (let i = 0; i < opts.seeds; i++) {
     const config = configs[i % configs.length]!;
-    const variants = `${config.variants.steering}+${config.variants.throttleModel}`;
+    const variants = `${config.variants.steering}+${config.variants.throttleModel}+${config.variants.lootCarry}`;
     const seed = `bots-${i}`;
     for (const bot of kinds) {
       const sim = createSim({ config, map, seed, playerIds: [1] });

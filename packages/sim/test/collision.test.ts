@@ -11,7 +11,7 @@ const map = testMap(paint, { x: 116, y: 22 });
 function setup(cfg: SimConfig = testConfig(), commit = true): Sim {
   const sim = createSim({ config: cfg, map, seed: 'crash', playerIds: [1] });
   (sim.state as GameState).world.trains[0]!.d = 100;
-  if (commit) step(sim, { type: 'interact', held: false });
+  if (commit) step(sim, { type: 'interact', held: true });
   return sim;
 }
 

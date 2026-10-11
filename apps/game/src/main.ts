@@ -1,4 +1,4 @@
-import { createApp, createGameClient, showFatal } from '@train-robber/client';
+import { createApp, createCarScene, createGameClient, showFatal } from '@train-robber/client';
 import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, type RunHeader } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
@@ -32,6 +32,10 @@ async function boot() {
   installLogDrop();
   const replay = replaySourceFromUrl();
   if (replay) return bootReplay(app, replay);
+
+  // ?car=<id>: one car template on its own, for checking a layout made in Tiled.
+  const carId = new URLSearchParams(location.search).get('car');
+  if (carId !== null) return createCarScene(app, setupFromUrl().config, carId);
 
   const mapId = mapIdFromUrl();
   let map: MapDef;

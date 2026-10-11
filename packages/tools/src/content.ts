@@ -36,6 +36,12 @@ export function gameVersion(): string {
 export function loadContentDir(dir = CONTENT_DIR): LoadedContent {
   return loadContent({
     base: file(join(dir, 'base/game.json')),
+    catalogs: {
+      cellTypes: file(join(dir, 'base/cell-types.json')),
+      items: file(join(dir, 'base/items.json')),
+      lootTables: file(join(dir, 'base/loot-tables.json')),
+      carTemplates: file(join(dir, 'base/car-templates.json')),
+    },
     variants: jsonFiles(join(dir, 'variants')).map(file),
     presets: jsonFiles(join(dir, 'presets')).map(file),
   });

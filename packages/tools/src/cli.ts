@@ -3,6 +3,7 @@ import { replayText } from './replay';
 import { recordGolden } from './golden';
 import { validateContent } from './validate';
 import { buildMaps, watchMaps } from './maps/cli';
+import { buildCars, syncTileset, watchCars } from './cars/cli';
 import { benchTicks, runBotSweep } from './bots';
 import { formatReport, reportFromLogs } from './report';
 
@@ -23,6 +24,13 @@ const commands: Record<string, (args: string[]) => number | null> = {
   'build-maps'(args) {
     if (args.includes('--watch')) { watchMaps(); return null; }
     return buildMaps(args.includes('--check'));
+  },
+  'build-cars'(args) {
+    if (args.includes('--watch')) { watchCars(); return null; }
+    return buildCars(args.includes('--check'));
+  },
+  'sync-car-tileset'() {
+    return syncTileset();
   },
   validate() {
     const r = validateContent();

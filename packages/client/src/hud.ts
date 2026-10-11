@@ -13,6 +13,8 @@ export interface HudState {
   phase: string;
   /** Health while a run is active, else null. */
   health: { now: number; max: number } | null;
+  /** What the player carries while a run is active: value, weight against the limit, items, and the walk speed it leaves. */
+  carry: { value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number } | null;
   /** True for a moment after a crash costs health: a red icon and the health bar flash. */
   hit: boolean;
   /** The main prompt line: what to do next. */
@@ -37,6 +39,8 @@ const CSS = `
 .tr-hud .top { position: absolute; top: 40px; right: 8px; display: flex; gap: 14px; align-items: center;
   background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
 .tr-hud .phase { font-weight: 700; letter-spacing: .06em; }
+.tr-hud .carry { font-weight: 700; }
+.tr-hud .carry.slow { color: #ffb02e; }
 .tr-hud .health { width: 180px; height: 14px; background: #3a1d1d; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
 .tr-hud .health > div { height: 100%; background: linear-gradient(#ff7a6b, #d63c2f); transition: width .2s; }
 .tr-hud .bottom { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
@@ -96,13 +100,13 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
     <div class="clock calm"><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
-    <div class="top"><span class="phase"></span><span class="hit">!</span><span class="hp-label">health</span><div class="health"><div></div></div><span class="hp-text"></span></div>
+    <div class="top"><span class="phase"></span><span class="hit">!</span><span class="hp-label">health</span><div class="health"><div></div></div><span class="hp-text"></span><span class="carry"></span></div>
     <div class="bottom"><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
   const top = q('.top'), hit = q('.hit');
   const debug = q('.debug'), phase = q('.phase'), hpLabel = q('.hp-label'), health = q('.health'), bar = q<HTMLDivElement>('.health > div'),
-    hpText = q('.hp-text'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
+    hpText = q('.hp-text'), carryEl = q('.carry'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
@@ -120,6 +124,14 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
         bar.style.width = `${pct}%`;
         set(hpText, `${s.health.now}/${s.health.max}`);
+      }
+      carryEl.style.display = s.carry ? '' : 'none';
+      if (s.carry) {
+        const c = s.carry;
+        const cap = c.limit ? `/${c.maxWeight}` : '';
+        const items = c.limit ? `${c.items}/${c.maxItems}` : `${c.items}`;
+        set(carryEl, `$${c.value}  weight ${c.weight.toFixed(1)}${cap}  items ${items}${c.speed < 1 ? `  speed ${Math.round(c.speed * 100)}%` : ''}`);
+        carryEl.classList.toggle('slow', c.speed < 1);
       }
       set(prompt, s.prompt);
       set(notice, s.notice);
