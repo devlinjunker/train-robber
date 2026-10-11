@@ -675,7 +675,6 @@ A preset chooses exactly one variant per group, so two options from the same tes
 | `lootCarry` | `limit-and-slowdown`, `unlimited` | `carry.limitEnabled`, `carry.slowdownEnabled` |
 | `steering` | `screen`, `heading` | `horse.steering` (phase 1, see Riding controls) |
 | `throttleModel` | `hold`, `coast`, `cruise` | `horse.throttleModel` (phase 1, see Riding controls) |
-| `boardingAccess` | `restricted`, `all-doors` | whether only some mail cars have side doors (set per layout in Tiled) or every car does (phase 2) |
 | `guardCatch` | `heat-only`, `thrown-off` | whether an alert guard chases and throws the player off the train, landing back on the horse stunned as after a failed boarding (phase 2) |
 | `horseArrivalCue` | `visible`, `visible-timer` | whether the HUD adds a timer to the visible approaching horse (phase 2) |
 | `mountSpill` | `random`, `heaviest`, `share` | what a good mount spills: one random item, the heaviest item, or a share of carried value (phase 2) |
@@ -1073,7 +1072,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 - **Heat.** Only speeds up the countdown in phase 2; the countdown bar shows its drain rate (for example ×1.6) so the effect reads. Heat thresholds that change guard behaviour are on the wiki Ideas page.
 - **Loot.** Mostly small items plus one or two heavy, valuable prizes per train; items can be dropped to swap (`drop` command).
 - **Cars.** Drawn in Tiled with `tools build-cars` (see Car Tiled workflow); three starter mail car layouts are generated to edit.
-- **Boarding.** Only some mail cars have side doors, set per layout (`boardingAccess: restricted`, with `all-doors` to compare). The horse comes up on the player's side at extraction, so they may need to walk to a car with a door on that side. Roof access, including side ladders for boarding straight onto the roof from the horse, waits for phase 3.
+- **Boarding.** Only some mail car layouts have side doors; entry points come from each layout's `entryPoints` layer in Tiled and are drawn on the car's outside in the world view. To compare with doors everywhere, a variant limits the train to layouts that have doors on both sides (the train config lists which layouts it may pick), so at least one starter layout has doors on both sides; there is no separate all-doors switch. The horse comes up on the player's side at extraction, so they may need to walk to a car with a door on that side. Roof access, including side ladders for boarding straight onto the roof from the horse, waits for phase 3.
 - **Searching.** Hold E for the search time; the player can slow-walk at 30% speed meanwhile. Releasing E, or moving more than 1.5 tiles from the loot spot, cancels and loses the progress.
 - **Carrying.** A hard max of 10 weight units, with slowdown from 6 units down to 50% speed at the max, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6.
 - **Heat hooks.** `heat.sources.timeAboardPerSec` stays 0 by default and a playtest preset sets 0.2. `heat.boardingResistanceAt` (off by default) is the hook for guards shooting at the rider at high heat once combat exists.
