@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, screenDirToWorld, screenToWorld, stepZoom, worldToScreen, ZOOM_STEPS, type Camera } from '../src/projection';
+import { clampRunZoom, DEFAULT_ZOOM, isoX, RUN_ZOOM_IN, stepRunZoom, isoY, keyDirToWorld, screenDirToWorld, screenToWorld, stepZoom, worldToScreen, ZOOM_STEPS, type Camera } from '../src/projection';
 
 const cam: Camera = { x: 200, y: 170, zoom: 0.7, width: 1280, height: 800 };
 
@@ -63,5 +63,18 @@ describe('projection', () => {
     expect(stepZoom(0.8, 1)).toBe(1);
     expect(stepZoom(ZOOM_STEPS[ZOOM_STEPS.length - 1]!, 1)).toBe(ZOOM_STEPS[ZOOM_STEPS.length - 1]);
     expect(stepZoom(ZOOM_STEPS[0]!, -1)).toBe(ZOOM_STEPS[0]);
+  });
+
+  it('zooms in only a little during a run: two steps from the run zoom to RUN_ZOOM_IN times it', () => {
+    const up = stepRunZoom(1, 1, 1);
+    expect(up).toBeGreaterThan(1);
+    expect(stepRunZoom(up, 1, 1)).toBe(RUN_ZOOM_IN);
+    expect(stepRunZoom(RUN_ZOOM_IN, 1, 1)).toBe(RUN_ZOOM_IN);
+    expect(stepRunZoom(stepRunZoom(RUN_ZOOM_IN, -1, 1), -1, 1)).toBe(1);
+    expect(stepRunZoom(1, -1, 1)).toBe(1);
+    expect(clampRunZoom(5, 1.75)).toBeCloseTo(1.75 * RUN_ZOOM_IN, 9);
+    expect(clampRunZoom(0.5, 1.75)).toBe(1.75);
+    // ?runZoomIn=1 keeps the old fixed run zoom.
+    expect(stepRunZoom(1, 1, 1, 1)).toBe(1);
   });
 });

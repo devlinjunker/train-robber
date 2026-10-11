@@ -87,3 +87,21 @@ export function stepZoom(zoom: number, dir: 1 | -1): number {
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
+
+/**
+ * During a run the zoom keys and wheel only move between the run zoom and `zoomIn` times it
+ * (Devlin, 2026-10-11: "a little bit more" zoom while committed, not the whole riding range).
+ * Two key presses go from one end to the other.
+ */
+export const RUN_ZOOM_IN = 1.4;
+
+export function clampRunZoom(zoom: number, base: number, zoomIn = RUN_ZOOM_IN): number {
+  return clampZoom(Math.min(base * Math.max(1, zoomIn), Math.max(base, zoom)));
+}
+
+export function stepRunZoom(zoom: number, dir: 1 | -1, base: number, zoomIn = RUN_ZOOM_IN): number {
+  const z = clampRunZoom(zoom * Math.sqrt(Math.max(1, zoomIn)) ** dir, base, zoomIn);
+  // Land exactly on the ends, so the readout shows 1.00x and not 0.9999x.
+  for (const end of [base, base * zoomIn]) if (Math.abs(z / end - 1) < 1e-6) return clampZoom(end);
+  return z;
+}
