@@ -103,7 +103,9 @@ export function createWorldScene(map: MapDef): WorldScene {
   const objects = new Container();
   objects.sortableChildren = true;
   const markers = new Graphics();
+  // Boarding range circles: off until B, which Devlin found clearer in the Phase 1 gate playtest.
   const zoneOverlay = new Graphics();
+  zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
   root.addChild(terrain, mapOverlay, shadows, floors, objects, zoneOverlay, markers);

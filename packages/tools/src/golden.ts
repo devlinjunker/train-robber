@@ -1,12 +1,12 @@
 // Scripted golden run. `npm run golden:update` rewrites the checked-in replay
 // after a deliberate sim change; the replay test then guards it.
 import {
-  boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, trackAt, trainSpeed,
-  type Command, type GameState, type InputFrame, type RunHeader, type Sim, type SimConfig,
+  boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, restoreSim, trackAt, trainSpeed,
+  type BoardingResult, type Command, type GameState, type InputFrame, type RunHeader, type Sim, type SimConfig, type SimMap,
 } from '@train-robber/sim';
 import { DEFAULT_MAP, gameVersion, loadConfig, loadMapDef } from './content';
 
-const TICKS = 2100;
+const TICKS = 2400;
 
 const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v)));
 
@@ -27,7 +27,7 @@ function routeDistance(route: Parameters<typeof trackAt>[0], x: number, y: numbe
  * holds the train's speed. Being a function of state is fine for a golden: the log records
  * the commands it chose, and a replay only reads those.
  */
-function riderCommands(sim: Sim, config: SimConfig, trainId: string, side: 'left' | 'right'): { x: number; y: number } {
+export function riderCommands(sim: Sim, config: SimConfig, trainId: string, side: 'left' | 'right'): { x: number; y: number } {
   const s = sim.state as GameState;
   const h = s.world.horses[0]!;
   const train = s.world.trains.find((t) => t.id === trainId)!;
@@ -49,6 +49,14 @@ function riderCommands(sim: Sim, config: SimConfig, trainId: string, side: 'left
   return { x: q(Math.round((cross * 600) / 32) * 32), y: Math.abs(dv) < 0.3 ? 0 : dv > 0 ? -127 : 127 };
 }
 
+/** The result a jump on the next tick would get, from a copy of the sim. */
+function previewJump(sim: Sim, config: SimConfig, map: SimMap): BoardingResult | null {
+  const copy = restoreSim(sim.snapshot(), config, map);
+  const r = copy.step([{ player: 1, commands: [{ type: 'jump' }] }]);
+  const e = r.events.find((q) => q.type === 'BoardingAttempt');
+  return e?.type === 'BoardingAttempt' ? e.result : null;
+}
+
 export function recordGolden(): string {
   const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only' } });
   const map = loadMapDef(DEFAULT_MAP);
@@ -65,7 +73,8 @@ export function recordGolden(): string {
   let last = { x: 0, y: 0 };
   let eligibleFor = 0, aboardFor = 0, side: 'left' | 'right' = 'left';
   // Ride, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
-  // then quick retry behind the train, catch it, commit, and jump until aboard; walk, then cancel.
+  // then quick retry behind the train, catch it, commit, fail two jumps and land the third as
+  // good; walk, then cancel.
   for (let t = 0; t < TICKS; t++) {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
@@ -89,8 +98,11 @@ export function recordGolden(): string {
         if (t % 10 === 0) { const c = riderCommands(sim, config, trainId, side); move(c.x, c.y); }
         if (s.run && boardingCheck(s, sim.map, config, trainId, h).state === 'eligible') eligibleFor++;
         else eligibleFor = 0;
-        // Wait out a little of the sweep, then press Space.
-        if (eligibleFor === 15) { commands.push({ type: 'jump' }); eligibleFor = 0; }
+        // Wait out a little of the sweep, then press Space on a tick that gives the result the
+        // script wants: two fails, then a good landing. A throwaway copy of the sim previews it.
+        if (eligibleFor >= 15 && previewJump(sim, config, map) === (s.run!.players[1]!.boardingAttempts < 2 ? 'fail' : 'good')) {
+          commands.push({ type: 'jump' }); eligibleFor = 0;
+        }
       }
     }
     const inputs: InputFrame[] = [{ player: 1, commands }];

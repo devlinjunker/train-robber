@@ -39,6 +39,17 @@ function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
   ctx.emit({ type: 'RunPhaseChanged', tick: ctx.state.tick, player, from, to });
 }
 
+/** With `commit.auto` on, an idle player on a physical horse commits to the nearest train in range. */
+export function autoCommitSystem(ctx: RunCtx): void {
+  const { state, map, config } = ctx;
+  if (!config.values.commit.auto || state.run) return;
+  for (const p of state.players) {
+    const h = horseOf(state, p);
+    const id = commitTarget(state, map, config, h);
+    if (id) { startRun(ctx, p, id, 'startRun'); return; }
+  }
+}
+
 /** `startRun` and `interact` while idle: validate the commit, pin the train and enter `approach`. */
 export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefined, command: Command['type']): void {
   const { state, map, config } = ctx;
@@ -81,7 +92,6 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
   });
-  if (outcome === 'cancelled' && !retry) ctx.emit({ type: 'RunCancelled', tick: state.tick, player: p.id });
   const before = state.persistent;
   const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
   if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {

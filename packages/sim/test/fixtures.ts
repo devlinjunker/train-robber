@@ -14,7 +14,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       sim: { tickRateHz: 60 },
       player: { speedTilesPerTick: 8 / 60 },
       world: { mode: 'separate' },
-      commit: { rangeTiles: 12 },
+      commit: { rangeTiles: 12, auto: false },
       boarding: {
         rangeTiles: 2, speedToleranceTilesPerSec: 2,
         meter: { sweepPeriodTicks: 72, matchedSweepPeriodTicks: 108, zoneWidths: [0.1, 0.25] },

@@ -9,4 +9,6 @@ jobs:
         with: { node-version: 22, cache: npm }
       - run: npm ci
       - run: npm run check
+      - run: npm run bench
+      - run: npm run bots
       - run: npm run build
