@@ -2,7 +2,7 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, carToWorld, commitTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  boardingCheck, carToWorld, commitTarget, switchTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig } from '@train-robber/config';
@@ -147,6 +147,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       return worldDirToCar(...ctx.keyDirToWorld(dx, dy), car);
     },
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
+    switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
   };
 
   // Notices from events: the last rejection, jump result or run end.
@@ -166,6 +167,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
+    else if (e.type === 'TrainSwitched') show(`Switched to ${e.to}`, 'info', 1500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };
 
@@ -176,7 +178,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    'E commit', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
   ].join('  ·  ');
 
@@ -294,12 +296,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
       // HUD.
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
-      const prompt = phase === 'idle'
+      const basePrompt = phase === 'idle'
         ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
           : target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance' : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
+      const other = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : null;
+      const prompt = other ? `${basePrompt}  ·  Tab: switch to ${other}` : basePrompt;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
       hud.update({

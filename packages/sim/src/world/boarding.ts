@@ -1,7 +1,7 @@
 // Committing to a train and the boarding rule: who can commit, who may jump, and the meter.
 // The client only reads these; the decisions are the sim's.
 import { nextU32 } from '../rng';
-import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig } from '../types';
+import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection } from '../types';
 import { CAR_TEMPLATES, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
 import type { WorldMap } from './map';
@@ -96,6 +96,33 @@ export function commitTarget(state: GameState, map: WorldMap, config: SimConfig,
   let best: string | null = null, bestD = Infinity;
   for (const t of state.world.trains) {
     if (commitCheck(state, map, config, h, t.id)) continue;
+    const d = distanceToTrain(state, map, config, t.id, h.x, h.y);
+    if (d < bestD) { bestD = d; best = t.id; }
+  }
+  return best;
+}
+
+/**
+ * Whether the run may move to this train, or why not: only while approaching or stunned after a
+ * failed jump, to another free train within `commit.switchRangeTiles`.
+ */
+export function switchCheck(state: GameState, map: WorldMap, config: SimConfig, h: HorseState, trainId: string): SwitchRejection | null {
+  const run = state.run;
+  if (!run) return 'no run';
+  if (run.phase === 'aboard' || run.phase === 'ended') return 'aboard';
+  if (run.trainId === trainId) return 'already committed';
+  const t = state.world.trains.find((q) => q.id === trainId);
+  if (!t) return 'no such train';
+  if (t.pinnedBy !== null) return 'train taken';
+  if (distanceToTrain(state, map, config, trainId, h.x, h.y) > config.values.commit.switchRangeTiles) return 'out of range';
+  return null;
+}
+
+/** The switch query: the nearest other free train the run could move to, or null. The client's prompt reads this. */
+export function switchTarget(state: GameState, map: WorldMap, config: SimConfig, h: HorseState): string | null {
+  let best: string | null = null, bestD = Infinity;
+  for (const t of state.world.trains) {
+    if (switchCheck(state, map, config, h, t.id)) continue;
     const d = distanceToTrain(state, map, config, t.id, h.x, h.y);
     if (d < bestD) { bestD = d; best = t.id; }
   }

@@ -156,6 +156,7 @@ type Command =
   | { type: 'qte'; key: number }                 // only when quick-time prompts are enabled
   | { type: 'useItem'; slot: number }
   | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
+  | { type: 'switchTrain'; trainId?: string }    // move the run to another free train, keeping its timer
   | { type: 'cancelRun' }
   | { type: 'quickRetry' };                      // playtest only (`playtest.quickRetry`): end the run, wait behind the train
 ```
@@ -760,6 +761,7 @@ The wall-clock `startedAt` exists only in the header, written by the host. The s
 | --- | --- | --- |
 | `RunStarted` | run id, train, seed, countdown, wanted level | Grouping and comparing runs |
 | `RunPhaseChanged` | from, to | Time spent per phase |
+| `TrainSwitched` | from, to | How often players change their mind about a train |
 | `BoardingAttempt` | result, attempt number, meter position | Boarding failures, meter difficulty |
 | `ShotFired`, `DamageDealt` | actor, target, amount | Combat feel |
 | `PlayerSpotted`, `AlarmRaised` | by, car | Stealth success, heat causes |
@@ -946,6 +948,7 @@ This section turns the decisions so far into what to build first: the foundation
 ### Decisions
 
 - **Committing to a train.** Ride toward a train. When one is within `commit.rangeTiles`, a prompt appears, and pressing the interact key sends `startRun` with that train's id. The sim validates the range and that the train is free, and the run and countdown start (U1). The rule lives in the sim, so the client only asks it which train, if any, can be committed.
+- **Switching trains.** While approaching (or stunned after a failed jump), Tab sends `switchTrain` with the nearest other free train within `commit.switchRangeTiles`, which the prompt names. The sim unpins the old train and pins the new one; the run, its start tick (so the run timer and countdown), health, jump count and meter zones carry on (Devlin, extra-maps playtest, 2026-10-11). Aboard it is refused.
 - **Boarding jump rules.** The jump is allowed when the player is within `boarding.rangeTiles` of an entry point on the side they are riding; out of range, `jump` is rejected and the HUD says so. Speed matching (within `boarding.speedToleranceTilesPerSec` of the train) no longer gates the jump: after the M3 playtest on 2026-10-09 Devlin chose to let a mismatched rider try on a faster meter, so matching makes the jump easier rather than possible. The HUD still reads too fast, too slow or matched. The meter decides the landing.
 - **Failure cost.** A failed jump always costs time, and damage is a toggle. A failed player is thrown clear and the horse is stunned for `boarding.failure.stunSec`, so the train pulls ahead before a retry. Damage is `boarding.failure.damageFraction` of max health. A variant group `boardingFailure` has `time-and-damage` and `time-only` (damage fraction 0). Phase 1 includes a minimal health value so the failure and death paths are real; the full health system waits for phase 3.
 - **No countdown in phase 1.** The countdown and heat arrive in phase 2, so `countdown.enabled` is false until then. Cancel works from the start.
@@ -972,6 +975,7 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | W / S | Accelerate / brake (throttle under cruise) |
 | Space | Boarding jump (and mount jump later) |
 | E | Commit to a train (only with `commit.auto` off), interact |
+| Tab | Switch the run to the nearest other free train in range, keeping the run timer |
 | F | Whistle (phase 2) |
 | Esc | Cancel run |
 | R | Quick retry (playtest only, `playtest.quickRetry`) |
@@ -988,6 +992,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | --- | --- | --- |
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Commit by riding into range, no key (Devlin, Phase 1 gate playtest, 2026-10-10) | on | `commit.auto` |
+| Switch range (Tab), nearest car body | 30 tiles (placeholder, 2026-10-11) | `commit.switchRangeTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
 | Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
 | Meter sweep period, in range but speed off | 1.3 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.sweepPeriodSec` |

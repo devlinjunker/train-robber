@@ -15,7 +15,12 @@ export const GameSchema = z.object({
     events: z.array(z.string()),
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
-  commit: z.object({ rangeTiles: positive, auto: z.boolean() }).strict(),
+  commit: z.object({
+    rangeTiles: positive,
+    auto: z.boolean(),
+    /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
+    switchRangeTiles: positive,
+  }).strict(),
   boarding: z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,

@@ -6,7 +6,7 @@ const base = {
   sim: { tickRateHz: 60 },
   logging: { hashEverySec: 1, events: [] },
   player: { speedTilesPerSec: 8 },
-  commit: { rangeTiles: 12, auto: true },
+  commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30 },
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },

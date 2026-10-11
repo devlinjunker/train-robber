@@ -3,7 +3,7 @@
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
+import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
@@ -68,6 +68,27 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
   ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
+}
+
+/**
+ * Tab, `switchTrain`: move the run's commitment to another free train. Only the train changes:
+ * the run number, start tick (so any run timer), health, jump count and meter zones carry on.
+ * The old train is unpinned and the new one pinned on the same tick.
+ */
+export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undefined): void {
+  const { state, map, config } = ctx;
+  const run = state.run;
+  if (!run) return reject(ctx, p.id, 'switchTrain', 'no run');
+  const h = horseOf(state, p);
+  const id = trainId ?? switchTarget(state, map, config, h);
+  if (!id) return reject(ctx, p.id, 'switchTrain', run.phase === 'aboard' || run.phase === 'ended' ? 'aboard' : 'no train in range');
+  const why = switchCheck(state, map, config, h, id);
+  if (why) return reject(ctx, p.id, 'switchTrain', why);
+  const from = run.trainId;
+  unpinTrain(state, from);
+  pinTrain(state, id, p.id);
+  run.trainId = id;
+  ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
 }
 
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */

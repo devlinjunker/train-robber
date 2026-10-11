@@ -6,7 +6,7 @@ import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './wo
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { autoCommitSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, type RunCtx } from './run';
+import { autoCommitSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
 
 export interface SimOptions {
   config: SimConfig;
@@ -94,6 +94,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             // Phase 1: interact only commits. Aboard it will loot, inspect and so on.
             if (state.run) events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
             else startRun(ctx, p, undefined, 'interact');
+          } else if (c.type === 'switchTrain') {
+            switchTrain(ctx, p, c.trainId);
           } else if (c.type === 'cancelRun') {
             cancelRun(ctx, p);
           } else if (c.type === 'quickRetry') {
