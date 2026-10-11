@@ -39,16 +39,18 @@ Six milestones, each a playable PR. M1 and M2 can run in parallel; M3 adds the g
 
 ### M1: Countdown, heat and run end
 
-- [ ] Turn on `countdown` for runs: `run.countdownSec` = train `countdown.baseSec` x `countdown.scale`, started at commit (U1)
-- [ ] Heat 0-100 in `RunState`, with `raiseHeat` as the one helper and drain rate `1 + heatDrainFactor x heat/100` (U2)
-- [ ] `heat.sources` map in `game.json`; emit `HeatChanged` with its cause
-- [ ] `expired` outcome when the countdown hits zero, after the grace window (U3); `outcomePolicy.expired` adds one wanted level
-- [ ] `countdown.scale` and `loot.densityScale` as plain config values (G22), plus a generic URL override such as `?set=countdown.scale=4`, recorded in the log header
-- [ ] `countdown.graceSec` as a plain config value (G23)
-- [ ] HUD: countdown bar with colour steps that visibly speeds up and shows its drain rate (G10), heat meter with three bands, a text notice per heat gain
-- [ ] Placeholder audio through an `AudioBus`: countdown tick that speeds up under 20%, alarm sting
-- [ ] `RunEnded` carries countdown left and heat; cancels keep their time left (U6)
-- [ ] `heat.boardingResistanceAt` hook, off by default (G30); `heat.sources.timeAboardPerSec` 0 by default with a playtest preset at 0.2 (G26)
+- [x] Turn on `countdown` for runs: `run.countdownSec` = train `countdown.baseSec` x `countdown.scale`, started at commit (U1)
+- [x] Heat 0-100 in `RunState`, with `raiseHeat` as the one helper and drain rate `1 + heatDrainFactor x heat/100` (U2)
+- [x] `heat.sources` map in `game.json`; emit `HeatChanged` with its cause
+- [x] `expired` outcome when the countdown hits zero, after the grace window (U3); `outcomePolicy.expired` adds one wanted level
+- [x] `countdown.scale` and `loot.densityScale` as plain config values (G22), plus a generic URL override such as `?set=countdown.scale=4`, recorded in the log header
+- [x] `countdown.graceSec` as a plain config value (G23)
+- [x] HUD: countdown bar with colour steps that visibly speeds up and shows its drain rate (G10), heat meter with three bands, a text notice per heat gain
+- [x] Placeholder audio through an `AudioBus`: countdown tick that speeds up under 20%, alarm sting
+- [x] `RunEnded` carries countdown left and heat; cancels keep their time left (U6)
+- [x] `heat.boardingResistanceAt` hook, off by default (G30); `heat.sources.timeAboardPerSec` 0 by default with a playtest preset at 0.2 (G26)
+
+Built in the M1 PR (branch `claude/phase-2-m1-countdown-heat`). The grace check is a hook that stays shut until M4 brings the horse alongside. With no loot or guards yet, H raises heat by 10 and Shift+H raises an alarm's worth, so the meter, drain and alarm sting can be playtested. The blank train uses a 150 s countdown base until the mail train lands.
 
 ### M2: Mail train and loot
 

@@ -667,7 +667,7 @@ The examples below show the file shapes.
 }
 ```
 
-A preset chooses exactly one variant per group, so two options from the same test can never be active together.
+A preset chooses exactly one variant per group, so two options from the same test can never be active together. Since phase 2 M1 a preset may also name a preset it builds on with `extends` (its variants and values apply first) and carry plain config values in `values`, a partial `game.json` tree, for example `medium-run`: `{ "extends": "alpha-default", "variants": {}, "values": { "countdown": { "scale": 4 }, "loot": { "densityScale": 4 } } }`.
 
 ### Variant groups
 
@@ -707,7 +707,7 @@ Additional groups (stamina and speed-tier handling, structure preset) follow the
 ### Resolve pipeline
 
 1. Load files and check each `schemaVersion`.
-2. Merge `base`, then the chosen variants, then run-time overrides. Objects deep-merge, arrays replace, and a key set to `null` is removed. Two variants from different groups that patch the same path are an error.
+2. Merge `base`, then the chosen variants, then the preset's `values` (inherited ones first), then run-time overrides. Objects deep-merge, arrays replace, and a key set to `null` is removed. Two variants from different groups that patch the same path are an error.
 3. Validate with strict zod schemas. Unknown keys fail, which catches typos. Cross-references are checked: every train's loot table, car template and verb id must exist, ranges must be ordered, and weights must be positive.
 4. Derive values: seconds become integer ticks (timers count whole ticks, so no float drift), cone half-angles become cosine thresholds, and turn rates become per-tick rotation constants.
 5. Freeze deeply and compute a hash of the canonical JSON.
@@ -716,7 +716,7 @@ The result is a `ResolvedConfig`. Its hash, the preset, the chosen variants and 
 
 ### Selecting a setup
 
-- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&set=countdown.scale=4&seed=abc123`. Each `set=<path>=<value>` becomes a run-time override (step 2 of the resolve pipeline), recorded in the log header's `overrides` like the variants are (phase 2).
+- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&set=countdown.scale=4&seed=abc123`. Each `set=<path>=<value>` becomes a run-time override (step 2 of the resolve pipeline), recorded in the log header's `overrides` like the variants are (phase 2). Built in phase 2 M1 (`overridesFromSet` in `packages/config`): the value is read as JSON (numbers, `true`/`false`, `null`, arrays) and otherwise kept as a string, a later `set` for the same path wins, and a value that fails validation stops the page with the path, like a bad variant. The replay viewer and `tools replay` rebuild the overrides from the header, and the Playtests page counts them as part of the setup.
 - A debug panel in `apps/game` lists each variant group and its question, and edits individual values as overrides.
 - `tools validate` runs steps 1 to 5 on every preset and fails CI on any error.
 
@@ -768,13 +768,13 @@ The wall-clock `startedAt` exists only in the header, written by the host. The s
 
 | Event | Key payload | Used for |
 | --- | --- | --- |
-| `RunStarted` | run id, train, seed, countdown, wanted level | Grouping and comparing runs |
+| `RunStarted` | run id, train, seed, countdown (`countdownSec`, null with the countdown off), wanted level | Grouping and comparing runs |
 | `RunPhaseChanged` | from, to | Time spent per phase |
 | `TrainSwitched` | from, to | How often players change their mind about a train |
 | `BoardingAttempt` | result, attempt number, meter position | Boarding failures, meter difficulty |
 | `ShotFired`, `DamageDealt` | actor, target, amount | Combat feel |
 | `PlayerSpotted`, `AlarmRaised` | by, car | Stealth success, heat causes |
-| `HeatChanged` | heat, delta, cause | Heat tuning |
+| `HeatChanged` | heat, delta, cause (a `heat.sources` event, `timeAboard`, or `debug` for the playtest key) | Heat tuning |
 | `LootPickedUp` | item, value, weight | Loot density, carry tradeoff |
 | `ActorDowned`, `ActorKilled` | actor, by | Deaths and retries |
 | `HorseWhistled`, `HorseArrived`, `HorseDeparted`, `HorseSideChanged`, `HorseBlocked` | horse distance and side, pace window | Extraction tension |
@@ -930,6 +930,8 @@ The build follows the requirements' five phases, preceded by a foundation phase 
 | 4. Passenger hold-up | `inspect` verb, passenger behaviour, armed passengers | Judging passengers is a decision, not a chore |
 | 5. Bank | `vault` verb, guard interruptions | The minigame holds up under time pressure, and each train favours a style while other approaches still work |
 
+**Phase 2 progress.** M1 (countdown, heat and run end) is built; see the Phase 2 checklist at the end of this document for what each milestone actually built.
+
 After the prototype come the cargo and tycoon trains, the later trains, progression, 3D and online multiplayer, in that order. The reference machine is a 2019 MacBook Pro (6-core Intel i7, integrated Intel UHD 630 graphics, 16 GB RAM). Record a baseline in both Chrome and Safari before phase 2, because the 30 fps floor needs one. Integrated graphics make overdraw and fill rate the main rendering risk, so the performance budget should be set on this machine first.
 
 ### Testing
@@ -986,6 +988,8 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | E | Commit to a train (only with `commit.auto` off), interact |
 | Tab | Switch the run to the nearest other free train in range, keeping the run timer |
 | F | Whistle (phase 2) |
+| H / Shift+H | Raise heat by `playtest.debugHeatStep` / raise an alarm's worth (`heat.sources.alarmRaised`), playtest only (phase 2 M1) |
+| U | Mute the placeholder sounds (`?mute=1` starts muted) |
 | Esc | Cancel run |
 | R | Quick retry (playtest only, `playtest.quickRetry`) |
 | Shift | Run aboard (walking is the default) |
@@ -1127,3 +1131,17 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Carry max | 10 weight units, 20 items | `carry.maxWeight`, `carry.maxItems` |
 | Slowdown | from 6 units to 50% speed at the max | `carry.slowdownFromWeight`, `carry.minSpeedScale` |
 | Horse boost | 1.5 s at +40% top speed, 6 s cooldown | `horse.boost.*` |
+| Blank train countdown base (until the mail train lands; Claude's pick in M1, matching the mail placeholder) | 150 s | `trains.blank.countdown.baseSec` |
+| Heat drain factor | 1.0 (heat 100 doubles the drain) | `heat.heatDrainFactor` |
+| Debug heat step (H) | 10; 0 turns the key off | `playtest.debugHeatStep` |
+
+### Phase 2 checklist
+
+Legend as in the Phase 1 checklist. The live plan holds the task lists; this records what was built.
+
+- [x] **M1: countdown, heat and run end** (branch `claude/phase-2-m1-countdown-heat`). `countdown.enabled` is on: at commit the run copies the train's `countdown.baseSec` × `countdown.scale` into `run.countdownSec` (the blank train has a 150 s base until the mail train lands), and `countdownSystem` (`packages/sim/src/rules/heat.ts`, tick system 10, before run end) drains it each tick at `1 + heatDrainFactor × heat/100`; `countdown.startsAt: boarding` holds the clock until the player lands aboard. Heat lives in `RunState` (0 to `heat.maxHeat`) and only `raiseHeat` changes it, emitting `HeatChanged` with the amount actually added and the cause; `raiseHeatFor` adds a `heat.sources` amount for loot, guards and combat to call later. `heat.sources.timeAboardPerSec` (0 by default) builds up per tick aboard and is raised a whole point at a time, so each gain is one event. At zero the run ends `expired` in the run end system (a death on the same tick wins), applying `outcomePolicy.expired` (wanted +1) and resetting to `playerSpawn` like a cancel. The grace window (`countdown.graceSec` 3 s, counted in `run.graceTicks`) sits behind `graceApplies`, which returns false until the extraction horse exists (M4). `heat.boardingResistanceAt` (null, off) is read only by `boardingResistanceActive`, a hook for phase 3. `RunStarted` carries the countdown and wanted level; `RunEnded` carries `countdownLeftSec` (kept on cancels and quick retries, U6) and `heat`. `loot.densityScale` is a plain value nothing reads until M2. Presets gained `extends` and `values`, and `?set=path=value` overrides any value (see Selecting a setup); `medium-run` (scale 4, density 4) and `time-aboard-heat` (0.2 per second) build on `alpha-default`. The HUD has a countdown bar (green, amber below 50%, red and blinking below 20%) whose stripes slide at the drain rate beside a `×1.6` style readout, a heat meter in three bands, a notice per heat gain, and a pulsing red screen edge after an alarm. An `AudioBus` (`packages/client/src/audio.ts`) synthesizes a countdown tick per countdown second (so it speeds up with heat) that doubles below 20%, a heat blip, the alarm sting and an expiry tone; U mutes (M is the minimap). With no loot or guards yet, H raises heat by `playtest.debugHeatStep` (cause `debug`) and Shift+H raises an alarm's worth, as the `debugHeat` command, so it replays. The Playtests page records expired runs, time left and heat at end; the bots press the debug heat keys and check heat and the countdown stay in range; the golden run raises heat once
+- [ ] M2: mail train and loot
+- [ ] M3: light guards and the horse boost
+- [ ] M4: extraction (replaces `graceApplies` with the horse-alongside check)
+- [ ] M5: wanted level, saving and score
+- [ ] M6: tests, tuning and the run-length playtest

@@ -41,7 +41,15 @@ async function boot() {
     showFatal(app, (e as Error).message);
     throw e;
   }
-  const { config, seed } = setupFromUrl();
+  let setup: ReturnType<typeof setupFromUrl>;
+  try {
+    setup = setupFromUrl();
+  } catch (e) {
+    // A typo in ?preset=, ?v= or ?set= names the bad value on screen instead of a blank page.
+    showFatal(app, `Bad setup in the URL: ${(e as Error).message}`);
+    throw e;
+  }
+  const { config, seed } = setup;
   const tickRateHz = config.values.sim.tickRateHz;
   const STEP_MS = 1000 / tickRateHz;
   const startedAt = new Date().toISOString();
@@ -58,7 +66,7 @@ async function boot() {
   const evLog = eventLogWriter(header, (line) => { storeEvent(line); recent.push(line); }, { allow: config.values.logging.events });
 
   const tracker = createRunTracker({
-    session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants,
+    session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants, overrides: header.overrides,
     seed, mapId: header.mapId, url: location.search, tickRateHz,
   });
   const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };

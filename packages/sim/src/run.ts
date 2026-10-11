@@ -2,7 +2,8 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
-import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
+import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
 import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
@@ -65,8 +66,19 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0 };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
-  state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
-  ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
+  // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
+  const train = state.world.trains.find((t) => t.id === id)!;
+  const cd = config.values.countdown;
+  const countdownSec = runCountdownSec(config, train.type);
+  state.run = {
+    runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
+    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp },
+  };
+  ctx.emit({
+    type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
+    countdownSec: cd.enabled ? countdownSec : null, wantedLevel: state.persistent.wantedLevel,
+  });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
 }
 
@@ -136,6 +148,7 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
   });
   const before = state.persistent;
   const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
@@ -313,7 +326,23 @@ export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
   }
 }
 
-/** Tick system 11, run end: a player at no health dies, then resets as cancel does. */
+/**
+ * H, with `playtest.debugHeatStep` above 0: raise heat by that step, cause `debug`. With a source
+ * (Shift+H: `alarmRaised`), raise what that source gives instead, as if the event happened.
+ */
+export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | undefined): void {
+  const step = ctx.config.values.playtest.debugHeatStep;
+  if (!(step > 0)) return reject(ctx, p.id, 'debugHeat', 'disabled');
+  if (!ctx.state.run || ctx.state.run.phase === 'ended') return reject(ctx, p.id, 'debugHeat', 'no run');
+  // Logged commands are untrusted input, so only a known source counts.
+  if (source !== undefined && HEAT_SOURCES.includes(source)) raiseHeatFor(ctx, source);
+  else raiseHeat(ctx, step, 'debug');
+}
+
+/**
+ * Tick system 11, run end: a player at no health dies; otherwise a run whose countdown is at zero
+ * expires once the grace window no longer holds it (U3). Both then reset as cancel does.
+ */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
   if (!run) return;
@@ -321,6 +350,13 @@ export function runEndSystem(ctx: RunCtx): void {
     const rp = run.players[p.id];
     if (rp && rp.health <= 0) {
       endRun(ctx, p, 'died', false);
+      resetToSpawn(ctx, p);
+      return;
+    }
+  }
+  for (const p of ctx.state.players) {
+    if (run.players[p.id] && countdownExpired(ctx, p)) {
+      endRun(ctx, p, 'expired', false);
       resetToSpawn(ctx, p);
       return;
     }

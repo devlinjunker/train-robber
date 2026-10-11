@@ -39,6 +39,16 @@ describe('run tracker', () => {
       notes: [{ t: 50, text: 'felt fine' }], tester: 'dev', seed: 'abc',
     });
   });
+  it('records an expired run with its time left and heat, and ?set= values make their own setup', () => {
+    const t = createRunTracker({ ...meta, overrides: { countdown: { scale: 4 } } });
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'blank-1', countdownSec: 600, wantedLevel: 0 })], 'T0');
+    t.events([ev({ type: 'HeatChanged', tick: 5, heat: 10, delta: 10, cause: 'debug' })], 'T1');
+    const [rec] = t.events([ev({ type: 'RunEnded', tick: 900, player: 1, outcome: 'expired', durationTicks: 900, boardingAttempts: 0, retry: false, countdownLeftSec: 0, heat: 10 })], 'T2');
+    expect(rec).toMatchObject({ outcome: 'expired', countdownLeftSec: 0, heatAtEnd: 10 });
+    const [s] = summarize([rec!]);
+    expect(s!.setup).toBe('alpha-default · steering:heading throttleModel:coast · set countdown.scale=4');
+    expect(s!.outcomes.expired).toBe(1);
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);
@@ -58,7 +68,7 @@ describe('playtest stats', () => {
   it('groups runs by setup', () => {
     const [a, b] = summarize([rec, died, other]);
     expect(a).toMatchObject({ setup: 'alpha-default · steering:heading throttleModel:coast', runs: 2, testers: 1, aboard: 0.5, notes: 1 });
-    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, retry: 1, abandoned: 0 });
+    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, expired: 0, retry: 1, abandoned: 0 });
     expect(a!.perfect).toBe(0.25);
     expect(a!.medianToAboardSec).toBe(0.5);
     expect(b).toMatchObject({ runs: 1, setup: 'alpha-default · steering:screen throttleModel:coast' });

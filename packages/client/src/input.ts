@@ -4,8 +4,8 @@
 import type { Command, Steering } from '@train-robber/sim';
 
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
-export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch';
-export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'exportLogs' | 'addNote';
+export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'heat' | 'alarm';
+export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'exportLogs' | 'addNote' | 'toggleMute';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
@@ -13,8 +13,15 @@ export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
+  // Playtest debug: H raises heat by a step, Shift+H raises an alarm's worth (see actionFor).
+  KeyH: 'heat', KeyU: 'toggleMute',
 };
-const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch']);
+const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'heat', 'alarm']);
+
+/** The action a key press means; Shift+H is the alarm debug key. */
+export function actionFor(code: string, shift: boolean): Action | undefined {
+  return code === 'KeyH' && shift ? 'alarm' : BINDINGS[code];
+}
 // Tab would move focus off the canvas.
 const NO_SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab']);
 
@@ -33,7 +40,7 @@ export class KeyboardSource {
     target.addEventListener('keydown', (e) => {
       this.held.add(e.code);
       if (NO_SCROLL.has(e.code)) e.preventDefault();
-      const a = BINDINGS[e.code];
+      const a = actionFor(e.code, e.shiftKey);
       if (!a || e.repeat) return;
       if (GAME_ACTIONS.has(a)) this.queued.push(a as GameAction);
       else onView(a as ViewAction);
@@ -126,6 +133,8 @@ export class InputMapper {
         const target = ctx.switchTarget();
         out.push(target ? { type: 'switchTrain', trainId: target } : { type: 'switchTrain' });
       }
+      else if (a === 'heat') out.push({ type: 'debugHeat' });
+      else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
       else out.push({ type: 'quickRetry' });
     }
     return out;
