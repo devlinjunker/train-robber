@@ -8,7 +8,24 @@ Isometric browser train-robbery game. TypeScript monorepo.
 - `packages/tools` – CLI (map/car builders, replay, report)
 - `apps/game` – PixiJS client
 
-Design: [docs/technical-design.md](docs/technical-design.md). Playing builds and tuning values: [Playtesting](https://github.com/devlinjunker/train-robber/wiki/Playtesting) on the wiki.
+## Docs
+
+In the repo:
+
+- [Requirements](docs/requirements.md): what the game is and the prototype roadmap
+- [Technical design](docs/technical-design.md): architecture and decided values (the source of truth)
+- [Implementation plans](docs/plans/README.md): one per phase
+  - [Phase 1: riding and boarding](docs/plans/phase-1-plan.md) (done)
+  - [Phase 2: mail/express](docs/plans/phase-2-plan.md) (planned)
+
+On the [wiki](https://github.com/devlinjunker/train-robber/wiki):
+
+- [Playtesting](https://github.com/devlinjunker/train-robber/wiki/Playtesting): playing builds, switching variants and tuning values
+- [Ideas](https://github.com/devlinjunker/train-robber/wiki/Ideas): ideas not yet scheduled, ranked
+- [Creating maps](https://github.com/devlinjunker/train-robber/wiki/Creating-maps): making a map in Tiled
+- [Creating train cars](https://github.com/devlinjunker/train-robber/wiki/Creating-train-cars): drawing a car interior in Tiled
+
+## Commands
 
 ```
 npm install
@@ -19,6 +36,8 @@ npm run tools -- validate                   # resolve every preset and variant
 npm run maps                                # rebuild base/maps from maps-src/*.tmj
 npm run golden:update                       # rewrite the golden replay after a deliberate sim change
 ```
+
+## Playing and previews
 
 In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=abc123` picks the setup, and the Export logs button (or L) downloads the session's command and event logs (N adds a note to them). The Playtests link opens `playtests.html`, a history of every run played in that browser with outcomes grouped by setup.
 
