@@ -997,7 +997,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
 | Walking aboard | half of `player.speedTilesPerSec` (4 tiles/s); Shift runs at the full 8 (client-side, after the 2026-10-09 playtest) | `player.speedTilesPerSec` |
 | Good-landing stumble | 1.5 s at 33% walk speed (Devlin's isometric tuning, 2026-10-10; 2.5 s in his 2D tuning, 0.5 s at 50% before) | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
-| Collision damage | scrape 1% of max health; crash from 2 tiles/s of closing speed (Devlin, 2026-10-11; was 4), rising to 10% at 8 tiles/s; 1 s cooldown (placeholders) | `collision.scrapeDamageFraction`, `collision.minImpactTilesPerSec`, `collision.damageFraction`, `collision.fullImpactTilesPerSec`, `collision.cooldownSec` |
+| Collision damage | scrape 1% of max health; crash from 2 tiles/s of closing speed (Devlin, 2026-10-11; was 4), rising to 10% at 8 tiles/s; 1 s cooldown (confirmed in Devlin's playtest, 2026-10-11) | `collision.scrapeDamageFraction`, `collision.minImpactTilesPerSec`, `collision.damageFraction`, `collision.fullImpactTilesPerSec`, `collision.cooldownSec` |
 | Quick retry (R) | on, 60 tiles behind the last car | `playtest.quickRetry`, `playtest.quickRetryGapTiles` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
