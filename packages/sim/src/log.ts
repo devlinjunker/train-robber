@@ -148,11 +148,24 @@ export interface ReplayResult {
   mismatches: HashCheck[];
 }
 
-/** Re-run a command log through a fresh sim and compare every logged hash. */
-export function replayCommandLog(log: ParsedLog<CommandLogLine>, sim: ReplayTarget): ReplayResult {
+/** A commands log laid out for replay: commands and hashes by tick, notes in order. */
+export interface CommandLogIndex {
+  /** Commands for the step that advances the sim from tick `t`. */
+  cmds: Map<number, InputFrame[]>;
+  /** Logged state hash at tick `t` (`hash` and `end` lines). */
+  hashes: Map<number, string>;
+  notes: { t: number; text: string }[];
+  /** The last tick the log reaches. */
+  finalTick: number;
+  /** Hash the log ends on: the `end` line, else the last `hash` line. */
+  expectedHash: string | null;
+}
+
+export function indexCommandLog(log: ParsedLog<CommandLogLine>): CommandLogIndex {
   if (log.header.log !== 'commands') throw new Error(`expected a commands log, got ${log.header.log}`);
   const cmds = new Map<number, InputFrame[]>();
   const hashes = new Map<number, string>();
+  const notes: { t: number; text: string }[] = [];
   let finalTick = 0;
   let expectedHash: string | null = null;
   for (const line of log.lines) {
@@ -164,8 +177,14 @@ export function replayCommandLog(log: ParsedLog<CommandLogLine>, sim: ReplayTarg
     } else if (line.k === 'hash' || line.k === 'end') {
       hashes.set(line.t, line.h);
       if (line.t >= finalTick) { finalTick = line.t; expectedHash = line.h; }
-    }
+    } else if (line.k === 'note') notes.push({ t: line.t, text: line.text });
   }
+  return { cmds, hashes, notes, finalTick, expectedHash };
+}
+
+/** Re-run a command log through a fresh sim and compare every logged hash. */
+export function replayCommandLog(log: ParsedLog<CommandLogLine>, sim: ReplayTarget): ReplayResult {
+  const { cmds, hashes, finalTick, expectedHash } = indexCommandLog(log);
   const mismatches: HashCheck[] = [];
   let checked = 0;
   const check = (t: number) => {
