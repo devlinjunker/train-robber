@@ -63,7 +63,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   pinTrain(state, id, p.id);
   state.runCount += 1;
   state.rng = seedRng(runSeed(state.seed, state.runCount));
-  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0 };
+  const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0 };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
   ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
@@ -225,10 +225,25 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
 }
 
 /**
- * After riding: on a run, hitting a train or blocked ground at `collision.minImpactTilesPerSec` or
- * more costs `collision.damageFraction` of max health, then nothing more for `collision.cooldownTicks`
- * so one crash (or grinding along a wall) costs health once. Brushing a car while matching its speed
- * loses little speed and never hurts. No run, no health, so riding about idle is free.
+ * Health a contact costs (Devlin, 2026-10-11): scraping a train car below `collision.minImpactTilesPerSec`
+ * costs `scrapeDamageFraction` of max health; a harder hit on a car or blocked ground scales from
+ * that up to `damageFraction` at `fullImpactTilesPerSec` and above. A soft touch of blocked ground
+ * is free. Whole health points, at least 1 for any contact that hurts.
+ */
+export function collisionDamage(c: SimConfig['values']['collision'], maxHealth: number, target: Impact['target'], impact: number): number {
+  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * c.damageFraction;
+  if (impact < c.minImpactTilesPerSec) return target === 'train' && scrape > 0 ? Math.max(1, Math.round(scrape)) : 0;
+  if (full <= 0) return 0;
+  const span = c.fullImpactTilesPerSec - c.minImpactTilesPerSec;
+  const t = span > 0 ? Math.min(1, (impact - c.minImpactTilesPerSec) / span) : 1;
+  return Math.max(1, Math.round(scrape + (full - scrape) * t));
+}
+
+/**
+ * After riding: on a run, contact with a train car or blocked ground costs `collisionDamage`. After
+ * a hit, contacts for `collision.cooldownTicks` only cost what they exceed the last hit by, so one
+ * crash or a long scrape is charged once per cooldown and a crash right after a scrape still hurts
+ * in full. No run, no health, so riding about idle is free.
  */
 export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
   const { state, config } = ctx;
@@ -241,12 +256,17 @@ export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
   }
   for (const i of impacts) {
     const rp = run.players[i.player];
-    if (!rp || rp.hitCooldownTicks > 0 || i.speedLost < c.minImpactTilesPerSec) continue;
-    const amount = config.values.health.max * c.damageFraction;
+    if (!rp) continue;
+    const full = collisionDamage(c, config.values.health.max, i.target, i.impact);
+    const amount = rp.hitCooldownTicks > 0 ? full - rp.lastHitDamage : full;
     if (amount <= 0) continue;
     rp.health = Math.max(0, rp.health - amount);
     rp.hitCooldownTicks = c.cooldownTicks;
-    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: rp.health, cause: 'collision', against: i.target, impact: i.speedLost });
+    rp.lastHitDamage = full;
+    ctx.emit({
+      type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: rp.health, cause: 'collision', against: i.target,
+      kind: i.impact < c.minImpactTilesPerSec ? 'scrape' : 'crash', impact: i.impact,
+    });
   }
 }
 

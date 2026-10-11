@@ -1,6 +1,6 @@
 // Collision damage: running into a train or blocked ground on a run costs health, once per crash.
 import { describe, it, expect } from 'vitest';
-import { createSim, entryPointWorld, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
+import { collisionDamage, createSim, entryPointWorld, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
 import { testConfig, testMap, type Paint } from './fixtures';
 
 const W = { type: 'move', x: 0, y: -127 } as const;
@@ -24,6 +24,8 @@ const steps = (sim: Sim, n: number, ...first: Command[]) => {
   return ev;
 };
 const damage = (ev: SimEvent[]) => ev.filter((e) => e.type === 'DamageDealt');
+const lost = (ev: SimEvent[]) => damage(ev).reduce((n, e) => n + e.amount, 0);
+const health = (sim: Sim) => S(sim).run!.players[1]!.health;
 
 /** Gallop right at full speed from (x, y) toward whatever lies at x = 60. */
 function charge(sim: Sim, y: number, x = 50): SimEvent[] {
@@ -32,15 +34,27 @@ function charge(sim: Sim, y: number, x = 50): SimEvent[] {
 }
 
 describe('collision damage', () => {
-  it('running into blocked ground costs damageFraction of max health, once', () => {
+  const c = testConfig().values.collision;
+  it('scales from a 1-point scrape to the full damage with the impact speed', () => {
+    expect(collisionDamage(c, 100, 'train', 0)).toBe(1);
+    expect(collisionDamage(c, 100, 'train', 1.9)).toBe(1);
+    expect(collisionDamage(c, 100, 'train', 2)).toBe(1);
+    expect(collisionDamage(c, 100, 'train', 5)).toBe(6);
+    expect(collisionDamage(c, 100, 'train', 8)).toBe(10);
+    expect(collisionDamage(c, 100, 'train', 14)).toBe(10);
+    // Blocked ground never scrapes; a hard hit hurts like a car.
+    expect(collisionDamage(c, 100, 'obstacle', 1.9)).toBe(0);
+    expect(collisionDamage(c, 100, 'obstacle', 14)).toBe(10);
+  });
+
+  it('galloping into blocked ground costs the full damage, once', () => {
     const sim = setup();
-    const ev = damage(charge(sim, 7));
-    expect(ev).toHaveLength(1);
-    expect(ev[0]).toMatchObject({ cause: 'collision', against: 'obstacle', amount: 10, health: 90 });
-    expect((ev[0] as { impact: number }).impact).toBeGreaterThan(4);
-    expect(S(sim).run!.players[1]!.health).toBe(90);
+    const ev = charge(sim, 7);
+    expect(lost(ev)).toBe(10);
+    expect(damage(ev)[0]).toMatchObject({ cause: 'collision', against: 'obstacle', kind: 'crash' });
     // Pressing on into the wall afterwards never builds up the impact speed again.
     expect(damage(steps(sim, 300))).toHaveLength(0);
+    expect(health(sim)).toBe(90);
   });
 
   it('water and the map edge stop the horse without hurting', () => {
@@ -49,7 +63,7 @@ describe('collision damage', () => {
     expect(horse(sim).x).toBeCloseTo(59.5, 9);
     Object.assign(horse(sim), { x: 6, y: 7, hx: -1, hy: 0, speed: 14 });
     expect(damage(steps(sim, 120, W))).toHaveLength(0);
-    expect(S(sim).run!.players[1]!.health).toBe(100);
+    expect(health(sim)).toBe(100);
   });
 
   it('is free with no run, since there is no health to lose', () => {
@@ -57,44 +71,62 @@ describe('collision damage', () => {
     expect(damage(charge(sim, 7))).toHaveLength(0);
   });
 
-  it('a slow bump under minImpactTilesPerSec is free', () => {
+  it('walking into a rock is free', () => {
     const sim = setup();
-    Object.assign(horse(sim), { x: 58, y: 7, hx: 1, hy: 0, speed: 3, cruiseTarget: 3 });
+    Object.assign(horse(sim), { x: 58, y: 7, hx: 1, hy: 0, speed: 1.5, cruiseTarget: 1.5 });
     expect(damage(steps(sim, 120))).toHaveLength(0);
   });
 
-  it('a second crash inside the cooldown is free, and one after it hurts', () => {
+  it('inside the cooldown a crash costs nothing more; after it, the full amount again', () => {
     const sim = setup();
-    Object.assign(horse(sim), { x: 59, y: 7, hx: 1, hy: 0, speed: 14, cruiseTarget: 14 });
-    expect(damage(steps(sim, 5, W))).toHaveLength(1);
-    expect(S(sim).run!.players[1]!.hitCooldownTicks).toBeGreaterThan(50);
-    // Back off and hit again straight away: inside the 60-tick cooldown.
-    Object.assign(horse(sim), { x: 59, y: 7, speed: 14 });
-    expect(damage(steps(sim, 5))).toHaveLength(0);
+    Object.assign(horse(sim), { x: 58.5, y: 7, hx: 1, hy: 0, speed: 14, cruiseTarget: 14 });
+    expect(lost(steps(sim, 8, W))).toBe(10);
+    Object.assign(horse(sim), { x: 58.5, y: 7, speed: 14 });
+    const ev = steps(sim, 8);
+    expect(lost(ev)).toBe(0);
     steps(sim, 60);
-    Object.assign(horse(sim), { x: 59, y: 7, speed: 14 });
-    expect(damage(steps(sim, 5))).toHaveLength(1);
-    expect(S(sim).run!.players[1]!.health).toBe(80);
+    Object.assign(horse(sim), { x: 58.5, y: 7, speed: 14 });
+    expect(lost(steps(sim, 8))).toBe(10);
+    expect(health(sim)).toBe(80);
   });
 
-  it('turning into a train car hurts; riding alongside it at its speed does not', () => {
+  it('scraping along a car costs about 1 a second; turning into its side costs the full damage', () => {
     const sim = setup();
     const car = sim.cars()[1]!;
     const ep = entryPointWorld(car, { side: 'left', along: 0 });
-    // Alongside, touching the side, matching the train: contact but no lost speed.
-    Object.assign(horse(sim), { x: ep.x + car.uy * 0.45, y: ep.y - car.ux * 0.45, hx: car.ux, hy: car.uy, speed: 9, cruiseTarget: 9 });
-    expect(damage(steps(sim, 60))).toHaveLength(0);
-    // Facing the car side from two tiles out at speed: a crash.
+    // Alongside at the train's speed, angled 5 degrees into the car: a scrape.
+    const a = (5 * Math.PI) / 180, lx = car.uy, ly = -car.ux;
+    Object.assign(horse(sim), {
+      x: ep.x + lx * 0.6, y: ep.y + ly * 0.6,
+      hx: car.ux * Math.cos(a) - lx * Math.sin(a), hy: car.uy * Math.cos(a) - ly * Math.sin(a), speed: 9, cruiseTarget: 9,
+    });
+    const scrape = damage(steps(sim, 120));
+    expect(scrape.length).toBeGreaterThan(0);
+    expect(scrape.every((e) => e.type === 'DamageDealt' && e.cause === 'collision' && e.kind === 'scrape' && e.amount === 1)).toBe(true);
+    expect(lost(scrape)).toBeLessThanOrEqual(3);
+    // Facing the car side from two tiles out at speed: a crash, with the scrape's point already paid.
+    steps(sim, 60);
     const c2 = sim.cars()[1]!, e2 = entryPointWorld(c2, { side: 'left', along: 0 });
     Object.assign(horse(sim), { x: e2.x + c2.uy * 2, y: e2.y - c2.ux * 2, hx: -c2.uy, hy: c2.ux, speed: 12, cruiseTarget: 12 });
+    const before = health(sim);
     const ev = damage(steps(sim, 30));
-    expect(ev).toHaveLength(1);
-    expect(ev[0]).toMatchObject({ cause: 'collision', against: 'train' });
+    expect(ev.some((e) => e.type === 'DamageDealt' && e.cause === 'collision' && e.against === 'train' && e.kind === 'crash')).toBe(true);
+    expect(before - health(sim)).toBe(10);
   });
 
-  it('damageFraction 0 (collisionDamage:off) turns it off', () => {
+  it('a train running into a standing horse hurts', () => {
+    const sim = setup();
+    const car = sim.cars()[0]!;
+    // Standing on the track a tile ahead of the engine's nose.
+    Object.assign(horse(sim), { x: car.x + car.ux * (car.halfLength + 0.6), y: car.y + car.uy * (car.halfLength + 0.6), hx: 0, hy: 1, speed: 0, cruiseTarget: 0 });
+    const ev = damage(steps(sim, 20));
+    expect(ev[0]).toMatchObject({ against: 'train', kind: 'crash' });
+    expect(lost(ev)).toBeGreaterThanOrEqual(10);
+  });
+
+  it('damageFraction and scrapeDamageFraction 0 (collisionDamage:off) turn it off', () => {
     const base = testConfig();
-    const off: SimConfig = { ...base, values: { ...base.values, collision: { ...base.values.collision, damageFraction: 0 } } };
+    const off: SimConfig = { ...base, values: { ...base.values, collision: { ...base.values.collision, damageFraction: 0, scrapeDamageFraction: 0 } } };
     expect(damage(charge(setup(off), 7))).toHaveLength(0);
   });
 

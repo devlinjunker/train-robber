@@ -94,22 +94,38 @@ function collideTerrain(h: HorseState, map: WorldMap): 0 | 1 | 2 {
 }
 
 /** Push the horse out of every car; cars win over terrain, so this runs last. */
-function collideCars(h: HorseState, cars: readonly CarPose[]): boolean {
-  let hit = false;
+function collideCars(h: HorseState, cars: readonly CarPose[]): CarPose | null {
+  let hit: CarPose | null = null;
   for (let pass = 0; pass < PASSES * 2; pass++) {
     let moved = false;
-    for (const car of cars) if (pushOutOfBox(h, HORSE_RADIUS, car)) moved = true;
+    for (const car of cars) if (pushOutOfBox(h, HORSE_RADIUS, car)) { moved = true; hit = car; }
     if (!moved) break;
-    hit = true;
   }
   return hit;
 }
 
-/** A horse that ran into something solid this tick, and the speed it lost doing so (tiles/s). */
-export interface Impact { player: PlayerId; target: CollisionTarget; speedLost: number }
+/**
+ * How hard a contact was: the closing speed along the push. (vx, vy) is the horse's velocity
+ * relative to what it hit, (px, py) how far the collision moved it. Head-on into a rock or a car
+ * side, or a car running into a standing horse, closes fast; scraping along a car at a shallow
+ * angle barely closes at all. Zero when the push came with no closing motion.
+ */
+function closingSpeed(vx: number, vy: number, px: number, py: number): number {
+  const n = Math.sqrt(px * px + py * py);
+  if (n === 0) return 0;
+  const c = -(vx * px + vy * py) / n;
+  return c > 0 ? c : 0;
+}
 
-/** Tick system 3. Returns the impacts with a train or blocked ground; water and the map edge stop the horse without one. */
-export function ride(players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[]): Impact[] {
+/** A horse touching a car or blocked ground this tick, and how hard: the closing speed along the contact, tiles/s. */
+export interface Impact { player: PlayerId; target: CollisionTarget; impact: number }
+
+/** Tick system 3. Returns every contact with a train car or blocked ground; water and the map edge stop the horse without one. */
+export function ride(
+  players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[],
+  /** Each train's speed, tiles/s, for how hard a car and the horse meet; standing still when left out. */
+  carSpeed: (trainId: string) => number = () => 0,
+): Impact[] {
   const impacts: Impact[] = [];
   const cfg = config.values.horse;
   const hz = config.values.sim.tickRateHz;
@@ -127,22 +143,24 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
       throttle(h, -axis(p.move.y), cfg, hz, cap);
     }
 
-    const x0 = h.x, y0 = h.y;
+    const x0 = h.x, y0 = h.y, speed = h.speed;
     h.x += (h.hx * h.speed) / hz;
     h.y += (h.hy * h.speed) / hz;
+    const x1 = h.x, y1 = h.y;
     const hitTerrain = collideTerrain(h, map);
+    const x2 = h.x, y2 = h.y;
     const hitCar = collideCars(h, cars);
+    const vx = h.hx * speed, vy = h.hy * speed;
+    if (hitCar) {
+      const cs = carSpeed(hitCar.trainId);
+      impacts.push({ player: p.id, target: 'train', impact: closingSpeed(vx - hitCar.ux * cs, vy - hitCar.uy * cs, h.x - x2, h.y - y2) });
+    } else if (hitTerrain === 2) impacts.push({ player: p.id, target: 'obstacle', impact: closingSpeed(vx, vy, x2 - x1, y2 - y1) });
     if (hitTerrain || hitCar) {
       // Speed drops to the distance actually covered: head-on stops the horse, a glancing
-      // contact slides it along the obstacle and bleeds speed the steeper the angle. The speed
-      // lost is the impact: riding into the back of a moving car loses only the closing speed.
+      // contact slides it along the obstacle and bleeds speed the steeper the angle.
       const dx = h.x - x0, dy = h.y - y0;
       const moved = Math.sqrt(dx * dx + dy * dy) * hz;
-      if (moved < h.speed) {
-        const target: CollisionTarget | null = hitCar ? 'train' : hitTerrain === 2 ? 'obstacle' : null;
-        if (target) impacts.push({ player: p.id, target, speedLost: h.speed - moved });
-        h.speed = moved;
-      }
+      if (moved < h.speed) h.speed = moved;
     }
     // A mounted player rides in the world frame with the horse.
     if (p.placement.frame === 'world') { p.placement.x = h.x; p.placement.y = h.y; }

@@ -26,9 +26,13 @@ export function landingCue(result: 'perfect' | 'good'): { title: string; detail:
     : { title: 'GOOD', detail: 'stumbling', colour: GOOD_COLOUR, size: 28, notice: 'Good landing: stumbling, slowed for a moment' };
 }
 
-/** The notice for a crash. */
-export function collisionNotice(against: 'train' | 'obstacle', amount: number): string {
-  return `Crashed into ${against === 'train' ? 'the train' : 'a rock'}: -${Math.round(amount)} health`;
+/** A scrape flashes red only briefly; a crash for HIT_FLASH_SEC. */
+export const SCRAPE_FLASH_SEC = 0.4;
+
+/** The notice for a crash or a scrape. */
+export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | 'scrape', amount: number): string {
+  const what = against === 'train' ? 'the train' : 'a rock';
+  return `${kind === 'scrape' ? 'Scraped' : 'Crashed into'} ${what}: -${Math.round(amount)} health`;
 }
 
 /** On/off for a flash at `hz` blinks per second, `ageSec` after it started. */

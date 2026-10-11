@@ -46,8 +46,8 @@ export type SimEvent =
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
-  /** Running into a train or blocked ground; `impact` is the speed the horse lost, tiles/s. */
-  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; impact: number }
+  /** Running into or scraping a train, or running into blocked ground; `impact` is the speed the horse lost, tiles/s. */
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** `retry` marks a quick retry, which ends the run as a cancel. */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState };
@@ -73,6 +73,8 @@ export interface PlayerRunState {
   stumbleTicks: number;
   /** Ticks before another collision can hurt, so one crash costs health once. */
   hitCooldownTicks: number;
+  /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
+  lastHitDamage: number;
 }
 
 export interface RunState {
@@ -166,7 +168,7 @@ export interface SimConfig {
     };
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
-    collision: { damageFraction: number; minImpactTilesPerSec: number; cooldownTicks: number };
+    collision: { damageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
     playtest: { quickRetry: boolean; quickRetryGapTiles: number };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };

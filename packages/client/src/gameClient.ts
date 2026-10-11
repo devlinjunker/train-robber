@@ -13,7 +13,7 @@ import { clampZoom, DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, stepZoom, worldToSc
 import { createWorldScene } from './iso/worldScene';
 import { createScreenOverlay, type MeterView, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
-import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC } from './cues';
+import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
 
@@ -135,7 +135,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
   // Notices from events: the last rejection, jump result or run end.
   let notice = '', noticeKind: NoticeKind = 'info', noticeUntil = 0;
   // When the last crash and landing happened (performance.now ms), for their flashes and banner.
-  let hitAt = -Infinity, landing: { result: 'perfect' | 'good'; at: number } | null = null;
+  let hitAt = -Infinity, hitFlashSec = HIT_FLASH_SEC, landing: { result: 'perfect' | 'good'; at: number } | null = null;
   const show = (text: string, kind: NoticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
@@ -144,8 +144,10 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       show(`jump ${e.attempt}: ${landingCue(e.result).notice}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
     } else if (e.type === 'BoardingAttempt') show(`jump ${e.attempt}: fail - thrown clear`, 'bad', 2000);
     else if (e.type === 'DamageDealt' && e.cause === 'collision') {
-      hitAt = performance.now();
-      show(collisionNotice(e.against, e.amount), 'bad', 2000);
+      // A scrape inside a crash's flash keeps the longer flash.
+      const now = performance.now(), sec = e.kind === 'scrape' ? SCRAPE_FLASH_SEC : HIT_FLASH_SEC;
+      if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
+      show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };
@@ -193,7 +195,7 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
       const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
-      const hitAge = (now - hitAt) / 1000 < HIT_FLASH_SEC ? (now - hitAt) / 1000 : null;
+      const hitAge = (now - hitAt) / 1000 < hitFlashSec ? (now - hitAt) / 1000 : null;
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
       const stumbling = phase === 'aboard' && !!run && run.stumbleTicks > 0;
       const perfectAge = landing?.result === 'perfect' && phase === 'aboard' ? landingAge : null;

@@ -39,13 +39,17 @@ export const GameSchema = z.object({
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
   collision: z.object({
-    /** Health lost per crash, as a fraction of max (collisionDamage variant group: 0 turns it off). */
+    /** Health lost by a crash at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
-    /** The speed the horse must lose against the obstacle for it to hurt, so brushing a car while matching its speed is free. */
+    /** Health lost by scraping a train car (any touch below minImpactTilesPerSec), as a fraction of max. Blocked ground never scrapes. */
+    scrapeDamageFraction: fraction,
+    /** Speed lost against a car or blocked ground from which a touch is a crash; below it a car touch is a scrape and a rock touch is free. */
     minImpactTilesPerSec: z.number().min(0),
+    /** Impact at and above which a crash costs the full damageFraction; between the two it scales up from the scrape damage. */
+    fullImpactTilesPerSec: z.number().min(0),
     /** After a crash, further crashes are free for this long, so one crash costs health once. */
     cooldownSec: z.number().min(0),
-  }).strict(),
+  }).strict().refine((c) => c.fullImpactTilesPerSec >= c.minImpactTilesPerSec, { message: 'full impact must not be below min impact', path: ['fullImpactTilesPerSec'] }),
   /** Playtest conveniences that later phases switch off. */
   playtest: z.object({
     /** R ends the run and puts the player on the horse, stopped, behind the train. */

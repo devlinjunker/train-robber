@@ -86,7 +86,8 @@ describe('landing and crash cues', () => {
     expect(g.notice).toMatch(/stumbl/);
   });
   it('names what you crashed into', () => {
-    expect(collisionNotice('train', 10)).toBe('Crashed into the train: -10 health');
-    expect(collisionNotice('obstacle', 10)).toBe('Crashed into a rock: -10 health');
+    expect(collisionNotice('train', 'crash', 10)).toBe('Crashed into the train: -10 health');
+    expect(collisionNotice('obstacle', 'crash', 10)).toBe('Crashed into a rock: -10 health');
+    expect(collisionNotice('train', 'scrape', 1)).toBe('Scraped the train: -1 health');
   });
 });
