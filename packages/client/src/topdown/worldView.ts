@@ -52,6 +52,7 @@ export function createWorldView(): WorldView {
   const carLayer = new Container();
   const entries = new Graphics();
   const zones = new Graphics();
+  zones.visible = false;
   const horse = new Graphics()
     .circle(0, 0, HORSE_RADIUS).fill({ color: 0xffd34d, alpha: 0.35 }).stroke({ width: 0.08, color: 0xffd34d })
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(0xffd34d);

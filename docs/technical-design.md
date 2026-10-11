@@ -976,7 +976,7 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | Shift | Run aboard (walking is the default) |
 | Q / Z or keys `-` / `=` | Zoom out / in (steps 0.35, 0.5, 0.7, 1, 1.4, 2; the wheel zooms smoothly; locked from commit to the end of the run, at 1 in iso and 1.75 top-down; `?runZoom=` overrides) |
 | V | Switch between the isometric view and the top-down debug view |
-| O / B / backquote | Map debug overlay / boarding range circles / debug readout |
+| O / B / backquote | Map debug overlay / boarding range circles (off by default since the Phase 1 gate playtest) / debug readout |
 
 Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys above, in line with the input rules earlier.
 
