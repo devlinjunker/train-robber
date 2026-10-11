@@ -39,6 +39,17 @@ function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
   ctx.emit({ type: 'RunPhaseChanged', tick: ctx.state.tick, player, from, to });
 }
 
+/** With `commit.auto` on, an idle player on a physical horse commits to the nearest train in range. */
+export function autoCommitSystem(ctx: RunCtx): void {
+  const { state, map, config } = ctx;
+  if (!config.values.commit.auto || state.run) return;
+  for (const p of state.players) {
+    const h = horseOf(state, p);
+    const id = commitTarget(state, map, config, h);
+    if (id) { startRun(ctx, p, id, 'startRun'); return; }
+  }
+}
+
 /** `startRun` and `interact` while idle: validate the commit, pin the train and enter `approach`. */
 export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefined, command: Command['type']): void {
   const { state, map, config } = ctx;

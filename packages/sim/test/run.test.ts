@@ -72,6 +72,25 @@ describe('commit', () => {
     expect(S(sim).world.trains[0]!.pinnedBy).toBe(1);
   });
 
+  it('with commit.auto, an idle rider commits on the first tick a train is in range, with no command', () => {
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true } });
+    const sim = setup(auto);
+    Object.assign(horse(sim), { x: 116, y: 10 }); // 17 tiles from the car
+    const far = steps(sim, 5);
+    expect(S(sim).run).toBeNull();
+    expect(far).toEqual([]);
+    Object.assign(horse(sim), { x: 116, y: 22 });
+    const ev = step(sim);
+    expect(phases(ev)).toEqual(['idle>approach']);
+    expect(rejections(ev)).toEqual([]);
+    expect(S(sim).run).toMatchObject({ trainId: 'blank-1', phase: 'approach' });
+    // A quick retry ends the run 60 tiles behind the train: out of range, so it waits for the rider.
+    step(sim, { type: 'quickRetry' });
+    expect(S(sim).run).toBeNull();
+    steps(sim, 2);
+    expect(S(sim).run).toBeNull();
+  });
+
   it('interact while idle commits like startRun with no id', () => {
     const sim = setup();
     expect(phases(step(sim, { type: 'interact', held: false }))).toEqual(['idle>approach']);

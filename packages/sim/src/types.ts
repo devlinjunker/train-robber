@@ -149,7 +149,8 @@ export interface SimConfig {
     sim: { tickRateHz: number };
     player: { speedTilesPerTick: number };
     world: { mode: 'separate' | 'continuous' };
-    commit: { rangeTiles: number };
+    /** `auto`: an idle player commits as soon as a train is in range, with no key press. */
+    commit: { rangeTiles: number; auto: boolean };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;

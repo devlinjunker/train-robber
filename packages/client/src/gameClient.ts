@@ -249,7 +249,8 @@ export function createGameClient(app: Application, opts: { sim: Sim; map: MapDef
       // HUD.
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
       const prompt = phase === 'idle'
-        ? target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
+        ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
+          : target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';

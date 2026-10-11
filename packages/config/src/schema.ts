@@ -15,7 +15,7 @@ export const GameSchema = z.object({
     events: z.array(z.string()),
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
-  commit: z.object({ rangeTiles: positive }).strict(),
+  commit: z.object({ rangeTiles: positive, auto: z.boolean() }).strict(),
   boarding: z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,
