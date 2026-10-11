@@ -54,17 +54,19 @@ Built in the M1 PR (branch `claude/phase-2-m1-countdown-heat`). The grace check 
 
 ### M2: Mail train and loot
 
-- [ ] `mail-express` train config: engine, 3 mail cars, caboose, speed, `countdown.baseSec`, loot table and density, entry points
-- [ ] Tiled car pipeline (`tools build-cars`, G6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
-- [ ] `items.json` and `loot-tables.json` (`mail-small-items`): value, weight, category, slot tags; mostly small items plus one or two heavy prizes per train, and a drop command to swap items (G13)
-- [ ] Run generation: build the committed train's cars and fill loot slots from the `gen` stream; two layouts per car type picked by seed
-- [ ] Walk between cars through end doors, so the whole train is one interior (multi-car interiors were deferred to Phase 2 in the ideas list)
-- [ ] Car count, search time and hidden loot as plain config values (G2, G23), plus ready-made playtest presets
-- [ ] `search` verb: hold E on a loot slot for `searchTimeSec`, then `LootPickedUp` and `lootTaken` heat
-- [ ] Carry limit and weight slowdown as separate flags (C3), with slowdown from 6 to the 10-unit max and a 20-item cap (G25); `lootCarry` variant group (`limit-and-slowdown`, `unlimited`)
-- [ ] Cell catalog `cell-types.json` with movement and sight; noise values wait for M3
-- [ ] Iso renderer draws the mail car interior, loot slots and props; HUD shows carried value and weight
-- [ ] Trains on the map: mail by default, blank decoys mixable per map or by the trainMix variant group (all-mail, mixed, mostly-blank), and an option to hide train names on the off-screen arrows (G17)
+- [x] `mail-express` train config: engine, 3 mail cars, caboose, speed, `countdown.baseSec`, loot table and density, entry points
+- [x] Tiled car pipeline (`tools build-cars`, G6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
+- [x] `items.json` and `loot-tables.json` (`mail-small-items`): value, weight, category, slot tags; mostly small items plus one or two heavy prizes per train, and a drop command to swap items (G13)
+- [x] Run generation: build the committed train's cars and fill loot slots from the `gen` stream; two layouts per car type picked by seed
+- [x] Walk between cars through end doors, so the whole train is one interior (multi-car interiors were deferred to Phase 2 in the ideas list)
+- [x] Car count, search time and hidden loot as plain config values (G2, G23), plus ready-made playtest presets
+- [x] `search` verb: hold E on a loot slot for `searchTimeSec`, then `LootPickedUp` and `lootTaken` heat
+- [x] Carry limit and weight slowdown as separate flags (C3), with slowdown from 6 to the 10-unit max and a 20-item cap (G25); `lootCarry` variant group (`limit-and-slowdown`, `unlimited`)
+- [x] Cell catalog `cell-types.json` with movement and sight; noise values wait for M3
+- [x] Iso renderer draws the mail car interior, loot slots and props; HUD shows carried value and weight
+- [x] Trains on the map: mail by default, blank decoys mixable per map or by the trainMix variant group (all-mail, mixed, mostly-blank), and an option to hide train names on the off-screen arrows (G17)
+
+Built in the M2 PR ([#17](https://github.com/devlinjunker/train-robber/pull/17), branch claude/phase-2-m2-mail-train-loot). There are three mail layouts (doors on both sides, one side, end doors only) plus engine, caboose and a blank car, and each train's layouts are picked from the next run's seed so doors show before you commit. `requireSideDoors: both` swaps picks so every mail train can be boarded from either side. Loot density is the share of a train's eligible slots that get a small item. The `lootTaken` heat and `loot.densityScale` get wired in when M1 and M2 meet on main. `?car=<id>` opens one car on its own with overlays for checking a layout.
 
 ### M3: Light guards and detection
 

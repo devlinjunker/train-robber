@@ -461,7 +461,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 ### Track model
 
 - Each route is a list of points. At build time the tool smooths it into a curve and samples it into short straight segments with an arc-length table and a precomputed unit tangent per segment. The sim therefore does no spline math per tick, and curves work from phase 1.
-- A map can hold several routes. A route is a closed loop or an open line. A train type names the route it runs on in its config, so trains do not have to share one oval. The alpha uses one shared route (see Map decisions). A map can also place its own trains: a track object's `trains` property (a count) and optional `trainType` become a `trains` list in the MapDef, each entry a type, a route and a starting distance, and the sim starts those trains instead of the one blank train. Trains never change route; junctions are not designed yet.
+- A map can hold several routes. A route is a closed loop or an open line. A train type names the route it runs on in its config, so trains do not have to share one oval. The alpha uses one shared route (see Map decisions). A map can also place its own trains: a track object's `trains` property (a count) and optional `trainType` (default `mail-express`) become a `trains` list in the MapDef, each entry a type, a route and a starting distance, and the sim starts those trains instead of the one mail train. Trains never change route; junctions are not designed yet.
 - Tight bends are a tuning lever. An optional `speedScale` in a speed zone rectangle slows the train over that stretch, which makes boarding on a curve harder than on a straight.
 - Hills later: each point may carry an optional `elevation`. The alpha ignores it. It could later drive train speed (slower uphill) and rendered height without changing the sim's 2D model. Walking over hills or vertical gameplay belongs with 3D.
 
@@ -520,6 +520,8 @@ Entry point ids are the ones a train's config lists under `boarding.entryPoints`
 
 The reachability check matters most, since an unreachable loot slot is a bug that only shows up in play.
 
+**As built in phase 2 M2.** `base/car-templates.json` is `{ schemaVersion, generatedBy, cars: { <id>: template } }`. Each template stores `legend` (the cell type ids it uses, in catalog order) and `cells` as `[count, legendIndex]` runs, so a reordered catalog never changes a car. It also stores `entryPoints`, `lootSlots`, `guardSpawns`, `patrols` (name to cell list), `roofAccess`, `corridor` and `source` (file and hash). End doors are entry points with side `front` or `rear` on rows 2 and 3, and walking through one carries the player into the next car's frame, so the whole train is one interior. Only `left` and `right` entry points are boarding doors. The starter set is `mail-car-a` (side doors on both sides), `mail-car-b` (left side only), `mail-car-c` (end doors only), an `engine` with no doors, a 12-column `caboose` with a front end door, and a `blank-car` with doors mid-car on both sides and no loot. Loot slots use the tags `small` and `large`, plus `hidden`; an item fits a slot when one of its `slotTags` is among the slot's tags. Cell types also carry a `colour` for the tileset and the placeholder renderer.
+
 ### Car Tiled workflow in detail
 
 Cars use the same approach as the map: Tiled is only the editor, and a converter turns each `.tmj` into data the game reads.
@@ -533,11 +535,12 @@ Cars use the same approach as the map: Tiled is only the editor, and a converter
 **What you draw**
 
 - **Cells.** Paint every cell on `cells`: walls around the edge, floor inside, then props (crates, barrels, benches, rugs, windows, doors). An unpainted cell is an error, unlike the map, because a hole in a car is never intended.
-- **Entry points.** Point objects on `entryPoints`. The object name is the id (`side-left`), and an enum property `side` is `left`, `right`, `front` or `rear`. Each sits on a floor or door cell on the car's edge.
+- **Entry points.** Point objects on `entryPoints`. The object name is the id (`side-left`), and a string property `side` is `left`, `right`, `front` or `rear`. Each sits on a floor or door cell on the car's edge.
 - **Loot slots.** Point objects on `lootSlots` with a string property `tags`, comma separated (`small,hidden`). The tags decide which items from the train's loot table can land there.
-- **Guard spawns.** Point objects on `guardSpawns` with an enum property `facing` (`left`, `right`, `up`, `down`) and an optional string property `patrol`.
+- **Guard spawns.** Point objects on `guardSpawns` with a string property `facing` (`left`, `right`, `up`, `down`) and an optional string property `patrol`.
 - **Patrol routes.** Optional polylines on `patrol`, named by the id a guard spawn refers to. The converter turns each into a list of cells. A guard with no patrol stands watch.
 - **Roof.** An optional map property `roofAccess`: a comma-separated list of entry point ids that lead to the roof (empty by default).
+- **Corridor.** A bool map property `corridor` set to true when a car is meant to be one unbroken corridor; otherwise that is an error.
 
 Place points near the middle of a cell. The converter divides pixel positions by the tile size and rounds down.
 
@@ -558,9 +561,9 @@ Place points near the middle of a cell. The converter divides pixel positions by
 - Every patrol route lies on walkable cells.
 - Warning: a tag on a loot slot that no loot table uses.
 - Warning: no loot slots at all, or fewer slots than the train config's loot density could fill.
-- Train-level check in `tools validate`: all cars in one train have the same number of rows, so they line up end to end.
+- Train-level check in `tools validate`: all cars in one train have the same number of rows, so they line up end to end. Since M2 it also checks that the end doors of every pair of layouts a train can pick line up, and that `requireSideDoors` can be met from the train's layout pool.
 
-**Edit loop.** `npm run cars:watch` rebuilds on save. Loading `?car=mail-car-a` opens a debug scene with just that car, so you can walk it, shoot across it and test sight lines without a full run. The debug overlay colours cells by type and can show cover values, noise values, the reachable area from each entry point, and the loot slots and spawns.
+**Edit loop.** `npm run cars:watch` rebuilds on save. Loading `?car=mail-car-a` opens a debug scene with just that car, so you can walk it, shoot across it and test sight lines without a full run. The debug overlay colours cells by type and can show cover values, noise values, the reachable area from each entry point, and the loot slots and spawns. As built in M2 (`packages/client/src/carScene.ts`): WASD or the arrows walk, keys 1 to 5 pick the overlay (cell types, cover, noise, reachable area, slots and spawns; 4 again steps through the entry points, 0 hides it), and an unknown id lists the car ids. Shooting and sight lines come with M3 and phase 3. `npm run cars:check` runs in `npm run check` and fails when the generated file is stale.
 
 **Notes**
 
@@ -615,19 +618,21 @@ Values are placeholders to show the shape. Keys carry units in their names (`Sec
   "name": "Mail Express",
   "favoredStyle": "speed-stealth",
   "speedTilesPerSec": 9,
-  "cars": [
-    { "template": "engine" },
-    { "template": "mail-car", "count": 3 },
-    { "template": "caboose" }
-  ],
+  "engine": "engine",
+  "carType": "mail-car",
+  "carCount": 3,
+  "layouts": ["mail-car-a", "mail-car-b", "mail-car-c"],
+  "caboose": "caboose",
+  "requireSideDoors": "both",
   "countdown": { "baseSec": 150 },
   "guards": { "base": 3, "perWantedLevel": 1, "types": ["guard-light"], "patrol": "car-loop" },
   "passengers": { "count": 0 },
   "loot": { "table": "mail-small-items", "density": 0.6 },
-  "verbs": [ { "id": "search", "params": { "searchTimeSec": 1.2 } } ],
-  "boarding": { "entryPoints": ["rear-platform", "side-doors"] }
+  "verbs": [ { "id": "search", "params": { "searchTimeSec": 1.2 } } ]
 }
 ```
+
+As built in phase 2 M2, trains live under `trains` in `game.json` (not one file each), with `route`, `speedTilesPerSec`, `engine`, `carType`, `carCount`, optional `layouts` (default: every layout of the car type) and `caboose`, `requireSideDoors` (`both`, `one` or `off`), `countdown.baseSec`, optional `loot { table, density }` and `verbs` (ids; the search parameters are under `verbs.search`). Each car's layout is picked from the `gen` stream of the seed `<run seed>/<train id>` for the run the train will be committed in, so the doors on a train's outside are the ones the run gets, and the same seed and run number give the same cars. With `requireSideDoors: both`, picks are swapped until the train has a side door on each side. `density` is the share of the train's eligible small-item slots that get an item (scaled by `loot.densityScale`, capped at all of them), after the loot table's `prizes.count` prizes go on slots that fit them. Hidden slots join only with `verbs.search.hiddenLoot`. Entry points come from the layouts, so there is no `boarding.entryPoints`. Guards and passengers arrive with M3 and phase 4.
 
 ### Why variants exist, and how config reaches game state
 
@@ -775,7 +780,8 @@ The wall-clock `startedAt` exists only in the header, written by the host. The s
 | `ShotFired`, `DamageDealt` | actor, target, amount | Combat feel |
 | `PlayerSpotted`, `AlarmRaised` | by, car | Stealth success, heat causes |
 | `HeatChanged` | heat, delta, cause (a `heat.sources` event, `timeAboard`, or `debug` for the playtest key) | Heat tuning |
-| `LootPickedUp` | item, value, weight | Loot density, carry tradeoff |
+| `LootPickedUp` | item, value, weight, car, loot id | Loot density, carry tradeoff |
+| `LootRefused`, `LootDropped`, `SearchCancelled` | item and reason; item dropped; loot, reason (`released` or `moved away`) and progress lost (phase 2 M2) | Carry limits, swaps, how often searches are abandoned |
 | `ActorDowned`, `ActorKilled` | actor, by | Deaths and retries |
 | `HorseWhistled`, `HorseArrived`, `HorseDeparted`, `HorseSideChanged`, `HorseBlocked` | horse distance and side, pace window | Extraction tension |
 | `RunEnded` | outcome, duration in ticks, countdown left, heat, loot value, boarding attempts, kills | Run length, completion, cancels (with time left, for flag U6) |
@@ -930,7 +936,7 @@ The build follows the requirements' five phases, preceded by a foundation phase 
 | 4. Passenger hold-up | `inspect` verb, passenger behaviour, armed passengers | Judging passengers is a decision, not a chore |
 | 5. Bank | `vault` verb, guard interruptions | The minigame holds up under time pressure, and each train favours a style while other approaches still work |
 
-**Phase 2 progress.** M1 (countdown, heat and run end) is built; see the Phase 2 checklist at the end of this document for what each milestone actually built.
+**Phase 2 progress.** M1 (countdown, heat and run end) and M2 (mail train and loot) are built; see the Phase 2 checklist at the end of this document for what each milestone actually built.
 
 After the prototype come the cargo and tycoon trains, the later trains, progression, 3D and online multiplayer, in that order. The reference machine is a 2019 MacBook Pro (6-core Intel i7, integrated Intel UHD 630 graphics, 16 GB RAM). Record a baseline in both Chrome and Safari before phase 2, because the 30 fps floor needs one. Integrated graphics make overdraw and fill rate the main rendering risk, so the performance budget should be set on this machine first.
 
@@ -985,7 +991,8 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | Arrow keys | Steer, screen-relative |
 | W / S | Accelerate / brake (throttle under cruise) |
 | Space | Boarding jump (and mount jump later) |
-| E | Commit to a train (only with `commit.auto` off), interact |
+| E | Commit to a train (only with `commit.auto` off), interact; hold to search loot aboard |
+| X | Drop the last carried item (phase 2 M2) |
 | Tab | Switch the run to the nearest other free train in range, keeping the run timer |
 | F | Whistle (phase 2) |
 | H / Shift+H | Raise heat by `playtest.debugHeatStep` / raise an alarm's worth (`heat.sources.alarmRaised`), playtest only (phase 2 M1) |
@@ -1119,7 +1126,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Mail countdown base | 150 s | `trains.mail-express.countdown.baseSec` |
 | Countdown multiplier | 1 (a medium-run preset sets 4) | `countdown.scale` |
 | Grace window | 3 s | `countdown.graceSec` |
-| Mail cars | 3 (a preset sets 6) | the train's `cars` count |
+| Mail cars | 3 (a preset sets 6) | `trains.mail-express.carCount` |
 | Search time | 1.2 s (a slow preset sets 3 s with hidden loot) | `verbs.search.searchTimeSec` |
 | Walk speed while searching | 30% | `verbs.search.walkSpeedScale` |
 | Search cancel distance | 1.5 tiles | `verbs.search.cancelRangeTiles` |
@@ -1131,7 +1138,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Carry max | 10 weight units, 20 items | `carry.maxWeight`, `carry.maxItems` |
 | Slowdown | from 6 units to 50% speed at the max | `carry.slowdownFromWeight`, `carry.minSpeedScale` |
 | Horse boost | 1.5 s at +40% top speed, 6 s cooldown | `horse.boost.*` |
-| Blank train countdown base (until the mail train lands; Claude's pick in M1, matching the mail placeholder) | 150 s | `trains.blank.countdown.baseSec` |
+| Blank train countdown base (Claude's pick in M1, matching the mail train) | 150 s | `trains.blank.countdown.baseSec` |
 | Heat drain factor | 1.0 (heat 100 doubles the drain) | `heat.heatDrainFactor` |
 | Debug heat step (H) | 10; 0 turns the key off | `playtest.debugHeatStep` |
 
@@ -1140,7 +1147,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 Legend as in the Phase 1 checklist. The live plan holds the task lists; this records what was built.
 
 - [x] **M1: countdown, heat and run end** (branch `claude/phase-2-m1-countdown-heat`). `countdown.enabled` is on: at commit the run copies the train's `countdown.baseSec` × `countdown.scale` into `run.countdownSec` (the blank train has a 150 s base until the mail train lands), and `countdownSystem` (`packages/sim/src/rules/heat.ts`, tick system 10, before run end) drains it each tick at `1 + heatDrainFactor × heat/100`; `countdown.startsAt: boarding` holds the clock until the player lands aboard. Heat lives in `RunState` (0 to `heat.maxHeat`) and only `raiseHeat` changes it, emitting `HeatChanged` with the amount actually added and the cause; `raiseHeatFor` adds a `heat.sources` amount for loot, guards and combat to call later. `heat.sources.timeAboardPerSec` (0.33 by default after the M1 playtest, so about +1 heat every 3 s aboard) builds up per tick aboard and is raised a whole point at a time, so each gain is one event. At zero the run ends `expired` in the run end system (a death on the same tick wins), applying `outcomePolicy.expired` (wanted +1) and resetting to `playerSpawn` like a cancel. The grace window (`countdown.graceSec` 3 s, counted in `run.graceTicks`) sits behind `graceApplies`, which returns false until the extraction horse exists (M4). `heat.boardingResistanceAt` (null, off) is read only by `boardingResistanceActive`, a hook for phase 3. `RunStarted` carries the countdown and wanted level; `RunEnded` carries `countdownLeftSec` (kept on cancels and quick retries, U6) and `heat`. `loot.densityScale` is a plain value nothing reads until M2. Presets gained `extends` and `values`, and `?set=path=value` overrides any value (see Selecting a setup); `medium-run` (scale 4, density 4) and `no-time-aboard-heat` (0 per second) build on `alpha-default`. The HUD has a countdown bar (green, amber below 50%, red and blinking below 20%) whose stripes slide at the drain rate beside a `×1.6` style readout, a heat meter in three bands, a notice per heat gain, and a pulsing red screen edge after an alarm. An `AudioBus` (`packages/client/src/audio.ts`) synthesizes a countdown tick per countdown second (so it speeds up with heat) that doubles below 20%, a heat blip, the alarm sting and an expiry tone; U mutes (M is the minimap). With no loot or guards yet, H raises heat by `playtest.debugHeatStep` (cause `debug`) and Shift+H raises an alarm's worth, as the `debugHeat` command, so it replays. The Playtests page records expired runs, time left and heat at end; the bots press the debug heat keys and check heat and the countdown stay in range; the golden run raises heat once
-- [ ] M2: mail train and loot
+- [x] **M2: mail train and loot** (branch `claude/phase-2-m2-mail-train-loot`, PR #17). The Tiled car pipeline: `tools build-cars` (`packages/tools/src/cars/`) runs every check under Car Tiled workflow and writes `base/car-templates.json`, `tools sync-car-tileset` writes `cars-src/cars.tsj` and `cars.png` from `cell-types.json` with stable tile ids, and `npm run cars`, `cars:watch` and `cars:check` wrap them. Six layouts are generated to edit (see As built under Cell types and car templates). `cell-types.json`, `items.json` and `loot-tables.json` are config catalogs, merged before variants, hashed with the config and checked for references. `trains.mail-express` is the default train (engine, 3 mail cars picked per run, caboose, 9 tiles/s, 150 s countdown base, `mail-small-items` at density 0.6); `trains.blank` is the decoy. `packages/sim/src/world/generate.ts` picks layouts (`pickTrainCars`) and fills loot at commit from the `gen` stream (`generateLoot`); free trains re-pick their layouts at each run end. `trainPoint` joins the cars end to end. `packages/sim/src/world/loot.ts` is the search, carry and drop system, after walking and before run end. `interact` is a press and release pair: `held: true` on press commits when idle and searches aboard, `held: false` on release cancels. Walking slows by `carry` weight and to `verbs.search.walkSpeedScale` while searching. The `drop` command puts an item on the floor of the player's cell, where it can be searched again. Variant groups `lootCarry` (`limit-and-slowdown`, `unlimited`) and `trainMix` (`map`, `all-mail`, `mixed`, `mostly-blank`; the map's own `trains` list, else `trainMix.trainCount` slots along the route). Train names on the arrows are hidden by default (`hud.showTrainNames: false`, Devlin 2026-10-14); `?trainNames=on` or `off` overrides. Presets `long-train`, `slow-search`, `no-carry-limit`, `doors-both-sides` and `mixed-trains`. The iso view draws the open car's walls, props, windows and loot (`packages/client/src/iso/interior.ts`) and the doors on every car's outside. The HUD shows carried value, weight, items and speed. The `?car=` scene is in. The golden run walks to and searches a loot item; the bots loot and check carry and loot invariants. Each pickup calls `raiseHeatFor(ctx, 'lootTaken')`, and generation scales density by `loot.densityScale`, both from M1; mail-express also has its `countdown.baseSec` of 150 s.
 - [ ] M3: light guards and the horse boost
 - [ ] M4: extraction (replaces `graceApplies` with the horse-alongside check)
 - [ ] M5: wanted level, saving and score
