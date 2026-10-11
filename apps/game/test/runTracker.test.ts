@@ -82,7 +82,9 @@ describe('playtest versions and notes export', () => {
   it('treats 0.0.0 as unknown and sorts versions newest first', () => {
     expect(runVersion(rec)).toBe('unknown');
     expect(runVersion(newer)).toBe('0.2.1');
-    expect(['unknown', '0.2.0', '0.10.0', '0.2.1'].sort(compareVersions)).toEqual(['0.10.0', '0.2.1', '0.2.0', 'unknown']);
+    expect(['unknown', '0.2.0-mud-effect', '0.2.0', '0.10.0', '0.2.1', '0.2.0-junctions'].sort(compareVersions))
+      .toEqual(['0.10.0', '0.2.1', '0.2.0', '0.2.0-junctions', '0.2.0-mud-effect', 'unknown']);
+    expect(runVersion({ gameVersion: '0.2.0-mud-effect' })).toBe('0.2.0-mud-effect');
   });
   it('exports notes grouped by version, with the filters that picked them', () => {
     const md = notesMarkdown([rec, newer, bare], ['outcome retry']);
@@ -92,6 +94,11 @@ describe('playtest versions and notes export', () => {
     expect(md).toContain('- tick 7: heat rose too fast');
     expect(md).toContain('- tick 50: felt fine');
     expect(md).toMatch(/### 0\.2\.0\n\n_No notes._/);
+  });
+  it('a tagged version gets its own group and file name', () => {
+    const md = notesMarkdown([newer, { ...newer, id: 's4#1', gameVersion: '0.2.1-mud-effect', notes: [{ t: 9, text: 'mud too sticky' }] }]);
+    expect(md).toContain('## Playtest notes: 0.2.1, 0.2.1-mud-effect');
+    expect(md).toMatch(/### 0\.2\.1-mud-effect\n\n.*\n- tick 9: mud too sticky/);
   });
   it('a single version gets no subheadings', () => {
     expect(notesMarkdown([newer])).not.toContain('###');

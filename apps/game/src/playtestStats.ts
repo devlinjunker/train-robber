@@ -12,17 +12,22 @@ export function runVersion(r: Pick<RunRecord, 'gameVersion'>): string {
   return r.gameVersion && r.gameVersion !== '0.0.0' ? r.gameVersion : 'unknown';
 }
 
-/** Newest version first, `unknown` last. */
+/**
+ * Newest version first, `unknown` last. A tagged build (`0.2.0-mud-effect`, a PR testing one
+ * feature on top of 0.2.0) sorts right after its plain version, tags alphabetically.
+ */
 export function compareVersions(a: string, b: string): number {
   if (a === b) return 0;
   if (a === 'unknown') return 1;
   if (b === 'unknown') return -1;
-  const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+  const split = (v: string) => { const i = v.indexOf('-'); return i < 0 ? [v, ''] : [v.slice(0, i), v.slice(i + 1)]; };
+  const [ca = '', ta = ''] = split(a), [cb = '', tb = ''] = split(b);
+  const pa = ca.split('.').map(Number), pb = cb.split('.').map(Number);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const d = (pb[i] ?? 0) - (pa[i] ?? 0);
     if (d) return d;
   }
-  return 0;
+  return ta.localeCompare(tb);
 }
 
 export interface SetupSummary {

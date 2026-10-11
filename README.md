@@ -45,4 +45,6 @@ Every pull request gets a playable build at `https://devlinjunker.github.io/trai
 
 ## Versions
 
-The game version is `0.<phase>.<milestone>`, set in `apps/game/package.json` (and the root `package.json`). Every run's log header and Playtests record carries it, so playtest notes can be filtered and exported per version. The pull request that finishes a milestone bumps the patch number (Phase 2 M1 → `0.2.1`); the first change of a new phase sets `0.<phase>.0`. Records from before versions were set (`0.0.0`) show as `unknown`.
+The game version is `0.<phase>.<milestone>`, set in `apps/game/package.json` (and the root `package.json`). Every run's log header and Playtests record carries it, so playtest notes can be filtered and exported per version. The pull request that finishes a milestone bumps the patch number (Phase 2 M1 → `0.2.1`); the first change of a new phase sets `0.<phase>.0`.
+
+A pull request that isn't a milestone (polish, an experiment) tags the version it branched from with what it tests, e.g. `0.2.0-mud-effect`, so runs played on its preview are labelled with the feature. Tags are lowercase words joined by hyphens. Drop the tag before merging so `main` always carries a plain version; the Playtests page lists a tagged build right after its plain version. Records from before versions were set (`0.0.0`) show as `unknown`.
