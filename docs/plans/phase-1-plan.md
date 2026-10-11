@@ -1,6 +1,6 @@
 # Phase 1 Implementation Plan
 
-> Exported from the live [Phase 1 implementation plan](https://claude.ai/code/artifact/9022cfb0-a7f8-4e10-8233-00026aae534e) on 2026-10-11, after Phase 1 finished (milestone PRs #4 to #9 merged). This copy is the final record and the live doc is no longer updated. Task checkboxes were never ticked in the live doc; the milestone PRs show what shipped, and the technical design's build order holds the final state of each item.
+> Exported from the live [Phase 1 implementation plan](https://claude.ai/code/artifact/9022cfb0-a7f8-4e10-8233-00026aae534e) on 2026-10-11, after Phase 1 finished (milestone PRs #4 to #9 merged). This copy is the final record and the live doc is no longer updated. Ticked items shipped; the three unticked by-hand checks say why they stay open.
 
 Oct 9, 2026 · @Devlin
 
@@ -33,55 +33,55 @@ Naming is settled: commands use a `type` field (`t` is the tick in log lines), t
 
 The work splits into five milestones, each ending on something you can run or test; M1 and M2 can start in parallel, M3 needs both, and M4 can start once M2's train is moving.
 
-### M1. Map and track (in review: PR #4)
+### M1. Map and track (PR #4, merged)
 
-- [ ] Review the placeholder `alpha-flats.tmj` in Tiled and decide whether to keep its 240-tile straights and radius-40 U-turns or redraw to the design's 220 and 45 (see Q10)
-- [ ] Check the spawn against the train's approach: playerSpawn at (200, 170) sits 30 tiles below the bottom straight. There is no separate horse spawn; the player spawns mounted (decided in the M1 thread, PR #4)
-- [ ] A watch script that rebuilds the map on save, and `?map=alpha-flats` selection
-- [ ] Debug overlay draws routes, samples, tangents and zones
+- [x] Review the placeholder `alpha-flats.tmj` in Tiled and decide whether to keep its 240-tile straights and radius-40 U-turns or redraw to the design's 220 and 45 (see Q10)
+- [x] Check the spawn against the train's approach: playerSpawn at (200, 170) sits 30 tiles below the bottom straight. There is no separate horse spawn; the player spawns mounted (decided in the M1 thread, PR #4)
+- [x] A watch script that rebuilds the map on save, and `?map=alpha-flats` selection
+- [x] Debug overlay draws routes, samples, tangents and zones
 
 [Draft PR #4](https://github.com/devlinjunker/train-robber/pull/4) covers all M1 tasks: the map was verified unchanged, `npm run maps:watch` and `?map=` loading were added, and the debug overlay draws zones and the track (O key, on by default). Note for tuning: the smoothed track deviates up to about 0.85 tiles near the ends of each straight, and only the middle 110 tiles of each straight are exactly straight, which matters if boarding is meant to happen on a true straight.
 
 ### M2. Sim: trains and riding
 
-- [ ] `world/track.ts`: position and tangent lookup by arc length on a closed route (in review in PR #4 as trackAt())
-- [ ] Train entity: `trains.blank` is an engine plus 3 cars at 9 tiles/s, looping, cars as rigid 16 × 6 rectangles placed by distance along the route
-- [ ] Train scheduler system: spawn the one blank train at load; pin a committed train
-- [ ] Riding system: steering per the steering variant (screen- or heading-relative) (`move.x`), throttle on `move.y` with accel 8, brake 12, top speed 14, holding W reaches and holds top speed, and release behaviour follows the throttleModel variant (hold, coast or cruise); terrain zones slow or block
-- [ ] Horse vs car collision: cars are solid, the horse stops or slides along a car's side
-- [ ] Entry points in world space (car position plus offset across the track), one function shared by the boarding rule and the markers
+- [x] `world/track.ts`: position and tangent lookup by arc length on a closed route (in review in PR #4 as trackAt())
+- [x] Train entity: `trains.blank` is an engine plus 3 cars at 9 tiles/s, looping, cars as rigid 16 × 6 rectangles placed by distance along the route
+- [x] Train scheduler system: spawn the one blank train at load; pin a committed train
+- [x] Riding system: steering per the steering variant (screen- or heading-relative) (`move.x`), throttle on `move.y` with accel 8, brake 12, top speed 14, holding W reaches and holds top speed, and release behaviour follows the throttleModel variant (hold, coast or cruise); terrain zones slow or block
+- [x] Horse vs car collision: cars are solid, the horse stops or slides along a car's side
+- [x] Entry points in world space (car position plus offset across the track), one function shared by the boarding rule and the markers
 
 ### M3. Sim: commit, boarding, health and run end
 
-- [ ] Commands `jump` and `interact` added to the `Command` union; commit query ("which train can I commit to") and `startRun` validation: within `commit.rangeTiles` and the train is free; run enters `approach`
-- [ ] Boarding eligibility: within 2 tiles of an entry point on the riding side and within 1.5 tiles/s of train speed; rejected `jump` emits `CommandRejected` with too far, too fast or too slow
-- [ ] Meter: sweeps continuously while eligible (`sweepPeriodTicks` from the derived config), resets on losing eligibility, one Space press samples it on that tick; perfect 10%, good 25%, else fail
-- [ ] Landing results: perfect arrives clean, good arrives with a short stumble, fail throws the player clear, stuns the horse for `stunTicks` and deals `damageFraction` of max health
-- [ ] Minimal health (`health.max` 100); death ends the run with outcome `died` under `outcomePolicy.died`
-- [ ] `world/separate.ts` implementing `WorldModel`: `enterTrain` moves the placement into the car frame at the entry cell, horse becomes abstract while aboard
-- [ ] Blank interior: walls plus floor per car, walkable in the car frame at `player.speedTilesPerSec` (the existing key, 8 tiles/s)
-- [ ] Cancel: Esc in any phase but `ended`; the player returns to playerSpawn, mounted, the train keeps looping. Quick retry (R, config switch playtest.quickRetry, on in Phase 1) also ends the run but puts the player on the horse, stopped, about 60 tiles behind the train on the same side
-- [ ] Run phases `idle`, `approach`, `boarding`, `aboard`, `ended`, with `RunPhaseChanged` events
+- [x] Commands `jump` and `interact` added to the `Command` union; commit query ("which train can I commit to") and `startRun` validation: within `commit.rangeTiles` and the train is free; run enters `approach`
+- [x] Boarding eligibility: within 2 tiles of an entry point on the riding side and within 1.5 tiles/s of train speed; rejected `jump` emits `CommandRejected` with too far, too fast or too slow
+- [x] Meter: sweeps continuously while eligible (`sweepPeriodTicks` from the derived config), resets on losing eligibility, one Space press samples it on that tick; perfect 10%, good 25%, else fail
+- [x] Landing results: perfect arrives clean, good arrives with a short stumble, fail throws the player clear, stuns the horse for `stunTicks` and deals `damageFraction` of max health
+- [x] Minimal health (`health.max` 100); death ends the run with outcome `died` under `outcomePolicy.died`
+- [x] `world/separate.ts` implementing `WorldModel`: `enterTrain` moves the placement into the car frame at the entry cell, horse becomes abstract while aboard
+- [x] Blank interior: walls plus floor per car, walkable in the car frame at `player.speedTilesPerSec` (the existing key, 8 tiles/s)
+- [x] Cancel: Esc in any phase but `ended`; the player returns to playerSpawn, mounted, the train keeps looping. Quick retry (R, config switch playtest.quickRetry, on in Phase 1) also ends the run but puts the player on the horse, stopped, about 60 tiles behind the train on the same side
+- [x] Run phases `idle`, `approach`, `boarding`, `aboard`, `ended`, with `RunPhaseChanged` events
 
 ### M4. Client: render, input, HUD
 
-- [ ] Create `packages/client`; move Pixi code out of `apps/game`
-- [ ] `projection.ts`: 2:1 isometric, 64 × 32 px tiles, zoom steps
-- [ ] Terrain and track drawing, train cars as flat-shaded boxes drawn in 2-tile slices for depth sorting
-- [ ] Interpolation buffer between the last two ticks
-- [ ] Keyboard input mapper: A/D steer, W/S throttle, Space jump, E commit, Esc cancel, Q/Z and `-`/`=` zoom
-- [ ] Look-ahead camera; edge arrows with distance for off-screen trains
-- [ ] Entry markers (dim, ring, highlighted) and the too fast / too slow / matched readout
-- [ ] Camera ease into the interior scene (about 0.5 s) into one plain walled car with a simple striped backdrop (minimal by decision; scenery art and multi-car interiors wait for Phase 2)
-- [ ] HTML HUD: commit prompt, jump rejection reasons, health (the meter is drawn in the world above the horse, beside the speed readout)
+- [x] Create `packages/client`; move Pixi code out of `apps/game`
+- [x] `projection.ts`: 2:1 isometric, 64 × 32 px tiles, zoom steps
+- [x] Terrain and track drawing, train cars as flat-shaded boxes drawn in 2-tile slices for depth sorting
+- [x] Interpolation buffer between the last two ticks
+- [x] Keyboard input mapper: A/D steer, W/S throttle, Space jump, E commit, Esc cancel, Q/Z and `-`/`=` zoom
+- [x] Look-ahead camera; edge arrows with distance for off-screen trains
+- [x] Entry markers (dim, ring, highlighted) and the too fast / too slow / matched readout
+- [x] Camera ease into the interior scene (about 0.5 s) into one plain walled car with a simple striped backdrop (minimal by decision; scenery art and multi-car interiors wait for Phase 2). Changed in M4: Devlin chose to stay in the world view aboard, with the boarded car drawn open, so the separate interior scene was removed (PR #7)
+- [x] HTML HUD: commit prompt, jump rejection reasons, health (the meter is drawn in the world above the horse, beside the speed readout)
 
 ### M5. Logging, tests and the playtest
 
-- [ ] Events: `RunPhaseChanged`, `BoardingAttempt`, `CommandRejected`, `RunEnded` (outcome, duration, boarding attempts); decide whether `RunEnded` with outcome `cancelled` replaces the current `RunCancelled`; add them to `logging.events`
-- [ ] Extend the golden replay with a scripted Phase 1 run (commit, two failed jumps, a good landing, cancel) and rerun `npm run golden:update`
-- [ ] Headless bots over 1,000 seeds: idle and random-walk riders, checking no crashes and no horse inside a car
-- [ ] Tick-time benchmark in CI
-- [ ] Playtest on the Pages preview against the gate and record results in the doc
+- [x] Events: `RunPhaseChanged`, `BoardingAttempt`, `CommandRejected`, `RunEnded` (outcome, duration, boarding attempts); decide whether `RunEnded` with outcome `cancelled` replaces the current `RunCancelled`; add them to `logging.events`
+- [x] Extend the golden replay with a scripted Phase 1 run (commit, two failed jumps, a good landing, cancel) and rerun `npm run golden:update`
+- [x] Headless bots over 1,000 seeds: idle and random-walk riders, checking no crashes and no horse inside a car
+- [x] Tick-time benchmark in CI
+- [x] Playtest on the Pages preview against the gate and record results in the doc
 
 ## Decided values
 
@@ -117,18 +117,18 @@ Phase 1 is done when every check below passes in CI and a playtest says riding a
 
 **Automated (CI)**
 
-- [ ] Unit tests: track lookup on the baked samples (position and tangent at known distances, wrap-around), riding (top speed reached, braking, coast to stop, turn per tick), boarding eligibility (each rejection reason), meter zones, landing outcomes, cancel from each phase
-- [ ] Collision: no tick where the horse's position is inside a car rectangle, over the bot runs
-- [ ] Golden replay with the Phase 1 run matches its stored hashes; snapshot mid-boarding, restore and continue matches an uninterrupted run
-- [ ] `npm run check` stays green: validate passes for `alpha-default` and both `boardingFailure` variants, and `maps:check` finds no stale map
-- [ ] Tick-time benchmark under its threshold
+- [x] Unit tests: track lookup on the baked samples (position and tangent at known distances, wrap-around), riding (top speed reached, braking, coast to stop, turn per tick), boarding eligibility (each rejection reason), meter zones, landing outcomes, cancel from each phase
+- [x] Collision: no tick where the horse's position is inside a car rectangle, over the bot runs
+- [x] Golden replay with the Phase 1 run matches its stored hashes; snapshot mid-boarding, restore and continue matches an uninterrupted run
+- [x] `npm run check` stays green: validate passes for `alpha-default` and both `boardingFailure` variants, and `maps:check` finds no stale map
+- [x] Tick-time benchmark under its threshold
 
 **By hand**
 
-- [ ] 60 fps in Chrome and Safari on the reference 2019 MacBook Pro with the full train on screen
-- [ ] A rider starting about 60 tiles behind catches the train in roughly 12 s and can match speed before jumping
-- [ ] A missed train comes back in about 80 s
-- [ ] Switching `?v=boardingFailure:time-only` changes failure damage with no rebuild
+- [ ] 60 fps in Chrome and Safari on the reference 2019 MacBook Pro with the full train on screen. Not ticked: the gate playtest ran in Chrome on that machine with no frame problems reported, but Safari and a measured frame rate were not checked
+- [ ] A rider starting about 60 tiles behind catches the train in roughly 12 s and can match speed before jumping. Not ticked: the playtest found catching the train from the spawn too slow (about right from a quick retry); still an open follow-up
+- [ ] A missed train comes back in about 80 s. Not ticked: the 81 s lap is computed from the route length and speed, but nobody timed it by hand
+- [x] Switching `?v=boardingFailure:time-only` changes failure damage with no rebuild
 
 **Playtest gate**
 
