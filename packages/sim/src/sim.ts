@@ -2,11 +2,11 @@ import { seedRng } from './rng';
 import { hashState } from './hash';
 import type { GameState, InputFrame, PersistentState, PlayerId, SimConfig, SimEvent, TickResult } from './types';
 import { prepareMap, type SimMap, type WorldMap } from './world/map';
-import { advanceTrains, allCarPoses, spawnInitialTrains } from './world/trains';
+import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './world/trains';
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { boardingSystem, cancelRun, quickRetry, autoCommitSystem, runEndSystem, startRun, type RunCtx } from './run';
+import { autoCommitSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, type RunCtx } from './run';
 
 export interface SimOptions {
   config: SimConfig;
@@ -103,9 +103,10 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
           }
         }
       }
-      // 2. Train scheduler, then 3. riding against the cars where they now are.
+      // 2. Train scheduler, then 3. riding against the cars where they now are, and what the crashes cost.
       advanceTrains(state, map, config);
-      ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config));
+      const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
+      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf));
       // 3b. With `commit.auto`, an idle player commits once a train is in range.
       autoCommitSystem(ctx);
       // 4. Boarding, 5. movement aboard, 11. run end.

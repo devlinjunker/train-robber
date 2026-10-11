@@ -1,8 +1,8 @@
 // Tick system 3: the mounted player's horse. Steering, throttle, terrain and car collision.
-import type { HorseState, PlayerState, SimConfig } from '../types';
+import type { CollisionTarget, HorseState, PlayerId, PlayerState, SimConfig } from '../types';
 import type { CarPose } from './cars';
 import { pushOutOfBox, type Box } from './collide';
-import { Terrain, terrainAt, type WorldMap } from './map';
+import { isSolid, Terrain, terrainAt, type WorldMap } from './map';
 
 /** The horse collides as a circle of this radius. */
 export const HORSE_RADIUS = 0.5;
@@ -64,39 +64,69 @@ export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['h
 
 const tile: Box = { x: 0, y: 0, ux: 1, uy: 0, halfLength: 0.5, halfWidth: 0.5 };
 
-/** Push the horse out of blocked and water tiles (and the map edge). */
-function collideTerrain(h: HorseState, map: WorldMap): boolean {
-  let hit = false;
+/**
+ * Push the horse out of blocked and water tiles (and the map edge). Returns 0 for no contact,
+ * 1 for contact with water or the edge only, and 2 when a blocked tile inside the map was among
+ * them: the only terrain that hurts to run into.
+ */
+function collideTerrain(h: HorseState, map: WorldMap): 0 | 1 | 2 {
+  let hit: 0 | 1 | 2 = 0;
   for (let pass = 0; pass < PASSES; pass++) {
     let moved = false;
     const c0 = Math.floor(h.x - HORSE_RADIUS), c1 = Math.floor(h.x + HORSE_RADIUS);
     const r0 = Math.floor(h.y - HORSE_RADIUS), r1 = Math.floor(h.y + HORSE_RADIUS);
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        if (terrainAt(map, c, r) !== Terrain.Blocked) continue;
+        const t = terrainAt(map, c, r);
+        if (!isSolid(t)) continue;
         tile.x = c + 0.5; tile.y = r + 0.5;
-        if (pushOutOfBox(h, HORSE_RADIUS, tile)) moved = true;
+        if (!pushOutOfBox(h, HORSE_RADIUS, tile)) continue;
+        moved = true;
+        const inside = c >= 0 && r >= 0 && c < map.cols && r < map.rows;
+        if (t === Terrain.Blocked && inside) hit = 2;
+        else if (hit === 0) hit = 1;
       }
     }
     if (!moved) break;
-    hit = true;
+    if (hit === 0) hit = 1;
   }
   return hit;
 }
 
 /** Push the horse out of every car; cars win over terrain, so this runs last. */
-function collideCars(h: HorseState, cars: readonly CarPose[]): boolean {
-  let hit = false;
+function collideCars(h: HorseState, cars: readonly CarPose[]): CarPose | null {
+  let hit: CarPose | null = null;
   for (let pass = 0; pass < PASSES * 2; pass++) {
     let moved = false;
-    for (const car of cars) if (pushOutOfBox(h, HORSE_RADIUS, car)) moved = true;
+    for (const car of cars) if (pushOutOfBox(h, HORSE_RADIUS, car)) { moved = true; hit = car; }
     if (!moved) break;
-    hit = true;
   }
   return hit;
 }
 
-export function ride(players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[]): void {
+/**
+ * How hard a contact was: the closing speed along the push. (vx, vy) is the horse's velocity
+ * relative to what it hit, (px, py) how far the collision moved it. Head-on into a rock or a car
+ * side, or a car running into a standing horse, closes fast; scraping along a car at a shallow
+ * angle barely closes at all. Zero when the push came with no closing motion.
+ */
+function closingSpeed(vx: number, vy: number, px: number, py: number): number {
+  const n = Math.sqrt(px * px + py * py);
+  if (n === 0) return 0;
+  const c = -(vx * px + vy * py) / n;
+  return c > 0 ? c : 0;
+}
+
+/** A horse touching a car or blocked ground this tick, and how hard: the closing speed along the contact, tiles/s. */
+export interface Impact { player: PlayerId; target: CollisionTarget; impact: number }
+
+/** Tick system 3. Returns every contact with a train car or blocked ground; water and the map edge stop the horse without one. */
+export function ride(
+  players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[],
+  /** Each train's speed, tiles/s, for how hard a car and the horse meet; standing still when left out. */
+  carSpeed: (trainId: string) => number = () => 0,
+): Impact[] {
+  const impacts: Impact[] = [];
   const cfg = config.values.horse;
   const hz = config.values.sim.tickRateHz;
   for (const p of players) {
@@ -113,11 +143,18 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
       throttle(h, -axis(p.move.y), cfg, hz, cap);
     }
 
-    const x0 = h.x, y0 = h.y;
+    const x0 = h.x, y0 = h.y, speed = h.speed;
     h.x += (h.hx * h.speed) / hz;
     h.y += (h.hy * h.speed) / hz;
+    const x1 = h.x, y1 = h.y;
     const hitTerrain = collideTerrain(h, map);
+    const x2 = h.x, y2 = h.y;
     const hitCar = collideCars(h, cars);
+    const vx = h.hx * speed, vy = h.hy * speed;
+    if (hitCar) {
+      const cs = carSpeed(hitCar.trainId);
+      impacts.push({ player: p.id, target: 'train', impact: closingSpeed(vx - hitCar.ux * cs, vy - hitCar.uy * cs, h.x - x2, h.y - y2) });
+    } else if (hitTerrain === 2) impacts.push({ player: p.id, target: 'obstacle', impact: closingSpeed(vx, vy, x2 - x1, y2 - y1) });
     if (hitTerrain || hitCar) {
       // Speed drops to the distance actually covered: head-on stops the horse, a glancing
       // contact slides it along the obstacle and bleeds speed the steeper the angle.
@@ -128,4 +165,5 @@ export function ride(players: readonly PlayerState[], horses: HorseState[], map:
     // A mounted player rides in the world frame with the horse.
     if (p.placement.frame === 'world') { p.placement.x = h.x; p.placement.y = h.y; }
   }
+  return impacts;
 }

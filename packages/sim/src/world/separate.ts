@@ -3,7 +3,7 @@
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { CAR_TEMPLATES, carEntryPoints, expandCars, type CarPose, type Side } from './cars';
-import { Terrain, terrainAt, type WorldMap } from './map';
+import { isSolid, terrainAt, type WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
 
 export interface Vec2 { x: number; y: number }
@@ -88,7 +88,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     },
     walkable(state, p) {
       const f = parseCarFrame(p.frame);
-      if (!f) return terrainAt(map, p.x, p.y) !== Terrain.Blocked;
+      if (!f) return !isSolid(terrainAt(map, p.x, p.y));
       return carCellWalkable(templateOf(state, f.trainId, f.car), p.x, p.y);
     },
     enterTrain(state, player, entry) {
