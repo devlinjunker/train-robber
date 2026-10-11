@@ -121,6 +121,7 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
 
   // Routes: one polyline (or polygon, which is closed) per route.
   let minRadiusTiles = Infinity;
+  const trains: { type: string; route: string; d: number }[] = [];
   const routes: Route[] = (layer('track', 'objectgroup', true)!.objects ?? []).map((o) => {
     const line = o.polyline ?? o.polygon;
     const id = String(prop(o.properties, 'route') ?? o.name ?? '') || fail(`track object ${o.id}: set a "route" property`);
@@ -157,6 +158,13 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
       const angle = Math.acos(Math.min(1, Math.max(-1, a.x * b.x + a.y * b.y)));
       if (angle > 1e-9) minRadiusTiles = Math.min(minRadiusTiles, rs.spacing / angle);
     }
+    // Optional `trains` (how many) and `trainType` (default blank): spaced evenly round the route.
+    const count = prop(o.properties, 'trains');
+    if (count !== undefined) {
+      if (!Number.isInteger(count) || (count as number) < 0) fail(`route ${id}: trains must be a whole number`);
+      const type = String(prop(o.properties, 'trainType') ?? 'blank');
+      for (let k = 0; k < (count as number); k++) trains.push({ type, route: id, d: r4((rs.length * k) / (count as number)) });
+    }
     return {
       id, closed, smoothing: 'catmull-rom' as const,
       points: points.map((p) => ({ x: r4(p.x), y: r4(p.y) })),
@@ -187,6 +195,7 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
     zones,
     routes,
     speedZones,
+    ...(trains.length ? { trains } : {}),
     markers,
   });
   if (decodeZones(map).some((z, i) => z !== grid[i])) fail('zone encoding does not round-trip');

@@ -1,0 +1,209 @@
+{
+ "compressionlevel": -1,
+ "height": 200,
+ "infinite": false,
+ "layers": [
+  {
+   "compression": "zlib",
+   "data": "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",
+   "encoding": "base64",
+   "height": 200,
+   "id": 1,
+   "name": "terrain",
+   "opacity": 1,
+   "type": "tilelayer",
+   "visible": true,
+   "width": 400,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 2,
+   "name": "track",
+   "objects": [
+    {
+     "height": 0,
+     "id": 10,
+     "name": "main",
+     "polyline": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1767.85,
+       "y": 0.0
+      },
+      {
+       "x": 3535.69,
+       "y": 0.0
+      },
+      {
+       "x": 5303.54,
+       "y": 0.0
+      },
+      {
+       "x": 7071.38,
+       "y": 0.0
+      },
+      {
+       "x": 7471.38,
+       "y": 107.18
+      },
+      {
+       "x": 7764.2,
+       "y": 400.0
+      },
+      {
+       "x": 7871.38,
+       "y": 800.0
+      },
+      {
+       "x": 7764.2,
+       "y": 1200.0
+      },
+      {
+       "x": 7471.38,
+       "y": 1492.82
+      },
+      {
+       "x": 6640.0,
+       "y": 1972.82
+      },
+      {
+       "x": 6230.05,
+       "y": 2382.77
+      },
+      {
+       "x": 6080.0,
+       "y": 2942.77
+      },
+      {
+       "x": 5908.51,
+       "y": 3582.77
+      },
+      {
+       "x": 5440.0,
+       "y": 4051.28
+      },
+      {
+       "x": 4800.0,
+       "y": 4222.77
+      },
+      {
+       "x": 3200.0,
+       "y": 4222.77
+      },
+      {
+       "x": 1600.0,
+       "y": 4222.77
+      },
+      {
+       "x": 0.0,
+       "y": 4222.77
+      },
+      {
+       "x": -720.0,
+       "y": 4029.85
+      },
+      {
+       "x": -1247.08,
+       "y": 3502.77
+      },
+      {
+       "x": -1440.0,
+       "y": 2782.77
+      },
+      {
+       "x": -1440.0,
+       "y": 1440.0
+      },
+      {
+       "x": -1247.08,
+       "y": 720.0
+      },
+      {
+       "x": -720.0,
+       "y": 192.92
+      }
+     ],
+     "properties": [
+      {
+       "name": "closed",
+       "type": "bool",
+       "value": true
+      },
+      {
+       "name": "route",
+       "type": "string",
+       "value": "main"
+      }
+     ],
+     "rotation": 0,
+     "type": "",
+     "visible": true,
+     "width": 0,
+     "x": 2880,
+     "y": 576
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 3,
+   "name": "speedZones",
+   "objects": [],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 4,
+   "name": "markers",
+   "objects": [
+    {
+     "id": 2,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "playerSpawn",
+     "point": true,
+     "x": 4800,
+     "y": 6016
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
+  }
+ ],
+ "nextlayerid": 5,
+ "nextobjectid": 20,
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "tiledversion": "1.10.2",
+ "tileheight": 32,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "zones.tsj"
+  }
+ ],
+ "tilewidth": 32,
+ "type": "map",
+ "version": "1.10",
+ "width": 400
+}
