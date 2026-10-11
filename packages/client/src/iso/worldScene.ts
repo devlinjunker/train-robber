@@ -1,11 +1,14 @@
-// The isometric world: terrain and track, cars drawn as flat-shaded boxes in two-tile slices
-// that depth-sort one by one against the horse, entry markers and the debug overlays.
+// The isometric world: terrain and track, boulders and cars drawn with height that depth-sort
+// against the horse (cars in two-tile slices, boulders in strips), the mud cue, entry markers and
+// the debug overlays.
 import { Container, Graphics } from 'pixi.js';
 import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
+import { createRocks } from './rocks';
+import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
 import { flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR } from '../cues';
@@ -20,7 +23,7 @@ const CAR_HEIGHT = 2.4;
 /** The car you are in is drawn open: no roof, low walls and a plank floor, so you show inside it. */
 const OPEN_WALL_HEIGHT = 0.9, OPEN_WALL_THICK = 0.3, FLOOR_COLOUR = 0x846446;
 const PLAYER_COLOUR = 0x6bd3ff;
-const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff;
+const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
 /**
  * When a car hides the horse and rider (or you aboard), a round hole is cut through the cars in
  * front of them, so they and the ground around them show through (Devlin, 2026-10-10). Radius in
@@ -48,6 +51,12 @@ export interface WorldSceneInput {
   timeSec: number;
   /** The car the player is aboard, drawn open, and the player's world position in it. */
   aboard: { trainId: string; index: number; x: number; y: number } | null;
+  /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
+  horseSpeed: number;
+  inMud: boolean;
+  /** The band of the screen in view, top and bottom in unzoomed iso y pixels, for hiding far boulders. */
+  viewTop: number;
+  viewBottom: number;
 }
 
 export interface WorldScene {
@@ -90,13 +99,19 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
-function drawHorse(g: Graphics, h: ActorPose, flash: number | null): void {
+/** Mix two colours, `t` of the way from a to b. */
+const mix = (a: number, b: number, t: number) => {
+  const ch = (s: number) => Math.round(((a >> s) & 0xff) * (1 - t) + ((b >> s) & 0xff) * t);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+};
+
+function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
   const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
   const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
   const c = flash ?? HORSE_COLOUR;
-  drawBox(g, legs, shade(c, 0.7));
+  drawBox(g, legs, flash ?? mix(shade(c, 0.7), MUDDY_LEGS, muddiness));
   drawBox(g, body, c);
   drawBox(g, head, c);
   drawBox(g, rider, flash ?? RIDER_COLOUR);
@@ -116,7 +131,10 @@ export function createWorldScene(map: MapDef): WorldScene {
   zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  root.addChild(terrain, mapOverlay, shadows, floors, objects, zoneOverlay, markers);
+  const rocks = createRocks(map);
+  const mud = createMud();
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers);
+  objects.addChild(...rocks.strips, mud.clods);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -181,6 +199,8 @@ export function createWorldScene(map: MapDef): WorldScene {
     update(input) {
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
+      rocks.cull(input.viewTop, input.viewBottom);
+      mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec });
       shadows.clear();
       floors.clear();
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
@@ -255,7 +275,7 @@ export function createWorldScene(map: MapDef): WorldScene {
         const flash = input.hitAge !== null && flashOn(input.hitAge) ? HIT_COLOUR
           : input.stunned && flashOn(input.timeSec) ? 0xffffff : null;
         groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
-        drawHorse(horseG, h, flash);
+        drawHorse(horseG, h, flash, mud.muddiness);
         horseG.zIndex = depthOf(h.x, h.y);
       }
 

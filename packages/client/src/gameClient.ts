@@ -241,6 +241,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const camera: Camera = { x: cam.x, y: cam.y, zoom: shownZoom, width: W, height: H };
 
       const iso = mode === 'iso';
+      const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
@@ -250,6 +251,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+          horseSpeed: horseState.speed, inMud,
+          viewTop: isoY(cam.x, cam.y) - H / 2 / shownZoom, viewBottom: isoY(cam.x, cam.y) + H / 2 / shownZoom,
         });
         isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
@@ -286,6 +289,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       overlay.update({
         width: W, height: H,
         horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
+        mud: horse && inMud ? project(horse.x, horse.y, 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,

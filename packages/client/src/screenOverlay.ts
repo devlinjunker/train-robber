@@ -40,6 +40,8 @@ export interface ScreenOverlayInput {
   toleranceTilesPerSec: number;
   showSpeed: boolean;
   trains: readonly TrainPointer[];
+  /** The horse's feet on screen while it is in mud, for the MUD tag under it, else null. */
+  mud?: { x: number; y: number } | null;
   /** The player's screen position aboard (their head), or null while mounted. */
   player: { x: number; y: number } | null;
   /** The last landing and how long ago it was; the banner shows for LANDING_CUE_SEC. */
@@ -56,6 +58,9 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const meter = new Graphics();
   const speed = new Text({ text: '', style: style(18) });
   speed.anchor.set(0.5, 0);
+  // A small tag under the horse while mud slows it.
+  const mudTag = new Text({ text: 'MUD: slowed', style: style(14, 0xd9a86a) });
+  mudTag.anchor.set(0.5, 0);
   const arrows = new Graphics();
   const labels: Text[] = [];
   // The landing banner over the player: big green PERFECT or smaller amber GOOD, then the stumble bar.
@@ -64,13 +69,15 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const bannerDetail = new Text({ text: '', style: style(16) });
   bannerDetail.anchor.set(0.5, 0);
   const stumbleBar = new Graphics();
-  root.addChild(arrows, meter, speed, stumbleBar, banner, bannerDetail);
+  root.addChild(arrows, meter, speed, mudTag, stumbleBar, banner, bannerDetail);
 
   return {
     root,
     update(input) {
       meter.clear();
       speed.visible = false;
+      mudTag.visible = !!input.mud;
+      if (input.mud) mudTag.position.set(input.mud.x, input.mud.y + 18);
       if (input.horse) {
         const w = Math.min(METER_W, input.width * 0.9);
         const x0 = input.horse.x - w / 2, y0 = input.horse.y - METER_ABOVE - METER_H;

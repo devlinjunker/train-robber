@@ -1,18 +1,21 @@
 // The ground, terrain zones and track of a map, drawn once in iso pixels. Grass tufts and a
-// faint grid give the eye something to measure speed against on open ground.
+// faint grid give the eye something to measure speed against on open ground; mud gets darker
+// puddles with a wet glint so it reads as mud, not sand. Boulders on blocked ground are in rocks.ts.
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
 import { isoPoly, shade } from './draw';
-import { isoX, isoY } from '../projection';
+import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
 export const GROUND = 0x6d8a4a;
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: 0xa88a4a, blocked: 0x7a756c, water: 0x3f78b8 };
+export const MUD_COLOUR = 0x7a5a36;
+/** Blocked ground is gravel under the boulders. */
+const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x3f78b8 };
 const GRID_EVERY = 5;
 /** Half the rail gauge and half a tie's length, in tiles. */
 const RAIL_HALF = 0.75, TIE_HALF = 1.2;
 
 /** A small deterministic hash for scattering tufts; the client may use any maths, the sim may not. */
-const hash = (x: number, y: number) => {
+export const hash = (x: number, y: number) => {
   let h = (x * 374761393 + y * 668265263) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
@@ -56,6 +59,22 @@ export function drawTerrain(map: MapDef): Container {
   for (let y = 0; y <= rows; y += GRID_EVERY) tufts.moveTo(isoX(0, y), isoY(0, y)).lineTo(isoX(cols, y), isoY(cols, y));
   tufts.stroke({ width: 1, color: 0x000000, alpha: 0.06 });
 
+  // Mud: a dark puddle on some tiles, and a pale glint on a few of those.
+  const puddles = new Graphics(), glints = new Graphics();
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (map.zoneLegend[grid[y * cols + x]!] !== 'slow') continue;
+      const r = hash(x + 911, y + 37);
+      if (r > 0.22) continue;
+      const cx = x + 0.2 + 0.6 * hash(y, x + 5), cy = y + 0.2 + 0.6 * r;
+      const s = 0.25 + 0.3 * hash(x + 3, y + 101);
+      puddles.ellipse(isoX(cx, cy), isoY(cx, cy), s * TILE_W * 0.7, s * TILE_H * 0.7);
+      if (r < 0.07) glints.ellipse(isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
+    }
+  }
+  puddles.fill(shade(MUD_COLOUR, 0.8));
+  glints.fill({ color: 0xffffff, alpha: 0.18 });
+
   // Track: ties across the route on every other sample (about a tile apart), then two rails.
   const track = new Graphics();
   for (const r of map.routes) {
@@ -77,7 +96,7 @@ export function drawTerrain(map: MapDef): Container {
     }
   }
 
-  layer.addChild(ground, zoneG, tufts, track);
+  layer.addChild(ground, zoneG, tufts, puddles, glints, track);
   return layer;
 }
 
