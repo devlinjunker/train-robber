@@ -428,6 +428,13 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - `speedScale` is greater than 0 and at most 1.
 - Warning: the curve's radius is smaller than the longest car. Cars are rigid rectangles along the track, so a very tight bend would make them cut corners.
 
+**Junctions (segments and services).** Track that two loops share is drawn once, as segments, and each loop is a service that lists them. A map can mix this with ordinary routes.
+
+- On `track`, draw each segment as an open polyline with a string property `segment` (its id). Ends that should join go within half a tile of each other; every place where segment ends meet is a junction. Draw the first and last points of each branch roughly in line with the track it joins (within 25 degrees).
+- Add an object layer `services` with one point object per service: `route` (its id), `path` (segment ids in order, for example `main-north west-cut`), and optionally `trains`, `trainType` and `trainOffset` (tiles from the start of the path for the first train).
+- The build gives each junction one tangent (the trunk's direction where one track splits into two or two join), bakes each segment once along it, and joins each service's segments into a closed route with `legs` (segment, start, length, from and to junction). Errors name the segment or junction: a path that doesn't join up or close, an unknown or unused segment, an end that meets nothing, or a branch too far off its junction's direction.
+- In the sim a train always runs on one service. One tile before a split, with every car still on the shared segment, it picks a branch with a seeded draw from the `schedule` stream and moves onto a service through it, so its cars never jump and replays stay exact. It skips a branch that would bring it within 12 tiles of another train (`JUNCTION_GAP_TILES`) where that branch next rejoins shared track, falling back to the roomiest branch. There are no signals and every train keeps its speed (decided 2026-10-11; signals and speed changes come later).
+
 **Edit loop.** `npm run maps:watch` rebuilds every map when a `.tmj` or tileset in `maps-src` is saved, and the dev server (`npm run dev`) reloads the page. Loading `?map=alpha-flats` selects a map (the default); the game validates it with `MapDefSchema` and shows its id in the debug overlay. The map overlay (toggle with O, zoom with the mouse wheel) draws zones, speed zones, markers, route control points, the baked samples and a tangent tick every eighth sample, in the top-down debug view (V switches to it; the isometric view has its own copy of the overlay, off until O), so you can check what the converter produced against what you drew.
 
 **Notes**

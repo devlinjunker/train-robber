@@ -7,8 +7,7 @@
 import { nextInt } from '../rng';
 import type { GameState, SimConfig, TrainState } from '../types';
 import { expandCars, trainLength } from './cars';
-import type { RouteLeg, SimRoute, WorldMap } from './map';
-import { wrapDistance } from './track';
+import { wrapDistance, type RouteLeg, type SimRoute } from './track';
 
 /** A train picks its branch this far before the junction, with every car still on the shared segment. */
 export const DECIDE_BEFORE_TILES = 1;
@@ -90,9 +89,8 @@ interface Option { route: SimRoute; d: number; clearance: number }
  * Tick system 2, after trains move: a train that just reached its pick point before a split
  * moves onto a service through one of the branches, drawn from `schedule`.
  */
-export function junctionSystem(state: GameState, map: WorldMap, config: SimConfig, prevD: ReadonlyMap<string, number>): void {
-  const net = map.network;
-  if (!net) return;
+export function junctionSystem(state: GameState, routes: ReadonlyMap<string, SimRoute>, net: Network, config: SimConfig, prevD: ReadonlyMap<string, number>): void {
+  const map = { routes };
   const lengthOf = (t: TrainState) => trainLength(expandCars(config.values.trains[t.type]!.cars));
   const speedOf = (t: TrainState) => config.values.trains[t.type]!.speedTilesPerTick;
   for (const t of state.world.trains) {
@@ -135,7 +133,7 @@ export function junctionSystem(state: GameState, map: WorldMap, config: SimConfi
  * every other train committed to reach it: negative means they would come within the gap.
  */
 function clearance(
-  state: GameState, map: WorldMap, net: Network, t: TrainState, route: SimRoute, d: number,
+  state: GameState, map: { routes: ReadonlyMap<string, SimRoute> }, net: Network, t: TrainState, route: SimRoute, d: number,
   lengthOf: (t: TrainState) => number, speedOf: (t: TrainState) => number,
 ): number {
   const m = nextMerge(net, route, d);

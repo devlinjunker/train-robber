@@ -1,17 +1,8 @@
 // The parts of a built map the sim reads, as structural types: `@train-robber/config`'s
 // MapDef satisfies SimMap, so the sim does not depend on the config package.
 import { hashState } from '../hash';
-import type { TrackRoute } from './track';
+import type { SimRoute } from './track';
 import { buildNetwork, type Network } from './junctions';
-
-/** One stretch of a service: segment `segment` from distance `start`, junction `from` to junction `to`. */
-export interface RouteLeg { segment: string; start: number; length: number; from: string; to: string }
-
-export interface SimRoute extends TrackRoute {
-  id: string;
-  /** Set on services built from shared segments; a train may switch services at a junction. */
-  legs?: readonly RouteLeg[];
-}
 
 export interface SimMap {
   id: string;

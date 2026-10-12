@@ -61,7 +61,7 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
     before?.set(t.id, t.d);
     t.d = wrapDistance(route, t.d + def.speedTilesPerTick);
   }
-  if (before) junctionSystem(state, map, config, before);
+  if (before && map.network) junctionSystem(state, map.routes, map.network, config, before);
 }
 
 /** Every car of every train, placed for the current state, in train then car order. */
