@@ -6,7 +6,7 @@ import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './wo
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { autoCommitSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
 
 export interface SimOptions {
   config: SimConfig;
@@ -109,8 +109,10 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       advanceTrains(state, map, config);
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
       collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf));
-      // 3b. With `commit.auto`, an idle player commits once a train is in range.
+      // 3b. With `commit.auto`, an idle player commits once a train is in range; with
+      // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
+      autoSwitchSystem(ctx);
       // 4. Boarding, 5. movement aboard, 11. run end.
       boardingSystem(ctx, jumps);
       walkAboard(state, world, config);

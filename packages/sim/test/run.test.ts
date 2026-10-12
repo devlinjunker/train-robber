@@ -73,7 +73,7 @@ describe('commit', () => {
   });
 
   it('with commit.auto, an idle rider commits on the first tick a train is in range, with no command', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30 } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
     const sim = setup(auto);
     Object.assign(horse(sim), { x: 116, y: 10 }); // 17 tiles from the car
     const far = steps(sim, 5);
@@ -426,6 +426,25 @@ describe('switching trains', () => {
     jump(aboard, 'perfect');
     expect(rejections(step(aboard, { type: 'switchTrain', trainId: 'blank-2' }))).toEqual(['switchTrain: aboard']);
     expect(S(aboard).run!.trainId).toBe('blank-1');
+  });
+
+  it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const sim = twoTrains(auto);
+    // Midway: neither train is in commit range or clearly closer, so nothing happens.
+    expect(switched(steps(sim, 5))).toEqual([]);
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(step(sim))).toEqual(['blank-1>blank-2']);
+    expect(S(sim).run!.trainId).toBe('blank-2');
+    // Staying there does not flip back.
+    expect(switched(steps(sim, 5))).toEqual([]);
+  });
+
+  it('without commit.autoSwitch, riding closer to another train keeps the committed one', () => {
+    const sim = twoTrains();
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(steps(sim, 5))).toEqual([]);
+    expect(S(sim).run!.trainId).toBe('blank-1');
   });
 
   it('works while stunned after a failed jump', () => {

@@ -170,9 +170,11 @@ export interface SimConfig {
     world: { mode: 'separate' | 'continuous' };
     /**
      * `auto`: an idle player commits as soon as a train is in range, with no key press.
-     * `switchRangeTiles`: how close another train must be to switch the commitment to it.
+     * `switchRangeTiles`: how close another train must be to switch the commitment to it with Tab.
+     * `autoSwitch`: during a run, riding `autoSwitchMarginTiles` closer to another free train within
+     * `rangeTiles` than to the committed one switches to it, with no key press.
      */
-    commit: { rangeTiles: number; auto: boolean; switchRangeTiles: number };
+    commit: { rangeTiles: number; auto: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;

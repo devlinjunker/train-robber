@@ -91,6 +91,29 @@ export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undef
   ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
 }
 
+/**
+ * With `commit.autoSwitch` on (trainSwitch variant `auto`), a run that can switch moves to the
+ * nearest other free train once it is within `commit.rangeTiles` and `autoSwitchMarginTiles`
+ * closer than the committed train, as auto-commit does for an idle rider.
+ */
+export function autoSwitchSystem(ctx: RunCtx): void {
+  const { state, map, config } = ctx;
+  const c = config.values.commit;
+  const run = state.run;
+  if (!c.autoSwitch || !run || (run.phase !== 'approach' && run.phase !== 'boarding')) return;
+  for (const p of state.players) {
+    if (!run.players[p.id]) continue;
+    const h = horseOf(state, p);
+    const id = switchTarget(state, map, config, h);
+    if (!id) continue;
+    const d = distanceToTrain(state, map, config, id, h.x, h.y);
+    if (d <= c.rangeTiles && d + c.autoSwitchMarginTiles <= distanceToTrain(state, map, config, run.trainId, h.x, h.y)) {
+      switchTrain(ctx, p, id);
+      return;
+    }
+  }
+}
+
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */
 function remount(state: GameState, p: PlayerState, x: number, y: number, hx: number, hy: number): void {
   const h = horseOf(state, p);

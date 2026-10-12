@@ -1,6 +1,7 @@
 // Top-down debug view of the sim's trains and horse, in tile units like the map overlay. The
 // isometric view is the game's; V switches to this one to check what the sim really holds.
 import { Container, Graphics } from 'pixi.js';
+import { COMMITTED_COLOUR, flashOn, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { CAR_TEMPLATES, HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 
 const CAR_COLOURS: Record<string, number> = { engine: 0x3a3a46, 'blank-car': 0x8a4b2d };
@@ -38,6 +39,8 @@ export interface ViewInput {
   /** Flash colours: the horse red after a crash, the player amber while stumbling; null draws the usual colour. */
   horseFlash?: number | null;
   playerFlash?: number | null;
+  /** Outlines on the committed train and the one Tab would switch to. */
+  focus?: TrainFocus;
 }
 
 export interface WorldView {
@@ -54,6 +57,7 @@ export function createWorldView(): WorldView {
   layer.label = 'world-view';
   const carLayer = new Container();
   const entries = new Graphics();
+  const outlines = new Graphics();
   const zones = new Graphics();
   zones.visible = false;
   const horse = new Graphics(), player = new Graphics();
@@ -62,7 +66,7 @@ export function createWorldView(): WorldView {
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(c);
   const drawPlayer = (c: number) => player.clear().circle(0, 0, WALKER_RADIUS).fill(c).stroke({ width: 0.08, color: 0x0b2a3a });
   let horseColour = -1, playerColour = -1;
-  layer.addChild(zones, carLayer, entries, horse, player);
+  layer.addChild(zones, carLayer, outlines, entries, horse, player);
   const pool: Graphics[] = [];
 
   return {
@@ -82,6 +86,20 @@ export function createWorldView(): WorldView {
         g.rotation = Math.atan2(car.uy, car.ux);
       });
       for (const g of pool.splice(cars.length)) g.destroy();
+      // Outlines: gold on the committed train (flashing just after a switch), pale blue on the one Tab would switch to.
+      outlines.clear();
+      const f = input.focus;
+      if (f) {
+        for (const car of cars) {
+          const committed = car.trainId === f.committed;
+          if (!committed && car.trainId !== f.candidate) continue;
+          // Left of travel is (uy, -ux).
+          const lx = car.uy * car.halfWidth, ly = -car.ux * car.halfWidth, fx = car.ux * car.halfLength, fy = car.uy * car.halfLength;
+          const pts = [car.x + fx + lx, car.y + fy + ly, car.x + fx - lx, car.y + fy - ly, car.x - fx - lx, car.y - fy - ly, car.x - fx + lx, car.y - fy + ly];
+          if (committed && f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6)) outlines.poly(pts).fill({ color: COMMITTED_COLOUR, alpha: 0.5 });
+          outlines.poly(pts).stroke({ width: 0.35, color: committed ? COMMITTED_COLOUR : SWITCH_CANDIDATE_COLOUR });
+        }
+      }
       // Entry points come from the sim's shared function, as the isometric markers do.
       entries.clear();
       zones.clear();
