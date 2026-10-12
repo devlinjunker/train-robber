@@ -34,14 +34,14 @@ const ZOOM_RATE = 5;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
 /**
- * The far-side distance cue (Devlin, 2026-10-11: on the far side of the train it is not clear how
- * close you are to the car): a line on the ground from the horse to the nearest point on the side
- * of the train, drawn over the car, with the gap in tiles. `?distanceCue=far` (default) shows it
- * only while the car is between the horse and the camera in iso, `always` shows it on either side
- * and in top-down, `off` hides it.
+ * Showing how close the horse is to the run's train (Devlin, 2026-10-11/12: on the far side it was
+ * not clear how close you are to the car). `?distanceCue=world` (default) stretches the see-through
+ * hole to the car side and makes the car edge glow (see iso/worldScene). `line` is the earlier
+ * debug cue instead: a line over the car to the nearest point on its side with the gap in tiles,
+ * far side in iso only. `off` shows neither.
  */
-export type DistanceCueMode = 'far' | 'always' | 'off';
-/** The cue shows within this many tiles of the car side. */
+export type DistanceCueMode = 'world' | 'line' | 'off';
+/** The line cue shows within this many tiles of the car side. */
 export const DISTANCE_CUE_TILES = 8;
 
 
@@ -102,7 +102,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const runZoomRangeParam = params.get('runZoomRange');
   const runZoomRange = runZoomRangeParam !== null && Number(runZoomRangeParam) >= 0 ? Number(runZoomRangeParam) : RUN_ZOOM_RANGE;
   const cueParam = params.get('distanceCue');
-  const distanceCueMode: DistanceCueMode = cueParam === 'always' || cueParam === 'off' ? cueParam : 'far';
+  const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
   const b = config.values.boarding;
   const horseCfg = config.values.horse;
@@ -239,6 +239,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const frame = parseCarFrame(placement.frame);
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
       const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
+      // The nearest point on the run's train to the horse, while approaching it.
+      let gap: { car: (typeof cars)[number]; x: number; y: number; distance: number } | null = null;
+      if (horse && s.run && phase === 'approach' && distanceCueMode !== 'off') {
+        for (const car of cars) {
+          if (car.trainId !== s.run.trainId) continue;
+          const p = nearestOnCar(car, horse.x, horse.y);
+          if (!gap || p.distance < gap.distance) gap = { car, ...p };
+        }
+      }
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
       const hitAge = (now - hitAt) / 1000 < hitFlashSec ? (now - hitAt) / 1000 : null;
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
@@ -272,6 +281,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+          gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
         });
         isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
@@ -305,19 +315,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ id: t.id, sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id });
         }
       }
-      // The far-side distance cue: the gap from the horse to the nearest car of the run's train.
+      // The line cue, on the far side of the run's train in iso.
       let distanceCue: DistanceCue | null = null;
-      if (horse && s.run && phase === 'approach' && distanceCueMode !== 'off') {
-        let best: { car: (typeof cars)[number]; x: number; y: number; distance: number } | null = null;
-        for (const car of cars) {
-          if (car.trainId !== s.run.trainId) continue;
-          const p = nearestOnCar(car, horse.x, horse.y);
-          if (!best || p.distance < best.distance) best = { car, ...p };
-        }
-        if (best && best.distance <= DISTANCE_CUE_TILES
-          && (distanceCueMode === 'always' || (iso && depthOf(horse.x, horse.y) < depthOf(best.car.x, best.car.y)))) {
-          distanceCue = { from: project(horse.x, horse.y, 0), to: project(best.x, best.y, 0), distanceTiles: best.distance };
-        }
+      if (horse && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(horse.x, horse.y) < depthOf(gap.car.x, gap.car.y)) {
+        distanceCue = { from: project(horse.x, horse.y, 0), to: project(gap.x, gap.y, 0), distanceTiles: gap.distance };
       }
       overlay.update({
         width: W, height: H,
