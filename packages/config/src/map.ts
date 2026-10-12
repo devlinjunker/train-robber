@@ -25,6 +25,12 @@ export const RouteSchema = z.object({
    */
   samples: z.object({ x: nums, y: nums, s: nums, tx: nums, ty: nums, speedScale: nums }).strict()
     .refine((c) => [c.y, c.s, c.tx, c.ty, c.speedScale].every((a) => a.length === c.x.length), { message: 'sample columns differ in length' }),
+  /**
+   * A service built from shared segments: its legs in order, each starting at distance `start`
+   * and running from junction `from` to junction `to`. Every service that uses a segment bakes
+   * the same samples for it. Routes drawn as one closed polyline have no legs.
+   */
+  legs: z.array(z.object({ segment: z.string(), start: z.number().min(0), length: z.number().positive(), from: z.string(), to: z.string() }).strict()).min(1).optional(),
 }).strict();
 export type Route = z.infer<typeof RouteSchema>;
 
@@ -44,6 +50,8 @@ export const MapDefSchema = z.object({
    * starts the one blank train on the route its config names.
    */
   trains: z.array(z.object({ type: z.string(), route: z.string(), d: z.number().min(0) }).strict()).min(1).optional(),
+  /** Where segments meet, with the track's shared unit tangent there (direction of travel). */
+  junctions: z.array(z.object({ id: z.string(), x: z.number(), y: z.number(), tx: z.number(), ty: z.number() }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
 }).strict().superRefine((m, ctx) => {
@@ -53,8 +61,45 @@ export const MapDefSchema = z.object({
   m.trains?.forEach((t, i) => {
     if (!m.routes.some((r) => r.id === t.route)) ctx.addIssue({ code: 'custom', path: ['trains', i, 'route'], message: `no route ${t.route}` });
   });
+  for (const [ri, r] of m.routes.entries()) {
+    r.legs?.forEach((l, i) => {
+      for (const j of [l.from, l.to]) if (!m.junctions?.some((q) => q.id === j)) ctx.addIssue({ code: 'custom', path: ['routes', ri, 'legs', i], message: `no junction ${j}` });
+    });
+  }
 });
 export type MapDef = z.infer<typeof MapDefSchema>;
+
+/** A stretch of track to draw: one shared segment, or a whole route drawn as one polyline. */
+export interface TrackPiece {
+  id: string;
+  closed: boolean;
+  x: number[]; y: number[]; tx: number[]; ty: number[];
+}
+
+/**
+ * The map's track with every shared segment once, so track two services share is drawn
+ * once. An open piece includes the junction sample it ends on.
+ */
+export function trackPieces(m: Pick<MapDef, 'routes'>): TrackPiece[] {
+  const out: TrackPiece[] = [];
+  const seen = new Set<string>();
+  for (const r of m.routes) {
+    const { x, y, s, tx, ty } = r.samples;
+    if (!r.legs) { out.push({ id: r.id, closed: r.closed, x: [...x], y: [...y], tx: [...tx], ty: [...ty] }); continue; }
+    for (const l of r.legs) {
+      if (seen.has(l.segment)) continue;
+      seen.add(l.segment);
+      const p: TrackPiece = { id: l.segment, closed: false, x: [], y: [], tx: [], ty: [] };
+      const idx: number[] = [];
+      for (let i = 0; i < s.length; i++) if (s[i]! >= l.start - 1e-6 && s[i]! < l.start + l.length - 1e-6) idx.push(i);
+      // Close the gap to the junction: the sample that starts the next leg.
+      idx.push((idx[idx.length - 1]! + 1) % s.length);
+      for (const i of idx) { p.x.push(x[i]!); p.y.push(y[i]!); p.tx.push(tx[i]!); p.ty.push(ty[i]!); }
+      out.push(p);
+    }
+  }
+  return out;
+}
 
 /** Expand the run-length grid into one legend index per tile, row-major. */
 export function decodeZones(m: Pick<MapDef, 'size' | 'zones'>): Uint8Array {

@@ -3,6 +3,7 @@
 import type { GameState, PlayerId, SimConfig, TrainState } from '../types';
 import { expandCars, placeCars, type CarPose } from './cars';
 import type { WorldMap } from './map';
+import { junctionSystem } from './junctions';
 import { wrapDistance } from './track';
 
 /** The train type spawned at load in phase 1 when the map lists no trains. */
@@ -49,12 +50,18 @@ export function unpinTrain(state: GameState, trainId: string): void {
   if (t) t.pinnedBy = null;
 }
 
-/** Tick system 2: move every train along its route at its configured speed, looping. */
+/**
+ * Tick system 2: move every train along its route at its configured speed, looping, then let
+ * trains that reached a junction pick their branch.
+ */
 export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig): void {
+  const before = map.network ? new Map<string, number>() : null;
   for (const t of state.world.trains) {
     const { def, route } = routeOf(map, config, t);
+    before?.set(t.id, t.d);
     t.d = wrapDistance(route, t.d + def.speedTilesPerTick);
   }
+  if (before) junctionSystem(state, map, config, before);
 }
 
 /** Every car of every train, placed for the current state, in train then car order. */

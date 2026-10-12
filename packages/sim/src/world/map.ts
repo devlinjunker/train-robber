@@ -2,8 +2,16 @@
 // MapDef satisfies SimMap, so the sim does not depend on the config package.
 import { hashState } from '../hash';
 import type { TrackRoute } from './track';
+import { buildNetwork, type Network } from './junctions';
 
-export interface SimRoute extends TrackRoute { id: string }
+/** One stretch of a service: segment `segment` from distance `start`, junction `from` to junction `to`. */
+export interface RouteLeg { segment: string; start: number; length: number; from: string; to: string }
+
+export interface SimRoute extends TrackRoute {
+  id: string;
+  /** Set on services built from shared segments; a train may switch services at a junction. */
+  legs?: readonly RouteLeg[];
+}
 
 export interface SimMap {
   id: string;
@@ -37,6 +45,8 @@ export interface WorldMap {
   terrain: Uint8Array;
   routes: ReadonlyMap<string, SimRoute>;
   trains: readonly MapTrain[] | undefined;
+  /** Junctions between services; null on maps whose routes share no track. */
+  network: Network | null;
   playerSpawn: { x: number; y: number };
 }
 
@@ -44,7 +54,7 @@ export interface WorldMap {
 export function mapHash(map: SimMap): string {
   const r = (route: SimRoute) => {
     const { x, y, s, tx, ty } = route.samples;
-    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty } };
+    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty }, ...(route.legs ? { legs: route.legs } : {}) };
   };
   return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}) });
 }
@@ -66,6 +76,7 @@ export function prepareMap(map: SimMap): WorldMap {
     rows,
     terrain,
     routes: new Map(map.routes.map((r) => [r.id, r])),
+    network: buildNetwork(map.routes),
     trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
   };
