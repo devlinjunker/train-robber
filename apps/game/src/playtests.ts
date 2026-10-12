@@ -1,6 +1,7 @@
 // The Playtests page: every run recorded in this browser (plus imported ones), grouped by setup.
 import { download, listRuns, listSessions, openDb, readLog } from './logSink';
-import { issueMarkdown, setupKey, summarize, toCsv } from './playtestStats';
+import pkg from '../package.json';
+import { compareVersions, issueMarkdown, notesMarkdown, runVersion, setupKey, summarize, toCsv } from './playtestStats';
 import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
 
@@ -17,6 +18,7 @@ async function main() {
   let stored = new Set<string>();
   const filters = new Map<string, string>();
 
+  $('build').textContent = pkg.version;
   const tester = $<HTMLInputElement>('tester');
   tester.value = getTester();
   tester.addEventListener('change', () => setTester(tester.value.trim()));
@@ -31,12 +33,13 @@ async function main() {
   }
 
   function renderFilters() {
-    const keys = ['tester', 'outcome', 'gameVersion', 'mapId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
+    const keys = ['version', 'tester', 'outcome', 'mapId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
     const box = $('filters');
     box.innerHTML = '';
     for (const k of keys) {
-      const values = [...new Set(runs.map((r) => filterValue(r, k)))].sort();
-      if (values.length < 2 && !filters.get(k)) continue;
+      const values = [...new Set(runs.map((r) => filterValue(r, k)))].sort(k === 'version' ? compareVersions : undefined);
+      // Version is always offered, so notes can be exported for one version; other filters only when they would split the runs.
+      if (k !== 'version' && values.length < 2 && !filters.get(k)) continue;
       const sel = document.createElement('select');
       sel.innerHTML = `<option value="">all</option>` + values.map((v) => `<option${filters.get(k) === v ? ' selected' : ''}>${esc(v)}</option>`).join('');
       sel.addEventListener('change', () => { filters.set(k, sel.value); render(); });
@@ -46,15 +49,21 @@ async function main() {
     }
   }
 
+  /** Preset on one line, variant choices wrapped small underneath, so the column stays narrow. */
+  const setupCell = (setup: string) => {
+    const [preset, variants] = setup.split(' · ');
+    return `<td class="setup">${esc(preset)}<div class="variants">${(variants ?? '').split(' ').map((v) => `<span>${esc(v)}</span>`).join('')}</div></td>`;
+  };
+
   function render() {
     const rs = visible();
     const sum = summarize(rs);
     $('summary').innerHTML = sum.length === 0 ? `<tr><td class="empty">No runs yet. Commit to a train with E and play; each run shows up here when it ends.</td></tr>` :
       `<tr><th>Setup</th><th class="num">Runs</th><th class="num">Testers</th><th class="num">Died</th><th class="num">Cancelled</th><th class="num">Retry</th><th class="num">Abandoned</th><th class="num">Avg length</th><th class="num">Avg jumps</th><th class="num">Perfect / good / fail</th><th class="num">Got aboard</th><th class="num">Median to board</th><th class="num">Notes</th></tr>` +
-      sum.map((s) => `<tr><td>${esc(s.setup)}</td><td class="num">${s.runs}</td><td class="num">${s.testers}</td><td class="num">${s.outcomes.died}</td><td class="num">${s.outcomes.cancelled}</td><td class="num">${s.outcomes.retry}</td><td class="num">${s.outcomes.abandoned}</td><td class="num">${s.avgSec.toFixed(1)} s</td><td class="num">${s.avgAttempts.toFixed(1)}</td><td class="num">${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)}</td><td class="num">${pct(s.aboard)}</td><td class="num">${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`}</td><td class="num">${s.notes}</td></tr>`).join('');
+      sum.map((s) => `<tr>${setupCell(s.setup)}<td class="num">${s.runs}</td><td class="num">${s.testers}</td><td class="num">${s.outcomes.died}</td><td class="num">${s.outcomes.cancelled}</td><td class="num">${s.outcomes.retry}</td><td class="num">${s.outcomes.abandoned}</td><td class="num">${s.avgSec.toFixed(1)} s</td><td class="num">${s.avgAttempts.toFixed(1)}</td><td class="num">${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)}</td><td class="num">${pct(s.aboard)}</td><td class="num">${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`}</td><td class="num">${s.notes}</td></tr>`).join('');
     $('runs').innerHTML = rs.length === 0 ? '' :
-      `<tr><th>When</th><th>Tester</th><th>Setup</th><th>Seed</th><th>Map</th><th>Train</th><th>Outcome</th><th class="num">Length</th><th class="num">Jumps (P/G/F)</th><th>Furthest</th><th class="num">Damage</th><th>Notes</th><th>Logs</th></tr>` +
-      rs.map((r) => `<tr><td>${esc(new Date(r.startedAt).toLocaleString())}</td><td>${esc(r.tester || '–')}</td><td>${esc(setupKey(r))}</td><td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td>${stored.has(r.session) ? `<a class="watch" href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
+      `<tr><th>When</th><th>Version</th><th>Tester</th><th>Setup</th><th>Seed</th><th>Map</th><th>Train</th><th>Outcome</th><th class="num">Length</th><th class="num">Jumps (P/G/F)</th><th>Furthest</th><th class="num">Damage</th><th>Notes</th><th class="actions">Logs</th></tr>` +
+      rs.map((r) => `<tr><td>${esc(new Date(r.startedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(runVersion(r))}</td><td>${esc(r.tester || '–')}</td>${setupCell(setupKey(r))}<td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td class="actions">${stored.has(r.session) ? `<a class="watch" href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
   }
 
   $('runs').addEventListener('click', async (e) => {
@@ -69,6 +78,22 @@ async function main() {
   const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   $('csv').addEventListener('click', () => download(`playtests-${stamp()}.csv`, toCsv(visible()), 'text/csv'));
   $('json').addEventListener('click', () => download(`playtests-${stamp()}.json`, JSON.stringify(visible(), null, 1), 'application/json'));
+  const activeFilters = () => [...filters].filter(([, v]) => v !== ALL).map(([k, v]) => `${k.startsWith('v:') ? k.slice(2) : k} ${v}`);
+  const notesName = () => {
+    const v = filters.get('version');
+    return `playtest-notes-${v && v !== ALL ? v : 'all'}-${stamp()}.md`;
+  };
+  $('notesCopy').addEventListener('click', async () => {
+    const btn = $<HTMLButtonElement>('notesCopy');
+    try {
+      await navigator.clipboard.writeText(notesMarkdown(visible(), activeFilters()));
+      btn.textContent = 'Copied';
+    } catch {
+      btn.textContent = 'Copy failed, use Download';
+    }
+    setTimeout(() => { btn.textContent = 'Copy notes'; }, 1500);
+  });
+  $('notesDownload').addEventListener('click', () => download(notesName(), notesMarkdown(visible(), activeFilters()), 'text/markdown'));
   $('github').addEventListener('click', () => {
     const rs = visible();
     if (rs.length === 0) return;
@@ -104,6 +129,7 @@ function watchUrl(r: RunRecord): string {
 }
 
 function filterValue(r: RunRecord, key: string): string {
+  if (key === 'version') return runVersion(r);
   if (key.startsWith('v:')) return r.variants[key.slice(2)] ?? '–';
   return String(r[key as keyof RunRecord] ?? '') || '–';
 }
