@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { decodeZones, ZONES, type Route } from '@train-robber/config';
+import { decodeElevation, decodeZones, ZONES, type Route } from '@train-robber/config';
 import { trackAt } from '@train-robber/sim';
 import { buildMap, buildMapFile, stringifyMap, SAMPLE_SPACING_TILES } from '../src/maps/build';
 import { MAPS_OUT, MAPS_SRC } from '../src/maps/cli';
@@ -103,7 +103,8 @@ describe('alpha-flats stadium route', () => {
 // Small synthetic maps for the converter's rules.
 const T = 16;
 function tmj(opts: { cols?: number; rows?: number; tiles?: (x: number, y: number) => number; encode?: 'array' | 'zlib';
-  route?: { x: number; y: number }[]; closed?: boolean; markers?: Record<string, [number, number]>; speedZones?: object[] } = {}) {
+  route?: { x: number; y: number }[]; closed?: boolean; markers?: Record<string, [number, number]>; speedZones?: object[];
+  elevation?: (x: number, y: number) => number } = {}) {
   const cols = opts.cols ?? 20, rows = opts.rows ?? 10;
   const data = Array.from({ length: cols * rows }, (_, i) => opts.tiles?.(i % cols, Math.floor(i / cols)) ?? 0);
   const encoded = opts.encode === 'zlib'
@@ -113,9 +114,15 @@ function tmj(opts: { cols?: number; rows?: number; tiles?: (x: number, y: number
   const markers = opts.markers ?? { playerSpawn: [1, 8] };
   return JSON.stringify({
     orientation: 'orthogonal', infinite: false, width: cols, height: rows, tilewidth: T, tileheight: T,
-    tilesets: [{ firstgid: 1, name: 'zones', tiles: ZONES.map((z, id) => ({ id, properties: [{ name: 'zone', type: 'string', value: z }] })) }],
+    tilesets: [
+      { firstgid: 1, name: 'zones', tiles: ZONES.map((z, id) => ({ id, properties: [{ name: 'zone', type: 'string', value: z }] })) },
+      // Elevation tiles: level n is gid 5 + n.
+      { firstgid: 5, name: 'elevation', tiles: Array.from({ length: 9 }, (_, id) => ({ id, properties: [{ name: 'elevation', type: 'int', value: id }] })) },
+    ],
     layers: [
       { name: 'terrain', type: 'tilelayer', width: cols, height: rows, ...encoded },
+      ...(opts.elevation ? [{ name: 'elevation', type: 'tilelayer', width: cols, height: rows,
+        data: Array.from({ length: cols * rows }, (_, i) => { const l = opts.elevation!(i % cols, Math.floor(i / cols)); return l ? 5 + l : 0; }) }] : []),
       { name: 'track', type: 'objectgroup', objects: [{ id: 1, name: 'main', x: 0, y: 0, polyline: route.map((p) => ({ x: p.x * T, y: p.y * T })), properties: [{ name: 'closed', type: 'bool', value: opts.closed ?? false }] }] },
       { name: 'speedZones', type: 'objectgroup', objects: opts.speedZones ?? [] },
       { name: 'markers', type: 'objectgroup', objects: Object.entries(markers).map(([name, [x, y]], i) => ({ id: 10 + i, name, point: true, x: x * T, y: y * T })) },
@@ -155,5 +162,30 @@ describe('build-maps rules', () => {
     expect(() => build(tmj({ markers: {} }))).toThrow(/missing marker "playerSpawn"/);
     expect(() => build(tmj({ tiles: (x, y) => (x === 1 && y === 8 ? 3 : 0) }))).toThrow(/playerSpawn is on a blocked tile/);
     expect(() => build(tmj({ route: [{ x: 2, y: 2 }, { x: 30, y: 2 }] }))).toThrow(/outside the map/);
+  });
+
+  it('leaves elevation out without an elevation layer, and round-trips it with one', () => {
+    expect(build(tmj()).map.elevation).toBeUndefined();
+    const lift = (x: number, y: number) => (y >= 7 && x >= 4 && x <= 8 ? 1 : 0);
+    const level = decodeElevation(build(tmj({ elevation: lift })).map);
+    expect(level[7 * 20 + 4]).toBe(1);
+    expect(level[6 * 20 + 4]).toBe(0);
+  });
+
+  it('blocks the top of a cliff (two or more levels) but not a one-level slope', () => {
+    // A 4 x 3 block at level 3 (x 14-17, y 6-8) and a level-1 rise at x 3-6, y 7-9.
+    const elevation = (x: number, y: number) => (x >= 14 && x <= 17 && y >= 6 && y <= 8 ? 3 : x >= 3 && x <= 6 && y >= 7 ? 1 : 0);
+    const grid = decodeZones(build(tmj({ elevation })).map);
+    const zone = (x: number, y: number) => ZONES[grid[y * 20 + x]!];
+    for (const [x, y] of [[14, 6], [17, 6], [14, 7], [17, 7], [15, 8], [16, 6]] as const) expect(zone(x, y)).toBe('blocked');
+    expect(zone(15, 7)).toBe('open');
+    expect(zone(16, 7)).toBe('open');
+    expect(zone(13, 7)).toBe('open');
+    expect(zone(3, 7)).toBe('open');
+  });
+
+  it('keeps the track two tiles clear of raised ground', () => {
+    expect(() => build(tmj({ elevation: (x, y) => (x === 10 && y === 4 ? 1 : 0) }))).toThrow(/keep the track on level 0/);
+    expect(() => build(tmj({ elevation: (x, y) => (x === 10 && y === 7 ? 1 : 0) }))).not.toThrow();
   });
 });

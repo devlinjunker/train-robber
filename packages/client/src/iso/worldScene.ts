@@ -8,6 +8,7 @@ import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
 import { createRocks } from './rocks';
+import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
@@ -63,6 +64,8 @@ export interface WorldScene {
   root: Container;
   mapOverlay: Container;
   zoneOverlay: Graphics;
+  /** Ground height under a world point, in tiles of z (0 on maps without elevation). */
+  groundZ(x: number, y: number): number;
   update(input: WorldSceneInput): void;
 }
 
@@ -105,11 +108,12 @@ const mix = (a: number, b: number, t: number) => {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 };
 
-function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number): void {
+function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
   const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
   const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
+  for (const b of [body, head, legs, rider]) { b.z0 += gz; b.z1 += gz; }
   const c = flash ?? HORSE_COLOUR;
   drawBox(g, legs, flash ?? mix(shade(c, 0.7), MUDDY_LEGS, muddiness));
   drawBox(g, body, c);
@@ -131,10 +135,12 @@ export function createWorldScene(map: MapDef): WorldScene {
   zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  const rocks = createRocks(map);
+  const field = createHeightField(map);
+  const ground = createHeightLayer(map, field);
+  const rocks = createRocks(map, field);
   const mud = createMud();
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers);
-  objects.addChild(...rocks.strips, mud.clods);
+  objects.addChild(...ground.strips, ...rocks.strips, mud.clods);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -196,11 +202,14 @@ export function createWorldScene(map: MapDef): WorldScene {
 
   return {
     root, mapOverlay, zoneOverlay,
+    groundZ: field.groundZ,
     update(input) {
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
       rocks.cull(input.viewTop, input.viewBottom);
-      mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec });
+      ground.cull(input.viewTop, input.viewBottom);
+      const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
+      mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
       floors.clear();
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
@@ -274,8 +283,9 @@ export function createWorldScene(map: MapDef): WorldScene {
         // A crash flashes red, a failed jump's stun white.
         const flash = input.hitAge !== null && flashOn(input.hitAge) ? HIT_COLOUR
           : input.stunned && flashOn(input.timeSec) ? 0xffffff : null;
-        groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
-        drawHorse(horseG, h, flash, mud.muddiness);
+        // The shadow goes with the horse, so raised ground drawn in front of the shadows layer cannot hide it.
+        groundEllipse(horseG, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9, horseZ).fill({ color: 0x000000, alpha: 0.25 });
+        drawHorse(horseG, h, flash, mud.muddiness, horseZ);
         horseG.zIndex = depthOf(h.x, h.y);
       }
 

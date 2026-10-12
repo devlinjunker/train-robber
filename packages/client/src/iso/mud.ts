@@ -14,7 +14,7 @@ const MAX_CLODS = 120, PRINT_SEC = 5, PRINT_EVERY_TILES = 0.9;
 /** Legs coat in this many seconds in mud and dry in DRY_SEC out of it. */
 const COAT_SEC = 0.6, DRY_SEC = 4;
 
-interface Clod { x: number; y: number; z: number; vx: number; vy: number; vz: number; r: number }
+interface Clod { x: number; y: number; z: number; floor: number; vx: number; vy: number; vz: number; r: number }
 interface Print { x: number; y: number; bornSec: number }
 
 export interface MudInput {
@@ -23,6 +23,8 @@ export interface MudInput {
   speed: number;
   inMud: boolean;
   timeSec: number;
+  /** Ground height under the horse, in tiles of z: clods start there and prints are only drawn on flat ground. */
+  groundZ?: number;
 }
 
 export interface MudEffect {
@@ -44,7 +46,7 @@ export function createMud(): MudEffect {
   let lastSec: number | null = null, owed = 0, travelled = 0, leftFoot = false;
   const fx: MudEffect = {
     prints, clods, muddiness: 0,
-    update({ horse, speed, inMud, timeSec }) {
+    update({ horse, speed, inMud, timeSec, groundZ = 0 }) {
       const dt = lastSec === null ? 0 : Math.min(0.1, Math.max(0, timeSec - lastSec));
       lastSec = timeSec;
       const kicking = horse !== null && inMud && speed > 0.3;
@@ -58,7 +60,7 @@ export function createMud(): MudEffect {
           flying.push({
             x: horse.x - horse.hx * back - horse.hy * 0.18 * side,
             y: horse.y - horse.hy * back + horse.hx * 0.18 * side,
-            z: 0.15,
+            z: groundZ + 0.15, floor: groundZ,
             vx: -horse.hx * speed * (0.25 + 0.3 * rand()) + (rand() - 0.5) * 1.6,
             vy: -horse.hy * speed * (0.25 + 0.3 * rand()) + (rand() - 0.5) * 1.6,
             vz: 2.5 + 2.5 * rand(),
@@ -71,7 +73,7 @@ export function createMud(): MudEffect {
           travelled -= PRINT_EVERY_TILES;
           leftFoot = !leftFoot;
           const s = leftFoot ? 0.2 : -0.2;
-          trail.push({ x: horse.x - horse.hy * s, y: horse.y + horse.hx * s, bornSec: timeSec });
+          if (groundZ < 0.01) trail.push({ x: horse.x - horse.hy * s, y: horse.y + horse.hx * s, bornSec: timeSec });
         }
       } else owed = 0;
 
@@ -80,7 +82,7 @@ export function createMud(): MudEffect {
       for (let i = flying.length - 1; i >= 0; i--) {
         const c = flying[i]!;
         c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt; c.vz -= GRAVITY * dt;
-        if (c.z <= 0) { flying.splice(i, 1); continue; }
+        if (c.z <= c.floor) { flying.splice(i, 1); continue; }
         clods.circle(isoX(c.x, c.y), isoY(c.x, c.y, c.z), c.r * TILE_H);
         depth = Math.max(depth, depthOf(c.x, c.y));
       }

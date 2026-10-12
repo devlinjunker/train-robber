@@ -288,8 +288,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       }
       overlay.update({
         width: W, height: H,
-        horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
-        mud: horse && inMud ? project(horse.x, horse.y, 0) : null,
+        horse: horse ? project(horse.x, horse.y, iso ? 2.2 + isoWorld.groundZ(horse.x, horse.y) : 0) : null,
+        mud: horse && inMud ? project(horse.x, horse.y, iso ? isoWorld.groundZ(horse.x, horse.y) : 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,

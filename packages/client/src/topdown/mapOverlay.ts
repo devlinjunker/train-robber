@@ -2,7 +2,7 @@
 // y down, as in Tiled), for checking the build against the Tiled file. The top-down debug
 // view (V) draws it; the isometric view has its own overlay in iso/terrain.ts.
 import { Container, Graphics } from 'pixi.js';
-import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
+import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-robber/config';
 
 const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: 0xc9a227, blocked: 0x6b6b6b, water: 0x2f6fd6 };
 /** Draw a tangent tick on every Nth sample (samples are about half a tile apart). */
@@ -28,6 +28,17 @@ export function drawMapOverlay(map: MapDef): Container {
       if (colour !== undefined) zones.rect(x, y, end - x, 1).fill({ color: colour, alpha: 0.55 });
       x = end;
     }
+  }
+  // Elevation: lighter the higher the ground, with a dark line along every cliff (two or more levels).
+  if (map.elevation) {
+    const level = decodeElevation(map);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+      const l = level[y * cols + x]!;
+      if (l > 0) zones.rect(x, y, 1, 1).fill({ color: 0xffffff, alpha: 0.05 * l });
+      if (x + 1 < cols && Math.abs(l - level[y * cols + x + 1]!) >= 2) zones.moveTo(x + 1, y).lineTo(x + 1, y + 1);
+      if (y + 1 < rows && Math.abs(l - level[(y + 1) * cols + x]!) >= 2) zones.moveTo(x, y + 1).lineTo(x + 1, y + 1);
+    }
+    zones.stroke({ width: 0.2, color: 0x3a2a18 });
   }
   for (const s of map.speedZones) zones.rect(s.x, s.y, s.w, s.h).stroke({ width: 0.2, color: 0xff7a1a });
 
