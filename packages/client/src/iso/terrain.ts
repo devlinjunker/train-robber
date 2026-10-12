@@ -7,12 +7,21 @@ import { isoPoly, shade } from './draw';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
 export const GROUND = 0x6d8a4a;
+const EDGE_COLOUR = 0x2e3a24;
 export const MUD_COLOUR = 0x7a5a36;
 /** Blocked ground is gravel under the boulders. */
 const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x3f78b8 };
 const GRID_EVERY = 5;
 /** Half the rail gauge and half a tie's length, in tiles. */
 const RAIL_HALF = 0.75, TIE_HALF = 1.2;
+
+/**
+ * The rock ring that keeps riders on the map. Devlin found boulders along it tacky (2026-10-12),
+ * so the edge draws as a dark border instead (drawn below) and gets no boulders.
+ */
+export const EDGE_TILES = 2;
+export const onEdge = (map: MapDef, x: number, y: number) =>
+  x < EDGE_TILES || y < EDGE_TILES || x >= map.size.cols - EDGE_TILES || y >= map.size.rows - EDGE_TILES;
 
 /** A small deterministic hash for scattering tufts; the client may use any maths, the sim may not. */
 export const hash = (x: number, y: number) => {
@@ -43,6 +52,15 @@ export function drawTerrain(map: MapDef): Container {
       x = end;
     }
   }
+
+  // The map edge: a dark frame over the rock ring, fading inward, instead of a line of boulders.
+  const edge = new Graphics();
+  const frame = (inset: number, width: number) => isoPoly([
+    [inset, inset], [cols - inset, inset], [cols - inset, rows - inset], [inset, rows - inset], [inset, inset],
+    [inset + width, inset + width], [inset + width, rows - inset - width], [cols - inset - width, rows - inset - width], [cols - inset - width, inset + width], [inset + width, inset + width],
+  ]);
+  edge.poly(frame(0, EDGE_TILES)).fill(EDGE_COLOUR);
+  for (let i = 0; i < 3; i++) edge.poly(frame(EDGE_TILES + i, 1)).fill({ color: EDGE_COLOUR, alpha: 0.45 - i * 0.15 });
 
   // Tufts on open ground, and a faint grid every few tiles.
   const tufts = new Graphics();
@@ -96,7 +114,7 @@ export function drawTerrain(map: MapDef): Container {
     }
   }
 
-  layer.addChild(ground, zoneG, tufts, puddles, glints, track);
+  layer.addChild(ground, zoneG, edge, tufts, puddles, glints, track);
   return layer;
 }
 

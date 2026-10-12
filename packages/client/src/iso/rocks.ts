@@ -7,7 +7,7 @@ import { Graphics } from 'pixi.js';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import { facesViewer, isoPoly, shade } from './draw';
 import { depthOf, TILE_H, Z_PX } from '../projection';
-import { hash } from './terrain';
+import { hash, onEdge } from './terrain';
 
 export const ROCK_COLOUR = 0x8b857a;
 /** Tallest boulder, in tiles: the strip culling margin. */
@@ -34,7 +34,7 @@ export function placeBoulders(map: MapDef): Boulder[] {
       let n = 0, sx = 0, sy = 0;
       for (let y = cy; y < Math.min(rows, cy + CELL); y++) {
         for (let x = cx; x < Math.min(cols, cx + CELL); x++) {
-          if (map.zoneLegend[grid[y * cols + x]!] !== 'blocked') continue;
+          if (map.zoneLegend[grid[y * cols + x]!] !== 'blocked' || onEdge(map, x, y)) continue;
           n++; sx += x + 0.5; sy += y + 0.5;
         }
       }
