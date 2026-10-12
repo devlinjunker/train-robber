@@ -13,7 +13,8 @@ describe('golden replay', () => {
   it('the checked-in replay reproduces every logged hash', () => {
     const r = replayText(readFileSync(GOLDEN, 'utf8'));
     expect(r.mismatches).toEqual([]);
-    expect(r.warnings).toEqual([]);
+    // The fixture's game version is pinned (GOLDEN_GAME_VERSION), so only that warning is expected.
+    expect(r.warnings.filter((w) => !w.startsWith('game version differs'))).toEqual([]);
     expect(r.checked).toBeGreaterThan(1);
     expect(r.actualHash).toBe(r.expectedHash);
     expect(r.ok).toBe(true);
