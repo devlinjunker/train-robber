@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.0",
+  "version": "0.2.0-train-damage",
   "private": true,
   "type": "module",
   "scripts": {

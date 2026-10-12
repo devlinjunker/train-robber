@@ -4,5 +4,5 @@
   "group": "collisionDamage",
   "label": "Crashes only stop you",
   "question": "Should running into the train or a rock cost health?",
-  "patch": { "collision": { "damageFraction": 0, "scrapeDamageFraction": 0 } }
+  "patch": { "collision": { "damageFraction": 0, "obstacleDamageFraction": 0, "scrapeDamageFraction": 0 } }
 }
