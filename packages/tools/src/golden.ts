@@ -4,7 +4,10 @@ import {
   boardingCheck, carPosesOf, commandLogWriter, commitTarget, createSim, mapHash, restoreSim, routeOf, trackAt, trainSpeed,
   type BoardingResult, type Command, type GameState, type InputFrame, type RunHeader, type Sim, type SimConfig, type SimMap,
 } from '@train-robber/sim';
-import { DEFAULT_MAP, gameVersion, loadConfig, loadMapDef } from './content';
+import { DEFAULT_MAP, loadConfig, loadMapDef } from './content';
+
+/** Pinned so a version bump at each milestone does not re-record the fixture. */
+export const GOLDEN_GAME_VERSION = '0.0.0';
 
 const TICKS = 2400;
 
@@ -62,7 +65,7 @@ export function recordGolden(): string {
   const map = loadMapDef(DEFAULT_MAP);
   const lines: string[] = [];
   const header: RunHeader = {
-    gameVersion: gameVersion(), configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
+    gameVersion: GOLDEN_GAME_VERSION, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
     seed: 'golden-1', mapId: map.id, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz, playerIds: [1],
     persistentAtStart: { wantedLevel: 1, bank: 120, lifetimeEarned: 450 }, startedAt: '2026-10-09T00:00:00Z',
   };
