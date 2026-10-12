@@ -89,19 +89,23 @@ export function clampZoom(zoom: number): number {
 }
 
 /**
- * During a run the zoom keys and wheel only move between the run zoom and `zoomIn` times it
- * (Devlin, 2026-10-11: "a little bit more" zoom while committed, not the whole riding range).
- * Two key presses go from one end to the other.
+ * During a run the zoom keys and wheel stay within this much zoom either side of the run zoom
+ * (Devlin, 2026-10-11: the 0.4 band first tried, 1 to 1.4, spread around the run zoom instead), so
+ * 0.8 to 1.2 in iso and 1.55 to 1.95 top-down. Two key presses go from the run zoom to either end.
  */
-export const RUN_ZOOM_IN = 1.4;
+export const RUN_ZOOM_RANGE = 0.2;
 
-export function clampRunZoom(zoom: number, base: number, zoomIn = RUN_ZOOM_IN): number {
-  return clampZoom(Math.min(base * Math.max(1, zoomIn), Math.max(base, zoom)));
+export function clampRunZoom(zoom: number, base: number, range = RUN_ZOOM_RANGE): number {
+  const r = Math.min(base * 0.9, Math.max(0, range));
+  return clampZoom(Math.min(base + r, Math.max(base - r, zoom)));
 }
 
-export function stepRunZoom(zoom: number, dir: 1 | -1, base: number, zoomIn = RUN_ZOOM_IN): number {
-  const z = clampRunZoom(zoom * Math.sqrt(Math.max(1, zoomIn)) ** dir, base, zoomIn);
-  // Land exactly on the ends, so the readout shows 1.00x and not 0.9999x.
-  for (const end of [base, base * zoomIn]) if (Math.abs(z / end - 1) < 1e-6) return clampZoom(end);
-  return z;
+export function stepRunZoom(zoom: number, dir: 1 | -1, base: number, range = RUN_ZOOM_RANGE): number {
+  // Steps of half the range around the run zoom, so the run zoom itself is always a step.
+  const step = Math.max(0, range) / 2;
+  if (step === 0) return clampRunZoom(base, base, 0);
+  // The next step past the current zoom, so a key after the wheel lands on the nearest step that way.
+  const at = (zoom - base) / step;
+  const k = dir > 0 ? Math.floor(at + 1e-6) + 1 : Math.ceil(at - 1e-6) - 1;
+  return clampRunZoom(base + k * step, base, range);
 }

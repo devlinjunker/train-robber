@@ -69,7 +69,7 @@ function run(app: Application, c: Ctx): void {
   // The page's own view options win over the logged ones, so ?view=topdown still works here.
   const search = new URLSearchParams(header.url ?? '');
   const here = new URLSearchParams(location.search);
-  for (const k of ['view', 'runZoom', 'runZoomIn', 'distanceCue']) { const v = here.get(k); if (v !== null) search.set(k, v); }
+  for (const k of ['view', 'runZoom', 'runZoomRange', 'distanceCue']) { const v = here.get(k); if (v !== null) search.set(k, v); }
   const client = createGameClient(app, {
     sim: replay.sim, map: c.map, config, search: `?${search}`,
     replayControls: 'Space play/pause  ·  ←/→ 5 s  ·  ,/. one tick  ·  ↑/↓ speed  ·  [/] notes',

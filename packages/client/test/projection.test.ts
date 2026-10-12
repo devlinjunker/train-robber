@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampRunZoom, DEFAULT_ZOOM, isoX, RUN_ZOOM_IN, stepRunZoom, isoY, keyDirToWorld, screenDirToWorld, screenToWorld, stepZoom, worldToScreen, ZOOM_STEPS, type Camera } from '../src/projection';
+import { clampRunZoom, DEFAULT_ZOOM, isoX, RUN_ZOOM_RANGE, stepRunZoom, isoY, keyDirToWorld, screenDirToWorld, screenToWorld, stepZoom, worldToScreen, ZOOM_STEPS, type Camera } from '../src/projection';
 
 const cam: Camera = { x: 200, y: 170, zoom: 0.7, width: 1280, height: 800 };
 
@@ -65,16 +65,20 @@ describe('projection', () => {
     expect(stepZoom(ZOOM_STEPS[0]!, -1)).toBe(ZOOM_STEPS[0]);
   });
 
-  it('zooms in only a little during a run: two steps from the run zoom to RUN_ZOOM_IN times it', () => {
-    const up = stepRunZoom(1, 1, 1);
-    expect(up).toBeGreaterThan(1);
-    expect(stepRunZoom(up, 1, 1)).toBe(RUN_ZOOM_IN);
-    expect(stepRunZoom(RUN_ZOOM_IN, 1, 1)).toBe(RUN_ZOOM_IN);
-    expect(stepRunZoom(stepRunZoom(RUN_ZOOM_IN, -1, 1), -1, 1)).toBe(1);
-    expect(stepRunZoom(1, -1, 1)).toBe(1);
-    expect(clampRunZoom(5, 1.75)).toBeCloseTo(1.75 * RUN_ZOOM_IN, 9);
-    expect(clampRunZoom(0.5, 1.75)).toBe(1.75);
-    // ?runZoomIn=1 keeps the old fixed run zoom.
-    expect(stepRunZoom(1, 1, 1, 1)).toBe(1);
+  it('zooms 0.2 either side of the run zoom during a run, two key steps each way', () => {
+    expect(RUN_ZOOM_RANGE).toBe(0.2);
+    expect(stepRunZoom(1, 1, 1)).toBeCloseTo(1.1, 9);
+    expect(stepRunZoom(1.1, 1, 1)).toBeCloseTo(1.2, 9);
+    expect(stepRunZoom(1.2, 1, 1)).toBeCloseTo(1.2, 9);
+    expect(stepRunZoom(1, -1, 1)).toBeCloseTo(0.9, 9);
+    expect(stepRunZoom(0.9, -1, 1)).toBeCloseTo(0.8, 9);
+    expect(stepRunZoom(0.8, -1, 1)).toBeCloseTo(0.8, 9);
+    // After the wheel, a key lands on the next step that way.
+    expect(stepRunZoom(1.05, -1, 1)).toBeCloseTo(1, 9);
+    expect(clampRunZoom(5, 1.75)).toBeCloseTo(1.95, 9);
+    expect(clampRunZoom(0.1, 1.75)).toBeCloseTo(1.55, 9);
+    // ?runZoomRange=0 keeps the old fixed run zoom.
+    expect(stepRunZoom(1, 1, 1, 0)).toBe(1);
+    expect(clampRunZoom(2, 1, 0)).toBe(1);
   });
 });

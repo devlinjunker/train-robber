@@ -47,3 +47,12 @@ export function screenHull(car: Footprint, height: number): Pt[] {
 export function hiddenByCars(cars: readonly CarPose[], height: number, x: number, y: number, zs: readonly number[]): boolean {
   return cars.some((car) => carHides(car, height, x, y, zs));
 }
+
+/** The point on a car's ground rectangle nearest (x, y), and how far away it is (0 inside). */
+export function nearestOnCar(car: Footprint, x: number, y: number): { x: number; y: number; distance: number } {
+  const dx = x - car.x, dy = y - car.y;
+  const along = Math.max(-car.halfLength, Math.min(car.halfLength, dx * car.ux + dy * car.uy));
+  const across = Math.max(-car.halfWidth, Math.min(car.halfWidth, dx * car.uy - dy * car.ux));
+  const px = car.x + car.ux * along + car.uy * across, py = car.y + car.uy * along - car.ux * across;
+  return { x: px, y: py, distance: Math.hypot(x - px, y - py) };
+}

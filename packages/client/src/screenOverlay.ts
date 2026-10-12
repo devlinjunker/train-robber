@@ -30,13 +30,11 @@ export interface TrainPointer {
   committed: boolean;
 }
 
-/** The far-side distance cue, in screen pixels: horse to door on the ground, and the in-range point between. */
+/** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
 export interface DistanceCue {
   from: { x: number; y: number };
   to: { x: number; y: number };
-  range: { x: number; y: number };
   distanceTiles: number;
-  inRange: boolean;
 }
 
 export interface ScreenOverlayInput {
@@ -166,33 +164,26 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   };
 }
 
-const CUE_IN = 0x6bff8a, CUE_OUT = 0xffd34d;
+const CUE_COLOUR = 0xffffff;
 
 /**
- * A line on the ground from the horse to the door, drawn over the car so it shows on the far side:
- * dim from the horse to where the jump range starts, bright inside it, with a crossbar at the range
- * edge, a ring on the door and the distance in tiles beside the line. Green once in range.
+ * A line on the ground from the horse to the side of the car, drawn over the car so it shows on
+ * the far side, with a tick on the car side and the gap in tiles beside the line.
  */
 function drawDistanceCue(g: Graphics, label: Text, cue: DistanceCue | null): void {
   g.clear();
   label.visible = false;
   if (!cue) return;
-  const colour = cue.inRange ? CUE_IN : CUE_OUT;
-  const { from, to, range } = cue;
+  const { from, to } = cue;
   const dx = to.x - from.x, dy = to.y - from.y, n = Math.hypot(dx, dy) || 1;
   const px = -dy / n, py = dx / n;
-  g.moveTo(from.x, from.y).lineTo(range.x, range.y).stroke({ width: 6, color: 0x000000, alpha: 0.5 })
-    .moveTo(from.x, from.y).lineTo(range.x, range.y).stroke({ width: 2.5, color: colour, alpha: 0.6 });
-  g.moveTo(range.x, range.y).lineTo(to.x, to.y).stroke({ width: 7, color: 0x000000, alpha: 0.6 })
-    .moveTo(range.x, range.y).lineTo(to.x, to.y).stroke({ width: 4, color: CUE_IN });
-  if (!cue.inRange) {
-    g.moveTo(range.x - px * 9, range.y - py * 9).lineTo(range.x + px * 9, range.y + py * 9).stroke({ width: 6, color: 0x000000, alpha: 0.6 })
-      .moveTo(range.x - px * 9, range.y - py * 9).lineTo(range.x + px * 9, range.y + py * 9).stroke({ width: 3, color: CUE_IN });
-  }
-  g.circle(to.x, to.y, 7).stroke({ width: 5, color: 0x000000, alpha: 0.6 }).circle(to.x, to.y, 7).stroke({ width: 2.5, color: colour });
+  g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 6, color: 0x000000, alpha: 0.5 })
+    .moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 2.5, color: CUE_COLOUR, alpha: 0.85 });
+  g.moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 6, color: 0x000000, alpha: 0.6 })
+    .moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 3, color: CUE_COLOUR });
   label.text = `${cue.distanceTiles.toFixed(1)} tiles`;
-  label.style.fill = colour;
-  // Beside the middle of the line, on the side away from the screen's top, so it rarely covers the horse.
+  label.style.fill = CUE_COLOUR;
+  // Beside the middle of the line, toward the bottom of the screen, clear of the line itself.
   const side = py < 0 ? -1 : 1, gap = Math.abs(px) * label.width / 2 + Math.abs(py) * label.height / 2 + 8;
   label.position.set((from.x + to.x) / 2 + px * gap * side, (from.y + to.y) / 2 + py * gap * side);
   label.visible = true;
