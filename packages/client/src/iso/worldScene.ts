@@ -11,7 +11,7 @@ import { createRocks } from './rocks';
 import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
-import { flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR } from '../cues';
+import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 
 const PERFECT_RING_SEC = 0.8;
 
@@ -60,6 +60,8 @@ export interface WorldSceneInput {
   timeSec: number;
   /** The car the player is aboard, drawn open, and the player's world position in it. */
   aboard: { trainId: string; index: number; x: number; y: number } | null;
+  /** Roof outlines on the committed train and the one Tab would switch to. */
+  focus: TrainFocus;
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
   horseSpeed: number;
   inMud: boolean;
@@ -344,10 +346,21 @@ export function createWorldScene(map: MapDef): WorldScene {
       for (const car of input.cars) for (const ep of carEntryPoints(car)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
+      markers.clear();
+      // Roofs: the committed train flashes gold just after a commit or switch (no lasting
+      // highlight, Devlin 2026-10-13), and the one Tab would switch to is outlined pale blue. They
+      // draw over the cars, so a train behind another still shows.
+      const f = input.focus;
+      const flashing = f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6);
+      for (const car of input.cars) {
+        const roof = () => isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
+        if (car.trainId === f.committed && flashing) markers.poly(roof()).fill({ color: COMMITTED_COLOUR, alpha: 0.55 }).stroke({ width: 4, color: COMMITTED_COLOUR });
+        else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
+      }
+
       // Entry markers on the riding side of the checked train: dim out of range, a ring when in
       // range at the wrong speed, highlighted when matched. They draw over the cars so a door on
       // the far side still shows.
-      markers.clear();
       const c = input.check;
       if (input.horse && c && input.trainId) {
         for (const car of input.cars) {

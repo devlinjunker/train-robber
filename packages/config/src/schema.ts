@@ -15,7 +15,16 @@ export const GameSchema = z.object({
     events: z.array(z.string()),
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
-  commit: z.object({ rangeTiles: positive, auto: z.boolean() }).strict(),
+  commit: z.object({
+    rangeTiles: positive,
+    auto: z.boolean(),
+    /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
+    switchRangeTiles: positive,
+    /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
+    autoSwitch: z.boolean(),
+    /** Auto switching needs the other train this much closer than the committed one, so the run does not flip back and forth. */
+    autoSwitchMarginTiles: positive,
+  }).strict(),
   boarding: z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,

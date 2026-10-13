@@ -2,7 +2,7 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, carToWorld, commitTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  boardingCheck, carToWorld, commitTarget, switchTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig } from '@train-robber/config';
@@ -14,7 +14,7 @@ import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
 import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
-import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC } from './cues';
+import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
 
@@ -169,12 +169,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       return worldDirToCar(...ctx.keyDirToWorld(dx, dy), car);
     },
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
+    switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
   };
 
   // Notices from events: the last rejection, jump result or run end.
   let notice = '', noticeKind: NoticeKind = 'info', noticeUntil = 0;
   // When the last crash and landing happened (performance.now ms), for their flashes and banner.
   let hitAt = -Infinity, hitFlashSec = HIT_FLASH_SEC, landing: { result: 'perfect' | 'good'; at: number } | null = null;
+  // When the run last committed or switched trains, for that train's gold flash.
+  let switchedAt = -Infinity;
   const show = (text: string, kind: NoticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
@@ -188,6 +191,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
+    else if (e.type === 'RunStarted') switchedAt = performance.now();
+    else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };
 
@@ -198,7 +203,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    ...(config.values.commit.auto ? [] : ['E commit']), 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
   ].join('  ·  ');
 
@@ -253,6 +258,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
       const stumbling = phase === 'aboard' && !!run && run.stumbleTicks > 0;
       const perfectAge = landing?.result === 'perfect' && phase === 'aboard' ? landingAge : null;
+      // The train Tab would switch to, while the run can still switch.
+      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : null;
+      const switchAge = (now - switchedAt) / 1000;
+      const focus: TrainFocus = { committed: s.run?.trainId ?? null, candidate, switchAge: switchAge < SWITCH_FLASH_SEC ? switchAge : null };
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
         if (zoomLocked) { ridingZoom = zoom; zoom = runZoom(mode); } else zoom = ridingZoom;
@@ -281,7 +290,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
-          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
           viewTop: isoY(cam.x, cam.y) - H / 2 / shownZoom, viewBottom: isoY(cam.x, cam.y) + H / 2 / shownZoom,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
@@ -295,7 +304,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         topdownView.update(cars, {
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
-          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null,
+          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -315,7 +324,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id });
+          trains.push({ id: t.id, sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.
@@ -334,12 +343,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
       // HUD.
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
-      const prompt = phase === 'idle'
+      const basePrompt = phase === 'idle'
         ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
           : target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance' : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
+      const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
       hud.update({

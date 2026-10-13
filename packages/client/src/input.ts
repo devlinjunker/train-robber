@@ -4,18 +4,19 @@
 import type { Command, Steering } from '@train-robber/sim';
 
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
-export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry';
+export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch';
 export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'exportLogs' | 'addNote';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
-  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry',
+  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
 };
-const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry']);
-const NO_SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
+const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch']);
+// Tab would move focus off the canvas.
+const NO_SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab']);
 
 export interface InputSnapshot {
   held: ReadonlySet<string>;
@@ -65,6 +66,8 @@ export interface MapContext {
   keyDirToCar(dx: number, dy: number): [number, number] | null;
   /** The commit query's answer: the train E would commit to, if any. */
   commitTarget(): string | null;
+  /** The switch query's answer: the train Tab would move the run to, if any. */
+  switchTarget(): string | null;
 }
 
 /**
@@ -118,6 +121,11 @@ export class InputMapper {
         out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: false });
       } else if (a === 'jump') out.push({ type: 'jump' });
       else if (a === 'cancel') out.push({ type: 'cancelRun' });
+      else if (a === 'switch') {
+        // Name the train the prompt showed; with none, the sim says why.
+        const target = ctx.switchTarget();
+        out.push(target ? { type: 'switchTrain', trainId: target } : { type: 'switchTrain' });
+      }
       else out.push({ type: 'quickRetry' });
     }
     return out;

@@ -21,6 +21,11 @@ export type Command =
   | { type: 'jump' }
   /** Commit to a train; without an id, the nearest one that can be committed to. */
   | { type: 'startRun'; trainId?: string }
+  /**
+   * Tab: move the commitment to another free train during `approach` (or a failed jump's stun),
+   * keeping the run, its timer and health. Without an id, the nearest one `switchTarget` names.
+   */
+  | { type: 'switchTrain'; trainId?: string }
   /** Esc: end the run in any phase but `ended` and reset to playerSpawn. */
   | { type: 'cancelRun' }
   /** R, while `playtest.quickRetry` is on: end the run and wait on the horse behind the train. */
@@ -37,11 +42,15 @@ export type CollisionTarget = 'train' | 'obstacle';
 /** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
 export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | CommitRejection | 'disabled' | 'nothing to interact with';
+/** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
+export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
+export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with';
 
 export type SimEvent =
   | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
+  /** The run's committed train changed; the run itself, its start tick and health carry on. */
+  | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
   | { type: 'CommandRejected'; tick: number; player: PlayerId; command: Command['type']; reason: RejectReason }
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
@@ -159,8 +168,13 @@ export interface SimConfig {
     sim: { tickRateHz: number };
     player: { speedTilesPerTick: number };
     world: { mode: 'separate' | 'continuous' };
-    /** `auto`: an idle player commits as soon as a train is in range, with no key press. */
-    commit: { rangeTiles: number; auto: boolean };
+    /**
+     * `auto`: an idle player commits as soon as a train is in range, with no key press.
+     * `switchRangeTiles`: how close another train must be to switch the commitment to it with Tab.
+     * `autoSwitch`: during a run, riding `autoSwitchMarginTiles` closer to another free train within
+     * `rangeTiles` than to the committed one switches to it, with no key press.
+     */
+    commit: { rangeTiles: number; auto: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;
