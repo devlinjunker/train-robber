@@ -90,10 +90,10 @@ export function clampZoom(zoom: number): number {
 
 /**
  * During a run the zoom keys and wheel stay within this much zoom either side of the run zoom
- * (Devlin, 2026-10-11: the 0.4 band first tried, 1 to 1.4, spread around the run zoom instead), so
- * 0.8 to 1.2 in iso and 1.55 to 1.95 top-down. Two key presses go from the run zoom to either end.
+ * (Devlin, 2026-10-11: a band spread around the run zoom; 0.3 after the PR #20 playtest), so 0.7
+ * to 1.3 in iso and 1.45 to 2.05 top-down. Two key presses go from the run zoom to either end.
  */
-export const RUN_ZOOM_RANGE = 0.2;
+export const RUN_ZOOM_RANGE = 0.3;
 
 export function clampRunZoom(zoom: number, base: number, range = RUN_ZOOM_RANGE): number {
   const r = Math.min(base * 0.9, Math.max(0, range));

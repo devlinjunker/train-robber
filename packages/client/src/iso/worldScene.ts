@@ -31,10 +31,11 @@ const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
  * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
  * GAP_HOLE_TILES on the far side, the hole stretches from the horse to the car side so the ground
  * between them shows, narrowing to GAP_HOLE_END_RADIUS tiles at the car. Within GAP_GLOW_TILES on
- * either side, the bottom edge of the car nearest the horse glows, longer and brighter as it closes.
+ * either side, the bottom edge of the car nearest the horse glows, longer and brighter as it closes,
+ * and turns red within GAP_DANGER_TILES (Devlin, PR #20 playtest).
  */
-export const GAP_HOLE_TILES = 8, GAP_GLOW_TILES = 6;
-const GAP_HOLE_END_RADIUS = 1.4, GAP_GLOW_COLOUR = 0xffe9a8;
+export const GAP_HOLE_TILES = 8, GAP_GLOW_TILES = 6, GAP_DANGER_TILES = 1;
+const GAP_HOLE_END_RADIUS = 1.4, GAP_GLOW_COLOUR = 0xffe9a8, GAP_DANGER_COLOUR = 0xff4a3a;
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -79,7 +80,7 @@ function drawHole(m: Graphics, hole: { x: number; y: number; to: { x: number; y:
 }
 
 /** A warm strip on the ground along the car side nearest the horse: `t` from 0 (just in reach) to 1 (touching). */
-function drawGapGlow(g: Graphics, car: CarPose, at: { x: number; y: number }, t: number): void {
+function drawGapGlow(g: Graphics, car: CarPose, at: { x: number; y: number }, t: number, colour: number): void {
   const along = (at.x - car.x) * car.ux + (at.y - car.y) * car.uy;
   const s = (at.x - car.x) * car.uy - (at.y - car.y) * car.ux >= 0 ? 1 : -1;
   const lx = car.uy * s, ly = -car.ux * s;
@@ -87,7 +88,7 @@ function drawGapGlow(g: Graphics, car: CarPose, at: { x: number; y: number }, t:
   const a0 = Math.max(-car.halfLength, along - half), a1 = Math.min(car.halfLength, along + half);
   const strip = (out: number, alpha: number) => {
     const p = (a: number, o: number): [number, number] => [car.x + car.ux * a + lx * (car.halfWidth + o), car.y + car.uy * a + ly * (car.halfWidth + o)];
-    g.poly(isoPoly([p(a0, 0), p(a1, 0), p(a1, out), p(a0, out)], 0.01)).fill({ color: GAP_GLOW_COLOUR, alpha });
+    g.poly(isoPoly([p(a0, 0), p(a1, 0), p(a1, out), p(a0, out)], 0.01)).fill({ color: colour, alpha });
   };
   strip(0.15 + 0.4 * t, 0.1 + 0.2 * t);
   strip(0.06 + 0.1 * t, 0.25 + 0.45 * t);
@@ -240,7 +241,8 @@ export function createWorldScene(map: MapDef): WorldScene {
         hole = { x: isoX(h.x, h.y), y: isoY(h.x, h.y, 1), to: { x: isoX(gap.x, gap.y), y: isoY(gap.x, gap.y, 0) } };
       }
       const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
-      if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow);
+      const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
+      if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
@@ -268,8 +270,8 @@ export function createWorldScene(map: MapDef): WorldScene {
             const mid = (s.along0 + s.along1) / 2;
             if (a1 > a0) {
               // A faint wash up the wall, and a bright line along the bottom.
-              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.1 + 0.25 * glow, GAP_GLOW_COLOUR, 0.12 + 0.25 * glow);
-              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.05, GAP_GLOW_COLOUR, 0.4 + 0.5 * glow);
+              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.1 + 0.25 * glow, glowColour, 0.12 + 0.25 * glow);
+              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.05, glowColour, 0.4 + 0.5 * glow);
             }
           }
           if (s.first) {

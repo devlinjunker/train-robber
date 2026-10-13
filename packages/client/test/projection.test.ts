@@ -65,18 +65,18 @@ describe('projection', () => {
     expect(stepZoom(ZOOM_STEPS[0]!, -1)).toBe(ZOOM_STEPS[0]);
   });
 
-  it('zooms 0.2 either side of the run zoom during a run, two key steps each way', () => {
-    expect(RUN_ZOOM_RANGE).toBe(0.2);
-    expect(stepRunZoom(1, 1, 1)).toBeCloseTo(1.1, 9);
-    expect(stepRunZoom(1.1, 1, 1)).toBeCloseTo(1.2, 9);
-    expect(stepRunZoom(1.2, 1, 1)).toBeCloseTo(1.2, 9);
-    expect(stepRunZoom(1, -1, 1)).toBeCloseTo(0.9, 9);
-    expect(stepRunZoom(0.9, -1, 1)).toBeCloseTo(0.8, 9);
-    expect(stepRunZoom(0.8, -1, 1)).toBeCloseTo(0.8, 9);
+  it('zooms 0.3 either side of the run zoom during a run, two key steps each way', () => {
+    expect(RUN_ZOOM_RANGE).toBe(0.3);
+    expect(stepRunZoom(1, 1, 1)).toBeCloseTo(1.15, 9);
+    expect(stepRunZoom(1.15, 1, 1)).toBeCloseTo(1.3, 9);
+    expect(stepRunZoom(1.3, 1, 1)).toBeCloseTo(1.3, 9);
+    expect(stepRunZoom(1, -1, 1)).toBeCloseTo(0.85, 9);
+    expect(stepRunZoom(0.85, -1, 1)).toBeCloseTo(0.7, 9);
+    expect(stepRunZoom(0.7, -1, 1)).toBeCloseTo(0.7, 9);
     // After the wheel, a key lands on the next step that way.
     expect(stepRunZoom(1.05, -1, 1)).toBeCloseTo(1, 9);
-    expect(clampRunZoom(5, 1.75)).toBeCloseTo(1.95, 9);
-    expect(clampRunZoom(0.1, 1.75)).toBeCloseTo(1.55, 9);
+    expect(clampRunZoom(5, 1.75)).toBeCloseTo(2.05, 9);
+    expect(clampRunZoom(0.1, 1.75)).toBeCloseTo(1.45, 9);
     // ?runZoomRange=0 keeps the old fixed run zoom.
     expect(stepRunZoom(1, 1, 1, 0)).toBe(1);
     expect(clampRunZoom(2, 1, 0)).toBe(1);
