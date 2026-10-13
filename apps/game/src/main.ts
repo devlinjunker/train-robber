@@ -4,7 +4,7 @@ import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
 import type { MapDef } from '@train-robber/config';
-import { loadMap, mapIdFromUrl } from './map';
+import { loadMap, loadScenery, mapIdFromUrl } from './map';
 import { RingBuffer } from './ringBuffer';
 import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
@@ -102,7 +102,7 @@ async function boot() {
   document.body.appendChild(history);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
-  const client = createGameClient(app, { sim, map, config, onExportLogs: exportLogs, onAddNote: addNote });
+  const client = createGameClient(app, { sim, map, scenery: await loadScenery(map), config, onExportLogs: exportLogs, onAddNote: addNote });
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();

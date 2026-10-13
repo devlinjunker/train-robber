@@ -378,7 +378,7 @@ The alpha starts with the separate map, and the continuous world is more work th
 
 ### Map and schedule data
 
-- **MapDef** holds the tile size, a terrain grid of zone ids (open, slow, blocked, water), a closed track polyline with an arc-length table, spawn points for the player and horse, and render-only scenery.
+- **MapDef** holds the tile size, a terrain grid of zone ids (open, slow, blocked, water, deep), a closed track polyline with an arc-length table, spawn points for the player and horse, and render-only scenery.
 - **Trains** are entities with a type id, an arc-length position and a speed. A train that a run has targeted is pinned: it cannot despawn or leave the loop until the run ends.
 - **Schedule** is a deterministic function of the `schedule` RNG stream and three config values (`frequencySec`, `maxConcurrent`, `typeWeights`). A missed train comes back around because the track is a loop. A future timetable is a read-only view over the upcoming schedule, so the data model already supports it.
 
@@ -392,7 +392,7 @@ The alpha map is drawn in Tiled and converted to our own `MapDef` format: a tile
 
 ### Authoring pipeline
 
-- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds named points such as `playerSpawn`. Scenery layers are render-only and ignored by the sim.
+- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`, `deep`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds named points such as `playerSpawn`. Scenery layers are render-only and ignored by the sim.
 - `tools build-maps` converts the Tiled file into `base/maps/<id>.json`, validated by the config schemas. The game never reads Tiled files at runtime, so the sim does not depend on Tiled's format. CI runs the conversion.
 
 ### Tiled workflow in detail
@@ -402,7 +402,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 **One-time setup**
 
 1. Create `alpha-flats.tmj` in `packages/content/maps-src/`, orthogonal (top-down) orientation, 400 × 200 tiles, fixed size (not infinite). Use a 32 px tile for editing only; one Tiled tile is one sim tile.
-2. Add a placeholder tileset `zones` with four coloured tiles. Give each tile a custom string property `zone` set to `open`, `slow`, `blocked` or `water`.
+2. Add a placeholder tileset `zones` with five coloured tiles. Give each tile a custom string property `zone` set to `open`, `slow`, `blocked`, `water` or `deep`.
 3. Add the layers: `terrain` (tile layer), `track` (object layer), `speedZones` (object layer), `markers` (object layer), and any number of render-only layers whose names start with `scenery`.
 
 **What you draw**
@@ -411,6 +411,8 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - **Track.** On `track`, use the Insert Polyline tool and click control points. The curve passes through them, so the line you draw is roughly the track. Fewer points give a smoother curve. Add custom properties `route` (string, for example `main`) and `closed` (boolean).
 - **Speed zones.** On `speedZones`, draw rectangles with a float property `speedScale` between 0 and 1. Any stretch of track inside a rectangle runs at that fraction of normal speed.
 - **Markers.** On `markers`, place a point object named `playerSpawn`. The player starts there already mounted (see Map decisions).
+- **Scenery.** On any object layer whose name starts with `scenery`, give each object a class (or a `kind` property). A point is one `tree`, `pine`, `bush` or `flowers`; a rectangle, ellipse or polygon scatters them over the tiles inside it (an optional `density` in items per tile, and several kinds separated by commas). Trees and pines only go on `blocked` tiles and bushes and flowers only on `open` ones, so the terrain still decides where the horse can go. A `bridge` rectangle draws a plank deck over the open tiles where a river meets the track (`along` is `x` or `y`, the way you cross). Shallow `water` is wadeable and `deep` water is not, so paint a lake or river with a shallow edge and a deep core, and leave shallow fords where the horse should cross.
+- **Ground cover.** Grass tufts and scrub brush are not in the map: the iso view scatters them over open ground, away from the track, from a new random seed on each load (`?groundSeed=` repeats one, `?groundCover=off` drops them). A few thick patches grow denser and taller. They never slow the horse. Trees in front of the horse fade while they cover it, and a lone tree is drawn bigger so it reads as an obstacle. The minimap and debug panel start hidden (`?minimap=on`, `?debug=on`, or M and `).
 
 **What `tools build-maps` does**
 
@@ -418,7 +420,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 2. Converts `terrain` to zone ids through the tileset property and run-length encodes the grid.
 3. Converts each polyline from pixels to tile units. Both Tiled and the sim have y pointing down, so no flip is needed. The renderer does the isometric projection later.
 4. Smooths each route with a Catmull-Rom curve (wrapping around for closed routes) and samples it into segments about half a tile long. Each sample stores its position, distance along the route, unit tangent and speed scale (the lowest value of any overlapping zone). These baked samples are what the sim reads, so no spline maths runs in the game.
-5. Copies the markers, and copies the `scenery` layers into a separate render-only file.
+5. Copies the markers, and builds the `scenery` layers into a separate render-only file, `base/scenery/<id>.json` (`SceneryDef`: items as columns and bridges), with the same source hash. Area scatter is a fixed hash of the object and tile, so a rebuild places the same items.
 6. Runs the checks below and writes `base/maps/alpha-flats.json` with a hash of the source file, so a stale output is detectable.
 
 **Checks (errors unless noted)**
@@ -427,6 +429,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - No sample lies on a `blocked` or `water` tile.
 - `playerSpawn` is inside the map on an `open` tile.
 - `speedScale` is greater than 0 and at most 1.
+- A scenery point sits on a tile its kind allows; a bridge covers no `blocked` or `water` tile; every kind is known.
 - Warning: the curve's radius is smaller than the longest car. Cars are rigid rectangles along the track, so a very tight bend would make them cut corners.
 
 **Edit loop.** `npm run maps:watch` rebuilds every map when a `.tmj` or tileset in `maps-src` is saved, and the dev server (`npm run dev`) reloads the page. Loading `?map=alpha-flats` selects a map (the default); the game validates it with `MapDefSchema` and shows its id in the debug overlay. The map overlay (toggle with O, zoom with the mouse wheel) draws zones, speed zones, markers, route control points, the baked samples and a tangent tick every eighth sample, in the top-down debug view (V switches to it; the isometric view has its own copy of the overlay, off until O), so you can check what the converter produced against what you drew.
@@ -959,7 +962,7 @@ This section turns the decisions so far into what to build first: the foundation
 - **Failure cost.** A failed jump always costs time, and damage is a toggle. A failed player is thrown clear and the horse is stunned for `boarding.failure.stunSec`, so the train pulls ahead before a retry. Damage is `boarding.failure.damageFraction` of max health. A variant group `boardingFailure` has `time-and-damage` and `time-only` (damage fraction 0). Phase 1 includes a minimal health value so the failure and death paths are real; the full health system waits for phase 3.
 - **No countdown in phase 1.** The countdown and heat arrive in phase 2, so `countdown.enabled` is false until then. Cancel works from the start.
 
-* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and water tiles and the map edge collide the same way; slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed.
+* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and deep water tiles and the map edge collide the same way. Slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed, reining it in at its braking rate; shallow water caps it at `horse.waterSpeedScale` and drops it to that speed at once.
 * **Collision damage** (Devlin's playtest feedback, 2026-10-10 and 2026-10-11). On a run, touching a train car or blocked ground can cost health, emitted as `DamageDealt` with cause `collision`, `against` `train` or `obstacle`, `kind` `crash` or `scrape`, and the `impact`. The impact is the closing speed along the contact: the horse's velocity relative to what it hit (a car moves at its train's speed), along the direction the collision pushed it. So riding head-on into a rock or a car side, or a train running into a standing horse, hits hard, while scraping along a car at a shallow angle barely closes. Below `collision.minImpactTilesPerSec` a car touch is a scrape costing `collision.scrapeDamageFraction` of max health and a rock touch is free; from there the damage scales linearly up to `collision.damageFraction` for a car, or `collision.obstacleDamageFraction` for blocked ground, at `collision.fullImpactTilesPerSec`, in whole health points. Train hits are kept separate from rocks so a train can hurt much more (Devlin's playtest, 2026-10-12). After a hit, contacts for `collision.cooldownSec` only cost what they exceed that hit by, so a long scrape costs about 1 a second and a crash right after a scrape still costs its full amount in total. Water, slow ground and the map edge never hurt, and with no run there is no health to lose. Variant group `collisionDamage`: `on` and `off` (all three fractions 0).
 * **Boarding meter use.** In boarding range the meter sweeps continuously: at `boarding.meter.matchedSweepPeriodSec` when speed matched, and at the faster `boarding.meter.sweepPeriodSec` when not (changed after the 2026-10-09 playtest, see Boarding jump rules). The marker keeps its place when the speed changes, a single Space press samples it on that tick, and leaving range parks it at the start.
 * **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the mounted player back at `playerSpawn` while the train keeps looping.
@@ -1019,6 +1022,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Horse drag, throttle released (coast) | 3 tiles/s² (4 until playtest tuning on 2026-10-09) | `horse.dragTilesPerSec2` |
 | Cruise target rate | 10 tiles/s² | `horse.cruiseTargetRateTilesPerSec2` |
 | Horse top speed on slow ground | 50% | `horse.slowZoneSpeedScale` |
+| Horse top speed in shallow water | 25%, reached at once | `horse.waterSpeedScale` |
 | Train | engine plus 3 cars, 9 tiles/s | `trains.blank` |
 | Tick rate | 60 Hz | `sim.tickRateHz` |
 
@@ -1050,7 +1054,7 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 - [x] Command and event log with header, an IndexedDB sink, and `tools replay` (the client keeps the newest 20 sessions in IndexedDB, an in-memory ring buffer feeds recent events to the overlay, and the Export logs button or L downloads both logs as `.log` files, after an optional comment, and N adds a note; `tools replay <commands log>` checks every logged hash and warns on a config-hash, tick-rate or game-version mismatch)
 - [x] Golden-run test and snapshot round-trip test (golden is the checked-in replay `packages/tools/test/fixtures/golden.commands.ndjson`; `npm run golden:update` rewrites it after a deliberate change)
 - [x] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash, state hash, preset and variants)
-- [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; scenery layers are not done yet; `maps:watch` landed in phase 1)
+- [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; `maps:watch` landed in phase 1, and scenery layers after it with the minimap)
 
 ### Phase 1 checklist
 

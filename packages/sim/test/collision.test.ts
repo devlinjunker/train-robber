@@ -4,8 +4,8 @@ import { collisionDamage, createSim, entryPointWorld, type Command, type GameSta
 import { testConfig, testMap, type Paint } from './fixtures';
 
 const W = { type: 'move', x: 0, y: -127 } as const;
-// Rock at x 60 to 62 and water at x 60 to 62 further down, both well clear of the route.
-const paint: Paint = (x, y) => (x >= 60 && x <= 62 && y >= 2 && y <= 12 ? 'blocked' : x >= 60 && x <= 62 && y >= 16 && y <= 24 ? 'water' : 'open');
+// Rock at x 60 to 62 and deep water at x 60 to 62 further down, both well clear of the route.
+const paint: Paint = (x, y) => (x >= 60 && x <= 62 && y >= 2 && y <= 12 ? 'blocked' : x >= 60 && x <= 62 && y >= 16 && y <= 24 ? 'deep' : 'open');
 const map = testMap(paint, { x: 116, y: 22 });
 
 function setup(cfg: SimConfig = testConfig(), commit = true): Sim {
@@ -66,7 +66,7 @@ describe('collision damage', () => {
     expect(health(sim)).toBe(90);
   });
 
-  it('water and the map edge stop the horse without hurting', () => {
+  it('deep water and the map edge stop the horse without hurting', () => {
     const sim = setup();
     expect(damage(charge(sim, 20))).toHaveLength(0);
     expect(horse(sim).x).toBeCloseTo(59.5, 9);

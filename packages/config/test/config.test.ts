@@ -18,7 +18,7 @@ const base = {
   playtest: { quickRetry: true, quickRetryGapTiles: 60 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
-    slowZoneSpeedScale: 0.5, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+    slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
   },
   world: { mode: 'separate' },
   countdown: { enabled: false, startsAt: 'commit', scale: 1 },

@@ -2,19 +2,20 @@
 // file, the blank train has its route, one side of the track is always open to ride beside, and the rider
 // can reach the track from the spawn.
 import { describe, it, expect } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { decodeZones, ZONES } from '@train-robber/config';
 import { createSim } from '@train-robber/sim';
 import { buildMapFile, stringifyMap } from '../src/maps/build';
-import { MAPS_OUT, MAPS_SRC } from '../src/maps/cli';
+import { MAPS_OUT, MAPS_SRC, SCENERY_OUT } from '../src/maps/cli';
 import { loadConfig } from '../src/content';
 
-/** No rock or water this close to the centre line: the cars are 6 tiles wide. */
+/** No rock or water (shallow or deep) this close to the centre line: the cars are 6 tiles wide. */
 const CAR_CLEAR_TILES = 3.5;
 /**
  * Distances from the centre line where a rider lines up with a door (boarding range is 2 tiles).
- * Mud and rocks may fill this lane on one side, never on both at once.
+ * Mud and rocks may fill this lane on one side, never on both at once. Across a bridge the river
+ * may fill both: bridges are only wide enough for the train, so the rider wades or waits.
  */
 const LANE_TILES = [3.5, 4, 4.5, 5, 5.5];
 /** Tightest baked curve allowed; rigid 16-tile cars cut visibly inside anything tighter. */
@@ -23,15 +24,17 @@ const MIN_RADIUS_TILES = 17;
 const ids = readdirSync(MAPS_SRC).filter((f) => f.endsWith('.tmj')).map((f) => f.replace(/\.tmj$/, '')).sort();
 
 describe.each(ids)('map %s', (id) => {
-  const { map, minRadiusTiles } = buildMapFile(join(MAPS_SRC, `${id}.tmj`));
+  const { map, scenery, minRadiusTiles } = buildMapFile(join(MAPS_SRC, `${id}.tmj`));
   const { cols, rows } = map.size;
   const grid = decodeZones(map);
   const zone = (x: number, y: number) => ZONES[grid[y * cols + x]!]!;
-  const rideable = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && (zone(x, y) === 'open' || zone(x, y) === 'slow');
+  const rideable = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && (zone(x, y) === 'open' || zone(x, y) === 'slow' || zone(x, y) === 'water');
   const main = map.routes.find((r) => r.id === 'main');
 
   it('matches the checked-in build', () => {
     expect(stringifyMap(map)).toBe(readFileSync(join(MAPS_OUT, `${id}.json`), 'utf8'));
+    const sceneryFile = join(SCENERY_OUT, `${id}.json`);
+    expect(existsSync(sceneryFile) ? readFileSync(sceneryFile, 'utf8') : null).toBe(scenery && stringifyMap(scenery));
   });
 
   it('has closed routes for its trains, with no curve tighter than the cars allow', () => {
@@ -46,12 +49,15 @@ describe.each(ids)('map %s', (id) => {
     for (const route of map.routes) {
       const { x: xs, y: ys, tx, ty } = route.samples;
       const at = (i: number, side: number, d: number) => zone(Math.floor(xs[i]! - ty[i]! * d * side), Math.floor(ys[i]! + tx[i]! * d * side));
+      const onBridge = (i: number) => (scenery?.bridges ?? []).some((b) => xs[i]! >= b.x - 1 && xs[i]! <= b.x + b.w + 1 && ys[i]! >= b.y - 1 && ys[i]! <= b.y + b.h + 1);
       for (let i = 0; i < xs.length; i++) {
         for (let d = 0; d <= CAR_CLEAR_TILES; d += 0.25) {
           for (const side of [-1, 1]) expect(['open', 'slow'], `${id} ${route.id}: ${at(i, side, d)} ${d} tiles beside sample ${i}`).toContain(at(i, side, d));
         }
         const open = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open');
-        expect(open(-1) || open(1), `${id} ${route.id}: no open lane beside sample ${i}`).toBe(true);
+        const wet = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open' || at(i, side, d) === 'water');
+        if (onBridge(i)) expect(wet(-1) || wet(1), `${id} ${route.id}: no lane beside bridge sample ${i}`).toBe(true);
+        else expect(open(-1) || open(1), `${id} ${route.id}: no open lane beside sample ${i}`).toBe(true);
       }
     }
   });

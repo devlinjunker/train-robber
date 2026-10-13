@@ -2,14 +2,15 @@
 // y down, as in Tiled), for checking the build against the Tiled file. The top-down debug
 // view (V) draws it; the isometric view has its own overlay in iso/terrain.ts.
 import { Container, Graphics } from 'pixi.js';
-import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
+import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type Zone } from '@train-robber/config';
 
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: 0xc9a227, blocked: 0x6b6b6b, water: 0x2f6fd6 };
+const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: 0xc9a227, blocked: 0x6b6b6b, water: 0x6fa6dc, deep: 0x2f6fd6 };
 /** Draw a tangent tick on every Nth sample (samples are about half a tile apart). */
 export const TANGENT_EVERY = 8;
 const TANGENT_LENGTH = 2.5;
 
-export function drawMapOverlay(map: MapDef): Container {
+/** `scenery`, when given, adds trees as dots and bridges as outlines over the zones. */
+export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null): Container {
   const layer = new Container();
   layer.label = 'map-overlay';
 
@@ -30,6 +31,12 @@ export function drawMapOverlay(map: MapDef): Container {
     }
   }
   for (const s of map.speedZones) zones.rect(s.x, s.y, s.w, s.h).stroke({ width: 0.2, color: 0xff7a1a });
+  if (scenery) {
+    const { kind, x, y } = scenery.items;
+    for (let i = 0; i < kind.length; i++) if (SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!)) zones.circle(x[i]!, y[i]!, 0.4);
+    zones.fill({ color: 0x2c6b45, alpha: 0.8 });
+    for (const b of scenery.bridges) zones.rect(b.x, b.y, b.w, b.h).stroke({ width: 0.2, color: 0x8b6a45 });
+  }
 
   // Routes: baked samples, a tangent tick every few samples, then the control points on top.
   const track = new Graphics();

@@ -199,6 +199,7 @@ export interface SimConfig {
       dragTilesPerSec2: number;
       cruiseTargetRateTilesPerSec2: number;
       slowZoneSpeedScale: number;
+      waterSpeedScale: number;
       turnRateCosPerTick: number;
       turnRateSinPerTick: number;
       steering: Steering;

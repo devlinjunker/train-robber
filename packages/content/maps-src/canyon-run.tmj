@@ -5,7 +5,7 @@
  "layers": [
   {
    "compression": "zlib",
-   "data": "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",
+   "data": "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",
    "encoding": "base64",
    "height": 200,
    "id": 1,
@@ -188,10 +188,1627 @@
    "visible": true,
    "x": 0,
    "y": 0
+  },
+  {
+   "draworder": "topdown",
+   "id": 5,
+   "name": "scenery",
+   "objects": [
+    {
+     "id": 20,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 4032.0,
+     "y": 1920.0,
+     "width": 1536.0,
+     "height": 960.0,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.1
+      }
+     ]
+    },
+    {
+     "id": 21,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 3444.1,
+     "y": 2500.1,
+     "width": 655.1,
+     "height": 524.1,
+     "ellipse": true
+    },
+    {
+     "id": 22,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 3773.2,
+     "y": 2735.4,
+     "width": 518.8,
+     "height": 415.1,
+     "ellipse": true
+    },
+    {
+     "id": 23,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 3288.5,
+     "y": 2657.5,
+     "width": 531.2,
+     "height": 425.0,
+     "ellipse": true
+    },
+    {
+     "id": 24,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 3433.3,
+     "y": 2573.1,
+     "width": 427.7,
+     "height": 342.1,
+     "ellipse": true
+    },
+    {
+     "id": 25,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 3168.9,
+     "y": 2290.5,
+     "width": 1205.3,
+     "height": 943.3,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 26,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5252.6,
+     "y": 2134.1,
+     "width": 491.9,
+     "height": 393.5,
+     "ellipse": true
+    },
+    {
+     "id": 27,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5385.5,
+     "y": 2149.1,
+     "width": 348.4,
+     "height": 278.7,
+     "ellipse": true
+    },
+    {
+     "id": 28,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5389.7,
+     "y": 2136.3,
+     "width": 323.2,
+     "height": 258.5,
+     "ellipse": true
+    },
+    {
+     "id": 29,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 5046.0,
+     "y": 1976.7,
+     "width": 905.1,
+     "height": 708.4,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 30,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 7564.2,
+     "y": 2383.9,
+     "width": 372.3,
+     "height": 297.8,
+     "ellipse": true
+    },
+    {
+     "id": 31,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 7614.4,
+     "y": 2425.8,
+     "width": 301.7,
+     "height": 241.4,
+     "ellipse": true
+    },
+    {
+     "id": 32,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 7689.3,
+     "y": 2359.0,
+     "width": 242.2,
+     "height": 193.8,
+     "ellipse": true
+    },
+    {
+     "id": 33,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 7407.9,
+     "y": 2264.8,
+     "width": 685.1,
+     "height": 536.1,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 34,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11903.1,
+     "y": 2251.0,
+     "width": 607.6,
+     "height": 486.0,
+     "ellipse": true
+    },
+    {
+     "id": 35,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11847.1,
+     "y": 2312.4,
+     "width": 452.2,
+     "height": 361.8,
+     "ellipse": true
+    },
+    {
+     "id": 36,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 11648.0,
+     "y": 2056.6,
+     "width": 1117.9,
+     "height": 874.9,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 37,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 10792.9,
+     "y": 5415.1,
+     "width": 641.3,
+     "height": 513.0,
+     "ellipse": true
+    },
+    {
+     "id": 38,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11000.1,
+     "y": 5543.5,
+     "width": 437.4,
+     "height": 349.9,
+     "ellipse": true
+    },
+    {
+     "id": 39,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 10523.5,
+     "y": 5209.9,
+     "width": 1179.9,
+     "height": 923.4,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 40,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8967.3,
+     "y": 1128.2,
+     "width": 566.9,
+     "height": 453.5,
+     "ellipse": true
+    },
+    {
+     "id": 41,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 9142.7,
+     "y": 1048.9,
+     "width": 399.1,
+     "height": 319.3,
+     "ellipse": true
+    },
+    {
+     "id": 42,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 9121.6,
+     "y": 1125.4,
+     "width": 321.7,
+     "height": 257.4,
+     "ellipse": true
+    },
+    {
+     "id": 43,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 9150.0,
+     "y": 1187.7,
+     "width": 462.1,
+     "height": 369.7,
+     "ellipse": true
+    },
+    {
+     "id": 44,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 8729.2,
+     "y": 946.8,
+     "width": 1043.1,
+     "height": 816.3,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 45,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3267.0,
+     "y": 3682.1,
+     "width": 351.0,
+     "height": 280.8,
+     "ellipse": true
+    },
+    {
+     "id": 46,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3358.7,
+     "y": 3819.6,
+     "width": 179.9,
+     "height": 143.9,
+     "ellipse": true
+    },
+    {
+     "id": 47,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3269.7,
+     "y": 3657.0,
+     "width": 244.2,
+     "height": 195.4,
+     "ellipse": true
+    },
+    {
+     "id": 48,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 3119.6,
+     "y": 3569.8,
+     "width": 645.8,
+     "height": 505.4,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 49,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 6319.7,
+     "y": 2799.9,
+     "width": 587.8,
+     "height": 470.2,
+     "ellipse": true
+    },
+    {
+     "id": 50,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 6533.7,
+     "y": 2817.9,
+     "width": 440.8,
+     "height": 352.7,
+     "ellipse": true
+    },
+    {
+     "id": 51,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 6261.6,
+     "y": 2766.1,
+     "width": 381.4,
+     "height": 305.1,
+     "ellipse": true
+    },
+    {
+     "id": 52,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 6072.8,
+     "y": 2611.8,
+     "width": 1081.6,
+     "height": 846.4,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 53,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2925.7,
+     "y": 1678.4,
+     "width": 401.5,
+     "height": 321.2,
+     "ellipse": true
+    },
+    {
+     "id": 54,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2969.8,
+     "y": 1691.7,
+     "width": 265.5,
+     "height": 212.4,
+     "ellipse": true
+    },
+    {
+     "id": 55,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2822.8,
+     "y": 1604.8,
+     "width": 330.2,
+     "height": 264.2,
+     "ellipse": true
+    },
+    {
+     "id": 56,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 2757.1,
+     "y": 1550.0,
+     "width": 738.8,
+     "height": 578.2,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 57,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 6881.4,
+     "y": 1956.0,
+     "width": 435.8,
+     "height": 348.6,
+     "ellipse": true
+    },
+    {
+     "id": 58,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 7143.7,
+     "y": 1954.2,
+     "width": 225.9,
+     "height": 180.7,
+     "ellipse": true
+    },
+    {
+     "id": 59,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 6921.0,
+     "y": 1940.5,
+     "width": 264.9,
+     "height": 211.9,
+     "ellipse": true
+    },
+    {
+     "id": 60,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 6698.3,
+     "y": 1816.6,
+     "width": 801.8,
+     "height": 627.5,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 61,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 3788.7,
+     "y": 2275.7,
+     "width": 1664.9,
+     "height": 1104.6,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.1
+      }
+     ]
+    },
+    {
+     "id": 62,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 4112.0,
+     "y": 3216.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 63,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 8304.0,
+     "y": 3856.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 64,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 3088.0,
+     "y": 3248.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 65,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 1424.0,
+     "y": 5712.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 66,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 10352.0,
+     "y": 5200.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 67,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 7536.0,
+     "y": 1712.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 68,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 496.0,
+     "y": 2960.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 69,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 6384.0,
+     "y": 3632.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 70,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 1008.0,
+     "y": 5392.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 71,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 4368.0,
+     "y": 4240.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 72,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8688.0,
+     "y": 2448.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 73,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 9712.0,
+     "y": 5840.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 74,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 10320.0,
+     "y": 4944.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 75,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11312.0,
+     "y": 528.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 76,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2864.0,
+     "y": 1040.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 77,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 12528.0,
+     "y": 5264.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 78,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 5552.0,
+     "y": 3568.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 79,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 2704.0,
+     "y": 6096.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 80,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 9520.0,
+     "y": 4144.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 81,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 7088.0,
+     "y": 3984.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 82,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 2160.0,
+     "y": 240.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 83,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 784.0,
+     "y": 1552.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 84,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8912.0,
+     "y": 5008.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 85,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 816.0,
+     "y": 5136.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 86,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 1296.0,
+     "y": 4880.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 87,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5424.0,
+     "y": 1648.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 88,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 5360.0,
+     "y": 1872.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 89,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2160.0,
+     "y": 5360.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 90,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 2032.0,
+     "y": 6224.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 91,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 11344.0,
+     "y": 3472.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 92,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 9008.0,
+     "y": 1584.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 93,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 8848.0,
+     "y": 4848.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 94,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 5744.0,
+     "y": 2736.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 95,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 1904.0,
+     "y": 2288.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 96,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11472.0,
+     "y": 272.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 97,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 2576.0,
+     "y": 1072.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 98,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 7184.0,
+     "y": 3984.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 99,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 10128.0,
+     "y": 3792.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 100,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 6288.0,
+     "y": 3504.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 101,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 400.0,
+     "y": 4976.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 102,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 11536.0,
+     "y": 2608.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 103,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 7088.0,
+     "y": 2608.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 104,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 9936.0,
+     "y": 2832.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 105,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 9456.0,
+     "y": 5584.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 106,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 7088.0,
+     "y": 1296.0,
+     "width": 0,
+     "height": 0,
+     "point": true
+    },
+    {
+     "id": 107,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 10990.9,
+     "y": 2108.7,
+     "width": 1268.6,
+     "height": 906.2,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 108,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 7772.5,
+     "y": 1241.1,
+     "width": 818.7,
+     "height": 584.8,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 109,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 5769.9,
+     "y": 2383.6,
+     "width": 754.1,
+     "height": 538.7,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 110,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 5853.5,
+     "y": 3528.4,
+     "width": 939.5,
+     "height": 671.1,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 111,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 11179.1,
+     "y": 4306.8,
+     "width": 1058.9,
+     "height": 756.4,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 112,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 8547.6,
+     "y": 5212.2,
+     "width": 1323.6,
+     "height": 945.5,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 113,
+     "name": "",
+     "type": "bush,flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 2186.4,
+     "y": 1335.8,
+     "width": 1198.8,
+     "height": 856.3,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 114,
+     "name": "",
+     "type": "flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 6959.8,
+     "y": 2371.2,
+     "width": 932.8,
+     "height": 666.3,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 115,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 83.8,
+     "y": 1835.8,
+     "width": 742.2,
+     "height": 530.1,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 116,
+     "name": "",
+     "type": "bush,flowers",
+     "rotation": 0,
+     "visible": true,
+     "x": 8065.5,
+     "y": 5441.2,
+     "width": 874.5,
+     "height": 624.6,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.08
+      }
+     ]
+    },
+    {
+     "id": 117,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5945.5,
+     "y": 3438.4,
+     "width": 550.1,
+     "height": 440.1,
+     "ellipse": true
+    },
+    {
+     "id": 118,
+     "name": "",
+     "type": "pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 5976.1,
+     "y": 3541.3,
+     "width": 459.5,
+     "height": 367.6,
+     "ellipse": true
+    },
+    {
+     "id": 119,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 5714.4,
+     "y": 3262.4,
+     "width": 1012.2,
+     "height": 792.2,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 120,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3432.3,
+     "y": 2926.9,
+     "width": 617.8,
+     "height": 494.2,
+     "ellipse": true
+    },
+    {
+     "id": 121,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3525.0,
+     "y": 2929.1,
+     "width": 350.7,
+     "height": 280.6,
+     "ellipse": true
+    },
+    {
+     "id": 122,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3620.3,
+     "y": 3006.4,
+     "width": 319.0,
+     "height": 255.2,
+     "ellipse": true
+    },
+    {
+     "id": 123,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 3439.7,
+     "y": 3173.8,
+     "width": 411.0,
+     "height": 328.8,
+     "ellipse": true
+    },
+    {
+     "id": 124,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 3172.9,
+     "y": 2729.2,
+     "width": 1136.7,
+     "height": 889.6,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 125,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 351.2,
+     "y": 3126.3,
+     "width": 509.4,
+     "height": 407.5,
+     "ellipse": true
+    },
+    {
+     "id": 126,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 305.4,
+     "y": 3076.4,
+     "width": 364.7,
+     "height": 291.7,
+     "ellipse": true
+    },
+    {
+     "id": 127,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 465.8,
+     "y": 3021.1,
+     "width": 423.4,
+     "height": 338.7,
+     "ellipse": true
+    },
+    {
+     "id": 128,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 137.3,
+     "y": 2963.3,
+     "width": 937.2,
+     "height": 733.5,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 129,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8138.6,
+     "y": 3239.1,
+     "width": 335.2,
+     "height": 268.2,
+     "ellipse": true
+    },
+    {
+     "id": 130,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8262.2,
+     "y": 3331.6,
+     "width": 218.0,
+     "height": 174.4,
+     "ellipse": true
+    },
+    {
+     "id": 131,
+     "name": "",
+     "type": "tree",
+     "rotation": 0,
+     "visible": true,
+     "x": 8276.5,
+     "y": 3192.2,
+     "width": 280.3,
+     "height": 224.3,
+     "ellipse": true
+    },
+    {
+     "id": 132,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 7997.8,
+     "y": 3131.8,
+     "width": 616.8,
+     "height": 482.7,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    },
+    {
+     "id": 133,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11199.8,
+     "y": 2279.1,
+     "width": 439.7,
+     "height": 351.8,
+     "ellipse": true
+    },
+    {
+     "id": 134,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11307.6,
+     "y": 2288.8,
+     "width": 234.7,
+     "height": 187.8,
+     "ellipse": true
+    },
+    {
+     "id": 135,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11464.8,
+     "y": 2244.1,
+     "width": 253.7,
+     "height": 202.9,
+     "ellipse": true
+    },
+    {
+     "id": 136,
+     "name": "",
+     "type": "tree,pine",
+     "rotation": 0,
+     "visible": true,
+     "x": 11195.3,
+     "y": 2412.8,
+     "width": 347.7,
+     "height": 278.2,
+     "ellipse": true
+    },
+    {
+     "id": 137,
+     "name": "",
+     "type": "bush",
+     "rotation": 0,
+     "visible": true,
+     "x": 11015.1,
+     "y": 2138.4,
+     "width": 809.1,
+     "height": 633.2,
+     "ellipse": true,
+     "properties": [
+      {
+       "name": "density",
+       "type": "float",
+       "value": 0.12
+      }
+     ]
+    }
+   ],
+   "opacity": 1,
+   "type": "objectgroup",
+   "visible": true,
+   "x": 0,
+   "y": 0
   }
  ],
- "nextlayerid": 5,
- "nextobjectid": 20,
+ "nextlayerid": 6,
+ "nextobjectid": 138,
  "orientation": "orthogonal",
  "renderorder": "right-down",
  "tiledversion": "1.10.2",

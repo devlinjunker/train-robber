@@ -1,7 +1,7 @@
 // `tools validate`: resolve every preset (steps 1 to 5) and every single-variant
 // swap from it, so a broken variant fails CI even if no preset picks it yet.
 import { join, relative } from 'node:path';
-import { MapDefSchema, resolveConfig } from '@train-robber/config';
+import { MapDefSchema, SceneryDefSchema, resolveConfig } from '@train-robber/config';
 import { CAR_TEMPLATES } from '@train-robber/sim';
 import { CONTENT_DIR, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
 
@@ -37,11 +37,13 @@ export function validateContent(dir?: string): ValidateResult {
       }
     }
   }
-  for (const path of jsonFiles(join(dir ?? CONTENT_DIR, 'base/maps'))) {
-    const r = MapDefSchema.safeParse(readJson(path));
-    if (!r.success) {
-      const issue = r.error.issues[0]!;
-      errors.push(`${relative(REPO_ROOT, path)} at ${issue.path.join('.')}: ${issue.message}`);
+  for (const [folder, schema] of [['base/maps', MapDefSchema], ['base/scenery', SceneryDefSchema]] as const) {
+    for (const path of jsonFiles(join(dir ?? CONTENT_DIR, folder))) {
+      const r = schema.safeParse(readJson(path));
+      if (!r.success) {
+        const issue = r.error.issues[0]!;
+        errors.push(`${relative(REPO_ROOT, path)} at ${issue.path.join('.')}: ${issue.message}`);
+      }
     }
   }
   return { errors, resolved };

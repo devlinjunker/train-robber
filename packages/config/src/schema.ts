@@ -106,6 +106,8 @@ export const GameSchema = z.object({
     cruiseTargetRateTilesPerSec2: positive,
     /** Top speed on slow ground, as a fraction of maxSpeed. */
     slowZoneSpeedScale: z.number().gt(0).max(1),
+    /** Top speed wading through water, as a fraction of maxSpeed; entering water drops to it at once. */
+    waterSpeedScale: z.number().gt(0).max(1),
     turnRateDegPerSec: positive,
     /** steering variant group: direction keys set a screen heading, or A/D turn the horse. */
     steering: z.enum(['screen', 'heading']),

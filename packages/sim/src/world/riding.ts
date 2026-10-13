@@ -65,9 +65,9 @@ export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['h
 const tile: Box = { x: 0, y: 0, ux: 1, uy: 0, halfLength: 0.5, halfWidth: 0.5 };
 
 /**
- * Push the horse out of blocked and water tiles (and the map edge). Returns 0 for no contact,
- * 1 for contact with water or the edge only, and 2 when a blocked tile inside the map was among
- * them: the only terrain that hurts to run into.
+ * Push the horse out of blocked and deep-water tiles (and the map edge). Returns 0 for no contact,
+ * 1 for contact with deep water or the edge only, and 2 when a blocked tile inside the map was
+ * among them: the only terrain that hurts to run into.
  */
 function collideTerrain(h: HorseState, map: WorldMap): 0 | 1 | 2 {
   let hit: 0 | 1 | 2 = 0;
@@ -120,7 +120,7 @@ function closingSpeed(vx: number, vy: number, px: number, py: number): number {
 /** A horse touching a car or blocked ground this tick, and how hard: the closing speed along the contact, tiles/s. */
 export interface Impact { player: PlayerId; target: CollisionTarget; impact: number }
 
-/** Tick system 3. Returns every contact with a train car or blocked ground; water and the map edge stop the horse without one. */
+/** Tick system 3. Returns every contact with a train car or blocked ground; deep water and the map edge stop the horse without one. */
 export function ride(
   players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[],
   /** Each train's speed, tiles/s, for how hard a car and the horse meet; standing still when left out. */
@@ -139,7 +139,11 @@ export function ride(
     else steerToward(h, p.steer.x, p.steer.y, cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
 
     if (!stunned) {
-      const cap = terrainAt(map, h.x, h.y) === Terrain.Slow ? cfg.maxSpeed * cfg.slowZoneSpeedScale : cfg.maxSpeed;
+      const ground = terrainAt(map, h.x, h.y);
+      const cap = ground === Terrain.Slow ? cfg.maxSpeed * cfg.slowZoneSpeedScale
+        : ground === Terrain.Water ? cfg.maxSpeed * cfg.waterSpeedScale : cfg.maxSpeed;
+      // Mud reins the horse in at its braking rate; water drags it down to wading speed at once.
+      if (ground === Terrain.Water && h.speed > cap) h.speed = cap;
       throttle(h, -axis(p.move.y), cfg, hz, cap);
     }
 
