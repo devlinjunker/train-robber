@@ -2,13 +2,18 @@
 // part of any map file and never seen by the sim: it only breaks up the plain grass.
 import { Graphics } from 'pixi.js';
 import { decodeZones, type MapDef } from '@train-robber/config';
-import { cullChunks, type Chunk } from './scenery';
+import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { groundEllipse, shade } from './draw';
 import { isoX, isoY } from '../projection';
 import { GROUND } from './terrain';
 
 /** Items per open tile. */
 const GRASS_DENSITY = 0.14, SCRUB_DENSITY = 0.03;
+/**
+ * Thick patches (Devlin, 2026-10-13: "some thick patches of grass and shrub would be nice"): one
+ * per this many tiles of map, densest at the centre. Looks only; they never slow the horse.
+ */
+const PATCH_EVERY = 2500, PATCH_GRASS = 0.9, PATCH_SCRUB = 0.35;
 /** Keep this many tiles round the track bare, so the ties and the lanes beside the cars read clearly. */
 const TRACK_CLEAR = 2;
 /** Drawn in square cells of this many tiles, so off-screen cells cull. */
@@ -79,36 +84,64 @@ function drawScrub(g: Graphics, x: number, y: number, s: number, r: () => number
   g.fill(TWIG);
 }
 
+/** A thick patch: an ellipse of tiles where grass and scrub grow densely. */
+interface Patch { x: number; y: number; rx: number; ry: number }
+
+/** Some thick patches at random over the map, about one per PATCH_EVERY tiles of map. */
+function placePatches(map: MapDef, r: () => number): Patch[] {
+  const { cols, rows } = map.size;
+  return Array.from({ length: Math.round((cols * rows) / PATCH_EVERY) }, () => ({
+    x: r() * cols, y: r() * rows, rx: 3 + r() * 5, ry: 3 + r() * 5,
+  }));
+}
+
+/** How far into a patch a tile is: 1 at the centre, 0 at the edge and outside. */
+function patchDepth(patches: readonly Patch[], x: number, y: number): number {
+  let best = 0;
+  for (const p of patches) {
+    const dx = (x - p.x) / p.rx, dy = (y - p.y) / p.ry, d = 1 - Math.sqrt(dx * dx + dy * dy);
+    if (d > best) best = d;
+  }
+  return best;
+}
+
 /**
- * Scatter grass and scrub over the map's open ground, away from the track, as cells of
- * Graphics to add under everything else on the ground.
+ * Scatter grass and scrub over the map's open ground, away from the track, with a few thick
+ * patches, as cells of Graphics to add under everything else on the ground.
  */
-export function createGroundCover(map: MapDef, seed: number): { chunks: Chunk[]; cull(view: { x0: number; y0: number; x1: number; y1: number }): void } {
+export function createGroundCover(map: MapDef, seed: number): { chunks: Chunk[]; cull(view: TileBox): void } {
   const { cols, rows } = map.size;
   const ok = coverTiles(map);
   const r = rng(seed);
-  const cells = new Map<number, Graphics>();
-  const cell = (x: number, y: number) => {
-    const k = Math.floor(y / CELL) * 100000 + Math.floor(x / CELL);
-    let g = cells.get(k);
-    if (!g) cells.set(k, g = new Graphics());
-    return g;
-  };
+  const patches = placePatches(map, r);
+  // Patches only matter near their centres, so look them up per cell of the patch grid.
+  const near = new Map<number, Patch[]>();
+  for (const p of patches) {
+    for (let cy = Math.floor((p.y - p.ry) / CELL); cy <= Math.floor((p.y + p.ry) / CELL); cy++) {
+      for (let cx = Math.floor((p.x - p.rx) / CELL); cx <= Math.floor((p.x + p.rx) / CELL); cx++) {
+        const k = cy * 100000 + cx;
+        near.set(k, [...(near.get(k) ?? []), p]);
+      }
+    }
+  }
+  const cells = new Cells(CELL);
   // Row by row; the items are small enough that strict back-to-front order doesn't show.
   for (let ty = 0; ty < rows; ty++) {
     for (let tx = 0; tx < cols; tx++) {
       // The tiles behind (up the screen) must be open too, or a clump would poke over water or rock.
       if (!ok[ty * cols + tx] || tx === 0 || ty === 0 || !ok[(ty - 1) * cols + tx] || !ok[ty * cols + tx - 1] || !ok[(ty - 1) * cols + tx - 1]) continue;
-      const roll = r();
-      if (roll >= GRASS_DENSITY + SCRUB_DENSITY) continue;
-      const x = tx + r(), y = ty + r(), s = 0.75 + r() * 0.5;
-      if (roll < SCRUB_DENSITY) drawScrub(cell(x, y), x, y, s, r);
-      else drawGrass(cell(x, y), x, y, s, r);
+      const thick = patchDepth(near.get(Math.floor(ty / CELL) * 100000 + Math.floor(tx / CELL)) ?? [], tx + 0.5, ty + 0.5);
+      const grass = GRASS_DENSITY + thick * (PATCH_GRASS - GRASS_DENSITY), scrub = SCRUB_DENSITY + thick * (PATCH_SCRUB - SCRUB_DENSITY);
+      // A thick tile can hold more than one item.
+      for (let n = 0; n < 1 + Math.floor(thick * 2); n++) {
+        const roll = r();
+        if (roll >= grass + scrub) continue;
+        const x = tx + r(), y = ty + r(), size = 0.75 + r() * 0.5 + thick * 0.3;
+        if (roll < scrub) drawScrub(cells.at(x, y), x, y, size, r);
+        else drawGrass(cells.at(x, y), x, y, size, r);
+      }
     }
   }
-  const chunks = [...cells.entries()].map(([k, g]) => {
-    const cx = (k % 100000) * CELL, cy = Math.floor(k / 100000) * CELL;
-    return { g, x0: cx - 1, y0: cy - 1, x1: cx + CELL + 1, y1: cy + CELL + 1 };
-  });
+  const chunks = cells.chunks();
   return { chunks, cull: (view) => cullChunks(chunks, view) };
 }

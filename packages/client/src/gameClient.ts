@@ -114,7 +114,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Toggles; the view can start top-down with ?view=topdown.
   let mode: ViewMode = params.get('view') === 'topdown' ? 'topdown' : 'iso';
   let zoom = DEFAULT_ZOOM;
-  let showDebug = true;
+  // The debug panel and the minimap are alpha and debugging aids, so they start hidden
+  // (Devlin, 2026-10-13): ` and M toggle them, and ?debug=on / ?minimap=on start them shown.
+  let showDebug = params.get('debug') === 'on';
   let zoomLocked = false, ridingZoom = zoom;
   // The zoom on screen eases toward `zoom`, so committing, the run ending and zoom keys never jump.
   let shownZoom = zoom;
@@ -130,8 +132,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const topdownView = createWorldView();
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
-  // The minimap starts on; M hides it.
   const minimap = createMinimap(map, scenery);
+  minimap.root.visible = params.get('minimap') === 'on';
   app.stage.addChild(isoWorld.root, topdown, overlay.root, minimap.root);
   const hud = createHud();
 

@@ -11,7 +11,7 @@ import { createSceneryLayers, forestTiles } from './scenery';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
 import { createMud } from './mud';
-import { depthOf, isoX, isoY, TILE_H } from '../projection';
+import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 
@@ -81,6 +81,18 @@ export interface WorldScene {
   mapOverlay: Container;
   zoneOverlay: Graphics;
   update(input: WorldSceneInput): void;
+}
+
+/** Whether a slice's screen box (roughly) can overlap the hole, so it needs the hole cut in it. */
+function sliceNearHole(b: Box, hole: { x: number; y: number; to: { x: number; y: number } | null }): boolean {
+  const cx = isoX(b.x, b.y), cy = isoY(b.x, b.y, CAR_HEIGHT / 2);
+  const reach = (b.halfLength + b.halfWidth) * (TILE_W / 2) + CAR_HEIGHT * TILE_H + CUTOUT_RADIUS * TILE_H;
+  const near = (x: number, y: number) => Math.abs(x - cx) < reach && Math.abs(y - cy) < reach;
+  if (near(hole.x, hole.y)) return true;
+  if (!hole.to) return false;
+  // Along the stretched band, a few points are enough at this size.
+  for (let t = 0.25; t <= 1; t += 0.25) if (near(hole.x + (hole.to.x - hole.x) * t, hole.y + (hole.to.y - hole.y) * t)) return true;
+  return false;
 }
 
 /** The hole's mask: a circle round the horse or player, or a tapered band from it to the car side. */
@@ -171,7 +183,7 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   const ground = new Container();
   if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
   if (sceneryLayers) ground.addChild(sceneryLayers.ground);
-  const terrain = drawTerrain(map, ground);
+  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground);
   const shadows = new Graphics();
   const floors = new Graphics();
   const markers = new Graphics();
@@ -210,6 +222,7 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
     return g;
   };
   let used = 0;
+  let lastFadeSec = 0;
 
   /** One slice of the open car: its floor on the floor layer, then low walls with gaps at the doors, each sorted on its own. */
   const drawOpenSlice = (s: ReturnType<typeof carSlices>[number], doors: ReturnType<typeof doorSpans>, colour: number) => {
@@ -248,8 +261,13 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   return {
     root, mapOverlay, zoneOverlay,
     update(input) {
+      cullTerrain(input.view);
       cover?.cull(input.view);
       sceneryLayers?.cull(input.view);
+      // Trees in front of the horse (or you aboard) fade so you stay in view.
+      const seen = input.aboard ? { x: input.aboard.x, y: input.aboard.y, z: 1 } : input.horse ? { x: input.horse.x, y: input.horse.y, z: 1 } : null;
+      sceneryLayers?.fade(seen, Math.min(0.1, Math.max(0, input.timeSec - lastFadeSec)));
+      lastFadeSec = input.timeSec;
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
       rocks.cull(input.viewTop, input.viewBottom);
@@ -278,7 +296,11 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
       const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
       const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
       if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
+      const v = input.view, margin = (car: CarPose) => car.halfLength + CAR_HEIGHT + 2;
       for (const car of input.cars) {
+        // Cars off screen are not drawn at all: big-country has several trains.
+        const m = margin(car);
+        if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
         // A soft shadow under the car, offset down-right like the light.
@@ -287,7 +309,8 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
         const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
-          const g = piece(hole !== null);
+          // Only slices that reach the hole get it: each masked slice is an extra stencil pass.
+          const g = piece(hole !== null && sliceNearHole(s.box, hole));
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
           for (const d of doors) {

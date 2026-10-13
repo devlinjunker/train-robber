@@ -3,6 +3,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type SceneryKind } from '@train-robber/config';
 import { drawBox, groundEllipse, isoPoly, shade } from './draw';
+import { cullChunks, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 
 export const FOREST_FLOOR = 0x3f5a2e;
@@ -10,17 +11,16 @@ const BRIDGE = 0x8b6a45, BRIDGE_RAIL = 0x5a3d26;
 const TREE = 0x3f8a3a, PINE = 0x2c6b45, TRUNK = 0x6b4a2a, BUSH = 0x5f9446;
 const FLOWERS = [0xf2a7c8, 0xf6e27a, 0xffffff];
 /** Trees in the same diagonal band (x + y) and stretch across it share one depth-sorted Graphics. */
-const BAND_TILES = 1, ACROSS_TILES = 16;
+const BAND_TILES = 1, ACROSS_TILES = 6;
+/** A lone tree (none other within about this many tiles) is drawn this much bigger. */
+const LONE_TILES = 3, LONE_SCALE = 1.4;
+/**
+ * Trees in front of the horse that cover it fade to this alpha (Devlin, 2026-10-13), easing at
+ * FADE_RATE per second.
+ */
+const FADED_ALPHA = 0.15, FADE_RATE = 8;
 /** Bushes and flowers are drawn in square cells of this many tiles. */
 const COVER_CELL = 24;
-
-/** A piece of scenery and the tiles it covers, so pieces off screen can be skipped. */
-export interface Chunk { g: Graphics; x0: number; y0: number; x1: number; y1: number }
-
-/** Show only the chunks that overlap a box of world tiles. */
-export function cullChunks(chunks: readonly Chunk[], view: { x0: number; y0: number; x1: number; y1: number }): void {
-  for (const c of chunks) c.g.visible = c.x1 >= view.x0 && c.x0 <= view.x1 && c.y1 >= view.y0 && c.y0 <= view.y1;
-}
 
 /** Group item indices by a key, keeping each group's tile bounds. */
 function group(indices: readonly number[], x: readonly number[], y: readonly number[], key: (i: number) => number) {
@@ -154,10 +154,24 @@ export function drawTrees(scenery: SceneryDef): Chunk[] {
   trees.sort((a, b) => depthOf(x[a]!, y[a]!) - depthOf(x[b]!, y[b]!));
   const band = (i: number) => Math.floor(depthOf(x[i]!, y[i]!) / BAND_TILES);
   const groups = group(trees, x, y, (i) => band(i) * 100000 + Math.floor((x[i]! - y[i]! + 100000) / ACROSS_TILES));
+  // A tree with no other within LONE_TILES stands alone in open country: drawn bigger, so it reads
+  // as an obstacle before you hit it (Devlin, 2026-10-13: single trees were hard to see).
+  const near = new Map<number, number>();
+  const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
+  for (const i of trees) {
+    const k = cellKey(Math.floor(x[i]! / LONE_TILES), Math.floor(y[i]! / LONE_TILES));
+    near.set(k, (near.get(k) ?? 0) + 1);
+  }
+  const lone = (i: number) => {
+    const cx = Math.floor(x[i]! / LONE_TILES), cy = Math.floor(y[i]! / LONE_TILES);
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += near.get(cellKey(cx + dx, cy + dy)) ?? 0;
+    return n === 1;
+  };
   return [...groups.values()].map(({ items, ...box }) => {
     const g = new Graphics();
     g.zIndex = (band(items[0]!) + 0.5) * BAND_TILES;
-    for (const i of items) drawTree(g, scenery.kindLegend[kind[i]!]!, x[i]!, y[i]!, size[i]!);
+    for (const i of items) drawTree(g, scenery.kindLegend[kind[i]!]!, x[i]!, y[i]!, size[i]! * (lone(i) ? LONE_SCALE : 1));
     // Canopies stand up to about 3 tiles tall, which reaches about 6 tiles up the screen.
     return { g, ...box, x0: box.x0 - 4, y0: box.y0 - 4 };
   });
@@ -171,7 +185,12 @@ export interface SceneryLayers {
    * Hide what is outside a box of world tiles. Tree groups on screen join the depth-sorted
    * `objects` container and leave it when they go off screen, so it only sorts what is drawn.
    */
-  cull(view: { x0: number; y0: number; x1: number; y1: number }): void;
+  cull(view: TileBox): void;
+  /**
+   * Fade the tree groups in front of a point (the horse, or the player aboard), at world (x, y)
+   * and screen height z tiles, that cover it on screen; `dt` in seconds. Null fades nothing.
+   */
+  fade(at: { x: number; y: number; z: number } | null, dt: number): void;
 }
 
 export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container): SceneryLayers {
@@ -179,9 +198,21 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
   ground.label = 'iso-scenery-ground';
   const cover = drawSceneryCover(scenery);
   ground.addChild(drawSceneryFlat(map, scenery), ...cover.map((c) => c.g));
-  const trees = drawTrees(scenery);
+  const trees = drawTrees(scenery).map((t) => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
   return {
     ground,
+    fade(at, dt) {
+      const px = at && isoX(at.x, at.y), py = at && isoY(at.x, at.y, at.z), depth = at && depthOf(at.x, at.y);
+      const k = 1 - Math.exp(-FADE_RATE * dt);
+      for (const t of trees) {
+        if (!t.g.parent) continue;
+        const b = t.bounds;
+        // Covers it: in front (deeper), and its drawing spans the point with a little room.
+        const covers = at !== null && t.g.zIndex > depth! && px! > b.x - 24 && px! < b.x + b.width + 24 && py! > b.y - 24 && py! < b.y + b.height;
+        const target = covers ? FADED_ALPHA : 1;
+        if (t.g.alpha !== target) t.g.alpha = Math.abs(t.g.alpha - target) < 0.01 ? target : t.g.alpha + (target - t.g.alpha) * k;
+      }
+    },
     cull(view) {
       cullChunks(cover, view);
       for (const t of trees) {
