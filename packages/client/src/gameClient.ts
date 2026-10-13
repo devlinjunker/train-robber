@@ -154,7 +154,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let notice = '', noticeKind: NoticeKind = 'info', noticeUntil = 0;
   // When the last crash and landing happened (performance.now ms), for their flashes and banner.
   let hitAt = -Infinity, hitFlashSec = HIT_FLASH_SEC, landing: { result: 'perfect' | 'good'; at: number } | null = null;
-  // When the run last switched trains, for the new train's gold flash.
+  // When the run last committed or switched trains, for that train's gold flash.
   let switchedAt = -Infinity;
   const show = (text: string, kind: NoticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
   const noticeFor = (e: SimEvent) => {
@@ -169,6 +169,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
+    else if (e.type === 'RunStarted') switchedAt = performance.now();
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };

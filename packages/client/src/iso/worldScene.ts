@@ -267,18 +267,15 @@ export function createWorldScene(map: MapDef): WorldScene {
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
       markers.clear();
-      // Roof outlines: gold on the committed train, pale blue on the one Tab would switch to. They
-      // draw over the cars, so a train behind another still shows. Just after a switch the new
-      // train's roofs flash gold.
+      // Roofs: the committed train flashes gold just after a commit or switch (no lasting
+      // highlight, Devlin 2026-10-13), and the one Tab would switch to is outlined pale blue. They
+      // draw over the cars, so a train behind another still shows.
       const f = input.focus;
+      const flashing = f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6);
       for (const car of input.cars) {
-        const committed = car.trainId === f.committed, candidate = car.trainId === f.candidate;
-        if (!committed && !candidate) continue;
-        const roof = isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
-        if (committed && f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6)) {
-          markers.poly(roof).fill({ color: COMMITTED_COLOUR, alpha: 0.55 });
-        }
-        markers.poly(roof).stroke({ width: committed ? 4 : 3, color: committed ? COMMITTED_COLOUR : SWITCH_CANDIDATE_COLOUR, alpha: committed ? 0.95 : 0.8 });
+        const roof = () => isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
+        if (car.trainId === f.committed && flashing) markers.poly(roof()).fill({ color: COMMITTED_COLOUR, alpha: 0.55 }).stroke({ width: 4, color: COMMITTED_COLOUR });
+        else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
       // Entry markers on the riding side of the checked train: dim out of range, a ring when in

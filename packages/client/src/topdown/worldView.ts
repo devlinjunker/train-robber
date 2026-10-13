@@ -86,17 +86,18 @@ export function createWorldView(): WorldView {
         g.rotation = Math.atan2(car.uy, car.ux);
       });
       for (const g of pool.splice(cars.length)) g.destroy();
-      // Outlines: gold on the committed train (flashing just after a switch), pale blue on the one Tab would switch to.
+      // The committed train flashes gold just after a commit or switch; the one Tab would switch to is outlined pale blue.
       outlines.clear();
       const f = input.focus;
       if (f) {
+        const flashing = f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6);
         for (const car of cars) {
-          const committed = car.trainId === f.committed;
+          const committed = car.trainId === f.committed && flashing;
           if (!committed && car.trainId !== f.candidate) continue;
           // Left of travel is (uy, -ux).
           const lx = car.uy * car.halfWidth, ly = -car.ux * car.halfWidth, fx = car.ux * car.halfLength, fy = car.uy * car.halfLength;
           const pts = [car.x + fx + lx, car.y + fy + ly, car.x + fx - lx, car.y + fy - ly, car.x - fx - lx, car.y - fy - ly, car.x - fx + lx, car.y - fy + ly];
-          if (committed && f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6)) outlines.poly(pts).fill({ color: COMMITTED_COLOUR, alpha: 0.5 });
+          if (committed) outlines.poly(pts).fill({ color: COMMITTED_COLOUR, alpha: 0.5 });
           outlines.poly(pts).stroke({ width: 0.35, color: committed ? COMMITTED_COLOUR : SWITCH_CANDIDATE_COLOUR });
         }
       }
