@@ -9,9 +9,10 @@ import type { MapDef, ResolvedConfig } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
 import { Interpolator } from './interp';
 import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
-import { clampZoom, DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, stepZoom, worldToScreen, type Camera } from './projection';
+import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
-import { createScreenOverlay, type MeterView, type TrainPointer } from './screenOverlay';
+import { nearestOnCar } from './iso/occlusion';
+import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
 import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
@@ -22,15 +23,26 @@ export type ViewMode = 'iso' | 'topdown';
 
 const TOPDOWN_PX = 24;
 /**
- * Committing to a train locks the zoom until the run ends, aboard too (Devlin, 2026-10-10): the
- * wheel and zoom keys do nothing during a run, and the riding zoom comes back after it. Devlin
- * picked 1.75 in the top-down view and 1 in iso; `?runZoom=` overrides both for playtests.
+ * Committing to a train sets the run zoom until the run ends, aboard too (Devlin, 2026-10-10), and
+ * the riding zoom comes back after it. Devlin picked 1.75 in the top-down view and 1 in iso;
+ * `?runZoom=` overrides both for playtests. During the run the wheel and zoom keys move only
+ * RUN_ZOOM_RANGE of the run zoom either side (`?runZoomRange=`, 0 locks it as before).
  */
 export const RUN_ZOOM: Record<ViewMode, number> = { iso: 1, topdown: 1.75 };
 /** How fast the shown zoom closes on its target, per second (about 0.7 s to settle). */
 const ZOOM_RATE = 5;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
+/**
+ * Showing how close the horse is to the run's train (Devlin, 2026-10-11/12: on the far side it was
+ * not clear how close you are to the car). `?distanceCue=world` (default) stretches the see-through
+ * hole to the car side and makes the car edge glow (see iso/worldScene). `line` is the earlier
+ * debug cue instead: a line over the car to the nearest point on its side with the gap in tiles,
+ * far side in iso only. `off` shows neither.
+ */
+export type DistanceCueMode = 'world' | 'line' | 'off';
+/** The line cue shows within this many tiles of the car side. */
+export const DISTANCE_CUE_TILES = 8;
 
 
 /** Numbers only the host knows, for the debug readout. */
@@ -59,7 +71,7 @@ export interface GameClientOptions {
   sim: Sim;
   map: MapDef;
   config: ResolvedConfig;
-  /** Client options (`view`, `runZoom`) come from this query string; a replay passes the logged one. */
+  /** Client options (`view`, `runZoom`, `runZoomRange`, `distanceCue`) come from this query string; a replay passes the logged one. */
   search?: string;
   onExportLogs?(): void;
   onAddNote?(): void;
@@ -87,6 +99,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const params = new URLSearchParams(opts.search ?? location.search);
   const runZoomParam = Number(params.get('runZoom'));
   const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
+  const runZoomRangeParam = params.get('runZoomRange');
+  const runZoomRange = runZoomRangeParam !== null && Number(runZoomRangeParam) >= 0 ? Number(runZoomRangeParam) : RUN_ZOOM_RANGE;
+  const cueParam = params.get('distanceCue');
+  const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
   const b = config.values.boarding;
   const horseCfg = config.values.horse;
@@ -112,7 +128,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const hud = createHud();
 
   const onView = (a: ViewAction) => {
-    if (a === 'zoomIn' || a === 'zoomOut') { if (!zoomLocked) zoom = stepZoom(zoom, a === 'zoomIn' ? 1 : -1); }
+    if (a === 'zoomIn' || a === 'zoomOut') {
+      const dir = a === 'zoomIn' ? 1 : -1;
+      zoom = zoomLocked ? stepRunZoom(zoom, dir, runZoom(mode), runZoomRange) : stepZoom(zoom, dir);
+    }
     else if (a === 'toggleView') { mode = mode === 'iso' ? 'topdown' : 'iso'; if (zoomLocked) zoom = runZoom(mode); }
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
@@ -123,7 +142,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // O toggles the active view's map overlay. The top-down one starts on (it is that view's only
   // terrain); the iso one starts off, since the iso view draws the ground and track itself.
   const keyboard = new KeyboardSource(onView);
-  addEventListener('wheel', (e) => { if (!zoomLocked) zoom = clampZoom(zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9)); }, { passive: true });
+  addEventListener('wheel', (e) => {
+    const z = zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9);
+    zoom = zoomLocked ? clampRunZoom(z, runZoom(mode), runZoomRange) : clampZoom(z);
+  }, { passive: true });
   const mapper = new InputMapper();
   const interp = new Interpolator();
   interp.push(sim.state, sim.cars());
@@ -222,6 +244,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const frame = parseCarFrame(placement.frame);
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
       const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
+      // The nearest point on the run's train to the horse, while approaching it.
+      let gap: { car: (typeof cars)[number]; x: number; y: number; distance: number } | null = null;
+      if (horse && s.run && phase === 'approach' && distanceCueMode !== 'off') {
+        for (const car of cars) {
+          if (car.trainId !== s.run.trainId) continue;
+          const p = nearestOnCar(car, horse.x, horse.y);
+          if (!gap || p.distance < gap.distance) gap = { car, ...p };
+        }
+      }
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
       const hitAge = (now - hitAt) / 1000 < hitFlashSec ? (now - hitAt) / 1000 : null;
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
@@ -250,6 +281,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const camera: Camera = { x: cam.x, y: cam.y, zoom: shownZoom, width: W, height: H };
 
       const iso = mode === 'iso';
+      const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
@@ -259,6 +291,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
+          horseSpeed: horseState.speed, inMud,
+          viewTop: isoY(cam.x, cam.y) - H / 2 / shownZoom, viewBottom: isoY(cam.x, cam.y) + H / 2 / shownZoom,
+          gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
         });
         isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
@@ -292,10 +327,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ id: t.id, sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
+      // The line cue, on the far side of the run's train in iso.
+      let distanceCue: DistanceCue | null = null;
+      if (horse && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(horse.x, horse.y) < depthOf(gap.car.x, gap.car.y)) {
+        distanceCue = { from: project(horse.x, horse.y, 0), to: project(gap.x, gap.y, 0), distanceTiles: gap.distance };
+      }
       overlay.update({
         width: W, height: H,
         horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
-        meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
+        meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains, distanceCue,
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
@@ -325,7 +365,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
           `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
-          `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ' (locked for the run)' : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
+          `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
           `run: ${phase.toUpperCase()}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
           check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',

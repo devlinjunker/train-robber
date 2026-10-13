@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CarPose } from '@train-robber/sim';
-import { carHides, hiddenByCars, insideConvex, screenHull } from '../src/iso/occlusion';
+import { carHides, hiddenByCars, insideConvex, nearestOnCar, screenHull } from '../src/iso/occlusion';
 import { isoX, isoY } from '../src/projection';
 
 // A car running along +x; the far side from the viewer is -y (smaller depth x + y).
@@ -27,5 +27,11 @@ describe('occlusion', () => {
     const hull = screenHull(car, 2.4);
     expect(insideConvex(hull, [isoX(100, 100), isoY(100, 100, 1)])).toBe(true);
     expect(insideConvex(hull, [isoX(100, 90), isoY(100, 90, 0)])).toBe(false);
+  });
+
+  it('measures from the horse to the nearest point on the car side, not a door', () => {
+    expect(nearestOnCar(car, 102, 95)).toEqual({ x: 102, y: 98.5, distance: 3.5 });
+    expect(nearestOnCar(car, 110, 100).distance).toBeCloseTo(4, 9);
+    expect(nearestOnCar(car, 100, 100).distance).toBe(0);
   });
 });
