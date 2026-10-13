@@ -10,7 +10,7 @@ import { riderCommands } from './golden';
 import { ReportBuilder, type BoardingReport } from './report';
 
 /**
- * `idle` sends nothing. `random` mashes every key at random, now and then quick retrying so it
+ * `idle` sends nothing. `random` mashes every key (switching trains too) at random, now and then quick retrying so it
  * meets the train. `chaser` quick retries, rides up to a door, commits, jumps after a random wait
  * so the meter results vary, walks around aboard, and goes again.
  */
@@ -41,6 +41,7 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
   const run = s.run;
   if (run && !s.world.trains.some((t) => t.id === run.trainId && t.pinnedBy !== null)) return `committed train ${run.trainId} is not pinned`;
   if (!run && s.world.trains.some((t) => t.pinnedBy !== null)) return 'a train is pinned with no run';
+  if (s.world.trains.filter((t) => t.pinnedBy !== null).length > 1) return 'more than one train is pinned';
   if (run?.phase === 'ended') return 'a run was left in ended';
   for (const p of s.players) {
     const h = s.world.horses.find((q) => q.id === p.horseId)!;
@@ -77,6 +78,7 @@ function randomBot(rng: RngState): Brain {
     else if (roll < 20) c.push({ type: 'interact', held: false });
     else if (roll < 22) c.push({ type: 'startRun' });
     else if (roll < 23) c.push({ type: 'cancelRun' });
+    else if (roll < 25) c.push({ type: 'switchTrain' });
     // Keep it in sight of the track: the stadium sits between y 30 and 170 on alpha-flats.
     const h = (sim.state as GameState).world.horses[0]!;
     if (h.y > sim.map.rows - 20 || h.y < 20 || h.x < 20 || h.x > sim.map.cols - 20) c.push({ type: 'quickRetry' });

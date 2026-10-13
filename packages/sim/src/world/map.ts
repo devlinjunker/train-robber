@@ -8,7 +8,7 @@ export interface SimRoute extends TrackRoute { id: string }
 export interface SimMap {
   id: string;
   size: { cols: number; rows: number };
-  /** Zone name per legend index; the sim knows 'slow', 'blocked' and 'water'. */
+  /** Zone name per legend index; the sim knows 'slow', 'blocked', 'water' and 'deep'. */
   zoneLegend: readonly string[];
   /** Row-major run-length encoding: [count, legend index] pairs. */
   zones: readonly (readonly [number, number])[];
@@ -20,12 +20,15 @@ export interface SimMap {
 
 export interface MapTrain { type: string; route: string; d: number }
 
-/** How a tile affects the horse. Blocked and water both stop it; only blocked ground hurts to run into. */
-export const Terrain = { Open: 0, Slow: 1, Blocked: 2, Water: 3 } as const;
+/**
+ * How a tile affects the horse. Slow ground (mud) and water slow it, water more; blocked ground
+ * and deep water stop it, and only blocked ground hurts to run into.
+ */
+export const Terrain = { Open: 0, Slow: 1, Blocked: 2, Water: 3, Deep: 4 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
 /** True for terrain nothing can move through. */
-export const isSolid = (t: Terrain): boolean => t === Terrain.Blocked || t === Terrain.Water;
+export const isSolid = (t: Terrain): boolean => t === Terrain.Blocked || t === Terrain.Deep;
 
 /** A map prepared for lookups. Built once per sim; never part of state. */
 export interface WorldMap {
@@ -51,7 +54,7 @@ export function mapHash(map: SimMap): string {
 
 export function prepareMap(map: SimMap): WorldMap {
   const { cols, rows } = map.size;
-  const kind = map.zoneLegend.map((z): Terrain => (z === 'slow' ? Terrain.Slow : z === 'blocked' ? Terrain.Blocked : z === 'water' ? Terrain.Water : Terrain.Open));
+  const kind = map.zoneLegend.map((z): Terrain => (z === 'slow' ? Terrain.Slow : z === 'blocked' ? Terrain.Blocked : z === 'water' ? Terrain.Water : z === 'deep' ? Terrain.Deep : Terrain.Open));
   const terrain = new Uint8Array(cols * rows);
   let i = 0;
   for (const [count, zone] of map.zones) {

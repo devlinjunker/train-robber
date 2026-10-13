@@ -26,6 +26,21 @@ export function landingCue(result: 'perfect' | 'good'): { title: string; detail:
     : { title: 'GOOD', detail: 'stumbling', colour: GOOD_COLOUR, size: 28, notice: 'Good landing: stumbling, slowed for a moment' };
 }
 
+/**
+ * Which train is which during a run (Devlin, switch-train playtests, 2026-10-12 and 13): the
+ * train a commit or switch lands on flashes gold for SWITCH_FLASH_SEC, with no lasting highlight,
+ * and the one Tab would switch to is outlined pale blue. The edge arrows use the same colours.
+ */
+export const COMMITTED_COLOUR = 0xffd34d, SWITCH_CANDIDATE_COLOUR = 0x9fe3ff;
+export const SWITCH_FLASH_SEC = 1.2;
+
+/** The trains to mark: the committed one, the one Tab would switch to, and seconds since the last commit or switch while its flash lasts. */
+export interface TrainFocus {
+  committed: string | null;
+  candidate: string | null;
+  switchAge: number | null;
+}
+
 /** A scrape flashes red only briefly; a crash for HIT_FLASH_SEC. */
 export const SCRAPE_FLASH_SEC = 0.4;
 

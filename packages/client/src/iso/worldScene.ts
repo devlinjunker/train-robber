@@ -3,17 +3,19 @@
 // the debug overlays.
 import { Container, Graphics } from 'pixi.js';
 import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
-import type { MapDef } from '@train-robber/config';
+import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
 import { createMesas } from './mesa';
+import { createSceneryLayers, forestTiles } from './scenery';
+import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
-import { depthOf, isoX, isoY, TILE_H } from '../projection';
+import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
-import { flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR } from '../cues';
+import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 
 const PERFECT_RING_SEC = 0.8;
 
@@ -62,6 +64,8 @@ export interface WorldSceneInput {
   timeSec: number;
   /** The car the player is aboard, drawn open, and the player's world position in it. */
   aboard: { trainId: string; index: number; x: number; y: number } | null;
+  /** Roof outlines on the committed train and the one Tab would switch to. */
+  focus: TrainFocus;
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
   horseSpeed: number;
   inMud: boolean;
@@ -70,6 +74,8 @@ export interface WorldSceneInput {
   viewBottom: number;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
+  /** The box of world tiles on screen: scenery outside it is not drawn. */
+  view: { x0: number; y0: number; x1: number; y1: number };
 }
 
 export interface WorldScene {
@@ -79,6 +85,18 @@ export interface WorldScene {
   /** Ground height under a world point, in tiles of z (0 on maps without elevation). */
   groundZ(x: number, y: number): number;
   update(input: WorldSceneInput): void;
+}
+
+/** Whether a slice's screen box (roughly) can overlap the hole, so it needs the hole cut in it. */
+function sliceNearHole(b: Box, hole: { x: number; y: number; to: { x: number; y: number } | null }): boolean {
+  const cx = isoX(b.x, b.y), cy = isoY(b.x, b.y, CAR_HEIGHT / 2);
+  const reach = (b.halfLength + b.halfWidth) * (TILE_W / 2) + CAR_HEIGHT * TILE_H + CUTOUT_RADIUS * TILE_H;
+  const near = (x: number, y: number) => Math.abs(x - cx) < reach && Math.abs(y - cy) < reach;
+  if (near(hole.x, hole.y)) return true;
+  if (!hole.to) return false;
+  // Along the stretched band, a few points are enough at this size.
+  for (let t = 0.25; t <= 1; t += 0.25) if (near(hole.x + (hole.to.x - hole.x) * t, hole.y + (hole.to.y - hole.y) * t)) return true;
+  return false;
 }
 
 /** The hole's mask: a circle round the horse or player, or a tapered band from it to the car side. */
@@ -153,14 +171,20 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
   drawBox(g, rider, flash ?? RIDER_COLOUR);
 }
 
-export function createWorldScene(map: MapDef): WorldScene {
+/** `groundCover`: scatter grass and scrub over open ground from this seed, or none when null. */
+export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
-  const terrain = drawTerrain(map);
-  const shadows = new Graphics();
-  const floors = new Graphics();
   const objects = new Container();
   objects.sortableChildren = true;
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, objects) : null;
+  const cover = groundCover === null ? null : createGroundCover(map, groundCover);
+  const ground = new Container();
+  if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
+  if (sceneryLayers) ground.addChild(sceneryLayers.ground);
+  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground);
+  const shadows = new Graphics();
+  const floors = new Graphics();
   const markers = new Graphics();
   // Boarding range circles: off until B, which Devlin found clearer in the Phase 1 gate playtest.
   const zoneOverlay = new Graphics();
@@ -168,12 +192,13 @@ export function createWorldScene(map: MapDef): WorldScene {
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
   const field = createHeightField(map);
-  const ground = createHeightLayer(map, field);
-  const rocks = createRocks(map, field);
+  const heights = createHeightLayer(map, field);
+  // Forest tiles are blocked too, but draw as trees, not boulders.
+  const rocks = createRocks(map, field, scenery ? forestTiles(map, scenery) : undefined);
   const mesas = createMesas(map, field, rocks.strips);
   const mud = createMud();
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers, mesas.masks);
-  objects.addChild(...ground.strips, ...mesas.strips, ...rocks.strips, mud.clods);
+  objects.addChild(...heights.strips, ...mesas.strips, ...rocks.strips, mud.clods);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -199,6 +224,7 @@ export function createWorldScene(map: MapDef): WorldScene {
     return g;
   };
   let used = 0;
+  let lastFadeSec = 0;
 
   /** One slice of the open car: its floor on the floor layer, then low walls with gaps at the doors, each sorted on its own. */
   const drawOpenSlice = (s: ReturnType<typeof carSlices>[number], doors: ReturnType<typeof doorSpans>, colour: number) => {
@@ -238,10 +264,17 @@ export function createWorldScene(map: MapDef): WorldScene {
     root, mapOverlay, zoneOverlay,
     groundZ: field.groundZ,
     update(input) {
+      cullTerrain(input.view);
+      cover?.cull(input.view);
+      sceneryLayers?.cull(input.view);
+      // Trees in front of the horse (or you aboard) fade so you stay in view.
+      const seen = input.aboard ? { x: input.aboard.x, y: input.aboard.y, z: 1 } : input.horse ? { x: input.horse.x, y: input.horse.y, z: 1 } : null;
+      sceneryLayers?.fade(seen, Math.min(0.1, Math.max(0, input.timeSec - lastFadeSec)));
+      lastFadeSec = input.timeSec;
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
       rocks.cull(input.viewTop, input.viewBottom);
-      ground.cull(input.viewTop, input.viewBottom);
+      heights.cull(input.viewTop, input.viewBottom);
       mesas.cull(input.viewTop, input.viewBottom);
       const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
       mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
@@ -273,7 +306,11 @@ export function createWorldScene(map: MapDef): WorldScene {
       const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
       const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
       if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
+      const v = input.view, margin = (car: CarPose) => car.halfLength + CAR_HEIGHT + 2;
       for (const car of input.cars) {
+        // Cars off screen are not drawn at all: big-country has several trains.
+        const m = margin(car);
+        if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
         // A soft shadow under the car, offset down-right like the light.
@@ -282,7 +319,8 @@ export function createWorldScene(map: MapDef): WorldScene {
         const open = input.aboard?.trainId === car.trainId && input.aboard.index === car.index;
         for (const s of carSlices(car)) {
           if (open) { drawOpenSlice(s, doors, colour); continue; }
-          const g = piece(hole !== null);
+          // Only slices that reach the hole get it: each masked slice is an extra stencil pass.
+          const g = piece(hole !== null && sliceNearHole(s.box, hole));
           // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
           drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
           for (const d of doors) {
@@ -355,10 +393,21 @@ export function createWorldScene(map: MapDef): WorldScene {
       for (const car of input.cars) for (const ep of carEntryPoints(car)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
+      markers.clear();
+      // Roofs: the committed train flashes gold just after a commit or switch (no lasting
+      // highlight, Devlin 2026-10-13), and the one Tab would switch to is outlined pale blue. They
+      // draw over the cars, so a train behind another still shows.
+      const f = input.focus;
+      const flashing = f.switchAge !== null && f.switchAge < SWITCH_FLASH_SEC && flashOn(f.switchAge, 6);
+      for (const car of input.cars) {
+        const roof = () => isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
+        if (car.trainId === f.committed && flashing) markers.poly(roof()).fill({ color: COMMITTED_COLOUR, alpha: 0.55 }).stroke({ width: 4, color: COMMITTED_COLOUR });
+        else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
+      }
+
       // Entry markers on the riding side of the checked train: dim out of range, a ring when in
       // range at the wrong speed, highlighted when matched. They draw over the cars so a door on
       // the far side still shows.
-      markers.clear();
       const c = input.check;
       if (input.horse && c && input.trainId) {
         for (const car of input.cars) {

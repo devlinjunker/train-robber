@@ -6,6 +6,8 @@ export interface BoardingReport {
   runs: number;
   outcomes: Record<string, number>;
   quickRetries: number;
+  /** Runs moved to another train with Tab, keeping their timer. */
+  trainSwitches: number;
   boarded: number;
   attempts: number;
   results: Record<string, number>;
@@ -20,7 +22,7 @@ const bump = (o: Record<string, number>, k: string) => { o[k] = (o[k] ?? 0) + 1;
 
 /** Folds events into a report one at a time, so long bot sweeps need not keep them. */
 export class ReportBuilder {
-  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [] };
+  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [] };
   private startedAt = new Map<number, number>();
   constructor(private readonly tickRateHz: number) {}
 
@@ -35,6 +37,7 @@ export class ReportBuilder {
           if (at !== undefined) r.commitToAboardSec.push((e.tick - at) / this.tickRateHz);
         }
         break;
+      case 'TrainSwitched': r.trainSwitches++; break;
       case 'BoardingAttempt': r.attempts++; bump(r.results, e.result); break;
       case 'CommandRejected': bump(r.rejections, `${e.command}: ${e.reason}`); break;
       case 'RunEnded':
@@ -74,7 +77,7 @@ const counts = (o: Record<string, number>) => Object.entries(o).sort((a, b) => b
 export function formatReport(r: BoardingReport): string {
   const fails = r.results.fail ?? 0;
   return [
-    `runs ${r.runs}, boarded ${r.boarded} (${pct(r.boarded, r.runs)}), outcomes: ${counts(r.outcomes)}${r.quickRetries ? ` (${r.quickRetries} quick retries)` : ''}`,
+    `runs ${r.runs}, boarded ${r.boarded} (${pct(r.boarded, r.runs)}), outcomes: ${counts(r.outcomes)}${r.quickRetries ? ` (${r.quickRetries} quick retries)` : ''}${r.trainSwitches ? `, ${r.trainSwitches} train switches` : ''}`,
     `jumps ${r.attempts}, ${r.runs ? (r.attempts / r.runs).toFixed(2) : '-'} per run; perfect ${r.results.perfect ?? 0}, good ${r.results.good ?? 0}, fail ${fails} (${pct(fails, r.attempts)})`,
     `rejected: ${counts(r.rejections)}`,
     `commit to aboard: median ${sec(median(r.commitToAboardSec))}; run length: median ${sec(median(r.runSec))}`,

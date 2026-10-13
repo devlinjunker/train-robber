@@ -6,7 +6,7 @@ const base = {
   sim: { tickRateHz: 60 },
   logging: { hashEverySec: 1, events: [] },
   player: { speedTilesPerSec: 8 },
-  commit: { rangeTiles: 12, auto: true },
+  commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
@@ -14,11 +14,11 @@ const base = {
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5 },
   },
   health: { max: 100 },
-  collision: { damageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
+  collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
   playtest: { quickRetry: true, quickRetryGapTiles: 60 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
-    slowZoneSpeedScale: 0.5, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+    slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
   },
   world: { mode: 'separate' },
   countdown: { enabled: false, startsAt: 'commit', scale: 1 },

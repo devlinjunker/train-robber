@@ -2,7 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains off screen.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
-import { landingCue, LANDING_CUE_SEC, speedLabel } from './cues';
+import { COMMITTED_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
 
 /**
  * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
@@ -28,6 +28,8 @@ export interface TrainPointer {
   sy: number;
   distanceTiles: number;
   committed: boolean;
+  /** The train Tab would switch the run to. */
+  candidate: boolean;
 }
 
 /** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
@@ -148,7 +150,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         const k = Math.min((cx - EDGE_MARGIN) / Math.abs(dx || 1e-9), (cy - EDGE_MARGIN) / Math.abs(dy || 1e-9));
         const ax = cx + dx * k, ay = cy + dy * k;
         const n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n;
-        const colour = t.committed ? 0xffd34d : 0xffffff;
+        const colour = t.committed ? COMMITTED_COLOUR : t.candidate ? SWITCH_CANDIDATE_COLOUR : 0xffffff;
         arrows.poly([ax + ux * 18, ay + uy * 18, ax - uy * 12 - ux * 6, ay + ux * 12 - uy * 6, ax + uy * 12 - ux * 6, ay - ux * 12 - uy * 6])
           .fill(colour).stroke({ width: 2, color: 0x000000 });
         let label = labels[used];

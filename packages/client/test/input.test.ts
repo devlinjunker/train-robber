@@ -7,7 +7,7 @@ const iso = (over: Partial<MapContext> = {}): MapContext => ({
   steering: 'heading', aboard: false,
   // Aboard a car whose front points up-right on screen (world -y).
   keyDirToWorld, keyDirToCar: (dx, dy) => worldDirToCar(...keyDirToWorld(dx, dy), { ux: 0, uy: -1 }),
-  commitTarget: () => null, ...over,
+  commitTarget: () => null, switchTarget: () => null, ...over,
 });
 
 describe('input mapper', () => {
@@ -45,5 +45,11 @@ describe('input mapper', () => {
     expect(m.commands(snap([], ['commit', 'jump', 'cancel', 'retry']), iso())).toEqual([
       { type: 'interact', held: false }, { type: 'jump' }, { type: 'cancelRun' }, { type: 'quickRetry' },
     ]);
+  });
+
+  it('Tab asks the switch query: a target is named, none leaves the sim to say why', () => {
+    const m = new InputMapper();
+    expect(m.commands(snap([], ['switch']), iso({ switchTarget: () => 'blank-2' }))).toEqual([{ type: 'switchTrain', trainId: 'blank-2' }]);
+    expect(m.commands(snap([], ['switch']), iso())).toEqual([{ type: 'switchTrain' }]);
   });
 });

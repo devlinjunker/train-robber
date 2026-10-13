@@ -8,8 +8,8 @@
 import { Graphics } from 'pixi.js';
 import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade } from './draw';
-import { GROUND, hash, MUD_COLOUR } from './terrain';
-import { TILE_H, Z_PX } from '../projection';
+import { GROUND, hash, MUD_COLOUR, sandSpot, SPOT_COLOURS } from './terrain';
+import { isoX, isoY, TILE_H, TILE_W, Z_PX } from '../projection';
 
 /** Height of one elevation level, in tiles of z. */
 export const LEVEL_TILES = 0.6;
@@ -295,10 +295,11 @@ export function createHeightLayer(map: MapDef, field: HeightField): HeightLayer 
       const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
       const k = Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
       g.poly([...isoPoly([[x, y]], tl), ...isoPoly([[x + 1, y]], tr), ...isoPoly([[x + 1, y + 1]], br), ...isoPoly([[x, y + 1]], bl)]).fill(shade(base, k));
-      if (zone === 'open' && t < 0.4 && hash(x + 17, y + 3) < 0.12) {
-        // A grass tuft, as on flat ground.
-        const cx = x + 0.3 + 0.4 * hash(y, x), cy = y + 0.3 + 0.4 * hash(x, y + 9), z = field.groundZ(cx, cy);
-        g.poly(isoPoly([[cx, cy - 0.12], [cx + 0.12, cy], [cx, cy + 0.12], [cx - 0.12, cy]], z)).fill(shade(base, k * 0.82));
+      const spot = zone === 'open' ? sandSpot(x, y) : null;
+      if (spot) {
+        // A sand spot, as on flat ground, at the height of the slope under it.
+        const z = field.groundZ(spot.x, spot.y);
+        g.ellipse(isoX(spot.x, spot.y), isoY(spot.x, spot.y, z), spot.r * TILE_W * 0.5, spot.r * TILE_H * 0.5).fill(mix(SPOT_COLOURS[spot.k]!, SCREE_COLOUR, t * 0.6));
       }
       // Cliff faces on the +x edge (TR to BR) and the +y edge (BR to BL), down to the neighbour's edge.
       const faces: [number, number, number, number, number, number, number, number, number, number][] = [];

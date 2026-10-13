@@ -15,7 +15,16 @@ export const GameSchema = z.object({
     events: z.array(z.string()),
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
-  commit: z.object({ rangeTiles: positive, auto: z.boolean() }).strict(),
+  commit: z.object({
+    rangeTiles: positive,
+    auto: z.boolean(),
+    /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
+    switchRangeTiles: positive,
+    /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
+    autoSwitch: z.boolean(),
+    /** Auto switching needs the other train this much closer than the committed one, so the run does not flip back and forth. */
+    autoSwitchMarginTiles: positive,
+  }).strict(),
   boarding: z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,
@@ -39,8 +48,10 @@ export const GameSchema = z.object({
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
   collision: z.object({
-    /** Health lost by a crash at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
+    /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
+    /** The same for a crash into blocked ground (rocks), kept separate so train hits can hurt more. */
+    obstacleDamageFraction: fraction,
     /** Health lost by scraping a train car (any touch below minImpactTilesPerSec), as a fraction of max. Blocked ground never scrapes. */
     scrapeDamageFraction: fraction,
     /** Speed lost against a car or blocked ground from which a touch is a crash; below it a car touch is a scrape and a rock touch is free. */
@@ -95,6 +106,8 @@ export const GameSchema = z.object({
     cruiseTargetRateTilesPerSec2: positive,
     /** Top speed on slow ground, as a fraction of maxSpeed. */
     slowZoneSpeedScale: z.number().gt(0).max(1),
+    /** Top speed wading through water, as a fraction of maxSpeed; entering water drops to it at once. */
+    waterSpeedScale: z.number().gt(0).max(1),
     turnRateDegPerSec: positive,
     /** steering variant group: direction keys set a screen heading, or A/D turn the horse. */
     steering: z.enum(['screen', 'heading']),

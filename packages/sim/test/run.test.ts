@@ -1,8 +1,8 @@
-// M3: committing, the boarding rule and meter, landings, health and death, cancel, quick
+// M3: committing, switching trains, the boarding rule and meter, landings, health and death, cancel, quick
 // retry, the car frame aboard, and snapshots taken mid-boarding.
 import { describe, it, expect } from 'vitest';
 import {
-  applyOutcome, boardingCheck, carToWorld, commitTarget, createSim, entryPointWorld, meterPosition, meterResult, meterZones, restoreSim, trackAt,
+  applyOutcome, boardingCheck, carToWorld, commitTarget, createSim, entryPointWorld, meterPosition, meterResult, meterZones, restoreSim, spawnTrain, switchTarget, trackAt,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap } from './fixtures';
@@ -73,7 +73,7 @@ describe('commit', () => {
   });
 
   it('with commit.auto, an idle rider commits on the first tick a train is in range, with no command', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
     const sim = setup(auto);
     Object.assign(horse(sim), { x: 116, y: 10 }); // 17 tiles from the car
     const far = steps(sim, 5);
@@ -353,6 +353,107 @@ describe('cancel', () => {
   }
   it('is rejected while idle', () => {
     expect(rejections(step(setup(), { type: 'cancelRun' }))).toEqual(['cancelRun: no run']);
+  });
+});
+
+describe('switching trains', () => {
+  /**
+   * Committed to blank-1 on the top straight, with blank-2 placed on the bottom straight, its
+   * engine front at x = 130 heading left, and the horse midway between the two (19 tiles from each).
+   */
+  function twoTrains(cfg: SimConfig = config): Sim {
+    const sim = setup(cfg);
+    step(sim, { type: 'startRun', trainId: 'blank-1' });
+    spawnTrain(S(sim), sim.map, cfg, 'blank', 120 + Math.PI * 20 + 30);
+    Object.assign(horse(sim), { x: 130, y: 50, speed: 0, cruiseTarget: 0 });
+    return sim;
+  }
+  const switched = (ev: SimEvent[]) => ev.flatMap((e) => (e.type === 'TrainSwitched' ? [`${e.from}>${e.to}`] : []));
+
+  it('moves the pin to the other train and keeps the run, its start tick, health and jumps', () => {
+    const sim = twoTrains();
+    const run = { ...S(sim).run! };
+    rp(sim).health = 70; rp(sim).boardingAttempts = 2;
+    steps(sim, 30);
+    expect(switchTarget(S(sim), sim.map, config, horse(sim))).toBe('blank-2');
+    const ev = step(sim, { type: 'switchTrain' });
+    expect(switched(ev)).toEqual(['blank-1>blank-2']);
+    expect(ev.map((e) => e.type)).toEqual(['TrainSwitched']);
+    expect(S(sim).run).toMatchObject({ runNumber: run.runNumber, startedTick: run.startedTick, trainId: 'blank-2', phase: 'approach', players: { 1: { health: 70, boardingAttempts: 2 } } });
+    expect(S(sim).world.trains.map((t) => t.pinnedBy)).toEqual([null, 1]);
+    // Tab again goes back.
+    expect(switched(step(sim, { type: 'switchTrain' }))).toEqual(['blank-2>blank-1']);
+  });
+
+  it('the run ends timed from the first commit, and frees the train it ended on', () => {
+    const sim = twoTrains();
+    const started = S(sim).run!.startedTick;
+    steps(sim, 60);
+    step(sim, { type: 'switchTrain', trainId: 'blank-2' });
+    steps(sim, 60);
+    const ended = step(sim, { type: 'cancelRun' }).find((e) => e.type === 'RunEnded');
+    expect(ended).toMatchObject({ durationTicks: S(sim).tick - 1 - started });
+    expect(S(sim).world.trains.every((t) => t.pinnedBy === null)).toBe(true);
+  });
+
+  it('after a switch the boarding rule and the jump read the new train', () => {
+    const sim = twoTrains();
+    step(sim, { type: 'switchTrain' });
+    const car = sim.cars().find((c) => c.trainId === 'blank-2' && c.index === 1)!;
+    const ep = entryPointWorld(car, { side: 'left', along: 0 });
+    Object.assign(horse(sim), { x: ep.x + car.uy, y: ep.y - car.ux, hx: car.ux, hy: car.uy, speed: 9, cruiseTarget: 9 });
+    step(sim);
+    expect(boardingCheck(S(sim), sim.map, config, 'blank-2', horse(sim)).state).toBe('eligible');
+    const ev = jump(sim, 'perfect');
+    expect(phases(ev)).toEqual(['approach>boarding', 'boarding>aboard']);
+    expect(S(sim).players[0]!.placement.frame).toMatch(/^car:blank-2:/);
+  });
+
+  it('is refused with no run, aboard, out of range, or to the committed train', () => {
+    const idle = setup();
+    expect(rejections(step(idle, { type: 'switchTrain' }))).toEqual(['switchTrain: no run']);
+
+    const sim = twoTrains();
+    expect(rejections(step(sim, { type: 'switchTrain', trainId: 'blank-1' }))).toEqual(['switchTrain: already committed']);
+    expect(rejections(step(sim, { type: 'switchTrain', trainId: 'blank-9' }))).toEqual(['switchTrain: no such train']);
+    Object.assign(horse(sim), { x: 116, y: 10 }); // about 50 tiles from blank-2
+    expect(switchTarget(S(sim), sim.map, config, horse(sim))).toBeNull();
+    expect(rejections(step(sim, { type: 'switchTrain' }))).toEqual(['switchTrain: no train in range']);
+    expect(rejections(step(sim, { type: 'switchTrain', trainId: 'blank-2' }))).toEqual(['switchTrain: out of range']);
+
+    const aboard = approach();
+    spawnTrain(S(aboard), aboard.map, config, 'blank', 120 + Math.PI * 20 + 30);
+    jump(aboard, 'perfect');
+    expect(rejections(step(aboard, { type: 'switchTrain', trainId: 'blank-2' }))).toEqual(['switchTrain: aboard']);
+    expect(S(aboard).run!.trainId).toBe('blank-1');
+  });
+
+  it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const sim = twoTrains(auto);
+    // Midway: neither train is in commit range or clearly closer, so nothing happens.
+    expect(switched(steps(sim, 5))).toEqual([]);
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(step(sim))).toEqual(['blank-1>blank-2']);
+    expect(S(sim).run!.trainId).toBe('blank-2');
+    // Staying there does not flip back.
+    expect(switched(steps(sim, 5))).toEqual([]);
+  });
+
+  it('without commit.autoSwitch, riding closer to another train keeps the committed one', () => {
+    const sim = twoTrains();
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(steps(sim, 5))).toEqual([]);
+    expect(S(sim).run!.trainId).toBe('blank-1');
+  });
+
+  it('works while stunned after a failed jump', () => {
+    const sim = approach();
+    spawnTrain(S(sim), sim.map, config, 'blank', 120 + Math.PI * 20 + 30);
+    jump(sim, 'fail');
+    expect(S(sim).run!.phase).toBe('boarding');
+    Object.assign(horse(sim), { x: 130, y: 50 });
+    expect(switched(step(sim, { type: 'switchTrain', trainId: 'blank-2' }))).toEqual(['blank-1>blank-2']);
   });
 });
 

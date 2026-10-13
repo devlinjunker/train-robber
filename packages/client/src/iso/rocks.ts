@@ -27,15 +27,18 @@ export interface Boulder {
   seed: number;
 }
 
-/** One boulder per 2 × 2 cell holding blocked tiles, centred on them and sized to cover them. */
-export function placeBoulders(map: MapDef, lifted?: (x: number, y: number) => boolean): Boulder[] {
+/**
+ * One boulder per 2 × 2 cell holding blocked tiles, centred on them and sized to cover them.
+ * Tiles in `skip` (forest, drawn by the scenery) get none; `lifted` (a mesa top) gets only a few.
+ */
+export function placeBoulders(map: MapDef, skip: ReadonlySet<number> = new Set(), lifted?: (x: number, y: number) => boolean): Boulder[] {
   const grid = decodeZones(map), { cols, rows } = map.size, out: Boulder[] = [];
   for (let cy = 0; cy < rows; cy += CELL) {
     for (let cx = 0; cx < cols; cx += CELL) {
       let n = 0, sx = 0, sy = 0;
       for (let y = cy; y < Math.min(rows, cy + CELL); y++) {
         for (let x = cx; x < Math.min(cols, cx + CELL); x++) {
-          if (map.zoneLegend[grid[y * cols + x]!] !== 'blocked' || onEdge(map, x, y)) continue;
+          if (map.zoneLegend[grid[y * cols + x]!] !== 'blocked' || onEdge(map, x, y) || skip.has(y * cols + x)) continue;
           n++; sx += x + 0.5; sy += y + 0.5;
         }
       }
@@ -88,9 +91,9 @@ export interface RockLayer {
   cull(top: number, bottom: number): void;
 }
 
-export function createRocks(map: MapDef, field?: HeightField): RockLayer {
+export function createRocks(map: MapDef, field?: HeightField, skip?: ReadonlySet<number>): RockLayer {
   const byDepth = new Map<number, Boulder[]>();
-  for (const b of placeBoulders(map, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined)) {
+  for (const b of placeBoulders(map, skip, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined)) {
     const d = Math.floor(depthOf(b.x, b.y));
     let list = byDepth.get(d);
     if (!list) byDepth.set(d, (list = []));

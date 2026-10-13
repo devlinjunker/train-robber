@@ -35,7 +35,7 @@ describe('determinism', () => {
     expect(() => restoreSim(run(10).snapshot(), { ...config, hash: 'other' }, map)).toThrow(/config/);
   });
   it('restore refuses a different map', () => {
-    expect(() => restoreSim(run(10).snapshot(), config, testMap((x) => (x === 3 ? 'water' : 'open')))).toThrow(/map test/);
+    expect(() => restoreSim(run(10).snapshot(), config, testMap((x) => (x === 3 ? 'deep' : 'open')))).toThrow(/map test/);
   });
 });
 

@@ -3,7 +3,7 @@
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
+import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
@@ -68,6 +68,50 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
   ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
+}
+
+/**
+ * Tab, `switchTrain`: move the run's commitment to another free train. Only the train changes:
+ * the run number, start tick (so any run timer), health, jump count and meter zones carry on.
+ * The old train is unpinned and the new one pinned on the same tick.
+ */
+export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undefined): void {
+  const { state, map, config } = ctx;
+  const run = state.run;
+  if (!run) return reject(ctx, p.id, 'switchTrain', 'no run');
+  const h = horseOf(state, p);
+  const id = trainId ?? switchTarget(state, map, config, h);
+  if (!id) return reject(ctx, p.id, 'switchTrain', run.phase === 'aboard' || run.phase === 'ended' ? 'aboard' : 'no train in range');
+  const why = switchCheck(state, map, config, h, id);
+  if (why) return reject(ctx, p.id, 'switchTrain', why);
+  const from = run.trainId;
+  unpinTrain(state, from);
+  pinTrain(state, id, p.id);
+  run.trainId = id;
+  ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
+}
+
+/**
+ * With `commit.autoSwitch` on (trainSwitch variant `auto`), a run that can switch moves to the
+ * nearest other free train once it is within `commit.rangeTiles` and `autoSwitchMarginTiles`
+ * closer than the committed train, as auto-commit does for an idle rider.
+ */
+export function autoSwitchSystem(ctx: RunCtx): void {
+  const { state, map, config } = ctx;
+  const c = config.values.commit;
+  const run = state.run;
+  if (!c.autoSwitch || !run || (run.phase !== 'approach' && run.phase !== 'boarding')) return;
+  for (const p of state.players) {
+    if (!run.players[p.id]) continue;
+    const h = horseOf(state, p);
+    const id = switchTarget(state, map, config, h);
+    if (!id) continue;
+    const d = distanceToTrain(state, map, config, id, h.x, h.y);
+    if (d <= c.rangeTiles && d + c.autoSwitchMarginTiles <= distanceToTrain(state, map, config, run.trainId, h.x, h.y)) {
+      switchTrain(ctx, p, id);
+      return;
+    }
+  }
 }
 
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */
@@ -225,12 +269,12 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
 
 /**
  * Health a contact costs (Devlin, 2026-10-11): scraping a train car below `collision.minImpactTilesPerSec`
- * costs `scrapeDamageFraction` of max health; a harder hit on a car or blocked ground scales from
- * that up to `damageFraction` at `fullImpactTilesPerSec` and above. A soft touch of blocked ground
- * is free. Whole health points, at least 1 for any contact that hurts.
+ * costs `scrapeDamageFraction` of max health; a harder hit scales from that up to `damageFraction`
+ * for a car (`obstacleDamageFraction` for blocked ground) at `fullImpactTilesPerSec` and above (train
+ * hits raised to 45%, Devlin's playtest, 2026-10-12). A soft touch of blocked ground is free. Whole health points, at least 1 for any contact that hurts.
  */
 export function collisionDamage(c: SimConfig['values']['collision'], maxHealth: number, target: Impact['target'], impact: number): number {
-  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * c.damageFraction;
+  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * (target === 'train' ? c.damageFraction : c.obstacleDamageFraction);
   if (impact < c.minImpactTilesPerSec) return target === 'train' && scrape > 0 ? Math.max(1, Math.round(scrape)) : 0;
   if (full <= 0) return 0;
   const span = c.fullImpactTilesPerSec - c.minImpactTilesPerSec;

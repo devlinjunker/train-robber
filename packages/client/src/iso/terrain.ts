@@ -1,17 +1,23 @@
-// The ground, terrain zones and track of a map, drawn once in iso pixels. Grass tufts and a
-// faint grid give the eye something to measure speed against on open ground; mud gets darker
+// The ground, terrain zones and track of a map, drawn once in iso pixels. Open ground is sand
+// (Devlin, PR #25 playtest 2026-10-13) speckled with darker and paler spots, which with a faint
+// grid give the eye something to measure speed against; mud gets darker
 // puddles with a wet glint so it reads as mud, not sand. Boulders on blocked ground are in rocks.ts.
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
 import { isoPoly, shade } from './draw';
+import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
-export const GROUND = 0x6d8a4a;
-const EDGE_COLOUR = 0x2e3a24;
+export const GROUND = 0xc6a673;
+/** Speckles on sand: darker and paler grains, one per this share of tiles. */
+export const SPOT_COLOURS = [0xa98a5c, 0xb59767, 0xd8bf8f] as const, SPOT_SHARE = 0.45;
+const EDGE_COLOUR = 0x4a3a26;
 export const MUD_COLOUR = 0x7a5a36;
-/** Blocked ground is gravel under the boulders. */
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x3f78b8 };
+/** Blocked ground is gravel under the boulders. Shallow water is pale, deep water dark. */
+const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
 const GRID_EVERY = 5;
+/** Tufts and puddles are drawn in cells of this many tiles, the track in stretches of this many samples. */
+const CELL = 24, TRACK_STRETCH = 64;
 /** Half the rail gauge and half a tie's length, in tiles. */
 const RAIL_HALF = 0.75, TIE_HALF = 1.2;
 
@@ -30,7 +36,18 @@ export const hash = (x: number, y: number) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
-export function drawTerrain(map: MapDef): Container {
+/** The sand spot on tile (x, y), if it has one: where, how big (tiles) and which of SPOT_COLOURS. */
+export function sandSpot(x: number, y: number): { x: number; y: number; r: number; k: number } | null {
+  const r = hash(x, y);
+  if (r > SPOT_SHARE) return null;
+  return { x: x + 0.15 + 0.7 * hash(y, x), y: y + 0.15 + 0.7 * hash(x + 5, y + 11), r: 0.1 + 0.22 * hash(x + 13, y + 3) ** 2, k: Math.floor(hash(x + 29, y + 41) * SPOT_COLOURS.length) };
+}
+
+/**
+ * The ground, zones, `scenery` (ground cover and flat scenery) and the track, back to front, and
+ * a cull that hides the parts outside a box of world tiles.
+ */
+export function drawTerrain(map: MapDef, scenery: Container | null = null): { layer: Container; cull(view: TileBox): void } {
   const layer = new Container();
   layer.label = 'iso-terrain';
   const { cols, rows } = map.size;
@@ -62,23 +79,27 @@ export function drawTerrain(map: MapDef): Container {
   edge.poly(frame(0, EDGE_TILES)).fill(EDGE_COLOUR);
   for (let i = 0; i < 3; i++) edge.poly(frame(EDGE_TILES + i, 1)).fill({ color: EDGE_COLOUR, alpha: 0.45 - i * 0.15 });
 
-  // Tufts on open ground, and a faint grid every few tiles.
-  const tufts = new Graphics();
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const r = hash(x, y);
-      if (r > 0.12 || map.zoneLegend[grid[y * cols + x]!] !== 'open') continue;
-      const cx = x + hash(y, x), cy = y + r * 8;
-      tufts.poly(isoPoly([[cx, cy - 0.12], [cx + 0.12, cy], [cx, cy + 0.12], [cx - 0.12, cy]]));
+  // Spots on open sand, in three shades, and a faint grid every few tiles.
+  const tufts = new Cells(CELL);
+  for (const [k, colour] of SPOT_COLOURS.entries()) {
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (map.zoneLegend[grid[y * cols + x]!] !== 'open') continue;
+        const spot = sandSpot(x, y);
+        if (!spot || spot.k !== k) continue;
+        tufts.at(spot.x, spot.y).ellipse(isoX(spot.x, spot.y), isoY(spot.x, spot.y), spot.r * TILE_W * 0.5, spot.r * TILE_H * 0.5);
+      }
     }
+    tufts.each((g) => g.fill(colour));
   }
-  tufts.fill(shade(GROUND, 0.82));
-  for (let x = 0; x <= cols; x += GRID_EVERY) tufts.moveTo(isoX(x, 0), isoY(x, 0)).lineTo(isoX(x, rows), isoY(x, rows));
-  for (let y = 0; y <= rows; y += GRID_EVERY) tufts.moveTo(isoX(0, y), isoY(0, y)).lineTo(isoX(cols, y), isoY(cols, y));
-  tufts.stroke({ width: 1, color: 0x000000, alpha: 0.06 });
+  const gridLines = new Graphics();
+  for (let x = 0; x <= cols; x += GRID_EVERY) gridLines.moveTo(isoX(x, 0), isoY(x, 0)).lineTo(isoX(x, rows), isoY(x, rows));
+  for (let y = 0; y <= rows; y += GRID_EVERY) gridLines.moveTo(isoX(0, y), isoY(0, y)).lineTo(isoX(cols, y), isoY(cols, y));
+  gridLines.stroke({ width: 1, color: 0x000000, alpha: 0.06 });
 
-  // Mud: a dark puddle on some tiles, and a pale glint on a few of those.
-  const puddles = new Graphics(), glints = new Graphics();
+  // Mud: a dark puddle on some tiles, and a pale glint on a few of those. Glints draw in the
+  // same cells, after every puddle in it.
+  const puddles = new Cells(CELL), glints: [Graphics, number, number, number][] = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       if (map.zoneLegend[grid[y * cols + x]!] !== 'slow') continue;
@@ -86,36 +107,51 @@ export function drawTerrain(map: MapDef): Container {
       if (r > 0.22) continue;
       const cx = x + 0.2 + 0.6 * hash(y, x + 5), cy = y + 0.2 + 0.6 * r;
       const s = 0.25 + 0.3 * hash(x + 3, y + 101);
-      puddles.ellipse(isoX(cx, cy), isoY(cx, cy), s * TILE_W * 0.7, s * TILE_H * 0.7);
-      if (r < 0.07) glints.ellipse(isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
+      const g = puddles.at(cx, cy);
+      g.ellipse(isoX(cx, cy), isoY(cx, cy), s * TILE_W * 0.7, s * TILE_H * 0.7);
+      if (r < 0.07) glints.push([g, cx, cy, s]);
     }
   }
-  puddles.fill(shade(MUD_COLOUR, 0.8));
-  glints.fill({ color: 0xffffff, alpha: 0.18 });
+  puddles.each((g) => g.fill(shade(MUD_COLOUR, 0.8)));
+  for (const [g, cx, cy, s] of glints) g.ellipse(isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
+  puddles.each((g) => g.fill({ color: 0xffffff, alpha: 0.18 }));
 
-  // Track: ties across the route on every other sample (about a tile apart), then two rails.
-  const track = new Graphics();
+  // Track: ties across the route on every other sample (about a tile apart), then two rails, in
+  // stretches of TRACK_STRETCH samples so stretches off screen cull.
+  const track: Chunk[] = [];
   for (const r of map.routes) {
     const { x, y, tx, ty } = r.samples;
-    for (let i = 0; i < x.length; i += 2) {
-      const nx = -ty[i]!, ny = tx[i]!;
-      track.moveTo(isoX(x[i]! + nx * TIE_HALF, y[i]! + ny * TIE_HALF), isoY(x[i]! + nx * TIE_HALF, y[i]! + ny * TIE_HALF))
-        .lineTo(isoX(x[i]! - nx * TIE_HALF, y[i]! - ny * TIE_HALF), isoY(x[i]! - nx * TIE_HALF, y[i]! - ny * TIE_HALF));
-    }
-    track.stroke({ width: 7, color: 0x5a3d26 });
-    for (const s of [RAIL_HALF, -RAIL_HALF]) {
-      for (let i = 0; i <= x.length; i++) {
-        const j = i % x.length;
-        const px = x[j]! - ty[j]! * s, py = y[j]! + tx[j]! * s;
-        if (i === 0) track.moveTo(isoX(px, py), isoY(px, py));
-        else track.lineTo(isoX(px, py), isoY(px, py));
+    for (let a = 0; a < x.length; a += TRACK_STRETCH) {
+      const b = Math.min(x.length, a + TRACK_STRETCH), g = new Graphics();
+      for (let i = a; i < b; i += 2) {
+        const nx = -ty[i]!, ny = tx[i]!;
+        g.moveTo(isoX(x[i]! + nx * TIE_HALF, y[i]! + ny * TIE_HALF), isoY(x[i]! + nx * TIE_HALF, y[i]! + ny * TIE_HALF))
+          .lineTo(isoX(x[i]! - nx * TIE_HALF, y[i]! - ny * TIE_HALF), isoY(x[i]! - nx * TIE_HALF, y[i]! - ny * TIE_HALF));
       }
-      track.stroke({ width: 3, color: 0xb9b9c4 });
+      g.stroke({ width: 7, color: 0x5a3d26 });
+      // Each stretch's rails run on to the next stretch's first sample, so they join up.
+      for (const s of [RAIL_HALF, -RAIL_HALF]) {
+        for (let i = a; i <= b; i++) {
+          const j = i % x.length;
+          const px = x[j]! - ty[j]! * s, py = y[j]! + tx[j]! * s;
+          if (i === a) g.moveTo(isoX(px, py), isoY(px, py));
+          else g.lineTo(isoX(px, py), isoY(px, py));
+        }
+        g.stroke({ width: 3, color: 0xb9b9c4 });
+      }
+      const xs = x.slice(a, b + 1), ys = y.slice(a, b + 1);
+      track.push({ g, x0: Math.min(...xs) - 2, y0: Math.min(...ys) - 2, x1: Math.max(...xs) + 2, y1: Math.max(...ys) + 2 });
     }
   }
 
-  layer.addChild(ground, zoneG, edge, tufts, puddles, glints, track);
-  return layer;
+  const culled = [...tufts.chunks(), ...puddles.chunks(), ...track];
+  // Its own render group: the ground is drawn once, so the horse, trains and trees changing every
+  // frame don't make Pixi rebuild it.
+  layer.enableRenderGroup();
+  layer.addChild(ground, zoneG, edge, gridLines, ...tufts.chunks().map((c) => c.g), ...puddles.chunks().map((c) => c.g));
+  if (scenery) layer.addChild(scenery);
+  layer.addChild(...track.map((c) => c.g));
+  return { layer, cull: (view) => cullChunks(culled, view) };
 }
 
 /** The map debug overlay in iso: speed zones, route samples and tangents, control points and markers. */

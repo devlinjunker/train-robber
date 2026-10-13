@@ -1,24 +1,30 @@
 // `tools build-maps`: Tiled (.tmj) -> MapDef. See "Tiled workflow in detail" in
-// docs/technical-design.md. Terrain, optional elevation, track routes, speed zones and
-// markers; scenery layers are ignored for now.
+// docs/technical-design.md. Terrain, optional elevation, track routes, speed zones and markers
+// go into the MapDef; `scenery*` layers go into a separate render-only SceneryDef the sim never reads.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { hashState } from '@train-robber/sim';
-import { ELEVATION_MAX, MapDefSchema, ZONES, decodeElevation, decodeZones, type MapDef, type Route, type Zone } from '@train-robber/config';
+import {
+  ELEVATION_MAX, MapDefSchema, SCENERY_KINDS, SOLID_SCENERY, SceneryDefSchema, ZONES, decodeElevation, decodeZones,
+  type MapDef, type Route, type SceneryDef, type SceneryKind, type Zone,
+} from '@train-robber/config';
 import { resample, smooth, type Vec } from './curve';
 
 export const SAMPLE_SPACING_TILES = 0.5;
 /** Levels between neighbours that make a cliff rather than a slope you can ride up. */
 export const CLIFF_LEVELS = 2;
-/** The track and this many tiles either side of it must be at elevation 0 (rails on raised ground are not drawn yet). */
-export const TRACK_FLAT_TILES = 2;
+/**
+ * The track and this many tiles either side of it must be at elevation 0: rails and cars on raised
+ * ground are not drawn yet, and a car is 3 tiles either side of the rails and swings wider on curves.
+ */
+export const TRACK_FLAT_TILES = 6;
 const FLIP_MASK = 0x0fffffff;
 
 interface Prop { name: string; type?: string; value: unknown }
 interface TiledObject {
   id: number; name: string; x: number; y: number; width?: number; height?: number;
-  point?: boolean; polyline?: Vec[]; polygon?: Vec[]; properties?: Prop[];
+  point?: boolean; ellipse?: boolean; polyline?: Vec[]; polygon?: Vec[]; properties?: Prop[]; type?: string; class?: string;
 }
 interface TiledLayer {
   name: string; type: 'tilelayer' | 'objectgroup' | 'group' | 'imagelayer';
@@ -31,7 +37,16 @@ interface TiledMap {
   tilewidth: number; tileheight: number; layers: TiledLayer[]; tilesets: TiledTileset[];
 }
 
-export interface BuildResult { map: MapDef; warnings: string[]; minRadiusTiles: number }
+export interface BuildResult {
+  map: MapDef;
+  /** The render-only scenery, or null when the file has no `scenery` layers. */
+  scenery: SceneryDef | null;
+  warnings: string[];
+  minRadiusTiles: number;
+}
+
+/** Items per tile an area scatters when it sets no `density`. */
+export const DEFAULT_DENSITY: Record<SceneryKind, number> = { tree: 0.6, pine: 0.6, bush: 0.06, flowers: 0.06 };
 
 export class MapError extends Error {
   constructor(file: string, detail: string) { super(`${file}: ${detail}`); this.name = 'MapError'; }
@@ -191,7 +206,7 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
     rs.points.forEach((p, i) => {
       if (!inside(p)) fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is outside the map`);
       const z = zoneAt(p);
-      if (z === 'blocked' || z === 'water') fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is on a ${z} tile`);
+      if (z === 'blocked' || z === 'water' || z === 'deep') fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is on a ${z} tile`);
       if (elevationLayer) {
         for (let dy = -TRACK_FLAT_TILES; dy <= TRACK_FLAT_TILES; dy++) {
           for (let dx = -TRACK_FLAT_TILES; dx <= TRACK_FLAT_TILES; dx++) {
@@ -254,7 +269,111 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
   });
   if (decodeZones(map).some((z, i) => z !== grid[i])) fail('zone encoding does not round-trip');
   if (decodeElevation(map).some((h, i) => h !== heights[i])) fail('elevation encoding does not round-trip');
-  return { map, warnings, minRadiusTiles };
+  const sceneryLayers = layers.filter((l) => l.name.startsWith('scenery'));
+  const scenery = sceneryLayers.length ? buildScenery(map, sceneryLayers, zoneAt, { tw, th }, fail) : null;
+  return { map, scenery, warnings, minRadiusTiles };
+}
+
+/** A small integer hash for scattering; the build is deterministic, so it uses no Math.random. */
+function hash01(a: number, b: number, c: number): number {
+  let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = Math.imul(h ^ (h >>> 16), 2246822519);
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+}
+
+/** Even-odd test of a point against a closed polygon. */
+function inPolygon(p: Vec, poly: readonly Vec[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i]!, b = poly[j]!;
+    if ((a.y > p.y) !== (b.y > p.y) && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Scenery objects: a point is one item; a rectangle, ellipse or polygon scatters items over the
+ * tiles inside it (solid kinds only on `blocked` tiles, the rest only on open ground); a
+ * `bridge` rectangle is drawn as it is. The kind is the object's class
+ * (type) or a `kind` property; an area may list several kinds, comma separated.
+ */
+function buildScenery(
+  map: MapDef, layers: TiledLayer[], zoneAt: (p: Vec) => Zone, px: { tw: number; th: number },
+  fail: (m: string) => never,
+): SceneryDef {
+  const { cols, rows } = map.size;
+  const items = { kind: [] as number[], x: [] as number[], y: [] as number[], size: [] as number[] };
+  const bridges: SceneryDef['bridges'] = [];
+  const fits = (kind: SceneryKind, z: Zone) => (SOLID_SCENERY.has(kind) ? z === 'blocked' : z === 'open');
+  const add = (kind: SceneryKind, x: number, y: number, size: number) => {
+    items.kind.push(SCENERY_KINDS.indexOf(kind)); items.x.push(r4(x)); items.y.push(r4(y)); items.size.push(r4(size));
+  };
+  for (const layer of layers) {
+    if (layer.type !== 'objectgroup') fail(`layer "${layer.name}" must be an objectgroup, got ${layer.type}`);
+    for (const o of layer.objects ?? []) {
+      const where = `${layer.name} object ${o.id}`;
+      const raw = String(prop(o.properties, 'kind') ?? o.type ?? o.class ?? '');
+      if (!raw) fail(`${where}: set its class or a "kind" property`);
+      const x = o.x / px.tw, y = o.y / px.th, w = (o.width ?? 0) / px.tw, h = (o.height ?? 0) / px.th;
+      const isRect = !o.point && !o.ellipse && !o.polygon && !o.polyline && w > 0 && h > 0;
+      if (raw === 'bridge') {
+        if (!isRect) fail(`${where}: a bridge must be a rectangle`);
+        const r = { x: r4(x), y: r4(y), w: r4(w), h: r4(h) };
+        const along = prop(o.properties, 'along') ?? (w >= h ? 'x' : 'y');
+        if (along !== 'x' && along !== 'y') fail(`${where}: along must be "x" or "y"`);
+        for (let ty = Math.floor(y); ty < y + h; ty++) {
+          for (let tx = Math.floor(x); tx < x + w; tx++) {
+            const z = zoneAt({ x: Math.min(cols - 1, tx), y: Math.min(rows - 1, ty) });
+            if (z === 'blocked' || z === 'water' || z === 'deep') fail(`${where}: bridge covers a ${z} tile at ${tx},${ty}; paint the deck open`);
+          }
+        }
+        bridges.push({ ...r, along });
+        continue;
+      }
+      const kinds = raw.split(',').map((k) => k.trim()) as SceneryKind[];
+      for (const k of kinds) if (!SCENERY_KINDS.includes(k)) fail(`${where}: unknown kind "${k}" (use ${[...SCENERY_KINDS, 'bridge'].join(', ')})`);
+      const size = prop(o.properties, 'size');
+      if (size !== undefined && !(typeof size === 'number' && size > 0)) fail(`${where}: size must be a positive number`);
+      if (o.point) {
+        if (kinds.length !== 1) fail(`${where}: a point is one item, so give it one kind`);
+        const k = kinds[0]!;
+        if (x < 0 || y < 0 || x >= cols || y >= rows) fail(`${where}: outside the map`);
+        const z = zoneAt({ x, y });
+        if (!fits(k, z)) fail(`${where}: a ${k} at ${x.toFixed(1)},${y.toFixed(1)} is on a ${z} tile; ${SOLID_SCENERY.has(k) ? 'paint it blocked' : 'it needs open ground'}`);
+        add(k, x, y, (size as number | undefined) ?? 1);
+        continue;
+      }
+      // An area: a polygon, an ellipse or a rectangle.
+      const poly = o.polygon?.map((p) => ({ x: (o.x + p.x) / px.tw, y: (o.y + p.y) / px.th }));
+      if (o.polyline) fail(`${where}: use a polygon, rectangle or ellipse for an area, not a polyline`);
+      if (!poly && !(w > 0 && h > 0)) fail(`${where}: an area needs a size`);
+      const inside = (p: Vec) => poly ? inPolygon(p, poly)
+        : o.ellipse ? ((p.x - x - w / 2) / (w / 2)) ** 2 + ((p.y - y - h / 2) / (h / 2)) ** 2 <= 1
+          : p.x >= x && p.x < x + w && p.y >= y && p.y < y + h;
+      const density = prop(o.properties, 'density');
+      if (density !== undefined && !(typeof density === 'number' && density > 0 && density <= 4)) fail(`${where}: density must be a number in (0, 4]`);
+      const bx = poly ? poly.map((p) => p.x) : [x, x + w], by = poly ? poly.map((p) => p.y) : [y, y + h];
+      const x0 = Math.max(0, Math.floor(Math.min(...bx))), x1 = Math.min(cols, Math.ceil(Math.max(...bx)));
+      const y0 = Math.max(0, Math.floor(Math.min(...by))), y1 = Math.min(rows, Math.ceil(Math.max(...by)));
+      for (let ty = y0; ty < y1; ty++) {
+        for (let tx = x0; tx < x1; tx++) {
+          if (!inside({ x: tx + 0.5, y: ty + 0.5 })) continue;
+          const z = zoneAt({ x: tx, y: ty });
+          const cell = ty * cols + tx;
+          const k = kinds[Math.floor(hash01(o.id, cell, 1) * kinds.length)]!;
+          if (!fits(k, z)) continue;
+          const d = (density as number | undefined) ?? DEFAULT_DENSITY[k];
+          const n = Math.floor(d) + (hash01(o.id, cell, 2) < d % 1 ? 1 : 0);
+          for (let i = 0; i < n; i++) {
+            add(k, tx + 0.15 + 0.7 * hash01(o.id, cell, 3 + i * 3), ty + 0.15 + 0.7 * hash01(o.id, cell, 4 + i * 3),
+              ((size as number | undefined) ?? 1) * (0.8 + 0.45 * hash01(o.id, cell, 5 + i * 3)));
+          }
+        }
+      }
+    }
+  }
+  return SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source: map.source, kindLegend: [...SCENERY_KINDS], items, bridges });
 }
 
 export function buildMapFile(path: string): BuildResult {
@@ -262,7 +381,7 @@ export function buildMapFile(path: string): BuildResult {
 }
 
 /** JSON with objects indented and arrays of numbers kept on one line. */
-export function stringifyMap(map: MapDef): string {
+export function stringifyMap(map: MapDef | SceneryDef): string {
   const fmt = (v: unknown, ind: string): string => {
     if (Array.isArray(v)) {
       if (v.every((x) => typeof x !== 'object' || (Array.isArray(x) && x.every((y) => typeof y !== 'object')))) return JSON.stringify(v);
