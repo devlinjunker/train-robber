@@ -31,6 +31,15 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
  * tiles.
  */
 const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
+/**
+ * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
+ * GAP_HOLE_TILES on the far side, the hole stretches from the horse to the car side so the ground
+ * between them shows, narrowing to GAP_HOLE_END_RADIUS tiles at the car. Within GAP_GLOW_TILES on
+ * either side, the bottom edge of the car nearest the horse glows, longer and brighter as it closes,
+ * and turns red within GAP_DANGER_TILES (Devlin, PR #20 playtest).
+ */
+export const GAP_HOLE_TILES = 8, GAP_GLOW_TILES = 6, GAP_DANGER_TILES = 1;
+const GAP_HOLE_END_RADIUS = 1.4, GAP_GLOW_COLOUR = 0xffe9a8, GAP_DANGER_COLOUR = 0xff4a3a;
 
 const MARKER_COLOURS: Record<BoardingState, number> = { 'too far': 0xc8c8c8, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
@@ -58,6 +67,8 @@ export interface WorldSceneInput {
   /** The band of the screen in view, top and bottom in unzoomed iso y pixels, for hiding far boulders. */
   viewTop: number;
   viewBottom: number;
+  /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
+  gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
 }
 
 export interface WorldScene {
@@ -67,6 +78,32 @@ export interface WorldScene {
   /** Ground height under a world point, in tiles of z (0 on maps without elevation). */
   groundZ(x: number, y: number): number;
   update(input: WorldSceneInput): void;
+}
+
+/** The hole's mask: a circle round the horse or player, or a tapered band from it to the car side. */
+function drawHole(m: Graphics, hole: { x: number; y: number; to: { x: number; y: number } | null }): void {
+  const r0 = CUTOUT_RADIUS * TILE_H;
+  m.circle(hole.x, hole.y, r0).fill(0xffffff);
+  if (!hole.to) return;
+  const r1 = GAP_HOLE_END_RADIUS * TILE_H, { x, y } = hole.to;
+  const dx = x - hole.x, dy = y - hole.y, n = Math.hypot(dx, dy) || 1, px = -dy / n, py = dx / n;
+  m.circle(x, y, r1).fill(0xffffff);
+  m.poly([hole.x + px * r0, hole.y + py * r0, x + px * r1, y + py * r1, x - px * r1, y - py * r1, hole.x - px * r0, hole.y - py * r0]).fill(0xffffff);
+}
+
+/** A warm strip on the ground along the car side nearest the horse: `t` from 0 (just in reach) to 1 (touching). */
+function drawGapGlow(g: Graphics, car: CarPose, at: { x: number; y: number }, t: number, colour: number): void {
+  const along = (at.x - car.x) * car.ux + (at.y - car.y) * car.uy;
+  const s = (at.x - car.x) * car.uy - (at.y - car.y) * car.ux >= 0 ? 1 : -1;
+  const lx = car.uy * s, ly = -car.ux * s;
+  const half = 1 + 3 * t;
+  const a0 = Math.max(-car.halfLength, along - half), a1 = Math.min(car.halfLength, along + half);
+  const strip = (out: number, alpha: number) => {
+    const p = (a: number, o: number): [number, number] => [car.x + car.ux * a + lx * (car.halfWidth + o), car.y + car.uy * a + ly * (car.halfWidth + o)];
+    g.poly(isoPoly([p(a0, 0), p(a1, 0), p(a1, out), p(a0, out)], 0.01)).fill({ color: colour, alpha });
+  };
+  strip(0.15 + 0.4 * t, 0.1 + 0.2 * t);
+  strip(0.06 + 0.1 * t, 0.25 + 0.45 * t);
 }
 
 /** One slice of a car: its box, and which of its faces are the car's real ends. */
@@ -148,7 +185,8 @@ export function createWorldScene(map: MapDef): WorldScene {
   objects.addChild(horseG, playerG);
   // Each pooled slice has its own copy of the hole (a mask serves one object), used inverted.
   const holes: Graphics[] = [], holed: boolean[] = [];
-  let hole: { x: number; y: number } | null = null;
+  // The hole around the hidden horse or player, stretched to a point on the car side (`to`) when it shows the gap.
+  let hole: { x: number; y: number; to: { x: number; y: number } | null } | null = null;
   const piece = (cut = false) => {
     let g = slicePool[used];
     if (!g) {
@@ -157,7 +195,7 @@ export function createWorldScene(map: MapDef): WorldScene {
     }
     const m = holes[used]!;
     m.clear();
-    if (cut && hole) m.circle(hole.x, hole.y, CUTOUT_RADIUS * TILE_H).fill(0xffffff);
+    if (cut && hole) drawHole(m, hole);
     if (cut !== holed[used]) { g.setMask({ mask: cut ? m : null, inverse: true }); holed[used] = cut; }
     g.visible = true;
     g.clear();
@@ -223,7 +261,17 @@ export function createWorldScene(map: MapDef): WorldScene {
       // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
       // behind them can still cover the ground around them, so the hole is cut through all of them.
       const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
-      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1) } : null;
+      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1), to: null } : null;
+      // On the far side of the run's train, the hole reaches the car so the ground between shows.
+      const gap = input.horse && !input.aboard ? input.gap ?? null : null;
+      const gapCar = gap ? input.cars.find((c) => c.trainId === gap.trainId && c.index === gap.index) : undefined;
+      if (gap && gapCar && input.horse && gap.distance <= GAP_HOLE_TILES && depthOf(input.horse.x, input.horse.y) < depthOf(gapCar.x, gapCar.y)) {
+        const h = input.horse;
+        hole = { x: isoX(h.x, h.y), y: isoY(h.x, h.y, 1), to: { x: isoX(gap.x, gap.y), y: isoY(gap.x, gap.y, 0) } };
+      }
+      const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
+      const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
+      if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
       for (const car of input.cars) {
         const colour = CAR_COLOURS[car.template] ?? 0x777777;
         const doors = doorSpans(car.template);
@@ -242,6 +290,18 @@ export function createWorldScene(map: MapDef): WorldScene {
             // sidePanel measures along the slice from its own centre.
             const mid = (s.along0 + s.along1) / 2;
             sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, DOOR_COLOUR);
+          }
+          if (gap && gapCar === car && glow > 0) {
+            // The glow on the near wall's bottom edge, where that face is in view.
+            const along = (gap.x - car.x) * car.ux + (gap.y - car.y) * car.uy, half = 1 + 3 * glow;
+            const a0 = Math.max(s.along0, along - half), a1 = Math.min(s.along1, along + half);
+            const side = (gap.x - car.x) * car.uy - (gap.y - car.y) * car.ux >= 0 ? 'left' : 'right';
+            const mid = (s.along0 + s.along1) / 2;
+            if (a1 > a0) {
+              // A faint wash up the wall, and a bright line along the bottom.
+              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.1 + 0.25 * glow, glowColour, 0.12 + 0.25 * glow);
+              sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.05, glowColour, 0.4 + 0.5 * glow);
+            }
           }
           if (s.first) {
             // A pale chevron on the roof at the front, so the direction of travel reads at a glance.

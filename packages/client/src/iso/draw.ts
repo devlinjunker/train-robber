@@ -70,13 +70,13 @@ export function drawBox(g: Graphics, b: Box, color: number, skipFace: readonly b
 }
 
 /** An upright quad on one side face of a box, between `along0` and `along1` (from the centre toward the front) and two heights. */
-export function sidePanel(g: Graphics, b: Box, side: 'left' | 'right', along0: number, along1: number, z0: number, z1: number, color: number): void {
+export function sidePanel(g: Graphics, b: Box, side: 'left' | 'right', along0: number, along1: number, z0: number, z1: number, color: number, alpha = 1): void {
   const s = side === 'left' ? 1 : -1;
   const lx = b.uy * s * b.halfWidth, ly = -b.ux * s * b.halfWidth;
   const p = (a: number): [number, number] => [b.x + b.ux * a + lx, b.y + b.uy * a + ly];
   const nx = b.uy * s, ny = -b.ux * s;
   if (!facesViewer(nx, ny)) return;
-  g.poly([...isoPoly([p(along0), p(along1)], z0), ...isoPoly([p(along1), p(along0)], z1)]).fill(color);
+  g.poly([...isoPoly([p(along0), p(along1)], z0), ...isoPoly([p(along1), p(along0)], z1)]).fill({ color, alpha });
 }
 
 /** The ellipse a world circle of radius r becomes on the ground. */

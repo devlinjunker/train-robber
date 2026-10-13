@@ -1,4 +1,5 @@
-// The mud cue in the isometric view (Devlin, extra-maps playtest 2026-10-11): while the horse is
+// The mud cue in the isometric view (Devlin, extra-maps playtest 2026-10-11; fewer clods and no
+// MUD tag after the PR #22 playtest, 2026-10-13): while the horse is
 // in mud it kicks up clods behind its hind legs, leaves hoof prints that fade, and its legs get
 // muddy and dry off a few seconds after it leaves. View only: the sim already slows the horse.
 import { Graphics } from 'pixi.js';
@@ -54,7 +55,7 @@ export function createMud(): MudEffect {
 
       if (kicking && horse) {
         // More clods the faster it goes, thrown up and back from the hind legs.
-        owed += dt * (8 + speed * 5);
+        owed += dt * (5 + speed * 3);
         for (; owed >= 1 && flying.length < MAX_CLODS; owed--) {
           const side = rand() < 0.5 ? 1 : -1, back = 0.55 + 0.2 * rand();
           flying.push({
