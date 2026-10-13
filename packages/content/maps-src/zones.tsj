@@ -5,10 +5,10 @@
  "name": "zones",
  "tilewidth": 32,
  "tileheight": 32,
- "tilecount": 4,
- "columns": 4,
+ "tilecount": 5,
+ "columns": 5,
  "image": "zones.png",
- "imagewidth": 128,
+ "imagewidth": 160,
  "imageheight": 32,
  "margin": 0,
  "spacing": 0,
@@ -50,6 +50,16 @@
      "name": "zone",
      "type": "string",
      "value": "water"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "properties": [
+    {
+     "name": "zone",
+     "type": "string",
+     "value": "deep"
     }
    ]
   }

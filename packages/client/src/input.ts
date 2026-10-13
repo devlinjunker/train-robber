@@ -5,14 +5,14 @@ import type { Command, Steering } from '@train-robber/sim';
 
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
 export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch';
-export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'exportLogs' | 'addNote';
+export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'exportLogs' | 'addNote';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
-  KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
+  KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
 };
 const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch']);
 // Tab would move focus off the canvas.

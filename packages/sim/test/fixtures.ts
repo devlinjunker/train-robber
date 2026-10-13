@@ -29,7 +29,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         cancelled: { bankRunLoot: false, wantedDelta: 0 },
       },
       horse: {
-        maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10, slowZoneSpeedScale: 0.5,
+        maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10, slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25,
         turnRateCosPerTick: Math.cos(rad), turnRateSinPerTick: Math.sin(rad), steering: 'heading', throttleModel: 'hold',
         ...horse,
       },
@@ -67,12 +67,12 @@ export function stadium(x0 = 40, x1 = 160, cy = 50, r = 20, spacing = 0.5): SimR
   return { id: 'main', closed: true, length, spacing: step, samples: { x, y, s, tx, ty } };
 }
 
-export type Paint = (x: number, y: number) => 'open' | 'slow' | 'blocked' | 'water';
+export type Paint = (x: number, y: number) => 'open' | 'slow' | 'blocked' | 'water' | 'deep';
 
 /** An open 200 x 100 map with the stadium route; `paint` sets other zones per tile. */
 export function testMap(paint: Paint = () => 'open', spawn = { x: 100, y: 90 }): SimMap {
   const cols = 200, rows = 100;
-  const legend = ['open', 'slow', 'blocked', 'water'] as const;
+  const legend = ['open', 'slow', 'blocked', 'water', 'deep'] as const;
   const zones: [number, number][] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {

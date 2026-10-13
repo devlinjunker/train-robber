@@ -3,7 +3,7 @@ import { z } from 'zod';
 // MapDef: what `tools build-maps` writes from a Tiled file and what the game reads.
 // Units are tiles; x grows right and y grows down, as in Tiled.
 
-export const ZONES = ['open', 'slow', 'blocked', 'water'] as const;
+export const ZONES = ['open', 'slow', 'blocked', 'water', 'deep'] as const;
 export type Zone = (typeof ZONES)[number];
 
 const point = z.object({ x: z.number(), y: z.number() }).strict();

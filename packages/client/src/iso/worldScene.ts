@@ -3,10 +3,12 @@
 // the debug overlays.
 import { Container, Graphics } from 'pixi.js';
 import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
-import type { MapDef } from '@train-robber/config';
+import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
+import { createSceneryLayers, forestTiles } from './scenery';
+import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
 import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
@@ -70,6 +72,8 @@ export interface WorldSceneInput {
   viewBottom: number;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
+  /** The box of world tiles on screen: scenery outside it is not drawn. */
+  view: { x0: number; y0: number; x1: number; y1: number };
 }
 
 export interface WorldScene {
@@ -156,21 +160,28 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
   drawBox(g, rider, flash ?? RIDER_COLOUR);
 }
 
-export function createWorldScene(map: MapDef): WorldScene {
+/** `groundCover`: scatter grass and scrub over open ground from this seed, or none when null. */
+export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
-  const terrain = drawTerrain(map);
-  const shadows = new Graphics();
-  const floors = new Graphics();
   const objects = new Container();
   objects.sortableChildren = true;
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, objects) : null;
+  const cover = groundCover === null ? null : createGroundCover(map, groundCover);
+  const ground = new Container();
+  if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
+  if (sceneryLayers) ground.addChild(sceneryLayers.ground);
+  const terrain = drawTerrain(map, ground);
+  const shadows = new Graphics();
+  const floors = new Graphics();
   const markers = new Graphics();
   // Boarding range circles: off until B, which Devlin found clearer in the Phase 1 gate playtest.
   const zoneOverlay = new Graphics();
   zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  const rocks = createRocks(map);
+  // Forest tiles are blocked too, but draw as trees, not boulders.
+  const rocks = createRocks(map, scenery ? forestTiles(map, scenery) : undefined);
   const mud = createMud();
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers);
   objects.addChild(...rocks.strips, mud.clods);
@@ -237,6 +248,8 @@ export function createWorldScene(map: MapDef): WorldScene {
   return {
     root, mapOverlay, zoneOverlay,
     update(input) {
+      cover?.cull(input.view);
+      sceneryLayers?.cull(input.view);
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
       rocks.cull(input.viewTop, input.viewBottom);

@@ -9,8 +9,8 @@ import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 export const GROUND = 0x6d8a4a;
 const EDGE_COLOUR = 0x2e3a24;
 export const MUD_COLOUR = 0x7a5a36;
-/** Blocked ground is gravel under the boulders. */
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x3f78b8 };
+/** Blocked ground is gravel under the boulders. Shallow water is pale, deep water dark. */
+const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
 const GRID_EVERY = 5;
 /** Half the rail gauge and half a tie's length, in tiles. */
 const RAIL_HALF = 0.75, TIE_HALF = 1.2;
@@ -30,7 +30,8 @@ export const hash = (x: number, y: number) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
-export function drawTerrain(map: MapDef): Container {
+/** The ground, zones, `scenery` (ground cover and flat scenery) and the track, back to front. */
+export function drawTerrain(map: MapDef, scenery: Container | null = null): Container {
   const layer = new Container();
   layer.label = 'iso-terrain';
   const { cols, rows } = map.size;
@@ -114,7 +115,9 @@ export function drawTerrain(map: MapDef): Container {
     }
   }
 
-  layer.addChild(ground, zoneG, edge, tufts, puddles, glints, track);
+  layer.addChild(ground, zoneG, edge, tufts, puddles, glints);
+  if (scenery) layer.addChild(scenery);
+  layer.addChild(track);
   return layer;
 }
 

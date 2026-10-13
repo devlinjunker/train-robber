@@ -5,11 +5,11 @@ import {
   boardingCheck, carToWorld, commitTarget, switchTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
-import type { MapDef, ResolvedConfig } from '@train-robber/config';
+import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
 import { Interpolator } from './interp';
 import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
-import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
+import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, screenToWorld, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
 import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
@@ -17,6 +17,7 @@ import { createHud, type NoticeKind } from './hud';
 import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { drawMapOverlay } from './topdown/mapOverlay';
+import { createMinimap } from './minimap';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -70,6 +71,8 @@ export interface GameClient {
 export interface GameClientOptions {
   sim: Sim;
   map: MapDef;
+  /** The map's render-only scenery, if it has any. */
+  scenery?: SceneryDef | null;
   config: ResolvedConfig;
   /** Client options (`view`, `runZoom`, `runZoomRange`, `distanceCue`) come from this query string; a replay passes the logged one. */
   search?: string;
@@ -117,14 +120,19 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let shownZoom = zoom;
 
   // Isometric scenes.
-  const isoWorld = createWorldScene(map);
+  const scenery = opts.scenery ?? null;
+  // Grass and scrub land differently on every load; ?groundSeed= repeats a layout, ?groundCover=off drops it.
+  const groundSeed = params.get('groundCover') === 'off' ? null : Number(params.get('groundSeed')) || Math.floor(Math.random() * 2 ** 32);
+  const isoWorld = createWorldScene(map, scenery, groundSeed);
   // Top-down debug view.
   const topdown = new Container();
-  const topdownOverlay = drawMapOverlay(map);
+  const topdownOverlay = drawMapOverlay(map, scenery);
   const topdownView = createWorldView();
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
-  app.stage.addChild(isoWorld.root, topdown, overlay.root);
+  // The minimap starts on; M hides it.
+  const minimap = createMinimap(map, scenery);
+  app.stage.addChild(isoWorld.root, topdown, overlay.root, minimap.root);
   const hud = createHud();
 
   const onView = (a: ViewAction) => {
@@ -136,6 +144,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
+    else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
@@ -200,11 +209,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let zoneSec = 0, bestZoneSec = 0;
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
-  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water' };
-  const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  B zones  ·  \` debug` : [
+  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
+  const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(config.values.commit.auto ? [] : ['E commit']), 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
-    'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
+    'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs',
   ].join('  ·  ');
 
   return {
@@ -286,6 +295,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
+      // The ground under the screen's corners, for culling scenery and the minimap's view box.
+      const corners = ([[0, 0], [W, 0], [W, H], [0, H]] as const).map(([sx, sy]) => iso ? screenToWorld(sx, sy, camera)
+        : { x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -294,6 +306,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horseSpeed: horseState.speed, inMud,
           viewTop: isoY(cam.x, cam.y) - H / 2 / shownZoom, viewBottom: isoY(cam.x, cam.y) + H / 2 / shownZoom,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
+          view: {
+            x0: Math.min(...corners.map((p) => p.x)), y0: Math.min(...corners.map((p) => p.y)),
+            x1: Math.max(...corners.map((p) => p.x)), y1: Math.max(...corners.map((p) => p.y)),
+          },
         });
         isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
@@ -340,6 +356,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
       });
+      if (minimap.root.visible) {
+        minimap.update({
+          mode, screenWidth: W, cars, committedTrain: s.run?.trainId ?? null,
+          rider: horse ? horse : aboardAt && aboardCar ? { ...aboardAt, hx: aboardCar.ux, hy: aboardCar.uy } : null,
+          view: corners,
+        });
+      }
 
       // HUD.
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
