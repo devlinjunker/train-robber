@@ -4,9 +4,10 @@
 import { Container, Graphics } from 'pixi.js';
 import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
-import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
+import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
+import { createMesas } from './mesa';
 import { createRocks } from './rocks';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
@@ -139,12 +140,6 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
-/** Mix two colours, `t` of the way from a to b. */
-const mix = (a: number, b: number, t: number) => {
-  const ch = (s: number) => Math.round(((a >> s) & 0xff) * (1 - t) + ((b >> s) & 0xff) * t);
-  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
-};
-
 function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
@@ -175,9 +170,10 @@ export function createWorldScene(map: MapDef): WorldScene {
   const field = createHeightField(map);
   const ground = createHeightLayer(map, field);
   const rocks = createRocks(map, field);
+  const mesas = createMesas(map, field, rocks.strips);
   const mud = createMud();
-  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers);
-  objects.addChild(...ground.strips, ...rocks.strips, mud.clods);
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers, mesas.masks);
+  objects.addChild(...ground.strips, ...mesas.strips, ...rocks.strips, mud.clods);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -246,6 +242,7 @@ export function createWorldScene(map: MapDef): WorldScene {
       used = 0;
       rocks.cull(input.viewTop, input.viewBottom);
       ground.cull(input.viewTop, input.viewBottom);
+      mesas.cull(input.viewTop, input.viewBottom);
       const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
       mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
@@ -261,6 +258,10 @@ export function createWorldScene(map: MapDef): WorldScene {
       // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
       // behind them can still cover the ground around them, so the hole is cut through all of them.
       const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
+      // Behind a mesa, the same round hole goes through the mesa (Devlin, PR #25 playtest).
+      const actorZ = input.aboard ? 0 : horseZ;
+      const behindMesa = actor !== null && mesas.hides(keep.flatMap(([x, y]) => HIDDEN_HEIGHTS.map((z) => [isoX(x, y), isoY(x, y, actorZ + z)] as const)), depthOf(actor.x, actor.y));
+      mesas.cut(behindMesa && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, actorZ + 1), r: CUTOUT_RADIUS * TILE_H } : null, actor ? depthOf(actor.x, actor.y) : 0);
       hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1), to: null } : null;
       // On the far side of the run's train, the hole reaches the car so the ground between shows.
       const gap = input.horse && !input.aboard ? input.gap ?? null : null;

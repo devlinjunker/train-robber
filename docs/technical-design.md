@@ -434,7 +434,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 
 - Author in Tiled's orthogonal mode. Its isometric mode uses a different coordinate unit for objects, which would complicate the converter for no gain.
 - Tiled cannot attach properties to individual polyline vertices, which is why slow stretches use rectangles.
-- Elevation (added 2026-10-12, view only): an optional `elevation` tile layer painted with the `elevation.tsj` tileset (levels 0 to 8, 0.6 tiles of height each) becomes `MapDef.elevation`. The sim never reads it. A step of one level is a slope you can ride; two or more is a cliff, and the converter blocks the tile on top of it so the flat sim keeps riders off the edge. The track and two tiles either side must stay at level 0 for now, so rails and cars are not lifted. Height that changes riding (slopes, ledges, track grades) is on the wiki Ideas page.
+- Elevation (added 2026-10-12, view only): an optional `elevation` tile layer painted with the `elevation.tsj` tileset (levels 0 to 8, 0.6 tiles of height each) becomes `MapDef.elevation`. The sim never reads it. A step of one level is a slope you can ride; two or more is a cliff, and the converter blocks the tile on top of it so the flat sim keeps riders off the edge. The track and two tiles either side must stay at level 0 for now, so rails and cars are not lifted. In the iso view, raised ground with a cliff all round is drawn as a mesa (rounded outline, banded cliffs, a see-through hole when it hides the horse). Height that changes riding (slopes, ledges, track grades) is on the wiki Ideas page.
 
 ### MapDef (sketch, placeholder values)
 

@@ -9,6 +9,12 @@ export function shade(color: number, k: number): number {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 }
 
+/** Mix two colours, `t` of the way from a to b. */
+export const mix = (a: number, b: number, t: number) => {
+  const ch = (s: number) => Math.round(((a >> s) & 0xff) * (1 - t) + ((b >> s) & 0xff) * t);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+};
+
 /** Flat points [x0, y0, x1, y1, ...] in iso pixels for world points at height z. */
 export function isoPoly(pts: readonly (readonly [number, number])[], z = 0): number[] {
   return pts.flatMap(([x, y]) => [isoX(x, y), isoY(x, y, z)]);

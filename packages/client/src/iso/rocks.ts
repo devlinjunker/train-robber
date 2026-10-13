@@ -90,7 +90,7 @@ export interface RockLayer {
 
 export function createRocks(map: MapDef, field?: HeightField): RockLayer {
   const byDepth = new Map<number, Boulder[]>();
-  for (const b of placeBoulders(map, field?.raised ? (x, y) => field.groundZ(x, y) > 0.3 : undefined)) {
+  for (const b of placeBoulders(map, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined)) {
     const d = Math.floor(depthOf(b.x, b.y));
     let list = byDepth.get(d);
     if (!list) byDepth.set(d, (list = []));
@@ -101,7 +101,7 @@ export function createRocks(map: MapDef, field?: HeightField): RockLayer {
     const g = new Graphics();
     g.label = `rocks-${d}`;
     // Left to right along the strip; neighbours share a depth, so their order barely shows.
-    for (const b of list.sort((a, c) => a.x - a.y - (c.x - c.y))) drawBoulder(g, b, field?.groundZ(b.x, b.y) ?? 0);
+    for (const b of list.sort((a, c) => a.x - a.y - (c.x - c.y))) drawBoulder(g, b, field?.surfaceZ(b.x, b.y) ?? 0);
     // A boulder covers the strip below its centre's floor depth up to its radius, so sort it by its centre.
     g.zIndex = d + 0.5;
     strips.push(g); depths.push(d);
