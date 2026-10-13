@@ -47,6 +47,15 @@ describe('collision damage', () => {
     expect(collisionDamage(c, 100, 'obstacle', 14)).toBe(10);
   });
 
+  it('train crashes and rock crashes scale to their own maximum (train hits 45%, rocks 10%)', () => {
+    const split = { ...c, damageFraction: 0.45, obstacleDamageFraction: 0.1 };
+    expect(collisionDamage(split, 100, 'train', 1)).toBe(1);
+    expect(collisionDamage(split, 100, 'train', 5)).toBe(23);
+    expect(collisionDamage(split, 100, 'train', 9)).toBe(45);
+    expect(collisionDamage(split, 100, 'obstacle', 5)).toBe(6);
+    expect(collisionDamage(split, 100, 'obstacle', 14)).toBe(10);
+  });
+
   it('galloping into blocked ground costs the full damage, once', () => {
     const sim = setup();
     const ev = charge(sim, 7);
@@ -126,7 +135,7 @@ describe('collision damage', () => {
 
   it('damageFraction and scrapeDamageFraction 0 (collisionDamage:off) turn it off', () => {
     const base = testConfig();
-    const off: SimConfig = { ...base, values: { ...base.values, collision: { ...base.values.collision, damageFraction: 0, scrapeDamageFraction: 0 } } };
+    const off: SimConfig = { ...base, values: { ...base.values, collision: { ...base.values.collision, damageFraction: 0, obstacleDamageFraction: 0, scrapeDamageFraction: 0 } } };
     expect(damage(charge(setup(off), 7))).toHaveLength(0);
   });
 

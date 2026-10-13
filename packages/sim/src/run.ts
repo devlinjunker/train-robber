@@ -269,12 +269,12 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
 
 /**
  * Health a contact costs (Devlin, 2026-10-11): scraping a train car below `collision.minImpactTilesPerSec`
- * costs `scrapeDamageFraction` of max health; a harder hit on a car or blocked ground scales from
- * that up to `damageFraction` at `fullImpactTilesPerSec` and above. A soft touch of blocked ground
- * is free. Whole health points, at least 1 for any contact that hurts.
+ * costs `scrapeDamageFraction` of max health; a harder hit scales from that up to `damageFraction`
+ * for a car (`obstacleDamageFraction` for blocked ground) at `fullImpactTilesPerSec` and above (train
+ * hits raised to 45%, Devlin's playtest, 2026-10-12). A soft touch of blocked ground is free. Whole health points, at least 1 for any contact that hurts.
  */
 export function collisionDamage(c: SimConfig['values']['collision'], maxHealth: number, target: Impact['target'], impact: number): number {
-  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * c.damageFraction;
+  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * (target === 'train' ? c.damageFraction : c.obstacleDamageFraction);
   if (impact < c.minImpactTilesPerSec) return target === 'train' && scrape > 0 ? Math.max(1, Math.round(scrape)) : 0;
   if (full <= 0) return 0;
   const span = c.fullImpactTilesPerSec - c.minImpactTilesPerSec;

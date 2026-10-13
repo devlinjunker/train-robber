@@ -48,8 +48,10 @@ export const GameSchema = z.object({
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
   collision: z.object({
-    /** Health lost by a crash at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
+    /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
+    /** The same for a crash into blocked ground (rocks), kept separate so train hits can hurt more. */
+    obstacleDamageFraction: fraction,
     /** Health lost by scraping a train car (any touch below minImpactTilesPerSec), as a fraction of max. Blocked ground never scrapes. */
     scrapeDamageFraction: fraction,
     /** Speed lost against a car or blocked ground from which a touch is a crash; below it a car touch is a scrape and a rock touch is free. */
