@@ -30,6 +30,13 @@ export interface TrainPointer {
   committed: boolean;
 }
 
+/** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
+export interface DistanceCue {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  distanceTiles: number;
+}
+
 export interface ScreenOverlayInput {
   width: number;
   height: number;
@@ -40,14 +47,13 @@ export interface ScreenOverlayInput {
   toleranceTilesPerSec: number;
   showSpeed: boolean;
   trains: readonly TrainPointer[];
-  /** The horse's feet on screen while it is in mud, for the MUD tag under it, else null. */
-  mud?: { x: number; y: number } | null;
   /** The player's screen position aboard (their head), or null while mounted. */
   player: { x: number; y: number } | null;
   /** The last landing and how long ago it was; the banner shows for LANDING_CUE_SEC. */
   landing: { result: 'perfect' | 'good'; ageSec: number } | null;
   /** Share of the good-landing stumble left, 1 to 0, or null when not stumbling. */
   stumble: number | null;
+  distanceCue?: DistanceCue | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -58,9 +64,6 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const meter = new Graphics();
   const speed = new Text({ text: '', style: style(18) });
   speed.anchor.set(0.5, 0);
-  // A small tag under the horse while mud slows it.
-  const mudTag = new Text({ text: 'MUD: slowed', style: style(14, 0xd9a86a) });
-  mudTag.anchor.set(0.5, 0);
   const arrows = new Graphics();
   const labels: Text[] = [];
   // The landing banner over the player: big green PERFECT or smaller amber GOOD, then the stumble bar.
@@ -69,15 +72,17 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const bannerDetail = new Text({ text: '', style: style(16) });
   bannerDetail.anchor.set(0.5, 0);
   const stumbleBar = new Graphics();
-  root.addChild(arrows, meter, speed, mudTag, stumbleBar, banner, bannerDetail);
+  const cueLine = new Graphics();
+  const cueLabel = new Text({ text: '', style: style(16) });
+  cueLabel.anchor.set(0.5);
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, banner, bannerDetail);
 
   return {
     root,
     update(input) {
+      drawDistanceCue(cueLine, cueLabel, input.distanceCue ?? null);
       meter.clear();
       speed.visible = false;
-      mudTag.visible = !!input.mud;
-      if (input.mud) mudTag.position.set(input.mud.x, input.mud.y + 18);
       if (input.horse) {
         const w = Math.min(METER_W, input.width * 0.9);
         const x0 = input.horse.x - w / 2, y0 = input.horse.y - METER_ABOVE - METER_H;
@@ -157,4 +162,29 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       for (let i = used; i < labels.length; i++) labels[i]!.visible = false;
     },
   };
+}
+
+const CUE_COLOUR = 0xffffff;
+
+/**
+ * A line on the ground from the horse to the side of the car, drawn over the car so it shows on
+ * the far side, with a tick on the car side and the gap in tiles beside the line.
+ */
+function drawDistanceCue(g: Graphics, label: Text, cue: DistanceCue | null): void {
+  g.clear();
+  label.visible = false;
+  if (!cue) return;
+  const { from, to } = cue;
+  const dx = to.x - from.x, dy = to.y - from.y, n = Math.hypot(dx, dy) || 1;
+  const px = -dy / n, py = dx / n;
+  g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 6, color: 0x000000, alpha: 0.5 })
+    .moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 2.5, color: CUE_COLOUR, alpha: 0.85 });
+  g.moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 6, color: 0x000000, alpha: 0.6 })
+    .moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 3, color: CUE_COLOUR });
+  label.text = `${cue.distanceTiles.toFixed(1)} tiles`;
+  label.style.fill = CUE_COLOUR;
+  // Beside the middle of the line, toward the bottom of the screen, clear of the line itself.
+  const side = py < 0 ? -1 : 1, gap = Math.abs(px) * label.width / 2 + Math.abs(py) * label.height / 2 + 8;
+  label.position.set((from.x + to.x) / 2 + px * gap * side, (from.y + to.y) / 2 + py * gap * side);
+  label.visible = true;
 }

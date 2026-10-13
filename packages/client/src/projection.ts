@@ -87,3 +87,25 @@ export function stepZoom(zoom: number, dir: 1 | -1): number {
 export function clampZoom(zoom: number): number {
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, zoom));
 }
+
+/**
+ * During a run the zoom keys and wheel stay within this much zoom either side of the run zoom
+ * (Devlin, 2026-10-11: a band spread around the run zoom; 0.3 after the PR #20 playtest), so 0.7
+ * to 1.3 in iso and 1.45 to 2.05 top-down. Two key presses go from the run zoom to either end.
+ */
+export const RUN_ZOOM_RANGE = 0.3;
+
+export function clampRunZoom(zoom: number, base: number, range = RUN_ZOOM_RANGE): number {
+  const r = Math.min(base * 0.9, Math.max(0, range));
+  return clampZoom(Math.min(base + r, Math.max(base - r, zoom)));
+}
+
+export function stepRunZoom(zoom: number, dir: 1 | -1, base: number, range = RUN_ZOOM_RANGE): number {
+  // Steps of half the range around the run zoom, so the run zoom itself is always a step.
+  const step = Math.max(0, range) / 2;
+  if (step === 0) return clampRunZoom(base, base, 0);
+  // The next step past the current zoom, so a key after the wheel lands on the nearest step that way.
+  const at = (zoom - base) / step;
+  const k = dir > 0 ? Math.floor(at + 1e-6) + 1 : Math.ceil(at - 1e-6) - 1;
+  return clampRunZoom(base + k * step, base, range);
+}
