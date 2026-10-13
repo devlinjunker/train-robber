@@ -272,6 +272,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const camera: Camera = { x: cam.x, y: cam.y, zoom: shownZoom, width: W, height: H };
 
       const iso = mode === 'iso';
+      const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
@@ -281,6 +282,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+          horseSpeed: horseState.speed, inMud,
+          viewTop: isoY(cam.x, cam.y) - H / 2 / shownZoom, viewBottom: isoY(cam.x, cam.y) + H / 2 / shownZoom,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
         });
         isoWorld.root.scale.set(shownZoom);
