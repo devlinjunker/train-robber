@@ -8,7 +8,7 @@
 import type { Container } from 'pixi.js';
 import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
-import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly } from './terrain';
+import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
 import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
 import { isoX, isoY } from '../projection';
 
@@ -16,7 +16,8 @@ import { isoX, isoY } from '../projection';
 export const LEVEL_TILES = 0.6;
 const CLIFF_COLOUR = 0x8c7a62;
 const SCREE_COLOUR = 0x9c8462, SCREE_TILES = 3;
-const SURFACE: Partial<Record<Zone, number>> = { open: GROUND, slow: MUD_COLOUR, blocked: 0x6a655c };
+// Water keeps its colour on a hill too, so a lake or river doesn't vanish under raised ground (Devlin, PR #25).
+const SURFACE: Partial<Record<Zone, number>> = { ...ZONE_COLOURS, open: GROUND };
 
 export interface HeightField {
   /** False when the map has no raised ground: everything else is then a no-op. */
@@ -284,7 +285,8 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
       const base = mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
       // Slopes rising toward +x or +y face the light (from up the screen) and are brighter.
       const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
-      const k = Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
+      const wet = zone === 'water' || zone === 'deep';
+      const k = wet ? 1 : Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
       g.poly([...isoPoly([[x, y]], tl), ...isoPoly([[x + 1, y]], tr), ...isoPoly([[x + 1, y + 1]], br), ...isoPoly([[x, y + 1]], bl)]).fill(shade(base, k));
       // Sand spots and mud puddles, as on flat ground, at the height of the slope under them.
       const spot = zone === 'open' ? sandSpot(x, y) : null;

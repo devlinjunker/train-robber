@@ -14,7 +14,7 @@ export const SPOT_COLOURS = [0xa98a5c, 0xb59767, 0xd8bf8f] as const, SPOT_SHARE 
 const EDGE_COLOUR = 0x4a3a26;
 export const MUD_COLOUR = 0x7a5a36;
 /** Blocked ground is gravel under the boulders. Shallow water is pale, deep water dark. */
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
+export const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
 const GRID_EVERY = 5;
 /** Tufts and puddles are drawn in cells of this many tiles, the track in stretches of this many samples. */
 const CELL = 24, TRACK_STRETCH = 64;
