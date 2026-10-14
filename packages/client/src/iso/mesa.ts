@@ -8,10 +8,11 @@
 // outline, and sorts like the ground; each cliff face segment sorts by its own depth, so the
 // horse in front of a cliff draws over it and the horse behind is hidden by it.
 import { Container, Graphics } from 'pixi.js';
+import { cullSorted, type Chunk, type TileBox } from './cells';
 import type { MapDef } from '@train-robber/config';
 import { facesViewer, mix, shade } from './draw';
 import { hash } from './terrain';
-import { depthOf, isoX, isoY, TILE_H } from '../projection';
+import { depthOf, isoX, isoY } from '../projection';
 import { LEVEL_TILES, type HeightField, type Plateau } from './height';
 
 /** Sandstone strata by height, the same on every mesa so the layers line up across the map. */
@@ -20,24 +21,25 @@ const BAND = LEVEL_TILES / 2;
 const TOP_COLOUR = 0xa98760, CAP_COLOUR = 0xe2c494, SCRUB_COLOUR = 0x5f6a3a;
 /** How far the outline wanders in and out, in tiles; it leans inward so cliffs stay off open ground. */
 const WANDER = 0.45, WANDER_BIAS = 0.55;
+/** Pieces split every this many tiles across the screen (x - y), so pieces off screen drop out. */
+const ACROSS_TILES = 32;
 
 interface V { x: number; y: number; zb: number; zt: number }
 
 export interface MesaLayer {
-  /** Sortable pieces; add them to the depth-sorted container. */
-  strips: Graphics[];
   /** Masks for the see-through hole; add to the scene (not the sorted container). */
   masks: Container;
-  /** Show only pieces that reach the screen band between `top` and `bottom` (unzoomed iso y pixels). */
-  cull(top: number, bottom: number): void;
+  /** The sortable pieces. */
+  chunks: Chunk[];
+  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
+  cull(view: TileBox): void;
   /** Whether a mesa piece in front of world depth `depth` covers any of these iso pixel points. */
   hides(points: readonly (readonly [number, number])[], depth: number): boolean;
   /** Cut a round hole (iso pixels) through every piece in front of `depth` near it, or clear it with null. */
   cut(hole: { x: number; y: number; r: number } | null, depth: number): void;
 }
 
-interface Piece {
-  g: Graphics;
+interface Piece extends Chunk {
   /** Screen polygons for hit tests, and their bounds. */
   polys: number[][];
   minX: number; minY: number; maxX: number; maxY: number;
@@ -129,21 +131,31 @@ function clipToTile(poly: readonly V[], tx: number, ty: number): V[] {
   return out;
 }
 
-/** `alsoCut`: other sorted pieces (the boulders) that the hole goes through too. */
-export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly Graphics[] = []): MesaLayer {
+/**
+ * Mesas in pieces by sort depth and stretch across the screen; pieces go into `objects` only while
+ * on screen. `alsoCut`: other sorted pieces (the boulders) that the hole goes through too.
+ */
+export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: readonly Chunk[] = []): MesaLayer {
   const masks = new Container();
   masks.label = 'mesa-masks';
-  const pieces = new Map<number, Piece>();
-  const piece = (zIndex: number): Piece => {
-    let p = pieces.get(zIndex);
+  const pieces = new Map<string, Piece>();
+  /** The piece for sort depth `zIndex` at world point (x, y), grown to cover it standing `lift` tiles high. */
+  const piece = (zIndex: number, x: number, y: number, lift: number): Piece => {
+    const key = `${zIndex}:${Math.floor((x - y) / ACROSS_TILES)}`;
+    let p = pieces.get(key);
     if (!p) {
       const g = new Graphics();
       g.label = `mesa-${zIndex}`;
       g.zIndex = zIndex;
-      p = { g, polys: [], minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, mask: null, masked: false };
-      pieces.set(zIndex, p);
+      p = { g, x0: x, y0: y, x1: x, y1: y, polys: [], minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity, mask: null, masked: false };
+      pieces.set(key, p);
     }
+    grow(p, x, y, lift);
     return p;
+  };
+  const grow = (p: Piece, x: number, y: number, lift: number) => {
+    p.x0 = Math.min(p.x0, x - lift - 1); p.y0 = Math.min(p.y0, y - lift - 1);
+    p.x1 = Math.max(p.x1, x + 1); p.y1 = Math.max(p.y1, y + 1);
   };
   const fill = (p: Piece, pts: number[], color: number | { color: number; alpha: number }, hit = false) => {
     p.g.poly(pts).fill(color);
@@ -170,7 +182,7 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
     }
     for (const i of near) {
       const x = i % cols, y = (i - x) / cols;
-      const p = piece(x + y - 0.005);
+      const p = piece(x + y - 0.005, x + 0.5, y + 0.5, plateau.topZ(x + 0.5, y + 0.5));
       // Each mesa's top leans toward a strata colour of its own.
       const tint = mix(TOP_COLOUR, STRATA[Math.floor(hash(k, 101) * STRATA.length)]!, 0.3);
       let interior = true;
@@ -201,7 +213,7 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
         const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
         const nx = dy / len, ny = -dx / len;
         const show = facesViewer(nx, ny) && (a.zt - a.zb > 0.02 || b.zt - b.zb > 0.02);
-        return { a, b, nx, ny, show, key: Math.floor(depthOf((a.x + b.x) / 2, (a.y + b.y) / 2) * 4) / 4 };
+        return { a, b, nx, ny, show, key: Math.floor(depthOf((a.x + b.x) / 2, (a.y + b.y) / 2) * 2) / 2 };
       };
       // Start a run at a hidden segment or a change of depth, so no run wraps round the loop.
       const segs = Array.from({ length: n }, (_, i) => seg(i));
@@ -210,8 +222,9 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
       let run: typeof segs = [];
       const flush = () => {
         if (!run.length) return;
-        const p = piece(run[0]!.key);
         const vs = [run[0]!.a, ...run.map((s) => s.b)];
+        const p = piece(run[0]!.key, vs[0]!.x, vs[0]!.y, vs[0]!.zt);
+        for (const v of vs) grow(p, v.x, v.y, v.zt);
         const lo = Math.min(...vs.map((v) => v.zb)), hi = Math.max(...vs.map((v) => v.zt));
         for (let b = Math.floor(lo / BAND); b * BAND < hi; b++) {
           const z0 = vs.map((v) => Math.min(v.zt, Math.max(v.zb, b * BAND)));
@@ -220,13 +233,14 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
           fill(p, [...vs.flatMap((v, j) => at(v, z0[j]!)), ...vs.map((v, j) => at(v, z1[j]!)).reverse().flat()], STRATA[((b % STRATA.length) + STRATA.length) % STRATA.length]!);
         }
         for (const s of run) {
-          // Shade by which way it faces, with vertical streaks; a dark foot and a pale cap rock lip.
+          // Shade by which way it faces, with vertical streaks.
           const k2 = 0.8 + 0.14 * (s.ny - s.nx) + 0.12 * (hash(Math.round(s.a.x * 16), Math.round(s.a.y * 16)) - 0.5);
-          const quad = (za: number, zb: number, wa: number, wb: number) => [...at(s.a, za), ...at(s.b, zb), ...at(s.b, wb), ...at(s.a, wa)];
-          fill(p, quad(s.a.zb, s.b.zb, s.a.zt, s.b.zt), k2 < 1 ? { color: 0x000000, alpha: 1 - k2 } : { color: 0xffffff, alpha: k2 - 1 }, true);
-          fill(p, quad(s.a.zb, s.b.zb, Math.min(s.a.zt, s.a.zb + 0.3), Math.min(s.b.zt, s.b.zb + 0.3)), { color: 0x000000, alpha: 0.16 });
-          fill(p, quad(Math.max(s.a.zb, s.a.zt - 0.12), Math.max(s.b.zb, s.b.zt - 0.12), s.a.zt, s.b.zt), mix(CAP_COLOUR, TOP_COLOUR, 0.25));
+          fill(p, [...at(s.a, s.a.zb), ...at(s.b, s.b.zb), ...at(s.b, s.b.zt), ...at(s.a, s.a.zt)], k2 < 1 ? { color: 0x000000, alpha: 1 - k2 } : { color: 0xffffff, alpha: k2 - 1 }, true);
         }
+        // A dark foot and a pale cap rock lip along the whole run.
+        const band = (lo: (v: V) => number, hi: (v: V) => number) => [...vs.flatMap((v) => at(v, lo(v))), ...vs.map((v) => at(v, hi(v))).reverse().flat()];
+        fill(p, band((v) => v.zb, (v) => Math.min(v.zt, v.zb + 0.3)), { color: 0x000000, alpha: 0.16 });
+        fill(p, band((v) => Math.max(v.zb, v.zt - 0.12), (v) => v.zt), mix(CAP_COLOUR, TOP_COLOUR, 0.25));
         run = [];
       };
       for (let j = 0; j < n; j++) {
@@ -240,11 +254,10 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
   });
 
   const list = [...pieces.values()].sort((a, b) => a.g.zIndex - b.g.zIndex);
-  const cuttable = [...list, ...alsoCut.map((g): Piece => {
-    const b = g.getLocalBounds();
-    return { g, polys: [], minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, mask: null, masked: false };
+  const cuttable = [...list, ...alsoCut.map((c): Piece => {
+    const b = c.g.getLocalBounds();
+    return { ...c, polys: [], minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, mask: null, masked: false };
   })];
-  const margin = 2 * TILE_H;
   const inside = (pts: number[], px: number, py: number) => {
     let c = false;
     for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
@@ -253,15 +266,20 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
     }
     return c;
   };
+  // The pieces on stage, refreshed on each cull, so the hole checks skip the rest of the map.
+  let live: Piece[] = [], liveCut: Piece[] = [];
+  const maskedNow = new Set<Piece>();
   return {
-    strips: list.map((p) => p.g),
     masks,
-    cull(top, bottom) {
-      for (const p of list) p.g.visible = p.maxY + margin >= top && p.minY - margin <= bottom;
+    chunks: list,
+    cull(view) {
+      cullSorted(list, view, objects);
+      live = list.filter((p) => p.g.parent);
+      liveCut = cuttable.filter((p) => p.g.parent);
     },
     hides(points, depth) {
-      for (const p of list) {
-        if (p.g.zIndex <= depth || !p.g.visible) continue;
+      for (const p of live) {
+        if (p.g.zIndex <= depth || !p.g.parent) continue;
         for (const [px, py] of points) {
           if (px < p.minX || px > p.maxX || py < p.minY || py > p.maxY) continue;
           if (p.polys.some((poly) => inside(poly, px, py))) return true;
@@ -270,14 +288,15 @@ export function createMesas(map: MapDef, field: HeightField, alsoCut: readonly G
       return false;
     },
     cut(hole, depth) {
-      for (const p of cuttable) {
-        const want = hole !== null && p.g.zIndex > depth && p.g.visible
+      for (const p of new Set([...liveCut, ...maskedNow])) {
+        const want = hole !== null && p.g.zIndex > depth && p.g.parent !== null
           && hole.x + hole.r >= p.minX && hole.x - hole.r <= p.maxX && hole.y + hole.r >= p.minY && hole.y - hole.r <= p.maxY;
         if (want && hole) {
           if (!p.mask) { p.mask = new Graphics(); masks.addChild(p.mask); }
           p.mask.clear().circle(hole.x, hole.y, hole.r).fill(0xffffff);
         } else p.mask?.clear();
-        if (want !== p.masked) { p.g.setMask({ mask: want ? p.mask : null, inverse: true }); p.masked = want; }
+        if (want !== p.masked) { if (want) p.g.setMask({ mask: p.mask, inverse: true }); else p.g.mask = null; p.masked = want; }
+        if (want) maskedNow.add(p); else maskedNow.delete(p);
       }
     },
   };

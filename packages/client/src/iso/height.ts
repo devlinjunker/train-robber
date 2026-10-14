@@ -5,11 +5,12 @@
 // Raised tiles are drawn in depth strips that sort with the horse and cars, like the boulders.
 // Ground cut off by cliffs all round is a plateau: the ground runs on under it and iso/mesa.ts
 // draws it as a rounded mesa on top (PR #25 playtest, 2026-10-13).
-import { Graphics } from 'pixi.js';
+import type { Container } from 'pixi.js';
 import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-robber/config';
-import { facesViewer, isoPoly, mix, shade } from './draw';
-import { GROUND, hash, MUD_COLOUR, sandSpot, SPOT_COLOURS } from './terrain';
-import { isoX, isoY, TILE_H, TILE_W, Z_PX } from '../projection';
+import { facesViewer, isoPoly, mix, shade, oval } from './draw';
+import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly } from './terrain';
+import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
+import { isoX, isoY } from '../projection';
 
 /** Height of one elevation level, in tiles of z. */
 export const LEVEL_TILES = 0.6;
@@ -239,33 +240,23 @@ function smoothCorners(cols: number, rows: number, level: ArrayLike<number>, cor
 }
 
 export interface HeightLayer {
-  /** One sortable strip per row of depth; add them to the depth-sorted container. */
-  strips: Graphics[];
-  /** Show only strips that can reach the screen band between `top` and `bottom` (unzoomed iso y pixels). */
-  cull(top: number, bottom: number): void;
+  /** The sortable pieces. */
+  chunks: Chunk[];
+  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
+  cull(view: TileBox): void;
 }
 
 /**
  * Draw every tile with any raised corner: its surface, lit by which way it slopes, then the
  * cliff faces toward the viewer where the next tile's edge is lower. A tile sorts by its back
  * corner (x + y), so it covers what stands behind it and is covered by what stands on or in front of it.
+ * Pieces go into `objects` (the depth-sorted container) only while on screen.
  */
-export function createHeightLayer(map: MapDef, field: HeightField): HeightLayer {
-  const strips: Graphics[] = [], depths: number[] = [];
-  if (!field.raised) return { strips, cull() {} };
+export function createHeightLayer(map: MapDef, field: HeightField, objects: Container): HeightLayer {
+  if (!field.raised) return { chunks: [], cull() {} };
   const { cols, rows } = map.size;
   const zones = decodeZones(map);
-  const byDepth = new Map<number, Graphics>();
-  const strip = (d: number) => {
-    let g = byDepth.get(d);
-    if (!g) {
-      g = new Graphics();
-      g.label = `ground-${d}`;
-      g.zIndex = d - 0.01;
-      byDepth.set(d, g);
-    }
-    return g;
-  };
+  const cells = new SortedCells('ground', 32);
   // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot.
   const scree = new Float32Array(cols * rows);
   for (let i = 0; i < cols * rows; i++) {
@@ -287,7 +278,7 @@ export function createHeightLayer(map: MapDef, field: HeightField): HeightLayer 
     for (let x = 0; x < cols; x++) {
       const [tl, tr, br, bl] = field.corners(x, y);
       if (tl + tr + br + bl === 0 || hidden(x, y)) continue;
-      const g = strip(x + y);
+      const g = cells.at(x + y - 0.01, x + 0.5, y + 0.5, Math.max(tl, tr, br, bl));
       const zone = map.zoneLegend[zones[y * cols + x]!]!;
       const t = scree[y * cols + x]! * (0.75 + 0.25 * hash(x * 3, y * 5));
       const base = mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
@@ -295,11 +286,14 @@ export function createHeightLayer(map: MapDef, field: HeightField): HeightLayer 
       const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
       const k = Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
       g.poly([...isoPoly([[x, y]], tl), ...isoPoly([[x + 1, y]], tr), ...isoPoly([[x + 1, y + 1]], br), ...isoPoly([[x, y + 1]], bl)]).fill(shade(base, k));
+      // Sand spots and mud puddles, as on flat ground, at the height of the slope under them.
       const spot = zone === 'open' ? sandSpot(x, y) : null;
-      if (spot) {
-        // A sand spot, as on flat ground, at the height of the slope under it.
-        const z = field.groundZ(spot.x, spot.y);
-        g.ellipse(isoX(spot.x, spot.y), isoY(spot.x, spot.y, z), spot.r * TILE_W * 0.5, spot.r * TILE_H * 0.5).fill(mix(SPOT_COLOURS[spot.k]!, SCREE_COLOUR, t * 0.6));
+      if (spot) g.poly(spotPoly(spot, field.groundZ(spot.x, spot.y))).fill(mix(SPOT_COLOURS[spot.k]!, SCREE_COLOUR, t * 0.6));
+      const puddle = zone === 'slow' ? mudPuddle(x, y) : null;
+      if (puddle) {
+        const z = field.groundZ(puddle.x, puddle.y);
+        g.poly(spotPoly({ x: puddle.x, y: puddle.y, r: puddle.s * 1.4 }, z)).fill(shade(MUD_COLOUR, 0.8 * k));
+        if (puddle.glint) oval(g, isoX(puddle.x, puddle.y) - puddle.s * 8, isoY(puddle.x, puddle.y, z) - puddle.s * 3, puddle.s * 9, puddle.s * 2.5).fill({ color: 0xffffff, alpha: 0.18 });
       }
       // Cliff faces on the +x edge (TR to BR) and the +y edge (BR to BL), down to the neighbour's edge.
       const faces: [number, number, number, number, number, number, number, number, number, number][] = [];
@@ -321,15 +315,6 @@ export function createHeightLayer(map: MapDef, field: HeightField): HeightLayer 
       }
     }
   }
-  for (const [d, g] of [...byDepth].sort((a, c) => a[0] - c[0])) { strips.push(g); depths.push(d); }
-  const margin = 2 * TILE_H, tallest = 8 * LEVEL_TILES * Z_PX;
-  return {
-    strips,
-    cull(top, bottom) {
-      for (let i = 0; i < strips.length; i++) {
-        const y = (depths[i]! + 1) * (TILE_H / 2);
-        strips[i]!.visible = y + margin >= top && y - tallest - margin <= bottom;
-      }
-    },
-  };
+  const chunks = cells.chunks();
+  return { chunks, cull: (view) => cullSorted(chunks, view, objects) };
 }

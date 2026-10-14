@@ -15,6 +15,20 @@ export const mix = (a: number, b: number, t: number) => {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 };
 
+/**
+ * An ellipse (or circle, without `ry`) as a polygon with a few sides for its size. Graphics.ellipse
+ * makes dozens of vertices even for a speck, and the map draws tens of thousands of them.
+ */
+export function oval(g: Graphics, cx: number, cy: number, rx: number, ry = rx): Graphics {
+  const n = Math.min(40, Math.max(6, Math.ceil(2 * Math.sqrt(rx + ry))));
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
+  }
+  return g.poly(pts);
+}
+
 /** Flat points [x0, y0, x1, y1, ...] in iso pixels for world points at height z. */
 export function isoPoly(pts: readonly (readonly [number, number])[], z = 0): number[] {
   return pts.flatMap(([x, y]) => [isoX(x, y), isoY(x, y, z)]);
@@ -87,5 +101,5 @@ export function sidePanel(g: Graphics, b: Box, side: 'left' | 'right', along0: n
 
 /** The ellipse a world circle of radius r becomes on the ground. */
 export function groundEllipse(g: Graphics, x: number, y: number, r: number, z = 0): Graphics {
-  return g.ellipse(isoX(x, y), isoY(x, y, z), r * Math.SQRT2 * (TILE_W / 2), r * Math.SQRT2 * (TILE_H / 2));
+  return oval(g, isoX(x, y), isoY(x, y, z), r * Math.SQRT2 * (TILE_W / 2), r * Math.SQRT2 * (TILE_H / 2));
 }

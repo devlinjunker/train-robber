@@ -3,7 +3,7 @@
 import { Graphics } from 'pixi.js';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
-import { groundEllipse, shade } from './draw';
+import { groundEllipse, shade, oval } from './draw';
 import { isoX, isoY } from '../projection';
 import { GROUND } from './terrain';
 
@@ -73,10 +73,10 @@ function drawScrub(g: Graphics, x: number, y: number, s: number, r: () => number
   const color = SCRUB[Math.floor(r() * SCRUB.length)]!;
   for (let j = 0; j < 5; j++) {
     const ox = (r() - 0.5) * 20 * s, oy = (r() - 0.5) * 6 * s;
-    g.ellipse(bx + ox, by + oy, (6 + r() * 4) * s, (4.5 + r() * 2.5) * s);
+    oval(g, bx + ox, by + oy, (6 + r() * 4) * s, (4.5 + r() * 2.5) * s);
   }
   g.fill(color);
-  g.ellipse(bx - 3 * s, by - 3 * s, 5 * s, 3.5 * s).fill(shade(color, 1.2));
+  oval(g, bx - 3 * s, by - 3 * s, 5 * s, 3.5 * s).fill(shade(color, 1.2));
   for (let j = 0; j < 4; j++) {
     const tx = bx + (r() - 0.5) * 18 * s, ty = by - 2 * s, h = (9 + r() * 7) * s;
     g.poly([tx - 1.2, ty, tx + 1.2, ty, tx + (r() - 0.5) * 10 * s, ty - h]);

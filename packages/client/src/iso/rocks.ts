@@ -3,10 +3,11 @@
 // cells, one boulder per cell, and the boulders are bucketed by depth into strips that sort
 // against the horse and cars. A strip runs along x + y = const, a horizontal band on screen, so
 // strips off the top or bottom of the screen are hidden each frame.
-import { Graphics } from 'pixi.js';
+import type { Container, Graphics } from 'pixi.js';
+import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import { facesViewer, isoPoly, shade } from './draw';
-import { depthOf, TILE_H, Z_PX } from '../projection';
+import { depthOf } from '../projection';
 import { hash, onEdge } from './terrain';
 import type { HeightField } from './height';
 
@@ -85,40 +86,23 @@ export function drawBoulder(g: Graphics, b: Boulder, z0 = 0): void {
 }
 
 export interface RockLayer {
-  /** One sortable strip per unit of depth; add them to the depth-sorted container. */
-  strips: Graphics[];
-  /** Show only strips that can reach the screen band between `top` and `bottom` (unzoomed iso y pixels). */
-  cull(top: number, bottom: number): void;
+  /** The sortable pieces, for the see-through hole (iso/mesa.ts). */
+  chunks: Chunk[];
+  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
+  cull(view: TileBox): void;
 }
 
-export function createRocks(map: MapDef, field?: HeightField, skip?: ReadonlySet<number>): RockLayer {
-  const byDepth = new Map<number, Boulder[]>();
-  for (const b of placeBoulders(map, skip, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined)) {
-    const d = Math.floor(depthOf(b.x, b.y));
-    let list = byDepth.get(d);
-    if (!list) byDepth.set(d, (list = []));
-    list.push(b);
-  }
-  const strips: Graphics[] = [], depths: number[] = [];
-  for (const [d, list] of [...byDepth].sort((a, c) => a[0] - c[0])) {
-    const g = new Graphics();
-    g.label = `rocks-${d}`;
-    // Left to right along the strip; neighbours share a depth, so their order barely shows.
-    for (const b of list.sort((a, c) => a.x - a.y - (c.x - c.y))) drawBoulder(g, b, field?.surfaceZ(b.x, b.y) ?? 0);
+/** Boulders in pieces by depth and stretch across the screen; pieces go into `objects` only while on screen. */
+export function createRocks(map: MapDef, objects: Container, field?: HeightField, skip?: ReadonlySet<number>): RockLayer {
+  const cells = new SortedCells('rocks', 32, 2);
+  const placed = placeBoulders(map, skip, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined);
+  // Back to front, then left to right along a depth; neighbours share a depth, so their order barely shows.
+  placed.sort((a, c) => Math.floor(depthOf(a.x, a.y)) - Math.floor(depthOf(c.x, c.y)) || a.x - a.y - (c.x - c.y));
+  for (const b of placed) {
+    const z = field?.surfaceZ(b.x, b.y) ?? 0;
     // A boulder covers the strip below its centre's floor depth up to its radius, so sort it by its centre.
-    g.zIndex = d + 0.5;
-    strips.push(g); depths.push(d);
+    drawBoulder(cells.at(Math.floor(depthOf(b.x, b.y)) + 0.5, b.x, b.y, z + b.h), b, z);
   }
-  const margin = 2 * TILE_H;
-  return {
-    strips,
-    cull(top, bottom) {
-      for (let i = 0; i < strips.length; i++) {
-        // Ground y of the strip's centre line; boulders rise above it and spread a tile or two below.
-        const y = (depths[i]! + 0.5) * (TILE_H / 2);
-        const lift = field?.raised ? 8 * 0.6 * Z_PX : 0;
-        strips[i]!.visible = y + margin >= top && y - ROCK_MAX_HEIGHT * Z_PX - lift - margin <= bottom;
-      }
-    },
-  };
+  const chunks = cells.chunks();
+  return { chunks, cull: (view) => cullSorted(chunks, view, objects) };
 }

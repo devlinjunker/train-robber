@@ -2,8 +2,8 @@
 // and flowers on the ground, and trees that depth-sort against the horse and the cars. Placeholder art in the same flat-shaded style as the cars.
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type SceneryKind } from '@train-robber/config';
-import { drawBox, groundEllipse, isoPoly, shade } from './draw';
-import { cullChunks, type Chunk, type TileBox } from './cells';
+import { drawBox, groundEllipse, isoPoly, shade, oval } from './draw';
+import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 
 export const FOREST_FLOOR = 0x3f5a2e;
@@ -20,7 +20,7 @@ const LONE_TILES = 3, LONE_SCALE = 1.4;
  */
 const FADED_ALPHA = 0.15, FADE_RATE = 8;
 /** Bushes and flowers are drawn in square cells of this many tiles. */
-const COVER_CELL = 24;
+const COVER_CELL = 24, FLAT_CELL = 24;
 
 /** Group item indices by a key, keeping each group's tile bounds. */
 function group(indices: readonly number[], x: readonly number[], y: readonly number[], key: (i: number) => number) {
@@ -59,20 +59,31 @@ export function forestTiles(map: MapDef, scenery: SceneryDef): Set<number> {
   return out;
 }
 
-/** The flat scenery: forest floor and bridge decks. Drawn under the track. */
-export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Graphics {
-  const g = new Graphics();
-  g.label = 'iso-scenery-flat';
-  const { cols } = map.size;
-
-  for (const t of forestTiles(map, scenery)) {
-    const tx = t % cols, ty = (t - tx) / cols;
-    g.poly(isoPoly([[tx, ty], [tx + 1, ty], [tx + 1, ty + 1], [tx, ty + 1]]));
+/**
+ * The flat scenery: forest floor and bridge decks, drawn under the track. In cells and one piece
+ * per bridge, so pieces off screen cull; the forest floor is one strip per run of forest tiles.
+ */
+export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Chunk[] {
+  const { cols, rows } = map.size;
+  const forest = forestTiles(map, scenery), floor = new Cells(FLAT_CELL);
+  for (let y = 0; y < rows; y++) {
+    let x = 0;
+    while (x < cols) {
+      if (!forest.has(y * cols + x)) { x++; continue; }
+      const stop = Math.min(cols, (Math.floor(x / FLAT_CELL) + 1) * FLAT_CELL);
+      let end = x + 1;
+      while (end < stop && forest.has(y * cols + end)) end++;
+      floor.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
+      x = end;
+    }
   }
-  g.fill(FOREST_FLOOR);
+  floor.each((g) => { g.label = 'iso-scenery-flat'; g.fill(FOREST_FLOOR); });
+  const out = floor.chunks();
 
   // Bridges: a deck with planks across the way you cross, and a dark edge on the two sides.
   for (const b of scenery.bridges) {
+    const g = new Graphics();
+    g.label = 'iso-bridge';
     const corners: [number, number][] = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
     g.poly(isoPoly(corners, 0.02)).fill(BRIDGE);
     if (b.along === 'x') {
@@ -87,9 +98,10 @@ export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Graphics {
       g.moveTo(isoX(ax, ay), isoY(ax, ay, 0.02)).lineTo(isoX(ex, ey), isoY(ex, ey, 0.02));
     }
     g.stroke({ width: 4, color: BRIDGE_RAIL });
+    out.push({ g, x0: b.x - 1, y0: b.y - 1, x1: b.x + b.w + 1, y1: b.y + b.h + 1 });
   }
 
-  return g;
+  return out;
 }
 
 /** Ground cover: bushes are low mounds, flowers a few dots. In cells, so off-screen cells cull. */
@@ -108,15 +120,15 @@ export function drawSceneryCover(scenery: SceneryDef): Chunk[] {
 function drawCover(g: Graphics, k: SceneryKind, px: number, py: number, s: number, i: number): void {
   if (k === 'bush') {
     groundEllipse(g, px + 0.15, py + 0.15, 0.35 * s).fill({ color: 0x000000, alpha: 0.18 });
-    g.ellipse(isoX(px, py), isoY(px, py, 0.25 * s), 13 * s, 9 * s).fill(BUSH);
-    g.ellipse(isoX(px, py) - 3 * s, isoY(px, py, 0.32 * s), 7 * s, 5 * s).fill(shade(BUSH, 1.2));
+    oval(g, isoX(px, py), isoY(px, py, 0.25 * s), 13 * s, 9 * s).fill(BUSH);
+    oval(g, isoX(px, py) - 3 * s, isoY(px, py, 0.32 * s), 7 * s, 5 * s).fill(shade(BUSH, 1.2));
   } else if (k === 'flowers') {
     // A clump of five blooms round a centre, each with a darker heart.
     for (let j = 0; j < 5; j++) {
       const a = (j / 5) * Math.PI * 2 + i, d = j === 0 ? 0 : 0.28 * s;
       const fx = px + Math.cos(a) * d, fy = py + Math.sin(a) * d;
-      g.circle(isoX(fx, fy), isoY(fx, fy, 0.08), 4 * s).fill(FLOWERS[(i + j) % FLOWERS.length]!);
-      g.circle(isoX(fx, fy), isoY(fx, fy, 0.08), 1.5 * s).fill(0xd08a2a);
+      oval(g, isoX(fx, fy), isoY(fx, fy, 0.08), 4 * s).fill(FLOWERS[(i + j) % FLOWERS.length]!);
+      oval(g, isoX(fx, fy), isoY(fx, fy, 0.08), 1.5 * s).fill(0xd08a2a);
     }
   }
 }
@@ -135,9 +147,9 @@ function drawTree(g: Graphics, k: SceneryKind, x: number, y: number, s: number):
     }
   } else {
     const r = 0.85 * s * TILE_H, cy = isoY(x, y, 1.6 * s);
-    g.circle(cx, cy, r).fill(shade(TREE, 0.85));
-    g.circle(cx - r * 0.25, cy - r * 0.25, r * 0.7).fill(TREE);
-    g.circle(cx - r * 0.4, cy - r * 0.4, r * 0.3).fill(shade(TREE, 1.2));
+    oval(g, cx, cy, r).fill(shade(TREE, 0.85));
+    oval(g, cx - r * 0.25, cy - r * 0.25, r * 0.7).fill(TREE);
+    oval(g, cx - r * 0.4, cy - r * 0.4, r * 0.3).fill(shade(TREE, 1.2));
   }
 }
 
@@ -181,6 +193,8 @@ export function drawTrees(scenery: SceneryDef): Chunk[] {
 export interface SceneryLayers {
   /** Forest floor and bridges, then bushes and flowers: goes under the track. */
   ground: Container;
+  /** The tree groups, sorted pieces for `objects`. */
+  trees: Graphics[];
   /**
    * Hide what is outside a box of world tiles. Tree groups on screen join the depth-sorted
    * `objects` container and leave it when they go off screen, so it only sorts what is drawn.
@@ -196,11 +210,12 @@ export interface SceneryLayers {
 export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container): SceneryLayers {
   const ground = new Container();
   ground.label = 'iso-scenery-ground';
-  const cover = drawSceneryCover(scenery);
-  ground.addChild(drawSceneryFlat(map, scenery), ...cover.map((c) => c.g));
+  const flat = drawSceneryFlat(map, scenery), cover = [...flat, ...drawSceneryCover(scenery)];
+  ground.addChild(...cover.map((c) => c.g));
   const trees = drawTrees(scenery).map((t) => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
   return {
     ground,
+    trees: trees.map((t) => t.g),
     fade(at, dt) {
       const px = at && isoX(at.x, at.y), py = at && isoY(at.x, at.y, at.z), depth = at && depthOf(at.x, at.y);
       const k = 1 - Math.exp(-FADE_RATE * dt);

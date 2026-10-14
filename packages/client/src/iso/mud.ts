@@ -3,7 +3,7 @@
 // in mud it kicks up clods behind its hind legs, leaves hoof prints that fade, and its legs get
 // muddy and dry off a few seconds after it leaves. View only: the sim already slows the horse.
 import { Graphics } from 'pixi.js';
-import { groundEllipse, shade } from './draw';
+import { groundEllipse, shade, oval } from './draw';
 import { MUD_COLOUR } from './terrain';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
@@ -84,7 +84,7 @@ export function createMud(): MudEffect {
         const c = flying[i]!;
         c.x += c.vx * dt; c.y += c.vy * dt; c.z += c.vz * dt; c.vz -= GRAVITY * dt;
         if (c.z <= c.floor) { flying.splice(i, 1); continue; }
-        clods.circle(isoX(c.x, c.y), isoY(c.x, c.y, c.z), c.r * TILE_H);
+        oval(clods, isoX(c.x, c.y), isoY(c.x, c.y, c.z), c.r * TILE_H);
         depth = Math.max(depth, depthOf(c.x, c.y));
       }
       clods.fill(CLOD_COLOUR);
