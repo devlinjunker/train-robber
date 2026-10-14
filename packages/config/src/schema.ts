@@ -86,7 +86,7 @@ export const GameSchema = z.object({
     maxHeat: positive,
     /** Countdown drain rate is 1 + heatDrainFactor x heat/100. */
     heatDrainFactor: z.number().min(0),
-    /** Heat added per event; timeAboardPerSec is added per second aboard instead (0 by default, G26). */
+    /** Heat added per event; timeAboardPerSec is added per second aboard instead (0.33 by default since the M1 playtest, G26). */
     sources: z.object({
       shotFired: z.number().min(0),
       alarmRaised: z.number().min(0),

@@ -48,7 +48,7 @@ Six milestones, each a playable PR. M1 and M2 can run in parallel; M3 adds the g
 - [x] HUD: countdown bar with colour steps that visibly speeds up and shows its drain rate (G10), heat meter with three bands, a text notice per heat gain
 - [x] Placeholder audio through an `AudioBus`: countdown tick that speeds up under 20%, alarm sting
 - [x] `RunEnded` carries countdown left and heat; cancels keep their time left (U6)
-- [x] `heat.boardingResistanceAt` hook, off by default (G30); `heat.sources.timeAboardPerSec` 0 by default with a playtest preset at 0.2 (G26)
+- [x] `heat.boardingResistanceAt` hook, off by default (G30); `heat.sources.timeAboardPerSec` 0 by default with a playtest preset at 0.2 (G26); after the M1 playtest the default is 0.33 and a `no-time-aboard-heat` preset turns it off
 
 Built in the M1 PR (branch `claude/phase-2-m1-countdown-heat`). The grace check is a hook that stays shut until M4 brings the horse alongside. With no loot or guards yet, H raises heat by 10 and Shift+H raises an alarm's worth, so the meter, drain and alarm sting can be playtested. The blank train uses a 150 s countdown base until the mail train lands.
 
@@ -112,11 +112,11 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | countdown.scale | Value | 1; medium-run preset sets 4 | Short vs medium run (the phase gate) | M1 |
 | loot.densityScale | Value | 1; scales with countdown.scale in the medium-run preset | Does a longer run need more loot | M1 |
 | countdown.graceSec | Value | 3 s | How forgiving a close extraction feels | M1 |
-| heat.sources.timeAboardPerSec | Value | 0; time-aboard-heat preset sets 0.2 | Should lingering aboard raise heat (G26) | M1 |
+| heat.sources.timeAboardPerSec | Value | 0.33 (was 0 with a 0.2 preset until the M1 playtest) | Should lingering aboard raise heat (G26) | M1 |
 | heat.boardingResistanceAt | Value | off (hook only until combat) | Guards resisting boarding at high heat (G30) | M1 |
 | ?set=path=value override | URL mechanism | any config value, logged in the header | Lets every value above be tested without a preset | M1 |
 | medium-run preset | Preset | countdown.scale 4 | Short vs medium run | M1 |
-| time-aboard-heat preset | Preset | timeAboardPerSec 0.2 | Lingering heat | M1 |
+| no-time-aboard-heat preset | Preset | timeAboardPerSec 0 | Lingering heat off | M1 |
 | lootCarry | Variant group | limit-and-slowdown, unlimited | Does carry weight make choices interesting (C3) | M2 |
 | carry.maxWeight, carry.maxItems, carry.slowdownFrom | Values | 10, 20, 6 | Carry limit tuning (G25) | M2 |
 | Train cars count | Value | 3; long-train preset sets 6 | Does a longer train fill a medium run (G2) | M2 |
@@ -147,7 +147,7 @@ These are copied from [docs/technical-design.md](https://github.com/devlinjunker
 | Countdown start | At commit, not at boarding | U1, confirmed |
 | Countdown length | Train `countdown.baseSec` x `countdown.scale`; mail placeholder 150 s | Configuration, U7 |
 | Heat | 0-100; drain rate `1 + heatDrainFactor x heat/100`; time-spent heat 0 and decay 0 by default | U2 |
-| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 1, timeAboardPerSec 0 | Systems |
+| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 1, timeAboardPerSec 0.33 | Systems |
 | Grace window | While the horse is alongside and you are within reach of a door on its side; 3 s (G18) | U3 |
 | Extraction | One whistle arms the horse; the physical horse is placed behind the train at a seeded 5-20 s catch-up distance and rides up around terrain, visible from behind (timer optional), coming up on the side you are nearest; alongside 10 s, re-whistle 5 s later; the mount meter's perfect mounts clean, good spills loot, fail leaves you aboard to retry (G3, G11, G12, G14, G24) | U4 |
 | Cash out | The moment the extraction mount completes | Flags, open items |
@@ -248,7 +248,7 @@ Decisions from grilling the plan with Devlin, newest last.
 | G23 | Should other number-like switches become plain numbers? | Yes. trainLength becomes the train's car count, graceWindow becomes countdown.graceSec, and searchPace splits into a search time and a hidden-loot on/off value. Named variant groups stay only for behaviour choices (guardCatch, horseArrivalCue, mountSpill, trainMix, handlingModel) | 2026-10-11 |
 | G24 | Starting numbers (Q7-Q10) | Mail countdown base 150 s, countdown.scale 1 (medium preset 4); grace 3 s; 3 cars (preset 6); search 1.2 s (slow preset 3 s with hidden loot); horse delay 5-20 s, alongside 10 s, re-whistle 5 s later; mount meter zones 3% and 15% at the 1.85 s matched sweep; carry 10 weight units with speed down to 50% at the limit; boost 1.5 s at +40% top speed, 6 s cooldown. Carry max: see G25 | 2026-10-11 |
 | G25 | Max carry limit | Both: slowdown starts at 6 weight units and ramps to 50% speed at the hard max of 10, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6. Pickups that would break either cap are refused | 2026-10-11 |
-| G26 | Heat from time aboard (Q11) | A config value to test, not a fixed choice: heat.sources.timeAboardPerSec stays 0 by default, a playtest preset sets 0.2, and the URL override can set any value | 2026-10-11 |
+| G26 | Heat from time aboard (Q11) | A config value to test, not a fixed choice: heat.sources.timeAboardPerSec stays 0 by default, a playtest preset sets 0.2, and the URL override can set any value. M1 playtest (2026-10-13): Devlin wants it on by default at 0.33 with a way to turn it off, so the default is 0.33 and a no-time-aboard-heat preset sets 0 | 2026-10-11, 2026-10-13 |
 | G27 | Does moving cancel a search? (Q12) | You can slow-walk while searching (starting at 30% walk speed). Releasing E cancels, and moving more than 1.5 tiles from the loot spot cancels automatically; a cancelled search loses its progress | 2026-10-11 |
 | G28 | How do you reset your save? (Q14) | A Reset save button in the debug overlay and ?resetSave=1 in the URL, both confirming before wiping | 2026-10-11 |
 | G29 | Build the roof route in Phase 2? (Q15) | Not in Phase 2; it fits Phase 3. Recorded for later: side ladders as entry points beside doors, so you can board straight onto the roof from the horse. Mail car layouts mark roof access so nothing needs redoing | 2026-10-11 |

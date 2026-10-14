@@ -23,7 +23,7 @@
   "heat": {
     "maxHeat": 100,
     "heatDrainFactor": 1.0,
-    "sources": { "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5, "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0 },
+    "sources": { "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5, "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0.33 },
     "boardingResistanceAt": null
   },
   "loot": { "densityScale": 1 },
