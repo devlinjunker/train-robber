@@ -83,7 +83,8 @@ describe.each(ids)('map %s', (id) => {
   });
 
   it('starts its trains and runs the sim for a full lap of the longest route', () => {
-    const config = loadConfig();
+    // The map's own trains (trainMix `map`), not the default mixed trains.
+    const config = loadConfig({ preset: 'map-trains' });
     const sim = createSim({ config, map, seed: id, playerIds: [1] });
     expect(sim.state.world.horses[0]).toMatchObject({ x: map.markers.playerSpawn.x, y: map.markers.playerSpawn.y, speed: 0 });
     const trains = map.trains?.length ?? 1;
@@ -97,7 +98,8 @@ describe.each(ids)('map %s', (id) => {
   });
 
   it('keeps every train clear of every other train', () => {
-    const config = loadConfig();
+    // The map's own trains (trainMix `map`), not the default mixed trains.
+    const config = loadConfig({ preset: 'map-trains' });
     const sim = createSim({ config, map, seed: id, playerIds: [1] });
     const longest = Math.max(...map.routes.map((r) => r.length));
     const lapTicks = Math.ceil(longest / slowest(config));

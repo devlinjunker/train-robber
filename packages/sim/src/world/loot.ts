@@ -59,17 +59,26 @@ export function nearestLoot(state: GameState, p: PlayerState, maxDist: number): 
   return best;
 }
 
-/** Ticks of holding E to take `item`: its own search time, else the verb's, times `verbs.search.timeScale`; at least 1. */
-export function searchTicksFor(config: SimConfig, item: string): number {
+/**
+ * Ticks of holding E on loot: a hidden stash takes `verbs.search.hiddenSearchTimeSec` to reveal what
+ * is in it; visible `item` takes its own search time, else the verb's. Both times `verbs.search.timeScale`; at least 1.
+ */
+export function searchTicksFor(config: SimConfig, item: string, hidden = false): number {
   const s = config.values.verbs.search;
-  return Math.max(1, Math.round((config.values.items[item]?.searchTimeTicks ?? s.searchTimeTicks) * s.timeScale));
+  const base = hidden ? s.hiddenSearchTimeTicks : config.values.items[item]?.searchTimeTicks ?? s.searchTimeTicks;
+  return Math.max(1, Math.round(base * s.timeScale));
+}
+
+/** `searchTicksFor` for a loot entry (its item, and whether it is still a hidden stash). */
+export function searchTicksForLoot(config: SimConfig, l: Pick<LootState, 'item' | 'hidden'> | undefined): number {
+  return searchTicksFor(config, l?.item ?? '', l?.hidden ?? false);
 }
 
 function cancelSearch(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, reason: 'released' | 'moved away'): void {
   const s = rp.search;
   if (!s) return;
   rp.search = null;
-  ctx.emit({ type: 'SearchCancelled', tick: ctx.state.tick, player: p.id, loot: s.loot, reason, progress: Math.min(1, s.ticks / searchTicksFor(ctx.config, ctx.state.run?.loot.find((l) => l.id === s.loot)?.item ?? '')) });
+  ctx.emit({ type: 'SearchCancelled', tick: ctx.state.tick, player: p.id, loot: s.loot, reason, progress: Math.min(1, s.ticks / searchTicksForLoot(ctx.config, ctx.state.run?.loot.find((l) => l.id === s.loot))) });
 }
 
 function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): void {
@@ -90,7 +99,8 @@ function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): v
 /**
  * Tick system 9, loot: drops first, then searching. Holding E within `reachTiles` of loot in your
  * car searches the nearest; after its search time (`searchTicksFor`) held the item is taken (`LootPickedUp`) unless
- * a carry cap refuses it (`LootRefused`). Releasing E, or moving more than `cancelRangeTiles` from
+ * a carry cap refuses it (`LootRefused`). Searching a hidden stash only reveals its item (`LootRevealed`):
+ * it then lies there as visible loot, to be searched again at the item's own time. Releasing E, or moving more than `cancelRangeTiles` from
  * the loot (or into another car), cancels and loses the progress. After a search ends with E still
  * held, E must be released before the next one starts.
  */
@@ -123,9 +133,14 @@ export function lootSystem(ctx: LootCtx, drops: ReadonlyMap<PlayerId, readonly n
       continue;
     }
     rp.search.ticks += 1;
-    if (rp.search.ticks < searchTicksFor(config, l.item)) continue;
+    if (rp.search.ticks < searchTicksForLoot(config, l)) continue;
     rp.search = null;
     rp.searchLatched = true;
+    if (l.hidden) {
+      l.hidden = false;
+      ctx.emit({ type: 'LootRevealed', tick: state.tick, player: p.id, item: l.item, car: l.car, loot: l.id });
+      continue;
+    }
     const why = carryRefusal(config, rp.carried, l.item);
     if (why) { ctx.emit({ type: 'LootRefused', tick: state.tick, player: p.id, item: l.item, reason: why, loot: l.id }); continue; }
     l.taken = true;

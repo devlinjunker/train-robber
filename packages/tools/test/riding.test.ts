@@ -26,7 +26,7 @@ describe('riding on alpha-flats', () => {
   }
 
   it('the player starts mounted and stopped at playerSpawn, and the mail train loops in about 81 s', () => {
-    const config = loadConfig();
+    const config = loadConfig({ preset: 'map-trains' });
     const sim = createSim({ config, map, seed: 's', playerIds: [1] });
     expect(sim.state.world.horses[0]).toMatchObject({ x: 200, y: 170, speed: 0 });
     const cars = sim.cars().map((c) => c.template);

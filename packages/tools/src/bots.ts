@@ -17,9 +17,10 @@ import { ReportBuilder, type BoardingReport } from './report';
  */
 export type BotKind = 'idle' | 'random' | 'chaser';
 export const BOT_KINDS: readonly BotKind[] = ['idle', 'random', 'chaser'];
-// The carry flags alternate with the combos, so both lootCarry variants are swept without doubling the runs.
+// The carry flags and train mixes alternate with the combos, so both lootCarry variants and the map's
+// own trains and mixed trains are swept without doubling the runs.
 export const VARIANT_COMBOS = ['screen', 'heading'].flatMap((steering) => ['hold', 'coast', 'cruise'].map((throttleModel) => ({ steering, throttleModel })))
-  .map((v, i) => ({ ...v, lootCarry: i % 2 ? 'unlimited' : 'limit-and-slowdown' }));
+  .map((v, i) => ({ ...v, lootCarry: i % 2 ? 'unlimited' : 'limit-and-slowdown', trainMix: Math.floor(i / 2) % 2 ? 'mixed' : 'map' }));
 
 export interface BotSweepOptions { seeds: number; seconds: number; kinds?: readonly BotKind[]; map?: MapDef }
 export interface Violation { seed: string; bot: BotKind; variants: string; tick: number; message: string }
@@ -154,7 +155,8 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
       if (commitTarget(s, sim.map, config, h)) c.push({ type: 'interact', held: true });
       else if (t % 1800 === 0) c.push({ type: 'quickRetry' });
     }
-    const trainId = s.run?.trainId ?? s.world.trains[0]!.id;
+    // Ride for a train with loot (mixed trains put blank decoys first), else the first.
+    const trainId = s.run?.trainId ?? (s.world.trains.find((q) => config.values.trains[q.type]?.loot) ?? s.world.trains[0]!).id;
     if (s.run?.phase === 'boarding') return c;
     const check = boardingCheck(s, sim.map, config, trainId, h);
     if (t % 10 === 0) { const r = riderCommands(sim, config, trainId, check.side); move(r.x, r.y); }
@@ -185,7 +187,7 @@ export function runBotSweep(opts: BotSweepOptions): BotSweepResult {
   let runs = 0, total = 0;
   for (let i = 0; i < opts.seeds; i++) {
     const config = configs[i % configs.length]!;
-    const variants = `${config.variants.steering}+${config.variants.throttleModel}+${config.variants.lootCarry}`;
+    const variants = `${config.variants.steering}+${config.variants.throttleModel}+${config.variants.lootCarry}+${config.variants.trainMix}`;
     const seed = `bots-${i}`;
     for (const bot of kinds) {
       const sim = createSim({ config, map, seed, playerIds: [1] });

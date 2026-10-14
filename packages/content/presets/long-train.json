@@ -12,9 +12,6 @@
     },
     "loot": {
       "densityScale": 0.7
-    },
-    "countdown": {
-      "scale": 4
     }
   }
 }

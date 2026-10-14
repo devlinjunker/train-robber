@@ -158,6 +158,8 @@ export const GameSchema = z.object({
     /** Hold E on a loot slot for searchTimeSec (or the item's own searchTimeSec) x timeScale to take what is there. */
     search: z.object({
       searchTimeSec: positive,
+      /** Holding E on a hidden stash this long (x timeScale) reveals its item, which is then searched like visible loot. */
+      hiddenSearchTimeSec: positive,
       /** Scales every search time (the slow-search preset sets 2.5). */
       timeScale: positive,
       /** Walk speed while searching, as a share of normal. */

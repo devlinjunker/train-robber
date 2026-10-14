@@ -75,8 +75,8 @@
     "engine": {
       "carType": "engine",
       "size": {"cols":16,"rows":6},
-      "legend": ["floor","wall","door","barrel","bench"],
-      "cells": [[18,1],[7,3],[5,0],[1,4],[3,1],[7,3],[6,0],[1,2],[2,1],[7,3],[6,0],[1,2],[2,1],[7,3],[5,0],[1,4],[17,1]],
+      "legend": ["floor","wall","door","bench"],
+      "cells": [[25,1],[5,0],[1,3],[10,1],[6,0],[1,2],[9,1],[6,0],[1,2],[9,1],[5,0],[1,3],[17,1]],
       "entryPoints": [
         {
           "id": "rear",
@@ -89,7 +89,7 @@
       "patrols": {},
       "roofAccess": [],
       "corridor": false,
-      "source": {"file":"engine.tmj","hash":"9ba46b00"}
+      "source": {"file":"engine.tmj","hash":"ed6339e0"}
     },
     "mail-car-a": {
       "carType": "mail-car",

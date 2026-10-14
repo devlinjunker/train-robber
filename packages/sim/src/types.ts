@@ -91,6 +91,7 @@ export type SimEvent =
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** A search finished but taking the item would break a carry cap, so it stays. */
   | { type: 'LootRefused'; tick: number; player: PlayerId; item: string; reason: LootRefusal; loot: number }
+  | { type: 'LootRevealed'; tick: number; player: PlayerId; item: string; car: number; loot: number }
   | { type: 'LootDropped'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** Releasing E or moving off the slot loses the search's progress (`progress` 0 to 1). */
   | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number };
@@ -134,7 +135,7 @@ export interface LootState {
   x: number;
   y: number;
   item: string;
-  /** On a slot tagged hidden: drawn as a plain stash, not as loot. */
+  /** On a slot tagged hidden and not yet searched: drawn as a plain stash; searching it reveals the item and clears this. */
   hidden: boolean;
   taken: boolean;
 }
@@ -296,7 +297,7 @@ export interface SimConfig {
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
     carry: { limitEnabled: boolean; slowdownEnabled: boolean; maxWeight: number; maxItems: number; slowdownFromWeight: number; minSpeedScale: number };
-    verbs: { search: { searchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
+    verbs: { search: { searchTimeTicks: number; hiddenSearchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
     /** Scales every train's loot density (a balance knob, like countdown.scale). */
     loot: { densityScale: number };
     cellTypes: readonly CellTypeDef[];

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "mixed-trains",
+  "id": "map-trains",
   "extends": "alpha-default",
   "variants": {
-    "trainMix": "mixed"
+    "trainMix": "map"
   }
 }

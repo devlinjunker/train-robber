@@ -166,6 +166,31 @@ describe('search', () => {
     expect(rp(sim).carried).toHaveLength(1);
   });
 
+  it('searching a hidden stash for hiddenSearchTimeSec reveals its item, which is then searched again to take it', () => {
+    const cfg = mailConfig({ layouts: ['mail-a'] });
+    const sim = aboard(cfg);
+    const l = lootIn(sim, 1)[0]!;
+    l.hidden = true;
+    standOn(sim, l);
+    expect(searchTicksFor(cfg, l.item, true)).toBe(108);
+    const ev = step(sim, { type: 'interact', held: true });
+    ev.push(...steps(sim, 106));
+    expect(ofType(ev, 'LootRevealed')).toHaveLength(0);
+    ev.push(...step(sim));
+    expect(ofType(ev, 'LootRevealed')).toEqual([expect.objectContaining({ item: l.item, loot: l.id, car: 1 })]);
+    expect(ofType(ev, 'LootPickedUp')).toHaveLength(0);
+    expect(ofType(ev, 'HeatChanged')).toHaveLength(0);
+    expect([l.hidden, l.taken]).toEqual([false, false]);
+    expect(rp(sim).carried).toEqual([]);
+    // Still holding: taking it waits for a release, then the item's own search time.
+    steps(sim, 100);
+    expect(rp(sim).carried).toEqual([]);
+    step(sim, { type: 'interact', held: false });
+    const take = steps(sim, searchTicksFor(cfg, l.item), { type: 'interact', held: true });
+    expect(ofType(take, 'LootPickedUp')).toEqual([expect.objectContaining({ item: l.item, loot: l.id })]);
+    expect(rp(sim).carried).toEqual([l.item]);
+  });
+
   it('an item\'s own search time replaces the verb\'s, and timeScale scales both', () => {
     const base = testConfig();
     const items = { ...base.values.items, strongbox: { ...base.values.items.strongbox!, searchTimeTicks: 132 } };
