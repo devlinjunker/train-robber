@@ -6,7 +6,8 @@ import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './wo
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
+import { countdownSystem } from './rules/heat';
 
 export interface SimOptions {
   config: SimConfig;
@@ -102,6 +103,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             quickRetry(ctx, p);
           } else if (c.type === 'jump') {
             jumps.add(p.id);
+          } else if (c.type === 'debugHeat') {
+            debugHeat(ctx, p, c.source);
           }
         }
       }
@@ -113,9 +116,10 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
       autoSwitchSystem(ctx);
-      // 4. Boarding, 5. movement aboard, 11. run end.
+      // 4. Boarding, 5. movement aboard, 10. heat and countdown, 11. run end.
       boardingSystem(ctx, jumps);
       walkAboard(state, world, config);
+      countdownSystem(ctx);
       runEndSystem(ctx);
       state.tick += 1;
       return { tick: state.tick, events };

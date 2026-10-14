@@ -1,10 +1,15 @@
 // Pure summaries of run records for the Playtests page: grouping by setup, CSV and the GitHub issue text.
+import { setEntries } from '@train-robber/config';
 import type { RunRecord, TrackedOutcome } from './runTracker';
 
-/** Preset plus every variant choice, e.g. `alpha-default · steering:heading throttleModel:coast`. */
-export function setupKey(r: Pick<RunRecord, 'preset' | 'variants'>): string {
+/**
+ * Preset plus every variant choice, e.g. `alpha-default · steering:heading throttleModel:coast`,
+ * then any `?set=` values, e.g. `· set countdown.scale=4`, since those make a different setup too.
+ */
+export function setupKey(r: Pick<RunRecord, 'preset' | 'variants' | 'overrides'>): string {
   const v = Object.entries(r.variants).sort(([a], [b]) => a.localeCompare(b)).map(([g, id]) => `${g}:${id}`).join(' ');
-  return `${r.preset} · ${v}`;
+  const set = setEntries(r.overrides ?? {}).sort();
+  return `${r.preset} · ${v}${set.length ? ` · set ${set.join(' ')}` : ''}`;
 }
 
 /** The game version a run was played on; `unknown` for records from before versions were set (0.0.0). */
@@ -60,7 +65,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   return [...groups].map(([setup, rs]) => {
-    const outcomes: Record<TrackedOutcome, number> = { died: 0, cancelled: 0, retry: 0, abandoned: 0 };
+    const outcomes: Record<TrackedOutcome, number> = { died: 0, cancelled: 0, expired: 0, retry: 0, abandoned: 0 };
     for (const r of rs) outcomes[r.outcome]++;
     const attempts = rs.reduce((n, r) => n + r.boardingAttempts, 0);
     const share = (k: 'perfect' | 'good' | 'fail') => (attempts ? rs.reduce((n, r) => n + r.boarding[k], 0) / attempts : 0);
@@ -77,7 +82,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -88,9 +93,9 @@ function csvCell(v: unknown): string {
 export function toCsv(runs: readonly RunRecord[]): string {
   const rows = runs.map((r) => {
     const flat: Record<(typeof CSV_COLUMNS)[number], unknown> = {
-      ...r, variants: setupKey(r).split(' · ')[1], perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
+      ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
-      notes: r.notes.map((n) => n.text).join(' | '),
+      notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });
@@ -126,9 +131,9 @@ export function issueMarkdown(runs: readonly RunRecord[], maxChars = 6000): stri
   const testers = [...new Set(runs.map((r) => r.tester).filter(Boolean))].join(', ') || 'unnamed';
   const lines = [
     `Playtest results from ${testers}: ${runs.length} runs on version ${[...new Set(runs.map(runVersion))].sort(compareVersions).join(', ')}.`, '',
-    '| Setup | Runs | Died | Cancelled | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
-    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} |`),
+    '| Setup | Runs | Died | Cancelled | Expired | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.expired} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} |`),
   ];
   const noted = runs.filter((r) => r.notes.length);
   if (noted.length) {

@@ -13,4 +13,5 @@ export * from './world/boarding';
 export * from './world/separate';
 export * from './run';
 export * from './rules/outcome';
+export * from './rules/heat';
 export * from './replay';

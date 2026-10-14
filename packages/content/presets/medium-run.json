@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "medium-run",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "countdown": { "scale": 4 }, "loot": { "densityScale": 4 } }
+}

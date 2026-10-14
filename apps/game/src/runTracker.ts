@@ -3,7 +3,7 @@
 import type { BoardingResult, RunPhase, SimEvent } from '@train-robber/sim';
 
 /** How a run ended. `retry` is a quick retry; `abandoned` means the page closed mid-run. */
-export type TrackedOutcome = 'died' | 'cancelled' | 'retry' | 'abandoned';
+export type TrackedOutcome = 'died' | 'cancelled' | 'expired' | 'retry' | 'abandoned';
 
 /** What the session knows about itself, copied into every run it plays. */
 export interface SessionMeta {
@@ -13,6 +13,8 @@ export interface SessionMeta {
   configHash: string;
   preset: string;
   variants: Record<string, string>;
+  /** `?set=` values, as a partial config tree; missing on records from before them. */
+  overrides?: Record<string, unknown>;
   seed: string;
   mapId: string;
   url: string;
@@ -43,11 +45,15 @@ export interface RunRecord extends SessionMeta {
   /** Refused commands by `command: reason`, e.g. `jump: too far`. */
   rejections: Record<string, number>;
   notes: RunNote[];
+  /** Countdown seconds left when the run ended (kept on cancels, U6); null with the countdown off, missing on older records. */
+  countdownLeftSec?: number | null;
+  /** Heat when the run ended; missing on older records. */
+  heatAtEnd?: number;
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[] }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number }
 
 export interface RunTracker {
   /**
@@ -75,7 +81,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     boardingAttempts: o.boarding.perfect + o.boarding.good + o.boarding.fail, boarding: { ...o.boarding },
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
-    rejections: { ...o.rejections }, notes: [...o.notes],
+    rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -89,7 +95,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
       const ended: RunRecord[] = [];
       for (const ev of events) {
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [] };
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0 };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
         else if (ev.type === 'RunPhaseChanged') {
@@ -98,7 +104,9 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         } else if (ev.type === 'BoardingAttempt') open.boarding[ev.result]++;
         else if (ev.type === 'DamageDealt') open.damage += ev.amount;
         else if (ev.type === 'CommandRejected') { const k = `${ev.command}: ${ev.reason}`; open.rejections[k] = (open.rejections[k] ?? 0) + 1; }
+        else if (ev.type === 'HeatChanged') open.heat = ev.heat;
         else if (ev.type === 'RunEnded') {
+          open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat;
           ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));
         }
       }

@@ -77,7 +77,7 @@ export function recordGolden(): string {
   let eligibleFor = 0, aboardFor = 0, side: 'left' | 'right' = 'left';
   // Ride, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
   // then quick retry behind the train, catch it, commit, fail two jumps and land the third as
-  // good; walk, then cancel.
+  // good; walk, raise heat with the debug key, then cancel.
   for (let t = 0; t < TICKS; t++) {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
@@ -93,6 +93,7 @@ export function recordGolden(): string {
       if (s.run?.phase === 'aboard' || aboardFor > 0) {
         aboardFor++;
         if (aboardFor === 1) move(127, 127);
+        else if (aboardFor === 20) commands.push({ type: 'debugHeat' });
         else if (aboardFor === 40) move(-127, 0);
         else if (aboardFor === 90) { move(0, 0); commands.push({ type: 'cancelRun' }); }
       } else if (s.run?.phase !== 'boarding') {

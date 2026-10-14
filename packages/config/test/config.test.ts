@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { derive, loadContent, merge, resolveConfig, type ContentSet } from '../src';
+import { derive, loadContent, merge, overridesFromSet, resolveConfig, setEntries, type ContentSet } from '../src';
 
 const base = {
   schemaVersion: 1,
@@ -15,17 +15,20 @@ const base = {
   },
   health: { max: 100 },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
-  playtest: { quickRetry: true, quickRetryGapTiles: 60 },
+  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
   },
   world: { mode: 'separate' },
-  countdown: { enabled: false, startsAt: 'commit', scale: 1 },
-  trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }] } },
+  countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
+  heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
+  loot: { densityScale: 1 },
+  trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }], countdown: { baseSec: 150 } } },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
+    expired: { bankRunLoot: false, wantedDelta: 1 },
   },
 };
 
@@ -110,5 +113,69 @@ describe('resolveConfig', () => {
   it('names the file of a malformed variant', () => {
     const c = content({ variants: [{ file: 'variants/bad.json', data: { schemaVersion: 2 } }] });
     expect(() => loadContent(c)).toThrow(/^variants\/bad.json at schemaVersion/);
+  });
+  it('derives the grace window and time-aboard heat per tick', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: { heat: { sources: { timeAboardPerSec: 0.6 } } } });
+    expect(r.values.countdown.graceTicks).toBe(180);
+    expect(r.values.heat.sources.timeAboardPerTick).toBeCloseTo(0.01, 12);
+    expect(r.values.trains.blank!.countdown.baseTicks).toBe(9000);
+  });
+});
+
+describe('presets that build on others', () => {
+  const withChild = (child: object) => content({
+    presets: [
+      { file: 'presets/p.json', data: { schemaVersion: 1, id: 'p', variants: { boardingFailure: 'time-only' }, values: { countdown: { scale: 2 }, health: { max: 80 } } } },
+      { file: 'presets/child.json', data: { schemaVersion: 1, id: 'child', extends: 'p', variants: {}, ...child } },
+    ],
+  });
+  it('inherit the parent\'s variants and values, with their own values on top', () => {
+    const r = resolveConfig(loadContent(withChild({ values: { countdown: { scale: 4 }, loot: { densityScale: 4 } } })), { preset: 'child' });
+    expect(r.preset).toBe('child');
+    expect(r.variants).toEqual({ boardingFailure: 'time-only' });
+    expect(r.values.boarding.failure.damageFraction).toBe(0);
+    expect(r.values.countdown.scale).toBe(4);
+    expect(r.values.loot.densityScale).toBe(4);
+    expect(r.values.health.max).toBe(80);
+  });
+  it('lose to URL variants and overrides', () => {
+    const r = resolveConfig(loadContent(withChild({ values: { countdown: { scale: 4 } } })), {
+      preset: 'child', variants: { boardingFailure: 'time-and-damage' }, overrides: { countdown: { scale: 1.5 } },
+    });
+    expect(r.values.boarding.failure.damageFraction).toBe(0.25);
+    expect(r.values.countdown.scale).toBe(1.5);
+    expect(r.overrides).toEqual({ countdown: { scale: 1.5 } });
+  });
+  it('name an unknown parent and refuse a loop', () => {
+    expect(() => resolveConfig(loadContent(withChild({ extends: 'nope' })), { preset: 'child' })).toThrow(/presets\/child.json at extends: unknown preset nope/);
+    const loop = content({
+      presets: [
+        { file: 'presets/a.json', data: { schemaVersion: 1, id: 'a', extends: 'b', variants: {} } },
+        { file: 'presets/b.json', data: { schemaVersion: 1, id: 'b', extends: 'a', variants: { boardingFailure: 'time-only' } } },
+      ],
+    });
+    expect(() => resolveConfig(loadContent(loop), { preset: 'a' })).toThrow(/extends itself/);
+  });
+  it('validate their values like any override', () => {
+    expect(() => resolveConfig(loadContent(withChild({ values: { countdown: { scael: 4 } } })), { preset: 'child' })).toThrow(/at countdown: Unrecognized key/);
+  });
+});
+
+describe('?set= overrides', () => {
+  it('turn dotted paths into a nested tree, reading values as JSON', () => {
+    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.auto=false', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
+      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { auto: false }, horse: { steering: 'screen' } });
+  });
+  it('keep the last value for a path and skip anything aimed at a prototype', () => {
+    expect(overridesFromSet(['countdown.scale=2', 'countdown.scale=3', '__proto__.polluted=1', 'a.constructor.b=1', '=5'])).toEqual({ countdown: { scale: 3 } });
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+  it('round-trip through setEntries for display', () => {
+    expect(setEntries(overridesFromSet(['countdown.scale=4', 'loot.densityScale=4']))).toEqual(['countdown.scale=4', 'loot.densityScale=4']);
+  });
+  it('resolve into the config and are recorded', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: overridesFromSet(['countdown.scale=4']) });
+    expect(r.values.countdown.scale).toBe(4);
+    expect(r.overrides).toEqual({ countdown: { scale: 4 } });
   });
 });

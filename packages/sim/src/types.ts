@@ -29,13 +29,26 @@ export type Command =
   /** Esc: end the run in any phase but `ended` and reset to playerSpawn. */
   | { type: 'cancelRun' }
   /** R, while `playtest.quickRetry` is on: end the run and wait on the horse behind the train. */
-  | { type: 'quickRetry' };
+  | { type: 'quickRetry' }
+  /**
+   * Playtest only, while `playtest.debugHeatStep` is above 0, so heat can be tried before loot and
+   * guards exist. H raises heat by that step (cause `debug`); with `source` (Shift+H sends
+   * `alarmRaised`) it raises what that source would, with its cause, as if the event happened.
+   */
+  | { type: 'debugHeat'; source?: HeatSource };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
 /** `idle` means no run; the others are `RunState.phase`. */
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
-export type RunOutcome = 'died' | 'cancelled';
+export type RunOutcome = 'died' | 'cancelled' | 'expired';
+/**
+ * What raised heat: an event-based source from `heat.sources`, time spent aboard
+ * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
+ */
+export type HeatCause = 'shotFired' | 'alarmRaised' | 'playerSpotted' | 'actorKilled' | 'lootTaken' | 'timeAboard' | 'debug';
+/** Event-based heat sources in `heat.sources` (time aboard is per second instead). */
+export type HeatSource = Exclude<HeatCause, 'timeAboard' | 'debug'>;
 export type BoardingResult = 'perfect' | 'good' | 'fail';
 /** What a horse ran into: a train car, or blocked ground (water and the map edge never hurt). */
 export type CollisionTarget = 'train' | 'obstacle';
@@ -47,7 +60,8 @@ export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no su
 export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with';
 
 export type SimEvent =
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string }
+  /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
@@ -57,8 +71,14 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
   /** Running into or scraping a train, or running into blocked ground; `impact` is the speed the horse lost, tiles/s. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
-  /** `retry` marks a quick retry, which ends the run as a cancel. */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean }
+  /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
+  | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
+  /**
+   * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
+   * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
+   * null with the countdown off) and `heat` the heat at the end.
+   */
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState };
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
@@ -92,6 +112,21 @@ export interface RunState {
   /** The committed (pinned) train. */
   trainId: string;
   phase: Exclude<RunPhase, 'idle'>;
+  /**
+   * Seconds left on the clock: the train's `countdown.baseSec` x `countdown.scale` at commit,
+   * drained each tick at `1 + heatDrainFactor x heat/100` while `clockRunning` (U1, U2).
+   */
+  countdownSec: number;
+  /** The whole countdown the run started with, for the HUD's bar. */
+  countdownTotalSec: number;
+  /** False until the clock starts: at commit, or on boarding with `countdown.startsAt: boarding`. */
+  clockRunning: boolean;
+  /** Ticks expiry has waited in the grace window so far (U3), up to `countdown.graceTicks`. */
+  graceTicks: number;
+  /** 0 to `heat.maxHeat`; only raiseHeat changes it. */
+  heat: number;
+  /** Time-aboard heat not yet added: it builds up per tick and is raised a whole point at a time, so each gain is one event. */
+  pendingHeat: number;
   /** Integer keys only, so key order is stable. */
   players: Record<PlayerId, PlayerRunState>;
 }
@@ -185,10 +220,19 @@ export interface SimConfig {
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
     collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
-    playtest: { quickRetry: boolean; quickRetryGapTiles: number };
+    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number };
+    countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number };
+    heat: {
+      maxHeat: number;
+      heatDrainFactor: number;
+      sources: { shotFired: number; alarmRaised: number; playerSpotted: number; actorKilled: number; lootTaken: number; timeAboardPerTick: number };
+      /** Off when null or absent. */
+      boardingResistanceAt?: number | null;
+    };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
+      expired: { bankRunLoot: boolean; wantedDelta: number };
     };
     horse: {
       /** Tiles per second. */
@@ -209,6 +253,7 @@ export interface SimConfig {
       route: string;
       speedTilesPerTick: number;
       cars: readonly { template: string; count?: number }[];
+      countdown: { baseSec: number };
     }>>;
   };
 }
