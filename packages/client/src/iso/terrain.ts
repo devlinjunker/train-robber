@@ -1,17 +1,20 @@
-// The ground, terrain zones and track of a map, drawn once in iso pixels. Grass tufts and a
-// faint grid give the eye something to measure speed against on open ground; mud gets darker
+// The ground, terrain zones and track of a map, drawn once in iso pixels. Open ground is sand
+// (Devlin, PR #25 playtest 2026-10-13) speckled with darker and paler spots, which with a faint
+// grid give the eye something to measure speed against; mud gets darker
 // puddles with a wet glint so it reads as mud, not sand. Boulders on blocked ground are in rocks.ts.
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
-import { isoPoly, shade } from './draw';
+import { isoPoly, shade, oval } from './draw';
 import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
-export const GROUND = 0x6d8a4a;
-const EDGE_COLOUR = 0x2e3a24;
+export const GROUND = 0xc6a673;
+/** Speckles on sand: darker and paler grains, one per this share of tiles. */
+export const SPOT_COLOURS = [0xa98a5c, 0xb59767, 0xd8bf8f] as const, SPOT_SHARE = 0.35;
+const EDGE_COLOUR = 0x4a3a26;
 export const MUD_COLOUR = 0x7a5a36;
 /** Blocked ground is gravel under the boulders. Shallow water is pale, deep water dark. */
-const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
+export const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: MUD_COLOUR, blocked: 0x6a655c, water: 0x6fa6dc, deep: 0x2f62a8 };
 const GRID_EVERY = 5;
 /** Tufts and puddles are drawn in cells of this many tiles, the track in stretches of this many samples. */
 const CELL = 24, TRACK_STRETCH = 64;
@@ -33,11 +36,35 @@ export const hash = (x: number, y: number) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
+/** The sand spot on tile (x, y), if it has one: where, how big (tiles) and which of SPOT_COLOURS. */
+export function sandSpot(x: number, y: number): { x: number; y: number; r: number; k: number } | null {
+  const r = hash(x, y);
+  if (r > SPOT_SHARE) return null;
+  return { x: x + 0.15 + 0.7 * hash(y, x), y: y + 0.15 + 0.7 * hash(x + 5, y + 11), r: 0.1 + 0.22 * hash(x + 13, y + 3) ** 2, k: Math.floor(hash(x + 29, y + 41) * SPOT_COLOURS.length) };
+}
+
+/**
+ * A sand spot as a flat six-sided fleck at height z: cheaper to draw than an ellipse, and there
+ * are tens of thousands of them.
+ */
+export function spotPoly(spot: { x: number; y: number; r: number }, z = 0): number[] {
+  const cx = isoX(spot.x, spot.y), cy = isoY(spot.x, spot.y, z), w = spot.r * TILE_W * 0.5, h = spot.r * TILE_H * 0.5;
+  return [cx - w, cy, cx - w * 0.5, cy - h, cx + w * 0.5, cy - h, cx + w, cy, cx + w * 0.5, cy + h, cx - w * 0.5, cy + h];
+}
+
+/** The mud puddle on a slow tile, if it has one: centre, size, and whether it has a wet glint. */
+export function mudPuddle(x: number, y: number): { x: number; y: number; s: number; glint: boolean } | null {
+  const r = hash(x + 911, y + 37);
+  if (r > 0.22) return null;
+  return { x: x + 0.2 + 0.6 * hash(y, x + 5), y: y + 0.2 + 0.6 * r, s: 0.25 + 0.3 * hash(x + 3, y + 101), glint: r < 0.07 };
+}
+
 /**
  * The ground, zones, `scenery` (ground cover and flat scenery) and the track, back to front, and
- * a cull that hides the parts outside a box of world tiles.
+ * a cull that hides the parts outside a box of world tiles. Spots and puddles are left off
+ * `raised` tiles: the height layer draws those on the slope.
  */
-export function drawTerrain(map: MapDef, scenery: Container | null = null): { layer: Container; cull(view: TileBox): void } {
+export function drawTerrain(map: MapDef, scenery: Container | null = null, raised?: (x: number, y: number) => boolean): { layer: Container; cull(view: TileBox): void } {
   const layer = new Container();
   layer.label = 'iso-terrain';
   const { cols, rows } = map.size;
@@ -45,19 +72,22 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null): { la
   const ground = new Graphics();
   ground.poly(isoPoly([[0, 0], [cols, 0], [cols, rows], [0, rows]])).fill(GROUND);
 
-  // Zones: one parallelogram per horizontal run of the same non-open zone.
+  // Zones: one parallelogram per horizontal run of the same non-open zone, in cells so cells off
+  // screen cull (runs break at cell edges), one colour at a time.
   const grid = decodeZones(map);
-  const zoneG = new Graphics();
-  for (let y = 0; y < rows; y++) {
-    let x = 0;
-    while (x < cols) {
-      const z = grid[y * cols + x]!;
-      let end = x + 1;
-      while (end < cols && grid[y * cols + end] === z) end++;
-      const colour = ZONE_COLOURS[map.zoneLegend[z]!];
-      if (colour !== undefined) zoneG.poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]])).fill(colour);
-      x = end;
+  const zones = new Cells(CELL);
+  for (const colour of new Set(Object.values(ZONE_COLOURS))) {
+    for (let y = 0; y < rows; y++) {
+      let x = 0;
+      while (x < cols) {
+        const z = grid[y * cols + x]!, stop = Math.min(cols, (Math.floor(x / CELL) + 1) * CELL);
+        let end = x + 1;
+        while (end < stop && grid[y * cols + end] === z) end++;
+        if (ZONE_COLOURS[map.zoneLegend[z]!] === colour) zones.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
+        x = end;
+      }
     }
+    zones.each((g) => g.fill(colour));
   }
 
   // The map edge: a dark frame over the rock ring, fading inward, instead of a line of boulders.
@@ -69,17 +99,19 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null): { la
   edge.poly(frame(0, EDGE_TILES)).fill(EDGE_COLOUR);
   for (let i = 0; i < 3; i++) edge.poly(frame(EDGE_TILES + i, 1)).fill({ color: EDGE_COLOUR, alpha: 0.45 - i * 0.15 });
 
-  // Tufts on open ground, and a faint grid every few tiles.
+  // Spots on open sand, in three shades, and a faint grid every few tiles.
   const tufts = new Cells(CELL);
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const r = hash(x, y);
-      if (r > 0.12 || map.zoneLegend[grid[y * cols + x]!] !== 'open') continue;
-      const cx = x + hash(y, x), cy = y + r * 8;
-      tufts.at(cx, cy).poly(isoPoly([[cx, cy - 0.12], [cx + 0.12, cy], [cx, cy + 0.12], [cx - 0.12, cy]]));
+  for (const [k, colour] of SPOT_COLOURS.entries()) {
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (map.zoneLegend[grid[y * cols + x]!] !== 'open' || raised?.(x, y)) continue;
+        const spot = sandSpot(x, y);
+        if (!spot || spot.k !== k) continue;
+        tufts.at(spot.x, spot.y).poly(spotPoly(spot));
+      }
     }
+    tufts.each((g) => g.fill(colour));
   }
-  tufts.each((g) => g.fill(shade(GROUND, 0.82)));
   const gridLines = new Graphics();
   for (let x = 0; x <= cols; x += GRID_EVERY) gridLines.moveTo(isoX(x, 0), isoY(x, 0)).lineTo(isoX(x, rows), isoY(x, rows));
   for (let y = 0; y <= rows; y += GRID_EVERY) gridLines.moveTo(isoX(0, y), isoY(0, y)).lineTo(isoX(cols, y), isoY(cols, y));
@@ -90,18 +122,16 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null): { la
   const puddles = new Cells(CELL), glints: [Graphics, number, number, number][] = [];
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
-      if (map.zoneLegend[grid[y * cols + x]!] !== 'slow') continue;
-      const r = hash(x + 911, y + 37);
-      if (r > 0.22) continue;
-      const cx = x + 0.2 + 0.6 * hash(y, x + 5), cy = y + 0.2 + 0.6 * r;
-      const s = 0.25 + 0.3 * hash(x + 3, y + 101);
-      const g = puddles.at(cx, cy);
-      g.ellipse(isoX(cx, cy), isoY(cx, cy), s * TILE_W * 0.7, s * TILE_H * 0.7);
-      if (r < 0.07) glints.push([g, cx, cy, s]);
+      if (map.zoneLegend[grid[y * cols + x]!] !== 'slow' || raised?.(x, y)) continue;
+      const p = mudPuddle(x, y);
+      if (!p) continue;
+      const g = puddles.at(p.x, p.y);
+      oval(g, isoX(p.x, p.y), isoY(p.x, p.y), p.s * TILE_W * 0.7, p.s * TILE_H * 0.7);
+      if (p.glint) glints.push([g, p.x, p.y, p.s]);
     }
   }
   puddles.each((g) => g.fill(shade(MUD_COLOUR, 0.8)));
-  for (const [g, cx, cy, s] of glints) g.ellipse(isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
+  for (const [g, cx, cy, s] of glints) oval(g, isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
   puddles.each((g) => g.fill({ color: 0xffffff, alpha: 0.18 }));
 
   // Track: ties across the route on every other sample (about a tile apart), then two rails, in
@@ -132,11 +162,11 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null): { la
     }
   }
 
-  const culled = [...tufts.chunks(), ...puddles.chunks(), ...track];
+  const culled = [...zones.chunks(), ...tufts.chunks(), ...puddles.chunks(), ...track];
   // Its own render group: the ground is drawn once, so the horse, trains and trees changing every
   // frame don't make Pixi rebuild it.
   layer.enableRenderGroup();
-  layer.addChild(ground, zoneG, edge, gridLines, ...tufts.chunks().map((c) => c.g), ...puddles.chunks().map((c) => c.g));
+  layer.addChild(ground, ...zones.chunks().map((c) => c.g), edge, gridLines, ...tufts.chunks().map((c) => c.g), ...puddles.chunks().map((c) => c.g));
   if (scenery) layer.addChild(scenery);
   layer.addChild(...track.map((c) => c.g));
   return { layer, cull: (view) => cullChunks(culled, view) };

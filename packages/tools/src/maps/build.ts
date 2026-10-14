@@ -1,17 +1,24 @@
 // `tools build-maps`: Tiled (.tmj) -> MapDef. See "Tiled workflow in detail" in
-// docs/technical-design.md. Terrain, track routes, speed zones and markers go into the
-// MapDef; `scenery*` layers go into a separate render-only SceneryDef the sim never reads.
+// docs/technical-design.md. Terrain, optional elevation, track routes, speed zones and markers
+// go into the MapDef; `scenery*` layers go into a separate render-only SceneryDef the sim never reads.
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { gunzipSync, inflateSync } from 'node:zlib';
 import { hashState } from '@train-robber/sim';
 import {
-  MapDefSchema, SCENERY_KINDS, SOLID_SCENERY, SceneryDefSchema, ZONES, decodeZones,
+  ELEVATION_MAX, MapDefSchema, SCENERY_KINDS, SOLID_SCENERY, SceneryDefSchema, ZONES, decodeElevation, decodeZones,
   type MapDef, type Route, type SceneryDef, type SceneryKind, type Zone,
 } from '@train-robber/config';
 import { resample, smooth, type Vec } from './curve';
 
 export const SAMPLE_SPACING_TILES = 0.5;
+/** Levels between neighbours that make a cliff rather than a slope you can ride up. */
+export const CLIFF_LEVELS = 2;
+/**
+ * The track and this many tiles either side of it must be at elevation 0: rails and cars on raised
+ * ground are not drawn yet, and a car is 3 tiles either side of the rails and swings wider on curves.
+ */
+export const TRACK_FLAT_TILES = 6;
 const FLIP_MASK = 0x0fffffff;
 
 interface Prop { name: string; type?: string; value: unknown }
@@ -84,7 +91,9 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
   };
 
   // Terrain: gid -> zone through the tileset's `zone` property. Unpainted tiles are open.
+  // Elevation: gid -> level through the `elevation` property. Unpainted tiles are level 0.
   const zoneOfGid = new Map<number, number>();
+  const levelOfGid = new Map<number, number>();
   for (const ts of tm.tilesets) {
     let tiles = ts.tiles;
     if (ts.source) {
@@ -93,6 +102,11 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
       tiles = (JSON.parse(tsText) as TiledTileset).tiles;
     }
     for (const t of tiles ?? []) {
+      const level = prop(t.properties, 'elevation');
+      if (level !== undefined) {
+        if (!Number.isInteger(level) || (level as number) < 0 || (level as number) > ELEVATION_MAX) fail(`tileset ${ts.source ?? ts.name}: tile ${t.id} elevation must be a whole number 0 to ${ELEVATION_MAX}`);
+        levelOfGid.set(ts.firstgid + t.id, level as number);
+      }
       const z = prop(t.properties, 'zone');
       if (z === undefined) continue;
       const idx = ZONES.indexOf(z as Zone);
@@ -111,6 +125,39 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
     if (z === undefined) fail(`terrain tile at ${i % cols},${Math.floor(i / cols)} (gid ${gid}) has no zone property`);
     grid[i] = z!;
   });
+  // Elevation, then cliffs: a tile two or more levels above a neighbour is the top of a cliff,
+  // so it is blocked and the horse cannot ride off the edge (the sim has no height).
+  const elevationLayer = layer('elevation', 'tilelayer', false);
+  const heights = new Uint8Array(cols * rows);
+  if (elevationLayer) {
+    const eg = tileData(elevationLayer, fail);
+    if (eg.length !== cols * rows) fail(`elevation has ${eg.length} tiles, map is ${cols} x ${rows}`);
+    eg.forEach((raw, i) => {
+      const gid = raw & FLIP_MASK;
+      if (gid === 0) return;
+      const level = levelOfGid.get(gid);
+      if (level === undefined) fail(`elevation tile at ${i % cols},${Math.floor(i / cols)} (gid ${gid}) has no elevation property`);
+      heights[i] = level!;
+    });
+    const blocked = ZONES.indexOf('blocked');
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        const h = heights[y * cols + x]!;
+        const drop = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+          const nx = x + dx!, ny = y + dy!;
+          return nx >= 0 && ny >= 0 && nx < cols && ny < rows && h - heights[ny * cols + nx]! >= CLIFF_LEVELS;
+        });
+        if (drop) grid[y * cols + x] = blocked;
+      }
+    }
+  }
+  const elevation: [number, number][] = [];
+  for (const h of heights) {
+    const last = elevation[elevation.length - 1];
+    if (last && last[1] === h) last[0]++;
+    else elevation.push([1, h]);
+  }
+
   const zones: [number, number][] = [];
   for (const z of grid) {
     const last = zones[zones.length - 1];
@@ -160,6 +207,15 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
       if (!inside(p)) fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is outside the map`);
       const z = zoneAt(p);
       if (z === 'blocked' || z === 'water' || z === 'deep') fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is on a ${z} tile`);
+      if (elevationLayer) {
+        for (let dy = -TRACK_FLAT_TILES; dy <= TRACK_FLAT_TILES; dy++) {
+          for (let dx = -TRACK_FLAT_TILES; dx <= TRACK_FLAT_TILES; dx++) {
+            const tx = Math.floor(p.x) + dx, ty = Math.floor(p.y) + dy;
+            if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || heights[ty * cols + tx] === 0) continue;
+            fail(`route ${id}: sample ${i} at ${p.x.toFixed(2)},${p.y.toFixed(2)} is within ${TRACK_FLAT_TILES} tiles of raised ground at ${tx},${ty}; keep the track on level 0`);
+          }
+        }
+      }
       cols6.x.push(r4(p.x)); cols6.y.push(r4(p.y)); cols6.s.push(r4(rs.s[i]!));
       cols6.tx.push(r6(tangents[i]!.x)); cols6.ty.push(r6(tangents[i]!.y));
       cols6.speedScale.push(speedAt(p));
@@ -205,12 +261,14 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
     size: { cols, rows },
     zoneLegend: [...ZONES],
     zones,
+    ...(elevationLayer ? { elevation } : {}),
     routes,
     speedZones,
     ...(trains.length ? { trains } : {}),
     markers,
   });
   if (decodeZones(map).some((z, i) => z !== grid[i])) fail('zone encoding does not round-trip');
+  if (decodeElevation(map).some((h, i) => h !== heights[i])) fail('elevation encoding does not round-trip');
   const sceneryLayers = layers.filter((l) => l.name.startsWith('scenery'));
   const scenery = sceneryLayers.length ? buildScenery(map, sceneryLayers, zoneAt, { tw, th }, fail) : null;
   return { map, scenery, warnings, minRadiusTiles };

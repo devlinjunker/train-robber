@@ -438,7 +438,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 
 - Author in Tiled's orthogonal mode. Its isometric mode uses a different coordinate unit for objects, which would complicate the converter for no gain.
 - Tiled cannot attach properties to individual polyline vertices, which is why slow stretches use rectangles.
-- For hills later, add an `elevation` tile layer with a numeric value per tile. The converter would sample it into a height per route sample, and the alpha ignores it.
+- Elevation (added 2026-10-12, view only): an optional `elevation` tile layer painted with the `elevation.tsj` tileset (levels 0 to 8, 0.6 tiles of height each) becomes `MapDef.elevation`. The sim never reads it. A step of one level is a slope you can ride; two or more is a cliff, and the converter blocks the tile on top of it so the flat sim keeps riders off the edge. The track and six tiles either side must stay at level 0 for now, so rails and cars are not lifted and a car swinging wide on a curve never cuts into a slope. In the iso view, raised ground with a cliff all round is drawn as a mesa (rounded outline, banded cliffs, a see-through hole when it hides the horse). Height that changes riding (slopes, ledges, track grades) is on the wiki Ideas page.
 
 ### MapDef (sketch, placeholder values)
 
@@ -801,7 +801,7 @@ The client turns sim state into pixels and device input into commands, and does 
 - **Inputs to the renderer.** The live read-only `sim.state`, plus the `SimEvent[]` from each tick for one-shot effects such as muzzle flashes, hit flashes, screen shake and sounds.
 - **Interpolation.** After each tick the client copies positions of visible actors into a small typed-array buffer and keeps the previous one. Each frame draws a lerp between them using the accumulator remainder. The client never clones whole state.
 - **Projection.** One pure module, `projection.ts`, with `worldToScreen(x, y, layer)` and `screenToWorld`. The default is 2:1 isometric with placeholder 64×32 px tiles, and both functions take the camera zoom.
-- **Draw order.** Sort by depth (`x + y`, plus a per-layer offset) using Pixi's sortable containers. In continuous mode, roof sprites fade out while the player's layer is `interior` inside that car. Occlusion is a list of rules in client config, so more can be added after the roof fade: the first extra is an x-ray silhouette for the player behind walls.
+- **Draw order.** Sort by depth (`x + y`, plus a per-layer offset) using Pixi's sortable containers. Static pieces that sort (hills, mesas, boulders, trees) sit in their own sorted render group under the moving things, so Pixi packs them once; where one is in front of a moving thing, a copy clipped to that thing's screen box is drawn over it (`packages/client/src/iso/overdraw.ts`). In continuous mode, roof sprites fade out while the player's layer is `interior` inside that car. Occlusion is a list of rules in client config, so more can be added after the roof fade: the first extra is an x-ray silhouette for the player behind walls.
 - **Placeholder art.** Shapes drawn once into textures through a `DrawableFactory` keyed by entity kind. Pixel art swaps in by changing the manifest. A 3D renderer implements the same factory idea.
 - **Camera.** Fixed angle, zoom levels from config (for example three steps), smoothed follow on the player. In separate mode it follows the car frame.
 

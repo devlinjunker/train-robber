@@ -4,12 +4,16 @@
 import { Container, Graphics } from 'pixi.js';
 import { CAR_TEMPLATES, carEntryPoints, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 import type { MapDef, SceneryDef } from '@train-robber/config';
-import { boxCorners, drawBox, groundEllipse, isoPoly, shade, sidePanel, type Box } from './draw';
+import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
+import { createMesas } from './mesa';
 import { createSceneryLayers, forestTiles } from './scenery';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
+import type { TileBox } from './cells';
+import { Overdraw, type Mover } from './overdraw';
+import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
 import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
@@ -31,6 +35,11 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
  * front of them, so they and the ground around them show through (Devlin, 2026-10-10). Radius in
  * tiles.
  */
+/**
+ * Culling views grow by CULL_MARGIN tiles and snap out to CULL_SNAP: each cull makes Pixi repack
+ * the static layers, so it should happen every few seconds of riding, not every frame.
+ */
+const CULL_SNAP = 12, CULL_MARGIN = 6;
 const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
 /**
  * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
@@ -67,9 +76,6 @@ export interface WorldSceneInput {
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
   horseSpeed: number;
   inMud: boolean;
-  /** The band of the screen in view, top and bottom in unzoomed iso y pixels, for hiding far boulders. */
-  viewTop: number;
-  viewBottom: number;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
@@ -80,6 +86,8 @@ export interface WorldScene {
   root: Container;
   mapOverlay: Container;
   zoneOverlay: Graphics;
+  /** Ground height under a world point, in tiles of z (0 on maps without elevation). */
+  groundZ(x: number, y: number): number;
   update(input: WorldSceneInput): void;
 }
 
@@ -154,17 +162,12 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
-/** Mix two colours, `t` of the way from a to b. */
-const mix = (a: number, b: number, t: number) => {
-  const ch = (s: number) => Math.round(((a >> s) & 0xff) * (1 - t) + ((b >> s) & 0xff) * t);
-  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
-};
-
-function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number): void {
+function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
   const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
   const rider: Box = { x: h.x - h.hx * 0.2, y: h.y - h.hy * 0.2, ux: h.hx, uy: h.hy, halfLength: 0.22, halfWidth: 0.22, z0: 1.15, z1: 2.05 };
+  for (const b of [body, head, legs, rider]) { b.z0 += gz; b.z1 += gz; }
   const c = flash ?? HORSE_COLOUR;
   drawBox(g, legs, flash ?? mix(shade(c, 0.7), MUDDY_LEGS, muddiness));
   drawBox(g, body, c);
@@ -176,14 +179,23 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
 export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
+  // What moves (the horse, the player, cars) sorts in `objects`. Static pieces that sort with
+  // them (hills, mesas, boulders, trees) sort once in `land`, drawn under it, with copies over
+  // the movers where they cover them (see overdraw.ts).
   const objects = new Container();
   objects.sortableChildren = true;
-  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, objects) : null;
+  const land = new Container();
+  land.label = 'iso-land';
+  land.sortableChildren = true;
+  land.enableRenderGroup();
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land) : null;
   const cover = groundCover === null ? null : createGroundCover(map, groundCover);
   const ground = new Container();
   if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
   if (sceneryLayers) ground.addChild(sceneryLayers.ground);
-  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground);
+  const field = createHeightField(map);
+  // Raised tiles get their spots and puddles from the height layer, on the slope.
+  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0));
   const shadows = new Graphics();
   const floors = new Graphics();
   const markers = new Graphics();
@@ -192,11 +204,16 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
+  const heights = createHeightLayer(map, field, land);
   // Forest tiles are blocked too, but draw as trees, not boulders.
-  const rocks = createRocks(map, scenery ? forestTiles(map, scenery) : undefined);
+  const rocks = createRocks(map, land, field, scenery ? forestTiles(map, scenery) : undefined);
+  const mesas = createMesas(map, field, land, rocks.chunks, objects);
   const mud = createMud();
-  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, objects, zoneOverlay, markers);
-  objects.addChild(...rocks.strips, mud.clods);
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, land, objects, zoneOverlay, markers, mesas.masks);
+  const overdraw = new Overdraw(objects, mesas.masks);
+  overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
+  if (sceneryLayers) overdraw.add(sceneryLayers.trees);
+  objects.addChild(mud.clods);
 
   const slicePool: Graphics[] = [];
   const horseG = new Graphics();
@@ -215,7 +232,9 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
     const m = holes[used]!;
     m.clear();
     if (cut && hole) drawHole(m, hole);
-    if (cut !== holed[used]) { g.setMask({ mask: cut ? m : null, inverse: true }); holed[used] = cut; }
+    // setMask ignores a null mask, so an uncut slice drops its mask outright: an empty inverse
+    // mask still costs a stencil pass.
+    if (cut !== holed[used]) { if (cut) g.setMask({ mask: m, inverse: true }); else g.mask = null; holed[used] = cut; }
     g.visible = true;
     g.clear();
     used++;
@@ -258,20 +277,35 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
     if (s.last) endWall(s.along0 + OPEN_WALL_THICK / 2);
   };
 
+  let culledView: TileBox | null = null;
   return {
     root, mapOverlay, zoneOverlay,
+    groundZ: field.groundZ,
     update(input) {
-      cullTerrain(input.view);
-      cover?.cull(input.view);
-      sceneryLayers?.cull(input.view);
+      // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.
+      const iv = input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
+      const recull = !culledView || iv.x0 < culledView.x0 || iv.y0 < culledView.y0 || iv.x1 > culledView.x1 || iv.y1 > culledView.y1
+        || culledView.x1 - culledView.x0 > iv.x1 - iv.x0 + 2 * slack || culledView.y1 - culledView.y0 > iv.y1 - iv.y0 + 2 * slack;
+      if (recull) {
+        const snap = (v: number, up: boolean) => (up ? Math.ceil(v / CULL_SNAP) : Math.floor(v / CULL_SNAP)) * CULL_SNAP;
+        const view = { x0: snap(iv.x0 - CULL_MARGIN, false), y0: snap(iv.y0 - CULL_MARGIN, false), x1: snap(iv.x1 + CULL_MARGIN, true), y1: snap(iv.y1 + CULL_MARGIN, true) };
+        culledView = view;
+        cullTerrain(view);
+        cover?.cull(view);
+        sceneryLayers?.cull(view);
+        rocks.cull(view);
+        heights.cull(view);
+        mesas.cull(view);
+        overdraw.refresh();
+      }
       // Trees in front of the horse (or you aboard) fade so you stay in view.
       const seen = input.aboard ? { x: input.aboard.x, y: input.aboard.y, z: 1 } : input.horse ? { x: input.horse.x, y: input.horse.y, z: 1 } : null;
       sceneryLayers?.fade(seen, Math.min(0.1, Math.max(0, input.timeSec - lastFadeSec)));
       lastFadeSec = input.timeSec;
       // Cars: every slice is its own sortable child, redrawn at the car's current angle.
       used = 0;
-      rocks.cull(input.viewTop, input.viewBottom);
-      mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec });
+      const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
+      mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
       floors.clear();
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
@@ -285,6 +319,10 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
       // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
       // behind them can still cover the ground around them, so the hole is cut through all of them.
       const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
+      // Behind a mesa, the same round hole goes through the mesa (Devlin, PR #25 playtest).
+      const actorZ = input.aboard ? 0 : horseZ;
+      const behindMesa = actor !== null && mesas.hides(keep.flatMap(([x, y]) => HIDDEN_HEIGHTS.map((z) => [isoX(x, y), isoY(x, y, actorZ + z)] as const)), depthOf(actor.x, actor.y));
+      mesas.cut(behindMesa && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, actorZ + 1), r: CUTOUT_RADIUS * TILE_H } : null, actor ? depthOf(actor.x, actor.y) : 0);
       hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1), to: null } : null;
       // On the far side of the run's train, the hole reaches the car so the ground between shows.
       const gap = input.horse && !input.aboard ? input.gap ?? null : null;
@@ -372,10 +410,33 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
         // A crash flashes red, a failed jump's stun white.
         const flash = input.hitAge !== null && flashOn(input.hitAge) ? HIT_COLOUR
           : input.stunned && flashOn(input.timeSec) ? 0xffffff : null;
-        groundEllipse(shadows, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9).fill({ color: 0x000000, alpha: 0.25 });
-        drawHorse(horseG, h, flash, mud.muddiness);
+        // The shadow goes with the horse, so raised ground drawn in front of the shadows layer cannot hide it.
+        groundEllipse(horseG, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9, horseZ).fill({ color: 0x000000, alpha: 0.25 });
+        drawHorse(horseG, h, flash, mud.muddiness, horseZ);
         horseG.zIndex = depthOf(h.x, h.y);
       }
+
+      // Static pieces in front of what moves are copied over it.
+      const movers: Mover[] = [];
+      const pad = 2;
+      for (const car of input.cars) {
+        const m = margin(car);
+        if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
+        const mv: Mover = { zIndex: Infinity, minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+        for (const [x, y] of boxCorners({ ...car, z0: 0, z1: 0 })) {
+          mv.zIndex = Math.min(mv.zIndex, depthOf(x, y));
+          const sx = isoX(x, y), top = isoY(x, y, CAR_HEIGHT), bottom = isoY(x, y);
+          mv.minX = Math.min(mv.minX, sx - pad); mv.maxX = Math.max(mv.maxX, sx + pad);
+          mv.minY = Math.min(mv.minY, top - pad); mv.maxY = Math.max(mv.maxY, bottom + pad);
+        }
+        movers.push(mv);
+      }
+      for (const g of [horseG, playerG]) {
+        if (!g.visible) continue;
+        const b = g.getLocalBounds();
+        movers.push({ zIndex: g.zIndex, minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad });
+      }
+      overdraw.update(movers);
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
