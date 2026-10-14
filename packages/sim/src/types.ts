@@ -296,7 +296,7 @@ export interface SimConfig {
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
     carry: { limitEnabled: boolean; slowdownEnabled: boolean; maxWeight: number; maxItems: number; slowdownFromWeight: number; minSpeedScale: number };
-    verbs: { search: { searchTimeTicks: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
+    verbs: { search: { searchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
     /** Scales every train's loot density (a balance knob, like countdown.scale). */
     loot: { densityScale: number };
     cellTypes: readonly CellTypeDef[];
@@ -315,6 +315,8 @@ export interface TrainDef {
   layouts?: readonly string[];
   caboose?: string;
   requireSideDoors: 'both' | 'one' | 'off';
+  /** At most this many of the train's cars get side doors (the long-train preset sets 2). */
+  maxSideDoorCars?: number;
   /** The run's countdown is baseSec x countdown.scale, copied into the run at commit. */
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
@@ -322,7 +324,7 @@ export interface TrainDef {
 }
 
 export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; colour: string }
-export interface ItemDef { name: string; value: number; weight: number; category: string; slotTags: readonly string[] }
+export interface ItemDef { name: string; value: number; weight: number; category: string; slotTags: readonly string[]; searchTimeTicks?: number }
 export interface LootTableDef {
   items: readonly { item: string; weight: number }[];
   prizes?: { count: readonly [number, number]; items: readonly { item: string; weight: number }[] };

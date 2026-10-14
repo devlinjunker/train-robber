@@ -23,10 +23,11 @@ import { drawInterior, type InteriorLoot } from './interior';
 const PERFECT_RING_SEC = 0.8;
 
 /**
- * Body colour by car type. Mail and blank cars share one, so a decoy train only gives itself away
- * by its doors and what is inside (G17).
+ * Body colour by car type. A blank car is a slightly duller, greyer brown than a mail car: close
+ * enough that a decoy train is a guess from a distance, different enough to read up close (G17,
+ * Devlin's M2 playtest).
  */
-export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x9a5534 };
+export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a };
 const DOOR_COLOUR = 0xe8c872;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;

@@ -2,7 +2,7 @@
 // carrying, dropping, walking between cars, and the trainMix setting.
 import { describe, it, expect } from 'vitest';
 import {
-  carriedWeight, carryRefusal, carrySpeedScale, createSim, entryPointWorld, generateLoot, initialTrains, pickTrainCars, runSeed, seedRng, trainCarsSeed,
+  carriedWeight, carryRefusal, carrySpeedScale, createSim, entryPointWorld, generateLoot, initialTrains, pickTrainCars, runSeed, searchTicksFor, seedRng, trainCarsSeed,
   type Command, type GameState, type LootState, type Sim, type SimConfig, type SimEvent, type SimMap,
 } from '../src';
 import { TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
@@ -106,6 +106,21 @@ describe('run generation', () => {
     for (let i = 0; i < 100; i++) expect(pickTrainCars(one, 'mail', `one-${i}`)).toContain('mail-b');
   });
 
+  it('maxSideDoorCars caps the cars with side doors and still keeps a door on each side', () => {
+    const cfg = mailConfig({ caboose: undefined, carCount: 8, maxSideDoorCars: 2 });
+    const doorCars = (cars: string[]) => cars.filter((id) => id === 'mail-a' || id === 'mail-b').length;
+    let seen = 0;
+    for (let i = 0; i < 200; i++) {
+      const cars = pickTrainCars(cfg, 'mail', `cap-${i}`);
+      expect(cars).toHaveLength(9);
+      expect(doorCars(cars)).toBeLessThanOrEqual(2);
+      expect(cars).toContain('mail-a');
+      seen = Math.max(seen, doorCars(pickTrainCars(mailConfig({ caboose: undefined, carCount: 8 }), 'mail', `cap-${i}`)));
+    }
+    // Without the cap an 8-car train often has more door cars.
+    expect(seen).toBeGreaterThan(2);
+  });
+
   it('places prizes on large slots, small items by density, and skips hidden slots unless hidden loot is on', () => {
     const cfg = mailConfig({ layouts: ['mail-a'], caboose: undefined });
     const sim = createSim({ config: cfg, map, seed: 'gen', playerIds: [1] });
@@ -149,6 +164,15 @@ describe('search', () => {
     // Still holding: the next item waits for a release.
     steps(sim, 100);
     expect(rp(sim).carried).toHaveLength(1);
+  });
+
+  it('an item\'s own search time replaces the verb\'s, and timeScale scales both', () => {
+    const base = testConfig();
+    const items = { ...base.values.items, strongbox: { ...base.values.items.strongbox!, searchTimeTicks: 132 } };
+    const cfg = testConfig({}, 'srch0001', { items });
+    expect([searchTicksFor(cfg, 'letter'), searchTicksFor(cfg, 'strongbox')]).toEqual([72, 132]);
+    const slow = testConfig({}, 'srch0002', { items, verbs: { search: { ...base.values.verbs.search, timeScale: 2.5 } } });
+    expect([searchTicksFor(slow, 'letter'), searchTicksFor(slow, 'strongbox')]).toEqual([180, 330]);
   });
 
   it('releasing E cancels and loses the progress', () => {

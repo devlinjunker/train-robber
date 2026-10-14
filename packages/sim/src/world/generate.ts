@@ -27,7 +27,8 @@ export function layoutPool(config: SimConfig, type: string, catalog: CarCatalog 
  * The car templates of one train, engine first: a layout from the pool for each of its `carCount`
  * cars, drawn from the `gen` stream of `seed`. With `requireSideDoors`, picks are then swapped
  * until the train can be boarded from both sides (`both`) or either side (`one`), as far as the
- * pool allows; the engine and caboose count too.
+ * pool allows; the engine and caboose count too. With `maxSideDoorCars`, cars with side doors past
+ * that many are then swapped for layouts without, keeping the sides `requireSideDoors` covered.
  */
 export function pickTrainCars(config: SimConfig, type: string, seed: string): string[] {
   const def = config.values.trains[type]!;
@@ -56,6 +57,21 @@ export function pickTrainCars(config: SimConfig, type: string, seed: string): st
     const free = picks.map((_, i) => i).filter((i) => covered.every((s) => has(s, picks.filter((__, j) => j !== i))));
     if (!free.length) break;
     picks[free[nextInt(rng, 'gen', free.length)]!] = cands[nextInt(rng, 'gen', cands.length)]!;
+  }
+  if (def.maxSideDoorCars !== undefined) {
+    const doorless = pool.filter((id) => !doors(id, 'left') && !doors(id, 'right'));
+    const doorCars = () => picks.map((_, i) => i).filter((i) => doors(picks[i]!, 'left') || doors(picks[i]!, 'right'));
+    // The sides the train must keep: every covered side for `both`, any one for `one`, none for `off`.
+    const needed = def.requireSideDoors === 'off' ? [] : (['left', 'right'] as const).filter((s) => has(s));
+    const keeps = (i: number) => {
+      const rest = picks.filter((_, j) => j !== i);
+      return def.requireSideDoors === 'one' ? !needed.length || needed.some((s) => has(s, rest)) : needed.every((s) => has(s, rest));
+    };
+    while (doorless.length && doorCars().length > def.maxSideDoorCars) {
+      const free = doorCars().filter(keeps);
+      if (!free.length) break;
+      picks[free[nextInt(rng, 'gen', free.length)]!] = doorless[nextInt(rng, 'gen', doorless.length)]!;
+    }
   }
   return [def.engine, ...picks, ...(def.caboose ? [def.caboose] : [])];
 }

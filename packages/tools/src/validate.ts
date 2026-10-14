@@ -28,6 +28,8 @@ export function trainCarErrors(config: ResolvedConfig): string[] {
     const joins: [PreparedCar, PreparedCar][] = [];
     for (const a of pool) for (const b of pool) joins.push([a, b]);
     if (caboose) for (const a of pool.length ? pool : [engine]) joins.push([a, caboose]);
+    // An engine with a rear door (a walkable cab) must join whatever follows it.
+    if (endRows(engine, 'rear').length) for (const b of pool.length ? pool : caboose ? [caboose] : []) joins.push([engine, b]);
     for (const [a, b] of joins) {
       const ra = endRows(a, 'rear'), rb = endRows(b, 'front');
       if (!ra.some((r) => rb.includes(r))) errors.push(`train ${id}: ${a.id}'s rear end (open rows ${ra.join(',') || 'none'}) does not join ${b.id}'s front end (open rows ${rb.join(',') || 'none'}), so you cannot walk between them`);

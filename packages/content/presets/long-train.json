@@ -6,8 +6,12 @@
   "values": {
     "trains": {
       "mail-express": {
-        "carCount": 6
+        "carCount": 6,
+        "maxSideDoorCars": 2
       }
+    },
+    "loot": {
+      "densityScale": 0.7
     },
     "countdown": {
       "scale": 4

@@ -7,7 +7,7 @@ const iso = (over: Partial<MapContext> = {}): MapContext => ({
   steering: 'heading', aboard: false,
   // Aboard a car whose front points up-right on screen (world -y).
   keyDirToWorld, keyDirToCar: (dx, dy) => worldDirToCar(...keyDirToWorld(dx, dy), { ux: 0, uy: -1 }),
-  commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, ...over,
+  commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, ...over,
 });
 
 describe('input mapper', () => {
@@ -61,5 +61,14 @@ describe('input mapper', () => {
     expect(m.commands(snap(['KeyE']), ctx)).toEqual([]);
     expect(m.commands(snap([]), ctx)).toEqual([{ type: 'interact', held: false }]);
     expect(m.commands(snap([], ['drop']), ctx)).toEqual([{ type: 'drop', slot: 2 }]);
+  });
+
+  it('number keys drop that item only while the inventory is open', () => {
+    const m = new InputMapper();
+    let open = false;
+    const ctx = iso({ aboard: true, carriedCount: () => 3, inventoryOpen: () => open });
+    expect(m.commands(snap([], ['slot1']), ctx)).toEqual([]);
+    open = true;
+    expect(m.commands(snap([], ['slot2', 'slot5']), ctx)).toEqual([{ type: 'drop', slot: 1 }]);
   });
 });

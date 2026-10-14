@@ -59,11 +59,17 @@ export function nearestLoot(state: GameState, p: PlayerState, maxDist: number): 
   return best;
 }
 
+/** Ticks of holding E to take `item`: its own search time, else the verb's, times `verbs.search.timeScale`; at least 1. */
+export function searchTicksFor(config: SimConfig, item: string): number {
+  const s = config.values.verbs.search;
+  return Math.max(1, Math.round((config.values.items[item]?.searchTimeTicks ?? s.searchTimeTicks) * s.timeScale));
+}
+
 function cancelSearch(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, reason: 'released' | 'moved away'): void {
   const s = rp.search;
   if (!s) return;
   rp.search = null;
-  ctx.emit({ type: 'SearchCancelled', tick: ctx.state.tick, player: p.id, loot: s.loot, reason, progress: Math.min(1, s.ticks / ctx.config.values.verbs.search.searchTimeTicks) });
+  ctx.emit({ type: 'SearchCancelled', tick: ctx.state.tick, player: p.id, loot: s.loot, reason, progress: Math.min(1, s.ticks / searchTicksFor(ctx.config, ctx.state.run?.loot.find((l) => l.id === s.loot)?.item ?? '')) });
 }
 
 function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): void {
@@ -83,7 +89,7 @@ function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): v
 
 /**
  * Tick system 9, loot: drops first, then searching. Holding E within `reachTiles` of loot in your
- * car searches the nearest; after `searchTimeTicks` held the item is taken (`LootPickedUp`) unless
+ * car searches the nearest; after its search time (`searchTicksFor`) held the item is taken (`LootPickedUp`) unless
  * a carry cap refuses it (`LootRefused`). Releasing E, or moving more than `cancelRangeTiles` from
  * the loot (or into another car), cancels and loses the progress. After a search ends with E still
  * held, E must be released before the next one starts.
@@ -117,7 +123,7 @@ export function lootSystem(ctx: LootCtx, drops: ReadonlyMap<PlayerId, readonly n
       continue;
     }
     rp.search.ticks += 1;
-    if (rp.search.ticks < s.searchTimeTicks) continue;
+    if (rp.search.ticks < searchTicksFor(config, l.item)) continue;
     rp.search = null;
     rp.searchLatched = true;
     const why = carryRefusal(config, rp.carried, l.item);

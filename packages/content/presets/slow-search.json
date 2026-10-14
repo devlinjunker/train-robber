@@ -6,8 +6,7 @@
   "values": {
     "verbs": {
       "search": {
-        "searchTimeSec": 3,
-        "hiddenLoot": true
+        "timeScale": 2.5
       }
     },
     "countdown": {

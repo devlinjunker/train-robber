@@ -43,6 +43,8 @@ export const ItemSchema = z.object({
   category: z.string(),
   /** Loot slot tags this item can be placed on (a slot's `hidden` tag is not one of these). */
   slotTags: z.array(z.string()).min(1),
+  /** Seconds of holding E to take it; `verbs.search.searchTimeSec` when absent. Both are times `verbs.search.timeScale`. */
+  searchTimeSec: positive.optional(),
 }).strict();
 export type Item = z.infer<typeof ItemSchema>;
 

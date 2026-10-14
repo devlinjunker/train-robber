@@ -11,7 +11,7 @@
  "infinite": false,
  "compressionlevel": -1,
  "nextlayerid": 6,
- "nextobjectid": 3,
+ "nextobjectid": 7,
  "properties": [
   {
    "name": "carType",
@@ -151,7 +151,84 @@
    "visible": true,
    "x": 0,
    "y": 0,
-   "objects": []
+   "objects": [
+    {
+     "id": 3,
+     "name": "",
+     "type": "",
+     "point": true,
+     "x": 80.0,
+     "y": 80.0,
+     "width": 0,
+     "height": 0,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "tags",
+       "type": "string",
+       "value": "small"
+      }
+     ]
+    },
+    {
+     "id": 4,
+     "name": "",
+     "type": "",
+     "point": true,
+     "x": 304.0,
+     "y": 48.0,
+     "width": 0,
+     "height": 0,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "tags",
+       "type": "string",
+       "value": "small"
+      }
+     ]
+    },
+    {
+     "id": 5,
+     "name": "",
+     "type": "",
+     "point": true,
+     "x": 208.0,
+     "y": 112.0,
+     "width": 0,
+     "height": 0,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "tags",
+       "type": "string",
+       "value": "small"
+      }
+     ]
+    },
+    {
+     "id": 6,
+     "name": "",
+     "type": "",
+     "point": true,
+     "x": 336.0,
+     "y": 144.0,
+     "width": 0,
+     "height": 0,
+     "rotation": 0,
+     "visible": true,
+     "properties": [
+      {
+       "name": "tags",
+       "type": "string",
+       "value": "small,hidden"
+      }
+     ]
+    }
+   ]
   },
   {
    "id": 4,

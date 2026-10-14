@@ -121,6 +121,8 @@ export const GameSchema = z.object({
      * side has at least one side door, `one` until any side has one, `off` leaves the picks alone.
      */
     requireSideDoors: z.enum(['both', 'one', 'off']),
+    /** At most this many cars get side doors: extra door cars swap to doorless layouts (long trains). */
+    maxSideDoorCars: z.number().int().min(0).optional(),
     countdown: z.object({ baseSec: positive }).strict(),
     /** Loot table and the share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
@@ -153,16 +155,18 @@ export const GameSchema = z.object({
     minSpeedScale: z.number().gt(0).max(1),
   }).strict().refine((c) => c.slowdownFromWeight <= c.maxWeight, { message: 'slowdown must start at or below the max', path: ['slowdownFromWeight'] }),
   verbs: z.object({
-    /** Hold E on a loot slot for searchTimeSec to take what is there. */
+    /** Hold E on a loot slot for searchTimeSec (or the item's own searchTimeSec) x timeScale to take what is there. */
     search: z.object({
       searchTimeSec: positive,
+      /** Scales every search time (the slow-search preset sets 2.5). */
+      timeScale: positive,
       /** Walk speed while searching, as a share of normal. */
       walkSpeedScale: fraction,
       /** Moving this far from the slot cancels the search and loses its progress. */
       cancelRangeTiles: positive,
       /** How close to a slot pressing E starts searching it. */
       reachTiles: positive,
-      /** Fill loot slots tagged hidden (the slow-search preset turns it on). */
+      /** Fill loot slots tagged hidden (on by default since the M2 playtest, so a stash can be missed). */
       hiddenLoot: z.boolean(),
     }).strict(),
   }).strict(),

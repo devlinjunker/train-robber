@@ -2,7 +2,7 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot,
+  boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksFor,
   trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
@@ -156,6 +156,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Placeholder sounds: countdown ticks, heat gains, the alarm sting and expiry. U or ?mute=1 mutes.
   const audio = createAudioBus(window, params.get('mute') === '1');
   let lastTick: number | null = null;
+  // The inventory panel (I): what you carry, numbered so 1 to 9 drop that item.
+  let inventoryOpen = false;
 
   const onView = (a: ViewAction) => {
     if (a === 'zoomIn' || a === 'zoomOut') {
@@ -167,6 +169,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
     else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
+    else if (a === 'toggleInventory') inventoryOpen = !inventoryOpen;
     else if (a === 'toggleMute') audio.muted = !audio.muted;
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
@@ -203,6 +206,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
     switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
     carriedCount: () => sim.state.run?.players[sim.state.players[0]!.id]?.carried.length ?? 0,
+    inventoryOpen: () => inventoryOpen,
   };
 
   // Notices from events: the last rejection, jump result or run end.
@@ -250,7 +254,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'E hold to search', 'X drop', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    ...(config.values.commit.auto ? [] : ['E commit']), 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -350,6 +354,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const lootLeft = s.run ? s.run.loot.filter((l) => !l.taken) : [];
       const reachLoot = phase === 'aboard' ? nearestLoot(s, player, search.reachTiles) : null;
       const searching = run?.search ?? null;
+      const searchTicks = searching ? searchTicksFor(config, s.run?.loot.find((l) => l.id === searching.loot)?.item ?? '') : 0;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -407,7 +412,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
-        search: searching ? Math.min(1, searching.ticks / search.searchTimeTicks) : null,
+        search: searching ? Math.min(1, searching.ticks / searchTicks) : null,
       });
       if (minimap.root.visible) {
         minimap.update({
@@ -435,7 +440,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance'
-              : searching ? `Searching... keep holding E (${search.searchTimeSec} s)`
+              : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
       const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
@@ -451,6 +456,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         phase,
         health: run ? { now: run.health, max: config.values.health.max } : null,
         carry,
+        inventory: !inventoryOpen ? null : carried.length === 0 ? ['Inventory: empty  (I closes)']
+          : ['Inventory: 1-9 drops  (I closes)', ...carried.slice(0, 9).map((id, i) => `${i + 1}  ${itemName(id)}  $${config.values.items[id]?.value ?? 0}  weight ${config.values.items[id]?.weight ?? 0}`),
+            ...(carried.length > 9 ? [`+${carried.length - 9} more (X drops the last)`] : [])],
         hit: hitAge !== null,
         prompt,
         notice: now < noticeUntil ? notice : '',
@@ -472,7 +480,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
           `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
-          s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${search.searchTimeTicks} ticks` : ''}` : '',
+          s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${searchTicks} ticks` : ''}` : '',
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),
         ].filter(Boolean).join('\n'),
       });

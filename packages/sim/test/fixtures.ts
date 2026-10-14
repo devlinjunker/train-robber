@@ -109,7 +109,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
       trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
       carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
-      verbs: { search: { searchTimeTicks: 72, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
+      verbs: { search: { searchTimeTicks: 72, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
       loot: { densityScale: 1 },
       cellTypes: TEST_CELL_TYPES,
       items: TEST_ITEMS,

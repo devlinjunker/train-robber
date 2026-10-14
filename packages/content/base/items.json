@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "items": {
-    "letter":               { "name": "Letter",               "value": 5,   "weight": 0.1, "category": "mail",      "slotTags": ["small"] },
+    "letter":               { "name": "Letter",               "value": 5,   "weight": 0.1, "category": "mail",      "slotTags": ["small"], "searchTimeSec": 0.8 },
     "cash-bundle":          { "name": "Cash bundle",          "value": 40,  "weight": 0.2, "category": "cash",      "slotTags": ["small"] },
     "jewellery-pouch":      { "name": "Jewellery pouch",      "value": 75,  "weight": 0.3, "category": "valuables", "slotTags": ["small"] },
     "parcel":               { "name": "Parcel",               "value": 20,  "weight": 0.5, "category": "mail",      "slotTags": ["small"] },
-    "registered-mail-sack": { "name": "Registered mail sack", "value": 250, "weight": 4,   "category": "prize",     "slotTags": ["large"] },
-    "strongbox":            { "name": "Strongbox",            "value": 450, "weight": 6,   "category": "prize",     "slotTags": ["large"] }
+    "registered-mail-sack": { "name": "Registered mail sack", "value": 250, "weight": 4,   "category": "prize",     "slotTags": ["large"], "searchTimeSec": 2.2 },
+    "strongbox":            { "name": "Strongbox",            "value": 450, "weight": 6,   "category": "prize",     "slotTags": ["large"], "searchTimeSec": 2.2 }
   }
 }
