@@ -457,9 +457,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         phase,
         health: run ? { now: run.health, max: config.values.health.max } : null,
         carry,
-        inventory: !inventoryOpen ? null : carried.length === 0 ? ['Inventory: empty  (I closes)']
-          : ['Inventory: 1-9 drops  (I closes)', ...carried.slice(0, 9).map((id, i) => `${i + 1}  ${itemName(id)}  $${config.values.items[id]?.value ?? 0}  weight ${config.values.items[id]?.weight ?? 0}`),
-            ...(carried.length > 9 ? [`+${carried.length - 9} more (X drops the last)`] : [])],
+        inventory: !inventoryOpen ? null : carried.length === 0 ? { title: 'Inventory: empty  (I closes)', items: [] }
+          : { title: 'Inventory: 1-9 drops that item  (I closes)', items: [...carried.slice(0, 9).map((id, i) => `${i + 1}  ${itemName(id)}  $${config.values.items[id]?.value ?? 0}  wt ${config.values.items[id]?.weight ?? 0}`),
+            ...(carried.length > 9 ? [`+${carried.length - 9} more (X drops the last)`] : [])] },
         hit: hitAge !== null,
         prompt,
         notice: now < noticeUntil ? notice : '',

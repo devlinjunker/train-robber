@@ -1,4 +1,4 @@
-// The HTML HUD over the canvas: health, the run phase, the commit prompt, jump rejection reasons
+// The HTML HUD over the canvas: health (a heart and a bar), the run phase above the countdown, the commit prompt, jump rejection reasons
 // and results, the countdown bar and heat meter, and the controls. The debug readout lives here
 // too, toggled with the backquote key. The meter is not here: it is drawn in the world above the
 // horse (decision Q12).
@@ -15,8 +15,8 @@ export interface HudState {
   health: { now: number; max: number } | null;
   /** What the player carries while a run is active: value, weight against the limit, items, and the walk speed it leaves. */
   carry: { value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number } | null;
-  /** The open inventory panel's lines (I), or null when it is closed. */
-  inventory?: readonly string[] | null;
+  /** The open inventory strip (I) along the bottom: a title and one entry per item, or null when it is closed. */
+  inventory?: { title: string; items: readonly string[] } | null;
   /** True for a moment after a crash costs health: a red icon and the health bar flash. */
   hit: boolean;
   /** The main prompt line: what to do next. */
@@ -42,9 +42,13 @@ const CSS = `
   background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
 .tr-hud .phase { font-weight: 700; letter-spacing: .06em; }
 .tr-hud .side { position: absolute; top: 80px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-.tr-hud .carry, .tr-hud .inv { background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 8px; }
-.tr-hud .carry { font-weight: 700; }
-.tr-hud .inv { white-space: pre; margin: 0; font: inherit; }
+/* On narrow screens the countdown panel spans the top, so health and carry drop below it. */
+@media (max-width: 1000px) { .tr-hud .top { top: 118px; } .tr-hud .side { top: 158px; } }
+.tr-hud .carry { background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 8px; font-weight: 700; }
+.tr-hud .heart { color: #ff5a4e; font-size: 18px; line-height: 1; }
+.tr-hud .inv { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0 auto 8px; max-width: min(92vw, 900px); }
+.tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
+.tr-hud .inv-item { background: rgba(0,0,0,.6); border: 1px solid #fff4; padding: 3px 10px; border-radius: 6px; white-space: nowrap; font-size: 13px; }
 .tr-hud .carry.slow { color: #ffb02e; }
 .tr-hud .health { width: 180px; height: 14px; background: #3a1d1d; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
 .tr-hud .health > div { height: 100%; background: linear-gradient(#ff7a6b, #d63c2f); transition: width .2s; }
@@ -102,16 +106,16 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const root = document.createElement('div');
   root.className = 'tr-hud';
   root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
-    <div class="clock calm"><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
+    <div class="clock calm"><span class="phase"></span><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
-    <div class="top"><span class="phase"></span><span class="hit">!</span><span class="hp-label">health</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="carry"></div><pre class="inv"></pre></div>
-    <div class="bottom"><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
+    <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
+    <div class="side"><div class="carry"></div></div>
+    <div class="bottom"><div class="inv"></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
-  const top = q('.top'), hit = q('.hit');
-  const debug = q('.debug'), phase = q('.phase'), hpLabel = q('.hp-label'), health = q('.health'), bar = q<HTMLDivElement>('.health > div'),
+  const top = q('.top');
+  const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
     hpText = q('.hp-text'), carryEl = q('.carry'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
@@ -124,7 +128,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
     update(s) {
       set(phase, s.phase.toUpperCase());
       const hasHp = s.health !== null;
-      hpLabel.style.display = health.style.display = hpText.style.display = hit.style.display = hasHp ? '' : 'none';
+      top.style.display = hasHp ? '' : 'none';
       if (last.hit !== s.hit) top.classList.toggle('hit-on', s.hit);
       if (s.health) {
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
@@ -140,13 +144,20 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         carryEl.classList.toggle('slow', c.speed < 1);
       }
       invEl.style.display = s.inventory ? '' : 'none';
-      if (s.inventory) set(invEl, s.inventory.join('\n'));
+      const inv = s.inventory ? [s.inventory.title, ...s.inventory.items].join('\n') : '';
+      if (invEl.dataset.text !== inv) {
+        invEl.dataset.text = inv;
+        if (s.inventory) {
+          invEl.replaceChildren(Object.assign(document.createElement('div'), { className: 'inv-title', textContent: s.inventory.title }),
+            ...s.inventory.items.map((t) => Object.assign(document.createElement('div'), { className: 'inv-item', textContent: t })));
+        }
+      }
       set(prompt, s.prompt);
       set(notice, s.notice);
       notice.style.display = s.notice ? '' : 'none';
       if (last.noticeKind !== s.noticeKind) notice.className = `notice ${s.noticeKind}`;
       set(controls, s.controls);
-      clock.style.display = s.clock || s.heat ? '' : 'none';
+      // The panel always shows the phase; the countdown and heat appear under it during a run.
       clock.querySelector<HTMLElement>('.clock-row')!.style.display = s.clock ? '' : 'none';
       if (s.clock) {
         const share = s.clock.total > 0 ? Math.max(0, Math.min(1, s.clock.sec / s.clock.total)) : 0;
