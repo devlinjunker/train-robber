@@ -5,7 +5,13 @@
 // and overlaps it on screen, a copy of the piece clipped to that thing's screen box is drawn in the
 // sorted objects container, so it still covers the thing. Every static piece in front of the thing
 // and over that box gets its copy, so the copies stack in the same order as the originals.
-import { Graphics, Polygon, type Container } from 'pixi.js';
+import { Graphics, GraphicsContext, Polygon, type Container } from 'pixi.js';
+
+/**
+ * What an unused copy's mask draws. Pixi draws a Graphics again once it stops being a mask, so a
+ * mask still sharing a hole's context would show as a white disc (Devlin, PR #25 playtest).
+ */
+const NO_HOLE = new GraphicsContext();
 
 /** Something that moves: its sort depth and its box on screen, in iso pixels. */
 export interface Mover { zIndex: number; minX: number; minY: number; maxX: number; maxY: number }
@@ -101,7 +107,7 @@ export class Overdraw {
         s.shapes ??= shapesOf(s.g);
         let slot = this.pool[used];
         if (!slot) {
-          slot = { g: new Graphics(), mask: new Graphics(), masked: false };
+          slot = { g: new Graphics(), mask: new Graphics(NO_HOLE), masked: false };
           slot.g.label = 'overdraw';
           this.pool.push(slot);
           this.objects.addChild(slot.g);
@@ -133,7 +139,7 @@ export class Overdraw {
         if (hole) {
           if (slot.mask.context !== hole.context) slot.mask.context = hole.context;
           if (!slot.masked) { g.setMask({ mask: slot.mask, inverse: true }); slot.masked = true; }
-        } else if (slot.masked) { g.mask = null; slot.masked = false; }
+        } else if (slot.masked) { g.mask = null; slot.mask.context = NO_HOLE; slot.masked = false; }
       }
     }
     for (let i = used; i < this.pool.length; i++) {
@@ -141,6 +147,7 @@ export class Overdraw {
       if (!slot.g.visible) continue;
       slot.g.visible = false;
       slot.g.clear();
+      if (slot.masked) { slot.g.mask = null; slot.mask.context = NO_HOLE; slot.masked = false; }
     }
   }
 }
