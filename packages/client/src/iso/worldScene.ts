@@ -207,7 +207,7 @@ export function createWorldScene(map: MapDef, scenery: SceneryDef | null = null,
   const heights = createHeightLayer(map, field, land);
   // Forest tiles are blocked too, but draw as trees, not boulders.
   const rocks = createRocks(map, land, field, scenery ? forestTiles(map, scenery) : undefined);
-  const mesas = createMesas(map, field, land, rocks.chunks);
+  const mesas = createMesas(map, field, land, rocks.chunks, objects);
   const mud = createMud();
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, land, objects, zoneOverlay, markers, mesas.masks);
   const overdraw = new Overdraw(objects, mesas.masks);

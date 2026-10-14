@@ -45,6 +45,8 @@ interface Piece extends Chunk {
   minX: number; minY: number; maxX: number; maxY: number;
   mask: Graphics | null;
   masked: boolean;
+  /** Where the piece sorts when not cut. */
+  home?: Container | null;
 }
 
 /** Smooth noise in 0..1 over the world, for the outline's wander. */
@@ -133,9 +135,11 @@ function clipToTile(poly: readonly V[], tx: number, ty: number): V[] {
 
 /**
  * Mesas in pieces by sort depth and stretch across the screen; pieces go into `objects` only while
- * on screen. `alsoCut`: other sorted pieces (the boulders) that the hole goes through too.
+ * on screen. `alsoCut`: other sorted pieces (the boulders) that the hole goes through too. A piece
+ * with the hole cut in it moves to `cutInto` while cut: an inverse mask does nothing inside the
+ * static render group `objects` can be (Devlin saw the horse drawn on top of the mesa).
  */
-export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: readonly Chunk[] = []): MesaLayer {
+export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: readonly Chunk[] = [], cutInto: Container = objects): MesaLayer {
   const masks = new Container();
   masks.label = 'mesa-masks';
   const pieces = new Map<string, Piece>();
@@ -295,7 +299,18 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
           if (!p.mask) { p.mask = new Graphics(); masks.addChild(p.mask); }
           p.mask.clear().circle(hole.x, hole.y, hole.r).fill(0xffffff);
         } else p.mask?.clear();
-        if (want !== p.masked) { if (want) p.g.setMask({ mask: p.mask, inverse: true }); else p.g.mask = null; p.masked = want; }
+        if (want !== p.masked) {
+          if (want) {
+            p.home = p.g.parent;
+            if (cutInto !== p.home) cutInto.addChild(p.g);
+            p.g.setMask({ mask: p.mask, inverse: true });
+          } else {
+            p.g.mask = null;
+            if (p.home && p.g.parent !== p.home) p.home.addChild(p.g);
+            p.home = null;
+          }
+          p.masked = want;
+        }
         if (want) maskedNow.add(p); else maskedNow.delete(p);
       }
     },

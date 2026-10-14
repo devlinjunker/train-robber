@@ -103,7 +103,8 @@ export class Overdraw {
     let used = 0;
     for (const m of movers) {
       for (const s of this.live) {
-        if (s.g.zIndex <= m.zIndex || s.maxX < m.minX || s.minX > m.maxX || s.maxY < m.minY || s.minY > m.maxY) continue;
+        // A piece already in `objects` (a mesa piece with the hole cut in it) sorts there itself.
+        if (s.g.parent === this.objects || s.g.zIndex <= m.zIndex || s.maxX < m.minX || s.minX > m.maxX || s.maxY < m.minY || s.minY > m.maxY) continue;
         s.shapes ??= shapesOf(s.g);
         let slot = this.pool[used];
         if (!slot) {
