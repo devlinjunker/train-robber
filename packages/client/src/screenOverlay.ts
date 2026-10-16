@@ -29,6 +29,8 @@ export interface TrainPointer {
   sx: number;
   sy: number;
   distanceTiles: number;
+  /** The service it is on now, on maps with junctions: a train may change service at each one. */
+  service?: string;
   committed: boolean;
   /** The train Tab would switch the run to. */
   candidate: boolean;
@@ -168,7 +170,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         let label = labels[used];
         if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
         label.visible = true;
-        label.text = `${t.name ? `${t.name} ` : ''}${t.distanceTiles.toFixed(0)}t`;
+        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `· ${t.service} ` : ''}${t.distanceTiles.toFixed(0)}t`;
         label.style.fill = colour;
         label.position.set(ax - ux * 34, ay - uy * 26);
         used++;

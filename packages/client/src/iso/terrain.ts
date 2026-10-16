@@ -3,7 +3,7 @@
 // grid give the eye something to measure speed against; mud gets darker
 // puddles with a wet glint so it reads as mud, not sand. Boulders on blocked ground are in rocks.ts.
 import { Container, Graphics } from 'pixi.js';
-import { decodeZones, type MapDef, type Zone } from '@train-robber/config';
+import { decodeZones, trackPieces, type MapDef, type Zone } from '@train-robber/config';
 import { isoPoly, shade, oval } from './draw';
 import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
@@ -20,6 +20,8 @@ const GRID_EVERY = 5;
 const CELL = 24, TRACK_STRETCH = 64;
 /** Half the rail gauge and half a tie's length, in tiles. */
 const RAIL_HALF = 0.75, TIE_HALF = 1.2;
+/** How far a junction's switch stand sits from the centre line, in tiles. */
+const SWITCH_OFFSET = 5;
 
 /**
  * The rock ring that keeps riders on the map. Devlin found boulders along it tacky (2026-10-12),
@@ -135,10 +137,12 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
   puddles.each((g) => g.fill({ color: 0xffffff, alpha: 0.18 }));
 
   // Track: ties across the route on every other sample (about a tile apart), then two rails, in
-  // stretches of TRACK_STRETCH samples so stretches off screen cull.
+  // stretches of TRACK_STRETCH samples so stretches off screen cull. Shared segments are drawn
+  // once; a closed piece joins its last sample back to its first.
   const track: Chunk[] = [];
-  for (const r of map.routes) {
-    const { x, y, tx, ty } = r.samples;
+  const pieces = trackPieces(map);
+  for (const r of pieces) {
+    const { x, y, tx, ty } = r;
     for (let a = 0; a < x.length; a += TRACK_STRETCH) {
       const b = Math.min(x.length, a + TRACK_STRETCH), g = new Graphics();
       for (let i = a; i < b; i += 2) {
@@ -149,7 +153,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
       g.stroke({ width: 7, color: 0x5a3d26 });
       // Each stretch's rails run on to the next stretch's first sample, so they join up.
       for (const s of [RAIL_HALF, -RAIL_HALF]) {
-        for (let i = a; i <= b; i++) {
+        for (let i = a; i <= (r.closed ? b : Math.min(b, x.length - 1)); i++) {
           const j = i % x.length;
           const px = x[j]! - ty[j]! * s, py = y[j]! + tx[j]! * s;
           if (i === a) g.moveTo(isoX(px, py), isoY(px, py));
@@ -160,6 +164,23 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
       const xs = x.slice(a, b + 1), ys = y.slice(a, b + 1);
       track.push({ g, x0: Math.min(...xs) - 2, y0: Math.min(...ys) - 2, x1: Math.max(...xs) + 2, y1: Math.max(...ys) + 2 });
     }
+  }
+  // Junctions: a switch stand beside the track where services part or join, on the side
+  // away from the branch so the cars never cover it.
+  for (const j of map.junctions ?? []) {
+    let lateral = 0;
+    for (const p of pieces) {
+      for (let i = 0; i < p.x.length; i++) {
+        const dx = p.x[i]! - j.x, dy = p.y[i]! - j.y, d = Math.hypot(dx, dy);
+        if (d > 10 && d < 30) lateral += -dx * j.ty + dy * j.tx;
+      }
+    }
+    const side = lateral > 0 ? -SWITCH_OFFSET : SWITCH_OFFSET;
+    const sx = j.x - j.ty * side, sy = j.y + j.tx * side, g = new Graphics();
+    g.poly(isoPoly([[sx - 0.5, sy - 0.5], [sx + 0.5, sy - 0.5], [sx + 0.5, sy + 0.5], [sx - 0.5, sy + 0.5]])).fill(0x3a3a40);
+    g.moveTo(isoX(sx, sy), isoY(sx, sy)).lineTo(isoX(sx, sy), isoY(sx, sy) - 18).stroke({ width: 3, color: 0x3a3a40 });
+    g.circle(isoX(sx, sy), isoY(sx, sy) - 20, 5).fill(0xd8322a);
+    track.push({ g, x0: sx - 2, y0: sy - 2, x1: sx + 2, y1: sy + 2 });
   }
 
   const culled = [...zones.chunks(), ...tufts.chunks(), ...puddles.chunks(), ...track];
@@ -189,6 +210,10 @@ export function drawIsoMapOverlay(map: MapDef): Container {
   }
   for (const p of Object.values(map.markers)) g.poly(isoPoly([[p.x, p.y - 0.8], [p.x + 0.8, p.y], [p.x, p.y + 0.8], [p.x - 0.8, p.y]]));
   g.fill(0xb46bff);
+  for (const j of map.junctions ?? []) {
+    g.circle(isoX(j.x, j.y), isoY(j.x, j.y), 14).stroke({ width: 3, color: 0xffffff });
+    g.moveTo(isoX(j.x, j.y), isoY(j.x, j.y)).lineTo(isoX(j.x + j.tx * 6, j.y + j.ty * 6), isoY(j.x + j.tx * 6, j.y + j.ty * 6)).stroke({ width: 3, color: 0xffffff });
+  }
   layer.addChild(g);
   return layer;
 }
