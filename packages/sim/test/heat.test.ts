@@ -114,7 +114,7 @@ describe('countdown', () => {
     expect(end.heat).toBe(10);
   });
 
-  it('the grace hook stays shut until extraction exists, so expiry is not delayed', () => {
+  it('with no horse alongside the grace window does not apply, so expiry is not delayed', () => {
     const sim = aboard();
     S(sim).run!.countdownSec = 0.001;
     expect(of(step(sim), 'RunEnded')[0]!.outcome).toBe('expired');

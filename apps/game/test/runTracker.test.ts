@@ -81,7 +81,7 @@ describe('playtest stats', () => {
   it('groups runs by setup', () => {
     const [a, b] = summarize([rec, died, other]);
     expect(a).toMatchObject({ setup: 'alpha-default · steering:heading throttleModel:coast', runs: 2, testers: 1, aboard: 0.5, notes: 1 });
-    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, expired: 0, retry: 1, abandoned: 0 });
+    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, expired: 0, extracted: 0, retry: 1, abandoned: 0 });
     expect(a!.perfect).toBe(0.25);
     expect(a!.medianToAboardSec).toBe(0.5);
     expect(b).toMatchObject({ runs: 1, setup: 'alpha-default · steering:screen throttleModel:coast' });

@@ -34,6 +34,8 @@ export interface HudState {
   heatNotices: readonly string[];
   /** True for a moment after an alarm: the screen edge pulses red. */
   alarm: boolean;
+  /** The extraction horse while it is called: coming, alongside, blocked or cooling down; null hides it. */
+  horse?: { text: string; kind: NoticeKind } | null;
 }
 
 const CSS = `
@@ -50,6 +52,10 @@ const CSS = `
 .tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
 .tr-hud .inv-item { background: rgba(0,0,0,.6); border: 1px solid #fff4; padding: 3px 10px; border-radius: 6px; white-space: nowrap; font-size: 13px; }
 .tr-hud .carry.slow { color: #ffb02e; }
+.tr-hud .horse-call { background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 8px; font-weight: 700; }
+.tr-hud .horse-call.good { color: #6bff8a; }
+.tr-hud .horse-call.warn { color: #ffb02e; }
+.tr-hud .horse-call.bad { color: #ff6b5e; animation: tr-hit-blink .5s steps(1) infinite; }
 .tr-hud .health { width: 180px; height: 14px; background: #3a1d1d; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
 .tr-hud .health > div { height: 100%; background: linear-gradient(#ff7a6b, #d63c2f); transition: width .2s; }
 .tr-hud .bottom { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
@@ -110,13 +116,13 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="carry"></div></div>
+    <div class="side"><div class="carry"></div><div class="horse-call"></div></div>
     <div class="bottom"><div class="inv"></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
   const top = q('.top');
   const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
-    hpText = q('.hp-text'), carryEl = q('.carry'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
+    hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
@@ -143,6 +149,8 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         set(carryEl, `$${c.value}  weight ${c.weight.toFixed(1)}${cap}  items ${items}${c.speed < 1 ? `  speed ${Math.round(c.speed * 100)}%` : ''}`);
         carryEl.classList.toggle('slow', c.speed < 1);
       }
+      horseEl.style.display = s.horse ? '' : 'none';
+      if (s.horse) { set(horseEl, s.horse.text); setClass(horseEl, `horse-call ${s.horse.kind}`); }
       invEl.style.display = s.inventory ? '' : 'none';
       const inv = s.inventory ? [s.inventory.title, ...s.inventory.items].join('\n') : '';
       if (invEl.dataset.text !== inv) {

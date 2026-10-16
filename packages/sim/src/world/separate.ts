@@ -1,5 +1,5 @@
 // The separate train map world model (flag U8, built first): boarding moves the player
-// into a car frame, and the horse turns abstract until extraction brings it back.
+// into a car frame, and the horse stays physical, riderless, until it leaves (phase 2, U4).
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, cellOpen, type CarCatalog, type CarPose, type Side } from './cars';
@@ -84,7 +84,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     return p;
   };
   const model: WorldModel = {
-    horseWhileAboard: 'abstract',
+    horseWhileAboard: 'physical',
     trainAnchor(state, trainId) {
       const cars = carPosesOf(state, map, config, trainId);
       const train = state.world.trains.find((t) => t.id === trainId)!;
@@ -114,8 +114,9 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
       const p = playerOf(state, player);
       // Land in the middle of the entry cell.
       p.placement = { frame: carFrame(entry.trainId, entry.car), x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5, layer: 'interior' };
+      // The horse stays in the world, riderless: it runs off and leaves (U4, see extraction.ts).
       const h = state.world.horses.find((q) => q.id === p.horseId);
-      if (h) { h.mode = 'away'; h.speed = 0; h.cruiseTarget = 0; h.stunTicks = 0; }
+      if (h) { h.stunTicks = 0; h.cruiseTarget = 0; }
     },
     leaveTrain(state, player) {
       const p = playerOf(state, player);
