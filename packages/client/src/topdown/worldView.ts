@@ -5,6 +5,7 @@ import { COMMITTED_COLOUR, flashOn, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, t
 import { HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, carTemplate, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
 import type { SceneContent } from '../iso/worldScene';
 import { CATEGORY_COLOURS, colourOf } from '../iso/interior';
+import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 
 /** The debug view colours every cell by its catalog colour, so the layout the sim walks is what shows. */
 function drawCar(content: SceneContent, template: string): Graphics {
@@ -39,6 +40,9 @@ export interface ViewInput {
   playerFlash?: number | null;
   /** Outlines on the committed train and the one Tab would switch to. */
   focus?: TrainFocus;
+  /** The run's guards in the world, and their sight cones (debug), if shown. */
+  guards?: readonly GuardView[];
+  cones?: readonly ConeView[] | null;
 }
 
 export interface WorldView {
@@ -57,6 +61,7 @@ export function createWorldView(content: SceneContent): WorldView {
   const entries = new Graphics();
   const outlines = new Graphics();
   const lootG = new Graphics();
+  const guardG = new Graphics();
   const zones = new Graphics();
   zones.visible = false;
   const horse = new Graphics(), player = new Graphics();
@@ -65,7 +70,7 @@ export function createWorldView(content: SceneContent): WorldView {
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(c);
   const drawPlayer = (c: number) => player.clear().circle(0, 0, WALKER_RADIUS).fill(c).stroke({ width: 0.08, color: 0x0b2a3a });
   let horseColour = -1, playerColour = -1;
-  layer.addChild(zones, carLayer, lootG, outlines, entries, horse, player);
+  layer.addChild(zones, carLayer, lootG, guardG, outlines, entries, horse, player);
   const pool: Graphics[] = [];
 
   return {
@@ -118,6 +123,16 @@ export function createWorldView(content: SceneContent): WorldView {
         const along = car.halfLength - l.x, left = car.halfWidth - l.y;
         lootG.circle(car.x + car.ux * along + car.uy * left, car.y + car.uy * along - car.ux * left, 0.3)
           .fill(l.hidden ? 0x3a2e24 : CATEGORY_COLOURS[content.items[l.item]?.category ?? ''] ?? 0xe8b830).stroke({ width: 0.06, color: 0x111111 });
+      }
+      // Guards as dark dots with a nose the way they face, ringed by their awareness; cones under them.
+      guardG.clear();
+      for (const cone of input.cones ?? []) {
+        const col = GUARD_STATE_COLOURS[cone.state];
+        guardG.poly(cone.points.flat()).fill({ color: col, alpha: cone.state === 'unaware' ? 0.15 : 0.28 });
+      }
+      for (const v of input.guards ?? []) {
+        guardG.circle(v.x, v.y, WALKER_RADIUS).fill(0x2c3e66).stroke({ width: 0.1, color: GUARD_STATE_COLOURS[v.state] });
+        guardG.moveTo(v.x, v.y).lineTo(v.x + v.fx * 0.6, v.y + v.fy * 0.6).stroke({ width: 0.12, color: GUARD_STATE_COLOURS[v.state] });
       }
       zones.stroke({ width: 0.08, color: 0xffffff, alpha: 0.5 });
       // The nearest door on the riding side fills by the sim's verdict.

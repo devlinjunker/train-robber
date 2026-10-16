@@ -40,7 +40,9 @@ export type Command =
    * guards exist. H raises heat by that step (cause `debug`); with `source` (Shift+H sends
    * `alarmRaised`) it raises what that source would, with its cause, as if the event happened.
    */
-  | { type: 'debugHeat'; source?: HeatSource };
+  | { type: 'debugHeat'; source?: HeatSource }
+  /** C, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
+  | { type: 'boost' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -62,7 +64,7 @@ export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard';
+export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -76,6 +78,8 @@ export type SimEvent =
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
+  /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
   /** Running into or scraping a train, or running into blocked ground; `impact` is the speed the horse lost, tiles/s. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
@@ -94,7 +98,48 @@ export type SimEvent =
   | { type: 'LootRevealed'; tick: number; player: PlayerId; item: string; car: number; loot: number }
   | { type: 'LootDropped'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** Releasing E or moving off the slot loses the search's progress (`progress` 0 to 1). */
-  | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number };
+  | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number }
+  /** A guard's awareness changed: `sight` or `noise` raised it, `calm` let it drop after a while with no sign of the player. */
+  | { type: 'GuardStateChanged'; tick: number; guard: number; from: GuardAwareness; to: GuardAwareness; cause: 'sight' | 'noise' | 'calm' }
+  /** A guard saw the player (once per guard until it calms back to unaware); raises `playerSpotted` heat. */
+  | { type: 'PlayerSpotted'; tick: number; player: PlayerId; guard: number; car: number }
+  /** An alert guard caught the player and threw them off the train (guardCatch `thrown-off`). */
+  | { type: 'ThrownOff'; tick: number; player: PlayerId; guard: number; car: number }
+  | { type: 'HorseBoosted'; tick: number; player: PlayerId };
+
+export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
+
+/**
+ * A guard aboard the committed train (phase 2 M3: perception, no combat). Positions are in its
+ * car's frame like the player's; `fx, fy` is its unit facing in that frame (+x toward the rear,
+ * +y toward the right side), turned at `ai.turnRateDegPerSec`.
+ */
+export interface GuardState {
+  id: number;
+  car: number;
+  x: number;
+  y: number;
+  fx: number;
+  fy: number;
+  state: GuardAwareness;
+  /** The spawn: its car, the cell centre, and the facing a guard without a patrol keeps on watch. */
+  post: { car: number; x: number; y: number; fx: number; fy: number };
+  /** Patrol route name in the post car's template, or null to stand watch. */
+  patrol: string | null;
+  /** The route cell it walks toward, and which way along the route it is going. */
+  waypoint: number;
+  dir: 1 | -1;
+  /** Ticks left of the pause at a route end. */
+  waitTicks: number;
+  /** Ticks of seeing the player while suspicious, toward `ai.alertAfterTicks`. */
+  sightTicks: number;
+  /** Ticks since it last saw or heard the player, toward calming down. */
+  calmTicks: number;
+  /** Where it last saw or heard the player (car frame), or null. */
+  lastKnown: { car: number; x: number; y: number } | null;
+  /** Set once it has spotted the player since it was last unaware, so the heat comes once per sighting. */
+  spotted: boolean;
+}
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
 
@@ -166,6 +211,8 @@ export interface RunState {
   /** Loot in the committed train, by ascending id. */
   loot: LootState[];
   nextLootId: number;
+  /** Guards aboard the committed train, by ascending id. */
+  guards: GuardState[];
 }
 
 /**
@@ -204,6 +251,9 @@ export interface HorseState {
   cruiseTarget: number;
   /** Ticks of stun left after a failed jump: no steering or throttle, speed held. */
   stunTicks: number;
+  /** Ticks left of a boost (handlingModel `arcade-boost`), then ticks of cooldown before the next. */
+  boostTicks: number;
+  boostCooldownTicks: number;
   /**
    * `physical` rides the map. `away` is the separate world mode's abstract horse while its
    * rider is aboard: not simulated and not drawn (extraction adds the other states in phase 2).
@@ -236,6 +286,8 @@ export interface WorldState {
 }
 
 export type Steering = 'screen' | 'heading';
+/** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off. */
+export type GuardCatch = 'heat-only' | 'thrown-off';
 export type ThrottleModel = 'hold' | 'coast' | 'cruise';
 
 /**
@@ -293,6 +345,23 @@ export interface SimConfig {
       turnRateSinPerTick: number;
       steering: Steering;
       throttleModel: ThrottleModel;
+      /** handlingModel `arcade-boost`: a burst to `topSpeedScale` x maxSpeed for `durationTicks`, then `cooldownTicks`. */
+      boost: { enabled: boolean; durationTicks: number; cooldownTicks: number; topSpeedScale: number; accelTilesPerSec2: number };
+    };
+    /** Light guards (phase 2 M3): patrol, sight, noise and awareness; `guardCatch` is what an alert guard does. */
+    ai: {
+      guardCatch: GuardCatch;
+      patrolSpeedTilesPerTick: number;
+      patrolPauseTicks: number;
+      chaseSpeedTilesPerTick: number;
+      turnRateCosPerTick: number;
+      turnRateSinPerTick: number;
+      sight: { rangeTiles: number; coneCos: number };
+      noise: { walkRadiusTiles: number; runRadiusTiles: number };
+      alertAfterTicks: number;
+      calmTicks: number;
+      alertCalmTicks: number;
+      catchRangeTiles: number;
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
@@ -321,6 +390,8 @@ export interface TrainDef {
   /** The run's countdown is baseSec x countdown.scale, copied into the run at commit. */
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
+  /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
+  guards?: { base: number };
   verbs: readonly string[];
 }
 
@@ -339,6 +410,8 @@ export interface CarTemplateDef {
   entryPoints: readonly { id: string; side: 'left' | 'right' | 'front' | 'rear'; cell: readonly [number, number] }[];
   lootSlots: readonly { cell: readonly [number, number]; tags: readonly string[] }[];
   guardSpawns: readonly { cell: readonly [number, number]; facing: string; patrol?: string }[];
+  /** Patrol routes by name: the cells a guard walks, in order. */
+  patrols: Readonly<Record<string, readonly (readonly [number, number])[]>>;
 }
 
 export interface GameState {

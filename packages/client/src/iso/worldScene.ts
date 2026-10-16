@@ -19,6 +19,7 @@ import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { drawInterior, type InteriorLoot } from './interior';
+import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 
 const PERFECT_RING_SEC = 0.8;
 
@@ -33,6 +34,7 @@ const DOOR_COLOUR = 0xe8c872;
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
 const PLAYER_COLOUR = 0x6bd3ff;
+const GUARD_COLOUR = 0x2c3e66, GUARD_HAT_COLOUR = 0x1a1a22;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
 /**
  * When a car hides the horse and rider (or you aboard), a round hole is cut through the cars in
@@ -88,6 +90,10 @@ export interface WorldSceneInput {
   loot: readonly InteriorLoot[];
   searching: number | null;
   inReach: number | null;
+  /** Guards in the car the player is aboard (the open one), in the world. */
+  guards?: readonly GuardView[];
+  /** Sight cones to draw on the floor (debug overlay or ?cones=on), or null. */
+  cones?: readonly ConeView[] | null;
 }
 
 /** What the scene needs from the config once: car layouts, the cell catalog and items. */
@@ -174,6 +180,13 @@ export function doorSpans(content: SceneContent, template: string): { side: 'lef
 
 function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR): void {
   drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, colour);
+}
+
+/** A guard: a dark uniform turned the way it faces, a hat with a brim toward its face, and its shadow. */
+function drawGuard(g: Graphics, v: GuardView): void {
+  groundEllipse(g, v.x, v.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
+  drawBox(g, { x: v.x, y: v.y, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS * 0.9, z0: 0, z1: 1.6 }, GUARD_COLOUR);
+  drawBox(g, { x: v.x + v.fx * 0.12, y: v.y + v.fy * 0.12, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS + 0.06, halfWidth: WALKER_RADIUS * 0.85, z0: 1.6, z1: 1.75 }, GUARD_HAT_COLOUR);
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
@@ -391,6 +404,18 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
+      // Guards in the open car, and their sight cones on the floor (debug).
+      for (const cone of input.cones ?? []) {
+        const col = GUARD_STATE_COLOURS[cone.state];
+        floors.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: cone.state === 'unaware' ? 0.14 : 0.26 }).stroke({ width: 1, color: col, alpha: 0.5 });
+      }
+      const guardsShown = input.guards ?? [];
+      for (const v of guardsShown) {
+        const g = piece();
+        drawGuard(g, v);
+        g.zIndex = depthOf(v.x, v.y);
+      }
+
       // The horse: a body box along its heading, a head, and the rider on top.
       horseG.clear();
       horseG.visible = input.horse !== null;
@@ -442,6 +467,20 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         const roof = () => isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
         if (car.trainId === f.committed && flashing) markers.poly(roof()).fill({ color: COMMITTED_COLOUR, alpha: 0.55 }).stroke({ width: 4, color: COMMITTED_COLOUR });
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
+      }
+
+      // Above each guard in view: an amber ? when suspicious, a red ! when alert.
+      for (const v of guardsShown) {
+        if (v.state === 'unaware') continue;
+        const col = GUARD_STATE_COLOURS[v.state];
+        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);
+        if (v.state === 'alert') {
+          markers.roundRect(x - 7, y - 12, 14, 24, 4).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
+          markers.rect(x - 1.5, y - 8, 3, 10).fill(0x111111).rect(x - 1.5, y + 5, 3, 3).fill(0x111111);
+        } else {
+          markers.circle(x, y, 8).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
+          markers.circle(x, y, 2.5).fill(0x111111);
+        }
       }
 
       // Entry markers on the riding side of the checked train: dim out of range, a ring when in

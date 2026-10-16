@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carriedWeight, commitTarget, createSim, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, WORLD_FRAME,
+  boardingCheck, carriedWeight, commitTarget, createSim, gridWalkable, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -17,10 +17,13 @@ import { ReportBuilder, type BoardingReport } from './report';
  */
 export type BotKind = 'idle' | 'random' | 'chaser';
 export const BOT_KINDS: readonly BotKind[] = ['idle', 'random', 'chaser'];
-// The carry flags and train mixes alternate with the combos, so both lootCarry variants and the map's
-// own trains and mixed trains are swept without doubling the runs.
+// The carry flags, train mixes, guard catch and handling models alternate with the combos, so every
+// option of those groups is swept without doubling the runs.
 export const VARIANT_COMBOS = ['screen', 'heading'].flatMap((steering) => ['hold', 'coast', 'cruise'].map((throttleModel) => ({ steering, throttleModel })))
-  .map((v, i) => ({ ...v, lootCarry: i % 2 ? 'unlimited' : 'limit-and-slowdown', trainMix: Math.floor(i / 2) % 2 ? 'mixed' : 'map' }));
+  .map((v, i) => ({
+    ...v, lootCarry: i % 2 ? 'unlimited' : 'limit-and-slowdown', trainMix: Math.floor(i / 2) % 2 ? 'mixed' : 'map',
+    guardCatch: i % 2 ? 'thrown-off' : 'heat-only', handlingModel: i % 3 === 2 ? 'arcade' : 'arcade-boost',
+  }));
 
 export interface BotSweepOptions { seeds: number; seconds: number; kinds?: readonly BotKind[]; map?: MapDef }
 export interface Violation { seed: string; bot: BotKind; variants: string; tick: number; message: string }
@@ -36,7 +39,9 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
   for (const h of s.world.horses) {
     for (const k of ['x', 'y', 'hx', 'hy', 'speed'] as const) if (!Number.isFinite(h[k])) return `horse ${h.id} ${k} is ${h[k]}`;
     if (Math.abs(Math.hypot(h.hx, h.hy) - 1) > 1e-3) return `horse ${h.id} heading length ${Math.hypot(h.hx, h.hy)}`;
-    if (h.speed < -EPS || h.speed > v.horse.maxSpeed + EPS) return `horse ${h.id} speed ${h.speed}`;
+    const top = v.horse.maxSpeed * (v.horse.boost.enabled ? v.horse.boost.topSpeedScale : 1);
+    if (h.speed < -EPS || h.speed > top + EPS) return `horse ${h.id} speed ${h.speed} over ${top}`;
+    if (h.boostTicks < 0 || h.boostCooldownTicks < 0 || (!v.horse.boost.enabled && h.boostTicks > 0)) return `horse ${h.id} boost ${h.boostTicks}/${h.boostCooldownTicks}`;
     if (h.x < 0 || h.y < 0 || h.x > sim.map.cols || h.y > sim.map.rows) return `horse ${h.id} off the map at (${h.x}, ${h.y})`;
     if (h.mode === 'physical') {
       for (const car of cars) if (pointInBox(h.x, h.y, car)) return `horse ${h.id} inside car ${car.trainId}:${car.index} at (${h.x}, ${h.y})`;
@@ -86,6 +91,15 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     const ids = new Set(run.loot.map((l) => l.id));
     if (ids.size !== run.loot.length) return 'duplicate loot ids';
     for (const l of run.loot) if (!v.items[l.item]) return `loot ${l.id} is unknown item ${l.item}`;
+    // Guards stay on walkable cells of the committed train, facing a unit direction.
+    const train = s.world.trains.find((t) => t.id === run.trainId)!;
+    const grid = trainGrid(config, train.cars);
+    for (const g of run.guards) {
+      if (g.car < 0 || g.car >= train.cars.length) return `guard ${g.id} in car ${g.car} of a ${train.cars.length}-car train`;
+      for (const k of ['x', 'y', 'fx', 'fy'] as const) if (!Number.isFinite(g[k])) return `guard ${g.id} ${k} is ${g[k]}`;
+      if (!gridWalkable(grid, toTrain(grid, g.car, g.x), g.y)) return `guard ${g.id} on an unwalkable cell (${g.x}, ${g.y}) of car ${g.car}`;
+      if (Math.abs(Math.hypot(g.fx, g.fy) - 1) > 1e-3) return `guard ${g.id} facing length ${Math.hypot(g.fx, g.fy)}`;
+    }
   }
   return null;
 }
@@ -110,6 +124,7 @@ function randomBot(rng: RngState): Brain {
     else if (roll < 27) c.push({ type: 'drop', slot: nextInt(rng, 'misc', 4) - 1 });
     // Heat from the debug keys, so the heat range and the faster drain see play.
     else if (roll < 30) c.push(roll < 29 ? { type: 'debugHeat' } : { type: 'debugHeat', source: 'alarmRaised' });
+    else if (roll < 34) c.push({ type: 'boost' });
     // Keep it in sight of the track: the stadium sits between y 30 and 170 on alpha-flats.
     const h = (sim.state as GameState).world.horses[0]!;
     if (h.y > sim.map.rows - 20 || h.y < 20 || h.x < 20 || h.x > sim.map.cols - 20) c.push({ type: 'quickRetry' });
@@ -160,6 +175,8 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
     if (s.run?.phase === 'boarding') return c;
     const check = boardingCheck(s, sim.map, config, trainId, h);
     if (t % 10 === 0) { const r = riderCommands(sim, config, trainId, check.side); move(r.x, r.y); }
+    // Boost now and then while catching up (rejected while cooling down or under handlingModel arcade).
+    if (t % 240 === 120 && check.state === 'too far') c.push({ type: 'boost' });
     if (s.run && check.state === 'eligible') {
       if (eligibleFor++ === 0) waitTicks = 1 + nextInt(rng, 'misc', 90);
       if (eligibleFor >= waitTicks) { c.push({ type: 'jump' }); eligibleFor = 0; }
@@ -187,7 +204,7 @@ export function runBotSweep(opts: BotSweepOptions): BotSweepResult {
   let runs = 0, total = 0;
   for (let i = 0; i < opts.seeds; i++) {
     const config = configs[i % configs.length]!;
-    const variants = `${config.variants.steering}+${config.variants.throttleModel}+${config.variants.lootCarry}+${config.variants.trainMix}`;
+    const variants = ['steering', 'throttleModel', 'lootCarry', 'trainMix', 'guardCatch', 'handlingModel'].map((g) => config.variants[g]).join('+');
     const seed = `bots-${i}`;
     for (const bot of kinds) {
       const sim = createSim({ config, map, seed, playerIds: [1] });
@@ -217,10 +234,11 @@ export interface BenchResult { ticks: number; meanUs: number; p99Us: number; max
 /**
  * Tick-time benchmark: the chaser bot (riding, commits, jumps and walking aboard all exercised)
  * over a few seeds on the real map, after a warm-up so the JIT has settled. Only `step` is timed.
+ * It runs the thrown-off preset, the costlier guard catch: alert guards path after the player.
  */
 export function benchTicks(opts: { seeds?: number; seconds?: number } = {}): BenchResult {
   const map = loadMapDef();
-  const config = loadConfig();
+  const config = loadConfig({ preset: 'thrown-off' });
   const ticks = Math.round((opts.seconds ?? 120) * config.values.sim.tickRateHz);
   const times: number[] = [];
   for (let i = -1; i < (opts.seeds ?? 3); i++) {

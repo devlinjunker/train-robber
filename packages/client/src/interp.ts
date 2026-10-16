@@ -1,13 +1,16 @@
 // Interpolation between the last two ticks. After each tick the host pushes the positions of
 // the actors the view draws; each frame draws a lerp between the previous and current tick by
 // the accumulator remainder. Only these numbers are copied, never the whole state.
-import type { CarPose, GameState } from '@train-robber/sim';
+import type { CarPose, GameState, GuardAwareness } from '@train-robber/sim';
 
 /** A jump this far in one tick (cancel, quick retry, boarding) snaps instead of sliding. */
 const SNAP_TILES = 3;
 const CAR_FIELDS = 4; // x, y, ux, uy
 
 export interface ActorPose { x: number; y: number; hx: number; hy: number }
+
+/** A guard in its car's frame, as the view draws it. */
+export interface GuardPose { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -24,6 +27,8 @@ export class Interpolator {
   private currFrame = '';
   private prevTrainD = new Map<string, number>();
   private currTrainD = new Map<string, number>();
+  private prevGuards = new Map<number, GuardPose>();
+  private currGuards = new Map<number, GuardPose>();
   private pushes = 0;
 
   /** Record the state after a tick. Call once per tick, after `sim.step`. */
@@ -47,7 +52,25 @@ export class Interpolator {
     [this.prevTrainD, this.currTrainD] = [this.currTrainD, this.prevTrainD];
     this.currTrainD.clear();
     for (const t of state.world.trains) this.currTrainD.set(t.id, t.d);
+
+    [this.prevGuards, this.currGuards] = [this.currGuards, this.prevGuards];
+    this.currGuards.clear();
+    for (const g of state.run?.guards ?? []) this.currGuards.set(g.id, { id: g.id, car: g.car, x: g.x, y: g.y, fx: g.fx, fy: g.fy, state: g.state });
     this.pushes++;
+  }
+
+  /** The run's guards at fraction `t`; one that changed car (or is new) snaps. */
+  guards(t: number): GuardPose[] {
+    const out: GuardPose[] = [];
+    for (const c of this.currGuards.values()) {
+      const p = this.prevGuards.get(c.id);
+      if (!p || p.car !== c.car) { out.push(c); continue; }
+      let fx = lerp(p.fx, c.fx, t), fy = lerp(p.fy, c.fy, t);
+      const n = Math.hypot(fx, fy);
+      if (n > 1e-6) { fx /= n; fy /= n; } else { fx = c.fx; fy = c.fy; }
+      out.push({ ...c, x: lerp(p.x, c.x, t), y: lerp(p.y, c.y, t), fx, fy });
+    }
+    return out;
   }
 
   /** Car poses at fraction `t` between the last two ticks. */
