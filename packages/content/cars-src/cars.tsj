@@ -1,0 +1,107 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "tiledversion": "1.10.2",
+ "name": "cars",
+ "tilewidth": 32,
+ "tileheight": 32,
+ "tilecount": 9,
+ "columns": 9,
+ "image": "cars.png",
+ "imagewidth": 288,
+ "imageheight": 32,
+ "margin": 0,
+ "spacing": 0,
+ "tiles": [
+  {
+   "id": 0,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "floor"
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "wall"
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "door"
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "window"
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "crate-stack"
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "barrel"
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "bench"
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "rug"
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "properties": [
+    {
+     "name": "cellType",
+     "type": "string",
+     "value": "creaky-boards"
+    }
+   ]
+  }
+ ]
+}

@@ -23,6 +23,8 @@ export interface MeterView {
 
 export interface TrainPointer {
   id: string;
+  /** The train's name for its arrow label, or null when train names are hidden (`hud.showTrainNames`). */
+  name: string | null;
   /** Screen position of the train's nearest car. */
   sx: number;
   sy: number;
@@ -56,6 +58,8 @@ export interface ScreenOverlayInput {
   /** Share of the good-landing stumble left, 1 to 0, or null when not stumbling. */
   stumble: number | null;
   distanceCue?: DistanceCue | null;
+  /** Progress of the search in progress, 0 to 1, or null. */
+  search: number | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -77,7 +81,8 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const cueLine = new Graphics();
   const cueLabel = new Text({ text: '', style: style(16) });
   cueLabel.anchor.set(0.5);
-  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, banner, bannerDetail);
+  const searchBar = new Graphics();
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, searchBar, banner, bannerDetail);
 
   return {
     root,
@@ -111,6 +116,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
 
       banner.visible = bannerDetail.visible = false;
       stumbleBar.clear();
+      searchBar.clear();
       if (input.player) {
         const { x, y } = input.player;
         const l = input.landing;
@@ -137,6 +143,12 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
           stumbleBar.roundRect(bx - 2, by - 2, w + 4, 10, 3).fill({ color: 0x000000, alpha: 0.6 });
           stumbleBar.rect(bx, by, w * input.stumble, 6).fill(0xffb02e);
         }
+        if (input.search !== null) {
+          // A filling white bar over the player's head while E is held on loot.
+          const w = 90, bx = x - w / 2, by = y - 40;
+          searchBar.roundRect(bx - 3, by - 3, w + 6, 14, 4).fill({ color: 0x000000, alpha: 0.65 });
+          searchBar.rect(bx, by, w * input.search, 8).fill(0xffffff);
+        }
       }
 
       // Edge arrows: a train whose nearest car is off screen gets an arrow on the edge toward it.
@@ -156,7 +168,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         let label = labels[used];
         if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
         label.visible = true;
-        label.text = `${t.id} ${t.distanceTiles.toFixed(0)}t`;
+        label.text = `${t.name ? `${t.name} ` : ''}${t.distanceTiles.toFixed(0)}t`;
         label.style.fill = colour;
         label.position.set(ax - ux * 34, ay - uy * 26);
         used++;

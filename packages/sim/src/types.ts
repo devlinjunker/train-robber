@@ -15,8 +15,13 @@ export type Command =
    * sees the screen. 0, 0 keeps the current heading. Ignored under heading-relative steering.
    */
   | { type: 'steer'; x: number; y: number }
-  /** E: commit to the train in range when idle (as `startRun` with no id); later loot, inspect and so on. */
+  /**
+   * E: commit to the train in range when idle (as `startRun` with no id). Aboard, E is held to
+   * search a loot slot: the client sends `held: true` on press and `held: false` on release.
+   */
   | { type: 'interact'; held: boolean }
+  /** Drop carried item `slot` (0 is the first picked up) onto the floor, to swap it for another. */
+  | { type: 'drop'; slot: number }
   /** Space: the boarding jump, sampling the meter on this tick. */
   | { type: 'jump' }
   /** Commit to a train; without an id, the nearest one that can be committed to. */
@@ -57,7 +62,9 @@ export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with';
+export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard';
+/** Why a finished search did not take its item: either carry cap would break. */
+export type LootRefusal = 'too heavy' | 'too many items';
 
 export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
@@ -79,7 +86,15 @@ export type SimEvent =
    * null with the countdown off) and `heat` the heat at the end.
    */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number }
-  | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState };
+  | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
+  /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
+  | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
+  /** A search finished but taking the item would break a carry cap, so it stays. */
+  | { type: 'LootRefused'; tick: number; player: PlayerId; item: string; reason: LootRefusal; loot: number }
+  | { type: 'LootRevealed'; tick: number; player: PlayerId; item: string; car: number; loot: number }
+  | { type: 'LootDropped'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
+  /** Releasing E or moving off the slot loses the search's progress (`progress` 0 to 1). */
+  | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number };
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
 
@@ -104,6 +119,25 @@ export interface PlayerRunState {
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
   lastHitDamage: number;
+  /** Item ids carried, in pickup order; a `drop` slot indexes this. */
+  carried: string[];
+  /** The search in progress: which loot and how many ticks E has been held on it. */
+  search: { loot: number; ticks: number } | null;
+  /** Set when a search ends (taken, refused or moved away) while E is still held; cleared on release. */
+  searchLatched: boolean;
+}
+
+/** A loot item lying in the committed train: placed by run generation, or dropped by a player. */
+export interface LootState {
+  id: number;
+  /** Car index in the train, and the cell centre in that car's frame. */
+  car: number;
+  x: number;
+  y: number;
+  item: string;
+  /** On a slot tagged hidden and not yet searched: drawn as a plain stash; searching it reveals the item and clears this. */
+  hidden: boolean;
+  taken: boolean;
 }
 
 export interface RunState {
@@ -129,6 +163,9 @@ export interface RunState {
   pendingHeat: number;
   /** Integer keys only, so key order is stable. */
   players: Record<PlayerId, PlayerRunState>;
+  /** Loot in the committed train, by ascending id. */
+  loot: LootState[];
+  nextLootId: number;
 }
 
 /**
@@ -149,6 +186,8 @@ export interface PlayerState {
   /** Latest intents. Commands only arrive when they change, so they persist here. */
   move: { x: number; y: number };
   steer: { x: number; y: number };
+  /** E is held (search). */
+  interactHeld: boolean;
   placement: Placement;
 }
 
@@ -183,6 +222,12 @@ export interface TrainState {
   d: number;
   /** Set when a run commits to this train (M3); the scheduler never replaces a pinned train. */
   pinnedBy: PlayerId | null;
+  /**
+   * Car template ids, engine first. Picked from the train type's layouts by the seed and the next
+   * run number, so the train a run commits to has the layouts of that run's seed; re-picked for
+   * every free train when a run ends.
+   */
+  cars: string[];
 }
 
 export interface WorldState {
@@ -249,13 +294,51 @@ export interface SimConfig {
       steering: Steering;
       throttleModel: ThrottleModel;
     };
-    trains: Readonly<Record<string, {
-      route: string;
-      speedTilesPerTick: number;
-      cars: readonly { template: string; count?: number }[];
-      countdown: { baseSec: number };
-    }>>;
+    trains: Readonly<Record<string, TrainDef>>;
+    trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
+    carry: { limitEnabled: boolean; slowdownEnabled: boolean; maxWeight: number; maxItems: number; slowdownFromWeight: number; minSpeedScale: number };
+    verbs: { search: { searchTimeTicks: number; hiddenSearchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
+    /** Scales every train's loot density (a balance knob, like countdown.scale). */
+    loot: { densityScale: number };
+    cellTypes: readonly CellTypeDef[];
+    items: Readonly<Record<string, ItemDef>>;
+    lootTables: Readonly<Record<string, LootTableDef>>;
+    carTemplates: Readonly<Record<string, CarTemplateDef>>;
   };
+}
+
+export interface TrainDef {
+  route: string;
+  speedTilesPerTick: number;
+  engine: string;
+  carType: string;
+  carCount: number;
+  layouts?: readonly string[];
+  caboose?: string;
+  requireSideDoors: 'both' | 'one' | 'off';
+  /** At most this many of the train's cars get side doors (the long-train preset sets 2). */
+  maxSideDoorCars?: number;
+  /** The run's countdown is baseSec x countdown.scale, copied into the run at commit. */
+  countdown: { baseSec: number };
+  loot?: { table: string; density: number };
+  verbs: readonly string[];
+}
+
+export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; colour: string }
+export interface ItemDef { name: string; value: number; weight: number; category: string; slotTags: readonly string[]; searchTimeTicks?: number }
+export interface LootTableDef {
+  items: readonly { item: string; weight: number }[];
+  prizes?: { count: readonly [number, number]; items: readonly { item: string; weight: number }[] };
+}
+/** A car layout as `tools build-cars` writes it; cells are [col, row], col 0 at the front and row 0 on the left. */
+export interface CarTemplateDef {
+  carType: string;
+  size: { cols: number; rows: number };
+  legend: readonly string[];
+  cells: readonly (readonly [number, number])[];
+  entryPoints: readonly { id: string; side: 'left' | 'right' | 'front' | 'rear'; cell: readonly [number, number] }[];
+  lootSlots: readonly { cell: readonly [number, number]; tags: readonly string[] }[];
+  guardSpawns: readonly { cell: readonly [number, number]; facing: string; patrol?: string }[];
 }
 
 export interface GameState {

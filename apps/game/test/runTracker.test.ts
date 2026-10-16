@@ -49,6 +49,19 @@ describe('run tracker', () => {
     expect(s!.setup).toBe('alpha-default · steering:heading throttleModel:coast · set countdown.scale=4');
     expect(s!.outcomes.expired).toBe(1);
   });
+  it('records the loot carried at run end: picked up minus dropped, shown in the summary and CSV', () => {
+    const t = createRunTracker(meta);
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    t.events([
+      ev({ type: 'LootPickedUp', tick: 10, player: 1, item: 'cash-bundle', value: 40, weight: 1, car: 1, loot: 0 }),
+      ev({ type: 'LootPickedUp', tick: 20, player: 1, item: 'strongbox', value: 300, weight: 6, car: 2, loot: 1 }),
+      ev({ type: 'LootDropped', tick: 30, player: 1, item: 'cash-bundle', value: 40, weight: 1, car: 2, loot: 2 }),
+    ], 'T1');
+    const [rec] = t.events([ev({ type: 'RunEnded', tick: 600, player: 1, outcome: 'cancelled', durationTicks: 600, boardingAttempts: 1, retry: false, countdownLeftSec: 140, heat: 2 })], 'T2');
+    expect(rec).toMatchObject({ lootValue: 300, lootItems: 1 });
+    expect(summarize([rec!, { ...rec!, id: 'x', lootValue: 100 }, { ...rec!, id: 'old', lootValue: undefined }])[0]!.avgLoot).toBe(200);
+    expect(toCsv([rec!]).split('\n')[1]).toContain(',300,1,');
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);

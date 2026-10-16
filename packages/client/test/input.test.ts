@@ -7,7 +7,7 @@ const iso = (over: Partial<MapContext> = {}): MapContext => ({
   steering: 'heading', aboard: false,
   // Aboard a car whose front points up-right on screen (world -y).
   keyDirToWorld, keyDirToCar: (dx, dy) => worldDirToCar(...keyDirToWorld(dx, dy), { ux: 0, uy: -1 }),
-  commitTarget: () => null, switchTarget: () => null, ...over,
+  commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, ...over,
 });
 
 describe('input mapper', () => {
@@ -41,9 +41,10 @@ describe('input mapper', () => {
 
   it('commit asks the commit query: a target gets startRun, none gets interact for the reason', () => {
     const m = new InputMapper();
-    expect(m.commands(snap([], ['commit']), iso({ commitTarget: () => 'blank-1' }))).toEqual([{ type: 'startRun', trainId: 'blank-1' }]);
+    // A tap (pressed and released between polls) is a press then a release.
+    expect(m.commands(snap([], ['commit']), iso({ commitTarget: () => 'blank-1' }))).toEqual([{ type: 'startRun', trainId: 'blank-1' }, { type: 'interact', held: false }]);
     expect(m.commands(snap([], ['commit', 'jump', 'cancel', 'retry']), iso())).toEqual([
-      { type: 'interact', held: false }, { type: 'jump' }, { type: 'cancelRun' }, { type: 'quickRetry' },
+      { type: 'interact', held: true }, { type: 'interact', held: false }, { type: 'jump' }, { type: 'cancelRun' }, { type: 'quickRetry' },
     ]);
   });
 
@@ -51,5 +52,23 @@ describe('input mapper', () => {
     const m = new InputMapper();
     expect(m.commands(snap([], ['switch']), iso({ switchTarget: () => 'blank-2' }))).toEqual([{ type: 'switchTrain', trainId: 'blank-2' }]);
     expect(m.commands(snap([], ['switch']), iso())).toEqual([{ type: 'switchTrain' }]);
+  });
+
+  it('aboard, holding E sends the hold and its release once each; X drops the last item', () => {
+    const m = new InputMapper();
+    const ctx = iso({ aboard: true, commitTarget: () => 'blank-1', carriedCount: () => 3 });
+    expect(m.commands(snap(['KeyE'], ['commit']), ctx)).toEqual([{ type: 'interact', held: true }]);
+    expect(m.commands(snap(['KeyE']), ctx)).toEqual([]);
+    expect(m.commands(snap([]), ctx)).toEqual([{ type: 'interact', held: false }]);
+    expect(m.commands(snap([], ['drop']), ctx)).toEqual([{ type: 'drop', slot: 2 }]);
+  });
+
+  it('number keys drop that item only while the inventory is open', () => {
+    const m = new InputMapper();
+    let open = false;
+    const ctx = iso({ aboard: true, carriedCount: () => 3, inventoryOpen: () => open });
+    expect(m.commands(snap([], ['slot1']), ctx)).toEqual([]);
+    open = true;
+    expect(m.commands(snap([], ['slot2', 'slot5']), ctx)).toEqual([{ type: 'drop', slot: 1 }]);
   });
 });

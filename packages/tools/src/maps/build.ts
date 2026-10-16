@@ -19,22 +19,22 @@ export const CLIFF_LEVELS = 2;
  * ground are not drawn yet, and a car is 3 tiles either side of the rails and swings wider on curves.
  */
 export const TRACK_FLAT_TILES = 6;
-const FLIP_MASK = 0x0fffffff;
+export const FLIP_MASK = 0x0fffffff;
 
-interface Prop { name: string; type?: string; value: unknown }
-interface TiledObject {
+export interface Prop { name: string; type?: string; value: unknown }
+export interface TiledObject {
   id: number; name: string; x: number; y: number; width?: number; height?: number;
   point?: boolean; ellipse?: boolean; polyline?: Vec[]; polygon?: Vec[]; properties?: Prop[]; type?: string; class?: string;
 }
-interface TiledLayer {
+export interface TiledLayer {
   name: string; type: 'tilelayer' | 'objectgroup' | 'group' | 'imagelayer';
   width?: number; height?: number; data?: number[] | string; encoding?: string; compression?: string;
   objects?: TiledObject[]; layers?: TiledLayer[];
 }
-interface TiledTileset { firstgid: number; source?: string; name?: string; tiles?: { id: number; properties?: Prop[] }[] }
-interface TiledMap {
+export interface TiledTileset { firstgid: number; source?: string; name?: string; tiles?: { id: number; properties?: Prop[] }[] }
+export interface TiledMap {
   orientation: string; infinite: boolean; width: number; height: number;
-  tilewidth: number; tileheight: number; layers: TiledLayer[]; tilesets: TiledTileset[];
+  tilewidth: number; tileheight: number; layers: TiledLayer[]; tilesets: TiledTileset[]; properties?: Prop[];
 }
 
 export interface BuildResult {
@@ -52,15 +52,15 @@ export class MapError extends Error {
   constructor(file: string, detail: string) { super(`${file}: ${detail}`); this.name = 'MapError'; }
 }
 
-const prop = (props: Prop[] | undefined, name: string) => props?.find((p) => p.name === name)?.value;
+export const prop = (props: Prop[] | undefined, name: string) => props?.find((p) => p.name === name)?.value;
 const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
 const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
-function flatten(layers: TiledLayer[]): TiledLayer[] {
+export function flatten(layers: TiledLayer[]): TiledLayer[] {
   return layers.flatMap((l) => (l.type === 'group' ? flatten(l.layers ?? []) : [l]));
 }
 
-function tileData(layer: TiledLayer, fail: (m: string) => never): number[] {
+export function tileData(layer: TiledLayer, fail: (m: string) => never): number[] {
   if (Array.isArray(layer.data)) return layer.data;
   if (typeof layer.data !== 'string' || layer.encoding !== 'base64') fail(`layer ${layer.name}: unsupported tile encoding ${layer.encoding ?? 'none'}`);
   let bytes: Buffer = Buffer.from(layer.data, 'base64');
@@ -226,11 +226,11 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
       const angle = Math.acos(Math.min(1, Math.max(-1, a.x * b.x + a.y * b.y)));
       if (angle > 1e-9) minRadiusTiles = Math.min(minRadiusTiles, rs.spacing / angle);
     }
-    // Optional `trains` (how many) and `trainType` (default blank): spaced evenly round the route.
+    // Optional `trains` (how many) and `trainType` (default mail-express, the mail train): spaced evenly round the route.
     const count = prop(o.properties, 'trains');
     if (count !== undefined) {
       if (!Number.isInteger(count) || (count as number) < 0) fail(`route ${id}: trains must be a whole number`);
-      const type = String(prop(o.properties, 'trainType') ?? 'blank');
+      const type = String(prop(o.properties, 'trainType') ?? 'mail-express');
       for (let k = 0; k < (count as number); k++) trains.push({ type, route: id, d: r4((rs.length * k) / (count as number)) });
     }
     return {
@@ -381,7 +381,7 @@ export function buildMapFile(path: string): BuildResult {
 }
 
 /** JSON with objects indented and arrays of numbers kept on one line. */
-export function stringifyMap(map: MapDef | SceneryDef): string {
+export function stringifyMap(map: unknown): string {
   const fmt = (v: unknown, ind: string): string => {
     if (Array.isArray(v)) {
       if (v.every((x) => typeof x !== 'object' || (Array.isArray(x) && x.every((y) => typeof y !== 'object')))) return JSON.stringify(v);

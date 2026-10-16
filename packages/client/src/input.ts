@@ -4,19 +4,25 @@
 import type { Command, Steering } from '@train-robber/sim';
 
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
-export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'heat' | 'alarm';
-export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'exportLogs' | 'addNote' | 'toggleMute';
+/** 1 to 9 drop that item from the open inventory (I). */
+export type SlotAction = `slot${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
+export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'heat' | 'alarm' | SlotAction;
+export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'toggleInventory' | 'exportLogs' | 'addNote' | 'toggleMute';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
-  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch',
+  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
   // Playtest debug: H raises heat by a step, Shift+H raises an alarm's worth (see actionFor).
   KeyH: 'heat', KeyU: 'toggleMute',
+  // I shows what you carry; with it open, 1 to 9 drop that item.
+  KeyI: 'toggleInventory',
+  ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, `slot${i + 1}` as SlotAction])),
 };
-const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'heat', 'alarm']);
+const SLOT_ACTIONS = Array.from({ length: 9 }, (_, i) => `slot${i + 1}` as SlotAction);
+const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'heat', 'alarm', ...SLOT_ACTIONS]);
 
 /** The action a key press means; Shift+H is the alarm debug key. */
 export function actionFor(code: string, shift: boolean): Action | undefined {
@@ -75,6 +81,10 @@ export interface MapContext {
   commitTarget(): string | null;
   /** The switch query's answer: the train Tab would move the run to, if any. */
   switchTarget(): string | null;
+  /** How many items the player carries; X drops the last one picked up. */
+  carriedCount(): number;
+  /** Whether the inventory panel (I) is open, so number keys drop items. */
+  inventoryOpen(): boolean;
 }
 
 /**
@@ -94,6 +104,7 @@ const q = (v: number) => Math.round(Math.max(-FULL, Math.min(FULL, v))) || 0; //
 export class InputMapper {
   private lastMove = { x: 0, y: 0 };
   private lastSteer = { x: 0, y: 0 };
+  private eDown = false;
 
   /** Commands for one tick. Intents are only sent when they change, which keeps the log small. */
   commands(snap: InputSnapshot, ctx: MapContext): Command[] {
@@ -121,12 +132,19 @@ export class InputMapper {
     if (x !== this.lastMove.x || y !== this.lastMove.y) out.push({ type: 'move', x, y });
     if (sx !== this.lastSteer.x || sy !== this.lastSteer.y) out.push({ type: 'steer', x: sx, y: sy });
     this.lastMove = { x, y }; this.lastSteer = { x: sx, y: sy };
+    // E: a press commits while riding (or searches aboard) and a release ends the hold, so the sim
+    // always knows whether E is held. A tap shorter than a tick still arrives as a queued press.
+    const eHeld = k.has('KeyE');
+    if (!this.eDown && (eHeld || snap.actions.includes('commit'))) {
+      this.eDown = true;
+      // Riding, ask the sim which train, if any, can be committed; with none, interact gets the reason.
+      const target = ctx.aboard ? null : ctx.commitTarget();
+      out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: true });
+    }
+    if (this.eDown && !eHeld) { this.eDown = false; out.push({ type: 'interact', held: false }); }
     for (const a of snap.actions) {
-      if (a === 'commit') {
-        // Ask the sim which train, if any, can be committed; with none, interact gets the reason.
-        const target = ctx.commitTarget();
-        out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: false });
-      } else if (a === 'jump') out.push({ type: 'jump' });
+      if (a === 'commit') continue;
+      if (a === 'jump') out.push({ type: 'jump' });
       else if (a === 'cancel') out.push({ type: 'cancelRun' });
       else if (a === 'switch') {
         // Name the train the prompt showed; with none, the sim says why.
@@ -135,6 +153,12 @@ export class InputMapper {
       }
       else if (a === 'heat') out.push({ type: 'debugHeat' });
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
+      else if (a === 'drop') out.push({ type: 'drop', slot: Math.max(0, ctx.carriedCount() - 1) });
+      else if (a.startsWith('slot')) {
+        // Number keys only drop while the inventory is open, and only an item that is there.
+        const slot = Number(a.slice(4)) - 1;
+        if (ctx.inventoryOpen() && slot < ctx.carriedCount()) out.push({ type: 'drop', slot });
+      }
       else out.push({ type: 'quickRetry' });
     }
     return out;

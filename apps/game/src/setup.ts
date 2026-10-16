@@ -3,6 +3,10 @@
 // Each `set=<path>=<value>` is a run-time override of one config value, recorded in the log header.
 import { loadContent, overridesFromSet, resolveConfig, type ContentFile, type ResolvedConfig } from '@train-robber/config';
 import base from '@train-robber/content/base/game.json';
+import cellTypes from '@train-robber/content/base/cell-types.json';
+import items from '@train-robber/content/base/items.json';
+import lootTables from '@train-robber/content/base/loot-tables.json';
+import carTemplates from '@train-robber/content/base/car-templates.json';
 
 const DEFAULT_PRESET = 'alpha-default';
 
@@ -11,6 +15,12 @@ const files = (mods: Record<string, unknown>): ContentFile[] =>
 
 const content = loadContent({
   base: { file: 'base/game.json', data: base },
+  catalogs: {
+    cellTypes: { file: 'base/cell-types.json', data: cellTypes },
+    items: { file: 'base/items.json', data: items },
+    lootTables: { file: 'base/loot-tables.json', data: lootTables },
+    carTemplates: { file: 'base/car-templates.json', data: carTemplates },
+  },
   variants: files(import.meta.glob('../../../packages/content/variants/*.json', { eager: true })),
   presets: files(import.meta.glob('../../../packages/content/presets/*.json', { eager: true })),
 });

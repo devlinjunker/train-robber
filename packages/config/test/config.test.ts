@@ -24,7 +24,11 @@ const base = {
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
   loot: { densityScale: 1 },
-  trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }], countdown: { baseSec: 150 } } },
+  trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
+  trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
+  carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
+  verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
+  hud: { showTrainNames: true },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
@@ -35,9 +39,21 @@ const base = {
 const variant = (group: string, id: string, patch: object) =>
   ({ file: `variants/${id}.json`, data: { schemaVersion: 1, id, group, label: id, question: '?', patch } });
 
+const car = (carType: string) => ({
+  carType, size: { cols: 2, rows: 2 }, legend: ['wall'], cells: [[4, 0]], entryPoints: [], lootSlots: [], guardSpawns: [], patrols: {},
+  roofAccess: [], corridor: false, source: { file: `${carType}.tmj`, hash: '0' },
+});
+const catalogs = {
+  cellTypes: { file: 'base/cell-types.json', data: { schemaVersion: 1, cellTypes: [{ id: 'wall', blocksMove: true, blocksSight: true, cover: 1, colour: '#000000' }] } },
+  items: { file: 'base/items.json', data: { schemaVersion: 1, items: { letter: { name: 'Letter', value: 5, weight: 0.1, category: 'mail', slotTags: ['small'] } } } },
+  lootTables: { file: 'base/loot-tables.json', data: { schemaVersion: 1, lootTables: { mail: { items: [{ item: 'letter', weight: 1 }] } } } },
+  carTemplates: { file: 'base/car-templates.json', data: { schemaVersion: 1, generatedBy: 'test', cars: { engine: car('engine'), 'blank-car': car('blank-car') } } },
+};
+
 function content(extra: Partial<ContentSet> = {}): ContentSet {
   return {
     base: { file: 'base/game.json', data: base },
+    catalogs,
     variants: [
       variant('boardingFailure', 'time-and-damage', {}),
       variant('boardingFailure', 'time-only', { boarding: { failure: { damageFraction: 0 } } }),
@@ -177,5 +193,50 @@ describe('?set= overrides', () => {
     const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: overridesFromSet(['countdown.scale=4']) });
     expect(r.values.countdown.scale).toBe(4);
     expect(r.overrides).toEqual({ countdown: { scale: 4 } });
+  });
+});
+
+describe('presets that build on others, two levels deep', () => {
+  const withPresets = (...presets: object[]) => content({ presets: [
+    { file: 'presets/p.json', data: { schemaVersion: 1, id: 'p', variants: { boardingFailure: 'time-and-damage' } } },
+    ...presets.map((data, i) => ({ file: `presets/x${i}.json`, data: { schemaVersion: 1, ...data } })),
+  ] });
+  it('inherits variants, overrides some, and sets values before URL overrides', () => {
+    const c = loadContent(withPresets(
+      { id: 'long', extends: 'p', variants: {}, values: { trains: { blank: { carCount: 6 } }, countdown: { scale: 4 } } },
+      { id: 'longer', extends: 'long', variants: { boardingFailure: 'time-only' }, values: { countdown: { scale: 5 } } },
+    ));
+    const long = resolveConfig(c, { preset: 'long' });
+    expect(long.variants).toEqual({ boardingFailure: 'time-and-damage' });
+    expect([long.values.trains.blank!.carCount, long.values.countdown.scale]).toEqual([6, 4]);
+    const longer = resolveConfig(c, { preset: 'longer' });
+    expect(longer.variants).toEqual({ boardingFailure: 'time-only' });
+    expect([longer.values.trains.blank!.carCount, longer.values.countdown.scale, longer.values.boarding.failure.damageFraction]).toEqual([6, 5, 0]);
+    expect(resolveConfig(c, { preset: 'longer', overrides: { countdown: { scale: 2 } } }).values.countdown.scale).toBe(2);
+  });
+});
+
+describe('catalogs and cross-references', () => {
+  it('merges the catalogs into the config, where the hash covers them', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p' });
+    expect(r.values.carTemplates.engine!.carType).toBe('engine');
+    expect(r.values.items.letter!.weight).toBe(0.1);
+    const changed = content();
+    (changed.catalogs.items.data as { items: { letter: { weight: number } } }).items.letter.weight = 0.2;
+    expect(resolveConfig(loadContent(changed), { preset: 'p' }).hash).not.toBe(r.hash);
+    (changed.catalogs.items.data as { items: { letter: { weight: number } } }).items.letter.weight = 0.1;
+  });
+  it('names a train template, layout or loot table that does not exist', () => {
+    const c = loadContent(content());
+    expect(() => resolveConfig(c, { preset: 'p', overrides: { trains: { blank: { engine: 'nope' } } } })).toThrow(/at trains.blank.engine: unknown car template nope/);
+    expect(() => resolveConfig(c, { preset: 'p', overrides: { trains: { blank: { layouts: ['engine'] } } } })).toThrow(/trains.blank.layouts.0: engine is a engine, not a blank-car/);
+    expect(() => resolveConfig(c, { preset: 'p', overrides: { trains: { blank: { loot: { table: 'gold', density: 1 } } } } })).toThrow(/trains.blank.loot.table: unknown loot table gold/);
+    expect(() => resolveConfig(c, { preset: 'p', overrides: { trainMix: { blankTrain: 'ghost' } } })).toThrow(/trainMix.blankTrain: unknown train ghost/);
+  });
+  it('names a car that uses a cell type the catalog lacks', () => {
+    const bad = content();
+    const cars = (bad.catalogs.carTemplates.data as { cars: Record<string, { legend: string[] }> }).cars;
+    bad.catalogs = { ...bad.catalogs, carTemplates: { ...bad.catalogs.carTemplates, data: { schemaVersion: 1, generatedBy: 't', cars: { ...cars, engine: { ...cars.engine, legend: ['lava'] } } } } };
+    expect(() => resolveConfig(loadContent(bad), { preset: 'p' })).toThrow(/carTemplates.engine.legend.0: unknown cell type lava/);
   });
 });

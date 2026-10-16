@@ -5,13 +5,14 @@ import { BOT_KINDS, checkInvariants, runBotSweep, VARIANT_COMBOS } from '../src/
 import { loadConfig, loadMapDef } from '../src/content';
 
 describe('bot sweep', () => {
-  it('every bot kind over every variant combo breaks no invariant, and the chaser boards', () => {
+  it('every bot kind over every variant combo breaks no invariant, and the chaser boards and loots', () => {
     const r = runBotSweep({ seeds: VARIANT_COMBOS.length * 2, seconds: 60 });
     expect(r.violations).toEqual([]);
     expect(r.runs).toBe(VARIANT_COMBOS.length * 2 * BOT_KINDS.length);
     expect(r.reports.idle.runs).toBe(0);
     expect(r.reports.random.runs).toBeGreaterThan(0);
     expect(r.reports.chaser.boarded).toBeGreaterThan(0);
+    expect(r.reports.chaser.loot.picked).toBeGreaterThan(0);
   }, 60_000);
 
   it('the invariant check catches a horse inside a car, a bad speed and a stray placement', () => {

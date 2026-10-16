@@ -54,17 +54,21 @@ Built in the M1 PR (branch `claude/phase-2-m1-countdown-heat`). The grace check 
 
 ### M2: Mail train and loot
 
-- [ ] `mail-express` train config: engine, 3 mail cars, caboose, speed, `countdown.baseSec`, loot table and density, entry points
-- [ ] Tiled car pipeline (`tools build-cars`, G6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
-- [ ] `items.json` and `loot-tables.json` (`mail-small-items`): value, weight, category, slot tags; mostly small items plus one or two heavy prizes per train, and a drop command to swap items (G13)
-- [ ] Run generation: build the committed train's cars and fill loot slots from the `gen` stream; two layouts per car type picked by seed
-- [ ] Walk between cars through end doors, so the whole train is one interior (multi-car interiors were deferred to Phase 2 in the ideas list)
-- [ ] Car count, search time and hidden loot as plain config values (G2, G23), plus ready-made playtest presets
-- [ ] `search` verb: hold E on a loot slot for `searchTimeSec`, then `LootPickedUp` and `lootTaken` heat
-- [ ] Carry limit and weight slowdown as separate flags (C3), with slowdown from 6 to the 10-unit max and a 20-item cap (G25); `lootCarry` variant group (`limit-and-slowdown`, `unlimited`)
-- [ ] Cell catalog `cell-types.json` with movement and sight; noise values wait for M3
-- [ ] Iso renderer draws the mail car interior, loot slots and props; HUD shows carried value and weight
-- [ ] Trains on the map: mail by default, blank decoys mixable per map or by the trainMix variant group (all-mail, mixed, mostly-blank), and an option to hide train names on the off-screen arrows (G17)
+- [x] `mail-express` train config: engine, 3 mail cars, caboose, speed, `countdown.baseSec`, loot table and density, entry points
+- [x] Tiled car pipeline (`tools build-cars`, G6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
+- [x] `items.json` and `loot-tables.json` (`mail-small-items`): value, weight, category, slot tags; mostly small items plus one or two heavy prizes per train, and a drop command to swap items (G13)
+- [x] Run generation: build the committed train's cars and fill loot slots from the `gen` stream; two layouts per car type picked by seed
+- [x] Walk between cars through end doors, so the whole train is one interior (multi-car interiors were deferred to Phase 2 in the ideas list)
+- [x] Car count, search time and hidden loot as plain config values (G2, G23), plus ready-made playtest presets
+- [x] `search` verb: hold E on a loot slot for `searchTimeSec`, then `LootPickedUp` and `lootTaken` heat
+- [x] Carry limit and weight slowdown as separate flags (C3), with slowdown from 6 to the 10-unit max and a 20-item cap (G25); `lootCarry` variant group (`limit-and-slowdown`, `unlimited`)
+- [x] Cell catalog `cell-types.json` with movement and sight; noise values wait for M3
+- [x] Iso renderer draws the mail car interior, loot slots and props; HUD shows carried value and weight
+- [x] Trains on the map: mail by default, blank decoys mixable per map or by the trainMix variant group (all-mail, mixed, mostly-blank), and an option to hide train names on the off-screen arrows (G17)
+
+Built in the M2 PR ([#17](https://github.com/devlinjunker/train-robber/pull/17), branch claude/phase-2-m2-mail-train-loot). There are three mail layouts (doors on both sides, one side, end doors only) plus engine, caboose and a blank car, and each train's layouts are picked from the next run's seed so doors show before you commit. `requireSideDoors: both` swaps picks so every mail train can be boarded from either side. Loot density is the share of a train's eligible slots that get a small item. Each pickup raises `lootTaken` heat and `loot.densityScale` scales density (wired in after M1 merged). `?car=<id>` opens one car on its own with overlays for checking a layout.
+
+After Devlin's M2 playtest (2026-10-14): search time per item (letters 0.8 s, large prizes 2.2 s, `verbs.search.timeScale` for the slow preset), hidden loot on by default, an inventory panel (I, then 1-9 drops that item), loot slots in the caboose, a walkable engine cab behind the boiler, long trains capped at 2 door cars with less loot (`maxSideDoorCars`, `loot.densityScale` 0.7), blank cars a slightly greyer brown, and the carry stats under the health bar. Then (Devlin, 2026-10-14): a hidden stash takes 1.8 s to search and reveals its item to be searched again, mixed trains are the default (preset map-trains for the map's own trains), long-train leaves run length to `countdown.scale`, and the engine's front is solid wall. Open from it: maps feel small for long trains, and a 10-minute run is too long for looting alone until guards arrive.
 
 ### M3: Light guards and detection
 
@@ -119,12 +123,12 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | no-time-aboard-heat preset | Preset | timeAboardPerSec 0 | Lingering heat off | M1 |
 | lootCarry | Variant group | limit-and-slowdown, unlimited | Does carry weight make choices interesting (C3) | M2 |
 | carry.maxWeight, carry.maxItems, carry.slowdownFrom | Values | 10, 20, 6 | Carry limit tuning (G25) | M2 |
-| Train cars count | Value | 3; long-train preset sets 6 | Does a longer train fill a medium run (G2) | M2 |
-| verbs.search.searchTimeSec | Value | 1.2 s; slow-search preset sets 3 s | Does slower looting fill a medium run (G2) | M2 |
-| Hidden loot | Value (on/off) | off; slow-search preset turns it on | Same as above | M2 |
-| trainMix | Variant group | map (the map's own trains and trainType), all-mail, mixed, mostly-blank | Are blank decoy trains interesting (G17) | M2 |
-| Hide train names on arrows | Client option | names shown | Does a mix only work as a guess (G17) | M2 |
-| long-train, slow-search presets | Presets | as above | What fills a medium run | M2 |
+| Train cars count | Value | 3; long-train preset sets 6, with side doors on at most 2 cars and loot density × 0.7 (M2 playtest) | Does a longer train fill a medium run (G2) | M2 |
+| verbs.search.searchTimeSec | Value | 1.2 s, with per-item times (letters 0.8 s, large prizes 2.2 s) since the M2 playtest; slow-search scales all by 2.5 | Does slower looting fill a medium run (G2) | M2 |
+| Hidden loot | Value (on/off) | on since the M2 playtest (Devlin, 2026-10-14), so stashes can be missed; searching one (`hiddenSearchTimeSec` 1.8 s) reveals the item to grab | Same as above | M2 |
+| trainMix | Variant group | mixed (default since Devlin 2026-10-14), map (the map's own trains and trainType), all-mail, mostly-blank | Are blank decoy trains interesting (G17) | M2 |
+| Hide train names on arrows | Client option | names hidden (Devlin, 2026-10-14) | Does a mix only work as a guess (G17) | M2 |
+| long-train (no countdown change), slow-search presets | Presets | as above | What fills a medium run | M2 |
 | doors-both-sides preset | Preset | train picks only layouts with doors on both sides | Restricted doors vs doors everywhere (G21) | M2 |
 | guardCatch | Variant group | heat-only, thrown-off | What an alert guard does without combat (G4) | M3 |
 | handlingModel | Variant group | arcade-boost, arcade | Is the horse boost worth it (G20) | M3 |
@@ -136,7 +140,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | wanted.forceLevel (?wanted=) | Value | none; forced runs save nothing | Play any wanted level without grinding (G9) | M5 |
 | Reset save (button and ?resetSave=1) | Tool | off | Start fresh while playtesting (G27) | M5 |
 
-Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, mixed-trains, thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
+Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
 
 ## Decided values
 
@@ -239,14 +243,14 @@ Decisions from grilling the plan with Devlin, newest last.
 | G14 | What happens on each mount jump result? | Perfect: clean mount. Good (the amber zone): you land on the horse but spill loot. Fail: you stay on the train, stumble, take the usual failure damage, and can retry while the horse is alongside; after its pace window, re-whistle after the cooldown | 2026-10-11 |
 | G15 | What spills on a good mount? | Playtest all three as a mountSpill variant group: random (one item at random, the default, drawn from a seeded stream), heaviest (your heaviest item) and share (a fraction of carried value). Spilled loot is gone for the run | 2026-10-11 |
 | G16 | Should guards come before extraction? | Yes. New order: M1 countdown and heat, M2 mail train and loot, M3 light guards, M4 extraction, M5 wanted level and saving, M6 tests and playtest | 2026-10-11 |
-| G17 | Which trains run on the map? | Configurable. Default: every train is a mail train. A map or preset can mix in blank trains as empty decoys (per-track trainType from PR #10). A client option hides train type names on the off-screen arrows so a mix stays a guess; names shown by default. A trainMix variant group switches mixes: all-mail (default), mixed (about half blank) and mostly-blank; it overrides the map's trainType | 2026-10-11 |
+| G17 | Which trains run on the map? | Configurable. Default: every train is a mail train. A map or preset can mix in blank trains as empty decoys (per-track trainType from PR #10). A client option hides train type names on the off-screen arrows so a mix stays a guess; names hidden by default (changed from shown by Devlin, 2026-10-14). A trainMix variant group switches mixes: all-mail (default), mixed (about half blank) and mostly-blank; it overrides the map's trainType. Mixed became the default (Devlin, 2026-10-14) | 2026-10-11 |
 | G18 | What counts as already escaping when the clock runs out? | The horse is alongside and you are within reach of a door on its side: expiry waits up to the grace window, so you get a last try or two. Updates the wording of U3 in the technical design | 2026-10-11 |
 | G19 | How does wanted level come down? | No way down in Phase 2 (Reset save while playtesting). Tracked on the wiki Ideas page and in the technical design as required before progression: a way to lower wanted level, such as a clean getaway or decay | 2026-10-11 |
 | G20 | Should the horse get a boost now? | Yes, on by default: a short burst above top speed with a cooldown, built in M3 with the guards. A handlingModel switch (arcade-boost default, arcade without it) turns it off. Answers Q16 | 2026-10-11 |
 | G21 | Where can you board the mail train? (Q6, Q20) | Restricted: only some mail car layouts have side doors, set by each layout's `entryPoints` layer in Tiled and drawn on the car's outside in the world view. Where you board and where you mount matter, since the horse comes up on your side and you may need to walk to a car with a door on that side. To compare with doors everywhere, a variant limits the train to layouts with doors on both sides, so at least one starter layout has them; there is no separate all-doors switch | 2026-10-11 |
 | G22 | Run length as named options or a number? | A number: drop the runLength variant group; countdown.scale (and loot.densityScale) are plain config values. A generic URL override (for example ?set=countdown.scale=4) sets any config value, recorded in the log header's overrides like variants are. Presets may carry values too. Replaces Q7's multiplier question with starting values | 2026-10-11 |
 | G23 | Should other number-like switches become plain numbers? | Yes. trainLength becomes the train's car count, graceWindow becomes countdown.graceSec, and searchPace splits into a search time and a hidden-loot on/off value. Named variant groups stay only for behaviour choices (guardCatch, horseArrivalCue, mountSpill, trainMix, handlingModel) | 2026-10-11 |
-| G24 | Starting numbers (Q7-Q10) | Mail countdown base 150 s, countdown.scale 1 (medium preset 4); grace 3 s; 3 cars (preset 6); search 1.2 s (slow preset 3 s with hidden loot); horse delay 5-20 s, alongside 10 s, re-whistle 5 s later; mount meter zones 3% and 15% at the 1.85 s matched sweep; carry 10 weight units with speed down to 50% at the limit; boost 1.5 s at +40% top speed, 6 s cooldown. Carry max: see G25 | 2026-10-11 |
+| G24 | Starting numbers (Q7-Q10) | Mail countdown base 150 s, countdown.scale 1 (medium preset 4); grace 3 s; 3 cars (preset 6); search 1.2 s (slow preset 3 s with hidden loot; after the M2 playtest, Devlin 2026-10-14: letters 0.8 s, large prizes 2.2 s, slow preset × 2.5, hidden loot on by default); horse delay 5-20 s, alongside 10 s, re-whistle 5 s later; mount meter zones 3% and 15% at the 1.85 s matched sweep; carry 10 weight units with speed down to 50% at the limit; boost 1.5 s at +40% top speed, 6 s cooldown. Carry max: see G25 | 2026-10-11 |
 | G25 | Max carry limit | Both: slowdown starts at 6 weight units and ramps to 50% speed at the hard max of 10, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6. Pickups that would break either cap are refused | 2026-10-11 |
 | G26 | Heat from time aboard (Q11) | A config value to test, not a fixed choice: heat.sources.timeAboardPerSec stays 0 by default, a playtest preset sets 0.2, and the URL override can set any value. M1 playtest (2026-10-13): Devlin wants it on by default at 0.33 with a way to turn it off, so the default is 0.33 and a no-time-aboard-heat preset sets 0 | 2026-10-11, 2026-10-13 |
 | G27 | Does moving cancel a search? (Q12) | You can slow-walk while searching (starting at 30% walk speed). Releasing E cancels, and moving more than 1.5 tiles from the loot spot cancels automatically; a cancelled search loses its progress | 2026-10-11 |

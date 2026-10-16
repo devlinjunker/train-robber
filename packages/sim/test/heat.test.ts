@@ -29,7 +29,7 @@ const heatCfg = (over: Partial<Values['heat']> = {}, sources: Partial<Values['he
 
 function committed(cfg: SimConfig = config): Sim {
   const sim = setup(cfg);
-  step(sim, { type: 'interact', held: false });
+  step(sim, { type: 'interact', held: true });
   return sim;
 }
 
@@ -52,7 +52,7 @@ describe('countdown', () => {
   it('starts at commit with the train\'s baseSec x countdown.scale, and RunStarted carries it and the wanted level', () => {
     const cfg = withValues({ countdown: { ...config.values.countdown, scale: 4 } });
     const sim = setup(cfg);
-    const ev = step(sim, { type: 'interact', held: false });
+    const ev = step(sim, { type: 'interact', held: true });
     expect(of(ev, 'RunStarted')[0]).toMatchObject({ countdownSec: 600, wantedLevel: 0 });
     expect(S(sim).run).toMatchObject({ countdownTotalSec: 600, clockRunning: true, heat: 0 });
     // The commit tick already drains one tick.
@@ -64,7 +64,7 @@ describe('countdown', () => {
   it('with countdown.enabled off never drains or expires, and the events carry null', () => {
     const cfg = withValues({ countdown: { ...config.values.countdown, enabled: false } });
     const sim = setup(cfg);
-    const ev = step(sim, { type: 'interact', held: false });
+    const ev = step(sim, { type: 'interact', held: true });
     expect(of(ev, 'RunStarted')[0]!.countdownSec).toBeNull();
     S(sim).run!.countdownSec = 0.01;
     steps(sim, 120);

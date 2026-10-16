@@ -49,11 +49,14 @@ export interface RunRecord extends SessionMeta {
   countdownLeftSec?: number | null;
   /** Heat when the run ended; missing on older records. */
   heatAtEnd?: number;
+  /** Dollar value and count of the loot carried when the run ended (picked up minus dropped); missing on records from before loot. */
+  lootValue?: number;
+  lootItems?: number;
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number }
 
 export interface RunTracker {
   /**
@@ -82,6 +85,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
+    lootValue: o.lootValue, lootItems: o.lootItems,
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -95,7 +99,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
       const ended: RunRecord[] = [];
       for (const ev of events) {
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0 };
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0 };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
         else if (ev.type === 'RunPhaseChanged') {
@@ -105,6 +109,8 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'DamageDealt') open.damage += ev.amount;
         else if (ev.type === 'CommandRejected') { const k = `${ev.command}: ${ev.reason}`; open.rejections[k] = (open.rejections[k] ?? 0) + 1; }
         else if (ev.type === 'HeatChanged') open.heat = ev.heat;
+        else if (ev.type === 'LootPickedUp') { open.lootValue += ev.value; open.lootItems++; }
+        else if (ev.type === 'LootDropped') { open.lootValue -= ev.value; open.lootItems--; }
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat;
           ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));

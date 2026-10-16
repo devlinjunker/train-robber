@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "no-carry-limit",
+  "extends": "alpha-default",
+  "variants": {
+    "lootCarry": "unlimited"
+  }
+}

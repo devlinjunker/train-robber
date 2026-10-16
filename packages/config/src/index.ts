@@ -1,9 +1,13 @@
 import type { ZodError, ZodType } from 'zod';
 import { hashState } from '@train-robber/sim';
 import { GameSchema, PresetSchema, VariantSchema, type Game, type Preset, type Variant } from './schema';
+import { CarTemplatesFileSchema, CellTypesFileSchema, ItemsFileSchema, LootTablesFileSchema } from './catalogs';
 import { deepFreeze, derive, type Derived } from './derive';
+import { checkReferences } from './references';
 
 export * from './schema';
+export * from './catalogs';
+export { checkReferences } from './references';
 export * from './map';
 export * from './scenery';
 export * from './diff';
@@ -12,8 +16,17 @@ export { derive, deepFreeze, type Derived } from './derive';
 /** A loaded content file. `file` is only used in error messages. */
 export interface ContentFile { file: string; data: unknown }
 
+/** The catalog files merged into the base config under their own key (see catalogs.ts). */
+export interface CatalogFiles {
+  cellTypes: ContentFile;
+  items: ContentFile;
+  lootTables: ContentFile;
+  carTemplates: ContentFile;
+}
+
 export interface ContentSet {
   base: ContentFile;
+  catalogs: CatalogFiles;
   variants: ContentFile[];
   presets: ContentFile[];
 }
@@ -70,6 +83,8 @@ function leafPaths(v: unknown, prefix = ''): string[] {
 
 export interface LoadedContent {
   base: ContentFile;
+  /** The catalogs' payloads, keyed as they appear in the config. */
+  catalogs: { cellTypes: unknown; items: unknown; lootTables: unknown; carTemplates: unknown };
   variants: Map<string, Variant & { file: string }>;
   groups: Map<string, string[]>;
   presets: Map<string, Preset & { file: string }>;
@@ -92,7 +107,14 @@ export function loadContent(content: ContentSet): LoadedContent {
     if (presets.has(p.id)) throw new ConfigError(f.file, 'id', `duplicate preset ${p.id}`);
     presets.set(p.id, { ...p, file: f.file });
   }
-  return { base: content.base, variants, groups, presets };
+  const c = content.catalogs;
+  const catalogs = {
+    cellTypes: parse(CellTypesFileSchema, c.cellTypes).cellTypes,
+    items: parse(ItemsFileSchema, c.items).items,
+    lootTables: parse(LootTablesFileSchema, c.lootTables).lootTables,
+    carTemplates: parse(CarTemplatesFileSchema, c.carTemplates).cars,
+  };
+  return { base: content.base, catalogs, variants, groups, presets };
 }
 
 /**
@@ -159,7 +181,7 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
     if (!(group in chosen)) throw new ConfigError(preset.file, `variants.${group}`, `no variant chosen for group ${group}`);
   }
 
-  let merged: unknown = loaded.base.data;
+  let merged: unknown = merge(loaded.base.data, loaded.catalogs);
   const owner = new Map<string, string>();
   for (const group of Object.keys(chosen).sort()) {
     const id = chosen[group]!;
@@ -177,7 +199,10 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
   const overrides = sel.overrides ?? {};
   merged = merge(merged, overrides);
 
-  const game = parse(GameSchema, { file: `${loaded.base.file} merged with preset ${preset.id}`, data: merged });
+  const file = `${loaded.base.file} merged with preset ${preset.id}`;
+  const game = parse(GameSchema, { file, data: merged });
+  const bad = checkReferences(game);
+  if (bad) throw new ConfigError(file, bad.path, bad.message);
   let values: Derived<Game>;
   try {
     values = derive(game, game.sim.tickRateHz);
