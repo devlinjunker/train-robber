@@ -48,9 +48,13 @@ export interface SetupSummary {
   aboard: number;
   /** Median seconds from commit to landing aboard, over runs that got aboard. */
   medianToAboardSec: number | null;
+  /** Average dollar value carried at run end, over runs recorded since loot; null when there are none. */
+  avgLoot: number | null;
   notes: number;
 }
 
+/** Dollars, rounded, or a dash when there is nothing to show. */
+export const money = (v: number | null | undefined) => (v == null ? '–' : `$${Math.round(v)}`);
 const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
 const median = (xs: number[]) => {
   if (!xs.length) return null;
@@ -75,6 +79,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
       perfect: share('perfect'), good: share('good'), fail: share('fail'),
       aboard: rs.filter((r) => r.furthestPhase === 'aboard').length / rs.length,
       medianToAboardSec: median(rs.flatMap((r) => (r.commitToAboardSec == null ? [] : [r.commitToAboardSec]))),
+      avgLoot: rs.some((r) => r.lootValue !== undefined) ? avg(rs.flatMap((r) => (r.lootValue === undefined ? [] : [r.lootValue]))) : null,
       notes: rs.reduce((n, r) => n + r.notes.length, 0),
     };
   }).sort((a, b) => b.runs - a.runs);
@@ -82,7 +87,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -95,7 +100,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
     const flat: Record<(typeof CSV_COLUMNS)[number], unknown> = {
       ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
-      notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd,
+      notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });
@@ -131,9 +136,9 @@ export function issueMarkdown(runs: readonly RunRecord[], maxChars = 6000): stri
   const testers = [...new Set(runs.map((r) => r.tester).filter(Boolean))].join(', ') || 'unnamed';
   const lines = [
     `Playtest results from ${testers}: ${runs.length} runs on version ${[...new Set(runs.map(runVersion))].sort(compareVersions).join(', ')}.`, '',
-    '| Setup | Runs | Died | Cancelled | Expired | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
-    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.expired} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} |`),
+    '| Setup | Runs | Died | Cancelled | Expired | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board | Avg loot |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.expired} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} | ${money(s.avgLoot)} |`),
   ];
   const noted = runs.filter((r) => r.notes.length);
   if (noted.length) {

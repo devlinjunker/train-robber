@@ -1,9 +1,79 @@
 // Test config and maps built in code, so sim tests do not depend on the config package.
 // Tests may use trig; only sim source may not.
-import type { SimConfig, SimMap, SimRoute } from '../src';
+import type { CarTemplateDef, SimConfig, SimMap, SimRoute } from '../src';
 
 type Horse = SimConfig['values']['horse'];
 type Values = SimConfig['values'];
+
+export const TEST_CELL_TYPES: Values['cellTypes'] = [
+  { id: 'floor', blocksMove: false, blocksSight: false, cover: 0, noise: 1, colour: '#8a6a4a' },
+  { id: 'wall', blocksMove: true, blocksSight: true, cover: 1, colour: '#4a3022' },
+  { id: 'door', blocksMove: false, blocksSight: true, cover: 0, noise: 1.5, colour: '#e8c872' },
+  { id: 'crate-stack', blocksMove: true, blocksSight: false, cover: 0.5, colour: '#b08850' },
+];
+const CHAR: Record<string, string> = { '#': 'wall', '.': 'floor', D: 'door', C: 'crate-stack' };
+
+/**
+ * A car template from rows of characters (# wall, . floor, D door, C crate), as build-cars would
+ * write it: cells run-length encoded against a legend.
+ */
+export function asciiCar(carType: string, rows: string[], extra: Partial<Pick<CarTemplateDef, 'entryPoints' | 'lootSlots' | 'guardSpawns'>> = {}): CarTemplateDef {
+  const legend: string[] = [];
+  const cells: [number, number][] = [];
+  for (const ch of rows.join('')) {
+    const type = CHAR[ch]!;
+    if (!legend.includes(type)) legend.push(type);
+    const v = legend.indexOf(type), last = cells[cells.length - 1];
+    if (last && last[1] === v) last[0]++;
+    else cells.push([1, v]);
+  }
+  return { carType, size: { cols: rows[0]!.length, rows: rows.length }, legend, cells, entryPoints: [], lootSlots: [], guardSpawns: [], ...extra };
+}
+
+const WALLED = ['################', '#..............#', '#..............#', '#..............#', '#..............#', '################'];
+const ENDS = [{ id: 'front', side: 'front', cell: [0, 2] }, { id: 'rear', side: 'rear', cell: [15, 2] }] as const;
+
+/** Phase 1's cars, now as templates: an engine with no doors, and blank cars with a two-cell door mid-car on both sides and end doors. */
+export const TEST_CARS: Values['carTemplates'] = {
+  engine: asciiCar('engine', WALLED),
+  'blank-car': asciiCar('blank-car', ['#######DD#######', '#..............#', 'D..............D', 'D..............D', '#..............#', '#######DD#######'], {
+    entryPoints: [{ id: 'side-left', side: 'left', cell: [8, 0] }, { id: 'side-right', side: 'right', cell: [8, 5] }, ...ENDS],
+  }),
+  /** Mail cars for loot tests: both doors (a), the left side only (b), end doors only (c). */
+  'mail-a': asciiCar('mail', ['#######DD#######', '#..C...........#', 'D..............D', 'D..............D', '#..............#', '#######DD#######'], {
+    entryPoints: [{ id: 'side-left', side: 'left', cell: [8, 0] }, { id: 'side-right', side: 'right', cell: [8, 5] }, ...ENDS],
+    lootSlots: [{ cell: [2, 1], tags: ['small'] }, { cell: [5, 2], tags: ['small'] }, { cell: [10, 3], tags: ['small', 'hidden'] }, { cell: [12, 4], tags: ['large'] }],
+  }),
+  'mail-b': asciiCar('mail', ['#######DD#######', '#..............#', 'D..............D', 'D..............D', '#..............#', '################'], {
+    entryPoints: [{ id: 'side-left', side: 'left', cell: [8, 0] }, ...ENDS],
+    lootSlots: [{ cell: [3, 1], tags: ['small'] }, { cell: [6, 3], tags: ['small'] }, { cell: [13, 4], tags: ['large'] }],
+  }),
+  'mail-c': asciiCar('mail', ['################', '#..............#', 'D..............D', 'D..............D', '#..............#', '################'], {
+    entryPoints: [...ENDS],
+    lootSlots: [{ cell: [4, 1], tags: ['small'] }, { cell: [9, 4], tags: ['large'] }],
+  }),
+};
+
+export const TEST_ITEMS: Values['items'] = {
+  letter: { name: 'Letter', value: 5, weight: 0.1, category: 'mail', slotTags: ['small'] },
+  'cash-bundle': { name: 'Cash bundle', value: 40, weight: 0.2, category: 'cash', slotTags: ['small'] },
+  parcel: { name: 'Parcel', value: 20, weight: 0.5, category: 'mail', slotTags: ['small'] },
+  strongbox: { name: 'Strongbox', value: 450, weight: 6, category: 'prize', slotTags: ['large'] },
+  'mail-sack': { name: 'Registered mail sack', value: 250, weight: 4, category: 'prize', slotTags: ['large'] },
+};
+
+export const TEST_LOOT_TABLES: Values['lootTables'] = {
+  mail: {
+    items: [{ item: 'letter', weight: 4 }, { item: 'cash-bundle', weight: 2 }, { item: 'parcel', weight: 3 }],
+    prizes: { count: [1, 2], items: [{ item: 'strongbox', weight: 1 }, { item: 'mail-sack', weight: 1 }] },
+  },
+};
+
+/** A mail train of `carCount` mail cars between engine and a blank caboose, for loot tests. */
+export const TEST_MAIL_TRAIN: Values['trains'][string] = {
+  route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'mail', carCount: 3, caboose: 'blank-car',
+  requireSideDoors: 'both', countdown: { baseSec: 150 }, loot: { table: 'mail', density: 0.6 }, verbs: ['search'],
+};
 
 /** Like the real base config at 60 Hz; `more` replaces whole sections. */
 export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
@@ -36,7 +106,15 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         turnRateCosPerTick: Math.cos(rad), turnRateSinPerTick: Math.sin(rad), steering: 'heading', throttleModel: 'hold',
         ...horse,
       },
-      trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, cars: [{ template: 'engine' }, { template: 'blank-car', count: 3 }], countdown: { baseSec: 150 } } },
+      trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
+      trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
+      carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
+      verbs: { search: { searchTimeTicks: 72, hiddenSearchTimeTicks: 108, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
+      loot: { densityScale: 1 },
+      cellTypes: TEST_CELL_TYPES,
+      items: TEST_ITEMS,
+      lootTables: TEST_LOOT_TABLES,
+      carTemplates: TEST_CARS,
       ...more,
     },
   };

@@ -1,5 +1,5 @@
 // Rules every playtest map in maps-src must keep, whatever its shape: it builds to the checked-in
-// file, the blank train has its route, one side of the track is always open to ride beside, and the rider
+// file, its trains have their routes, one side of the track is always open to ride beside, and the rider
 // can reach the track from the spawn.
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -21,6 +21,9 @@ const LANE_TILES = [3.5, 4, 4.5, 5, 5.5];
 /** Tightest baked curve allowed; rigid 16-tile cars cut visibly inside anything tighter. */
 const MIN_RADIUS_TILES = 17;
 
+/** The slowest train speed in tiles per tick, so a lap at it covers every train's route. */
+const slowest = (config: ReturnType<typeof loadConfig>) => Math.min(...Object.values(config.values.trains).map((t) => t.speedTilesPerTick));
+
 const ids = readdirSync(MAPS_SRC).filter((f) => f.endsWith('.tmj')).map((f) => f.replace(/\.tmj$/, '')).sort();
 
 describe.each(ids)('map %s', (id) => {
@@ -38,7 +41,7 @@ describe.each(ids)('map %s', (id) => {
   });
 
   it('has closed routes for its trains, with no curve tighter than the cars allow', () => {
-    // Without a train list the blank train runs on main; with one, every train names a route.
+    // Without a train list the mail train runs on main; with one, every train names a route.
     if (!map.trains) expect(main?.closed).toBe(true);
     for (const t of map.trains ?? []) expect(map.routes.some((r) => r.id === t.route)).toBe(true);
     for (const r of map.routes) expect(r.closed, r.id).toBe(true);
@@ -80,22 +83,26 @@ describe.each(ids)('map %s', (id) => {
   });
 
   it('starts its trains and runs the sim for a full lap of the longest route', () => {
-    const config = loadConfig();
+    // The map's own trains (trainMix `map`), not the default mixed trains.
+    const config = loadConfig({ preset: 'map-trains' });
     const sim = createSim({ config, map, seed: id, playerIds: [1] });
     expect(sim.state.world.horses[0]).toMatchObject({ x: map.markers.playerSpawn.x, y: map.markers.playerSpawn.y, speed: 0 });
     const trains = map.trains?.length ?? 1;
     expect(sim.state.world.trains).toHaveLength(trains);
     const longest = Math.max(...map.routes.map((r) => r.length));
-    const lapTicks = Math.ceil(longest / config.values.trains.blank!.speedTilesPerTick);
+    const lapTicks = Math.ceil(longest / slowest(config));
     for (let t = 0; t < lapTicks; t++) sim.step([{ player: 1, commands: [] }]);
-    expect(sim.cars()).toHaveLength(4 * trains);
+    // Engine, its cars and the caboose, if any, for each train.
+    const carsOf = (type: string) => { const d = config.values.trains[type]!; return 1 + d.carCount + (d.caboose ? 1 : 0); };
+    expect(sim.cars()).toHaveLength(sim.state.world.trains.reduce((n, t) => n + carsOf(t.type), 0));
   });
 
   it('keeps every train clear of every other train', () => {
-    const config = loadConfig();
+    // The map's own trains (trainMix `map`), not the default mixed trains.
+    const config = loadConfig({ preset: 'map-trains' });
     const sim = createSim({ config, map, seed: id, playerIds: [1] });
     const longest = Math.max(...map.routes.map((r) => r.length));
-    const lapTicks = Math.ceil(longest / config.values.trains.blank!.speedTilesPerTick);
+    const lapTicks = Math.ceil(longest / slowest(config));
     for (let t = 0; t < lapTicks; t += 30) {
       const cars = sim.cars();
       for (const a of cars) for (const b of cars) {

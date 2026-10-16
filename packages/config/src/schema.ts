@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CarTemplateSchema, CellTypeSchema, ItemSchema, LootTableSchema } from './catalogs';
 
 // Keys carry their unit in the name (Sec, Tiles, PerSec, Deg). The resolve step
 // derives tick-based values from those suffixes; see derive.ts.
@@ -105,10 +106,79 @@ export const GameSchema = z.object({
     /** Route id in the map the train runs on. */
     route: z.string(),
     speedTilesPerSec: positive,
-    cars: z.array(z.object({ template: z.string(), count: z.number().int().positive().optional() }).strict()).min(1),
-    /** The run's countdown is baseSec x countdown.scale, copied into the run at commit. */
+    /** Template of the engine at the front. */
+    engine: z.string(),
+    /** The car type between engine and caboose; run generation picks a layout of that type for each car. */
+    carType: z.string(),
+    /** How many cars of `carType` (a plain value: the long-train preset sets 6). */
+    carCount: z.number().int().min(0),
+    /** Only pick from these layouts of `carType` (the doors-both-sides preset); all layouts of the type when absent. */
+    layouts: z.array(z.string()).min(1).optional(),
+    /** Template of the last car, if any. */
+    caboose: z.string().optional(),
+    /**
+     * After picking layouts, make sure the train can be boarded: `both` swaps in layouts until each
+     * side has at least one side door, `one` until any side has one, `off` leaves the picks alone.
+     */
+    requireSideDoors: z.enum(['both', 'one', 'off']),
+    /** At most this many cars get side doors: extra door cars swap to doorless layouts (long trains). */
+    maxSideDoorCars: z.number().int().min(0).optional(),
     countdown: z.object({ baseSec: positive }).strict(),
+    /** Loot table and the share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
+    loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
+    /** Train verbs the train uses (M2: search). */
+    verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
+  /**
+   * Which trains run on the map (trainMix variant group). `map` uses the map's own trains, or one
+   * `mailTrain` when the map lists none; the other modes take the map's train slots (or
+   * `trainCount` slots spread along the mail train's route) and make about `blankShare` of them
+   * `blankTrain`, keeping at least one mail train.
+   */
+  trainMix: z.object({
+    mode: z.enum(['map', 'all-mail', 'mixed', 'mostly-blank']),
+    mailTrain: z.string(),
+    blankTrain: z.string(),
+    trainCount: z.number().int().positive(),
+    blankShare: fraction,
+  }).strict(),
+  /** Carrying (lootCarry variant group switches the two flags): a hard limit and a weight slowdown. */
+  carry: z.object({
+    limitEnabled: z.boolean(),
+    slowdownEnabled: z.boolean(),
+    /** Weight units; a pickup that would go over is refused while the limit is on. */
+    maxWeight: positive,
+    /** Items; a pickup that would go over is refused while the limit is on. */
+    maxItems: z.number().int().positive(),
+    /** Walking slows from this weight, linearly down to minSpeedScale at maxWeight. */
+    slowdownFromWeight: z.number().min(0),
+    minSpeedScale: z.number().gt(0).max(1),
+  }).strict().refine((c) => c.slowdownFromWeight <= c.maxWeight, { message: 'slowdown must start at or below the max', path: ['slowdownFromWeight'] }),
+  verbs: z.object({
+    /** Hold E on a loot slot for searchTimeSec (or the item's own searchTimeSec) x timeScale to take what is there. */
+    search: z.object({
+      searchTimeSec: positive,
+      /** Holding E on a hidden stash this long (x timeScale) reveals its item, which is then searched like visible loot. */
+      hiddenSearchTimeSec: positive,
+      /** Scales every search time (the slow-search preset sets 2.5). */
+      timeScale: positive,
+      /** Walk speed while searching, as a share of normal. */
+      walkSpeedScale: fraction,
+      /** Moving this far from the slot cancels the search and loses its progress. */
+      cancelRangeTiles: positive,
+      /** How close to a slot pressing E starts searching it. */
+      reachTiles: positive,
+      /** Fill loot slots tagged hidden (on by default since the M2 playtest, so a stash can be missed). */
+      hiddenLoot: z.boolean(),
+    }).strict(),
+  }).strict(),
+  /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
+  hud: z.object({ showTrainNames: z.boolean() }).strict(),
+  /** Catalogs merged in from cell-types.json, items.json, loot-tables.json and car-templates.json. */
+  cellTypes: z.array(CellTypeSchema).min(1),
+  items: z.record(ItemSchema),
+  lootTables: z.record(LootTableSchema),
+  carTemplates: z.record(CarTemplateSchema),
   outcomePolicy: z.object({
     died: z.object({
       bankRunLoot: z.boolean(),

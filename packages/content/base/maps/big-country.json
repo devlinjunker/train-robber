@@ -181,10 +181,10 @@
   ],
   "speedZones": [],
   "trains": [
-    {"type":"blank","route":"main","d":0},
-    {"type":"blank","route":"main","d":883.5157},
-    {"type":"blank","route":"west","d":400},
-    {"type":"blank","route":"east","d":400}
+    {"type":"mail-express","route":"main","d":0},
+    {"type":"mail-express","route":"main","d":883.5157},
+    {"type":"mail-express","route":"west","d":400},
+    {"type":"mail-express","route":"east","d":400}
   ],
   "junctions": [
     {"id":"j1","x":759,"y":118,"tx":0,"ty":1},

@@ -2,26 +2,21 @@
 // isometric view is the game's; V switches to this one to check what the sim really holds.
 import { Container, Graphics } from 'pixi.js';
 import { COMMITTED_COLOUR, flashOn, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
-import { CAR_TEMPLATES, HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
+import { HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, carTemplate, type BoardingCheck, type BoardingState, type CarPose } from '@train-robber/sim';
+import type { SceneContent } from '../iso/worldScene';
+import { CATEGORY_COLOURS, colourOf } from '../iso/interior';
 
-const CAR_COLOURS: Record<string, number> = { engine: 0x3a3a46, 'blank-car': 0x8a4b2d };
-
-function drawCar(template: string): Graphics {
-  const t = CAR_TEMPLATES[template]!;
+/** The debug view colours every cell by its catalog colour, so the layout the sim walks is what shows. */
+function drawCar(content: SceneContent, template: string): Graphics {
+  const t = carTemplate(content.catalog, template);
   const hl = t.size.cols / 2, hw = t.size.rows / 2;
   const g = new Graphics();
-  // Local x runs toward the car's front, local y toward its right side.
-  g.rect(-hl, -hw, hl * 2, hw * 2).fill(CAR_COLOURS[template] ?? 0x777777).stroke({ width: 0.15, color: 0x111111 });
-  // Door cells: col 0 is the front (local x = +hl), row 0 the left side (local y = -hw).
-  // Only fill when there are doors: an empty fill would repaint the body in the door colour.
-  let doors = 0;
+  // Local x runs toward the car's front, local y toward its right side; col 0 is the front (local x = +hl), row 0 the left side (local y = -hw).
   t.cells.forEach((cell, i) => {
-    if (cell !== 'door') return;
     const col = i % t.size.cols, row = Math.floor(i / t.size.cols);
-    g.rect(hl - col - 1, -hw + row, 1, 1);
-    doors++;
+    g.rect(hl - col - 1, -hw + row, 1, 1).fill(colourOf(content.cellTypes[cell]!.colour));
   });
-  if (doors > 0) g.fill(0xe8c872);
+  g.rect(-hl, -hw, hl * 2, hw * 2).stroke({ width: 0.15, color: 0x111111 });
   // A notch at the front so the direction of travel reads at a glance.
   g.poly([hl - 1.5, -1, hl - 0.3, 0, hl - 1.5, 1]).fill({ color: 0xffffff, alpha: 0.6 });
   return g;
@@ -36,6 +31,9 @@ export interface ViewInput {
   rangeTiles: number;
   /** The player's world position while aboard. */
   aboard: { x: number; y: number } | null;
+  /** Loot lying in the committed train, by car index in its frame. */
+  loot?: readonly { car: number; x: number; y: number; item: string; hidden: boolean }[];
+  trainId?: string | null;
   /** Flash colours: the horse red after a crash, the player amber while stumbling; null draws the usual colour. */
   horseFlash?: number | null;
   playerFlash?: number | null;
@@ -52,12 +50,13 @@ export interface WorldView {
 
 const ZONE_COLOURS: Record<BoardingState, number> = { 'too far': 0xffffff, 'too slow': 0xff9f43, 'too fast': 0xff9f43, eligible: 0x6bff8a };
 
-export function createWorldView(): WorldView {
+export function createWorldView(content: SceneContent): WorldView {
   const layer = new Container();
   layer.label = 'world-view';
   const carLayer = new Container();
   const entries = new Graphics();
   const outlines = new Graphics();
+  const lootG = new Graphics();
   const zones = new Graphics();
   zones.visible = false;
   const horse = new Graphics(), player = new Graphics();
@@ -66,7 +65,7 @@ export function createWorldView(): WorldView {
     .poly([0.75, 0, -0.45, -0.4, -0.45, 0.4]).fill(c);
   const drawPlayer = (c: number) => player.clear().circle(0, 0, WALKER_RADIUS).fill(c).stroke({ width: 0.08, color: 0x0b2a3a });
   let horseColour = -1, playerColour = -1;
-  layer.addChild(zones, carLayer, outlines, entries, horse, player);
+  layer.addChild(zones, carLayer, lootG, outlines, entries, horse, player);
   const pool: Graphics[] = [];
 
   return {
@@ -77,7 +76,7 @@ export function createWorldView(): WorldView {
         let g = pool[i];
         if (!g || g.label !== car.template) {
           g?.destroy();
-          g = drawCar(car.template);
+          g = drawCar(content, car.template);
           g.label = car.template;
           pool[i] = g;
           carLayer.addChildAt(g, Math.min(i, carLayer.children.length));
@@ -105,12 +104,21 @@ export function createWorldView(): WorldView {
       entries.clear();
       zones.clear();
       for (const car of cars) {
-        for (const ep of carEntryPoints(car)) {
+        for (const ep of carEntryPoints(car, content.catalog)) {
           entries.circle(ep.x, ep.y, 0.35);
           zones.circle(ep.x, ep.y, input.rangeTiles);
         }
       }
       entries.fill({ color: 0x6bff8a, alpha: 0.9 });
+      // Loot as dots in each car, coloured by category; a hidden stash is dark.
+      lootG.clear();
+      for (const l of input.loot ?? []) {
+        const car = cars.find((c) => c.trainId === input.trainId && c.index === l.car);
+        if (!car) continue;
+        const along = car.halfLength - l.x, left = car.halfWidth - l.y;
+        lootG.circle(car.x + car.ux * along + car.uy * left, car.y + car.uy * along - car.ux * left, 0.3)
+          .fill(l.hidden ? 0x3a2e24 : CATEGORY_COLOURS[content.items[l.item]?.category ?? ''] ?? 0xe8b830).stroke({ width: 0.06, color: 0x111111 });
+      }
       zones.stroke({ width: 0.08, color: 0xffffff, alpha: 0.5 });
       // The nearest door on the riding side fills by the sim's verdict.
       const c = input.check;

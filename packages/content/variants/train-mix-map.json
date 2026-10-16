@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "map",
+  "group": "trainMix",
+  "label": "The map's own trains",
+  "question": "Are blank decoy trains interesting?",
+  "patch": {
+    "trainMix": {
+      "mode": "map",
+      "blankShare": 0
+    }
+  }
+}

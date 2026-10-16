@@ -6,7 +6,7 @@
 // another train where that branch rejoins shared track.
 import { nextInt } from '../rng';
 import type { GameState, SimConfig, TrainState } from '../types';
-import { expandCars, trainLength } from './cars';
+import { carCatalog, trainLength } from './cars';
 import { wrapDistance, type RouteLeg, type SimRoute } from './track';
 
 /** A train picks its branch this far before the junction, with every car still on the shared segment. */
@@ -91,10 +91,12 @@ interface Option { route: SimRoute; d: number; clearance: number }
  */
 export function junctionSystem(state: GameState, routes: ReadonlyMap<string, SimRoute>, net: Network, config: SimConfig, prevD: ReadonlyMap<string, number>): void {
   const map = { routes };
-  const lengthOf = (t: TrainState) => trainLength(expandCars(config.values.trains[t.type]!.cars));
+  const lengthOf = (t: TrainState) => trainLength(t.cars, carCatalog(config));
   const speedOf = (t: TrainState) => config.values.trains[t.type]!.speedTilesPerTick;
+  // A train on its type's own route leaves `route` unset.
+  const routeId = (t: TrainState) => t.route ?? config.values.trains[t.type]!.route;
   for (const t of state.world.trains) {
-    const route = t.route ? map.routes.get(t.route) : undefined;
+    const route = map.routes.get(routeId(t));
     if (!route?.legs) continue;
     const before = prevD.get(t.id);
     if (before === undefined) continue;
@@ -118,13 +120,17 @@ export function junctionSystem(state: GameState, routes: ReadonlyMap<string, Sim
       if (seen.has(branch)) continue;
       seen.add(branch);
       const d = wrapDistance(r, t.d - leg.start + legs[i]!.start);
-      options.push({ route: r, d, clearance: clearance(state, map, net, t, r, d, lengthOf, speedOf) });
+      options.push({ route: r, d, clearance: clearance(state, map, net, t, r, d, lengthOf, speedOf, routeId) });
     }
     if (options.length < 2) continue;
     const clear = options.filter((o) => o.clearance >= 0);
     const pick = clear.length ? clear[clear.length === 1 ? 0 : nextInt(state.rng, 'schedule', clear.length)]!
       : options.reduce((a, b) => (b.clearance > a.clearance ? b : a));
-    if (pick.route.id !== route.id) { t.route = pick.route.id; t.d = pick.d; }
+    if (pick.route.id !== route.id) {
+      if (pick.route.id === config.values.trains[t.type]!.route) delete t.route;
+      else t.route = pick.route.id;
+      t.d = pick.d;
+    }
   }
 }
 
@@ -134,15 +140,15 @@ export function junctionSystem(state: GameState, routes: ReadonlyMap<string, Sim
  */
 function clearance(
   state: GameState, map: { routes: ReadonlyMap<string, SimRoute> }, net: Network, t: TrainState, route: SimRoute, d: number,
-  lengthOf: (t: TrainState) => number, speedOf: (t: TrainState) => number,
+  lengthOf: (t: TrainState) => number, speedOf: (t: TrainState) => number, routeId: (t: TrainState) => string,
 ): number {
   const m = nextMerge(net, route, d);
   if (!m) return Infinity;
   const vT = speedOf(t), at = m.ahead / vT;
   let worst = Infinity;
   for (const u of state.world.trains) {
-    if (u === t || !u.route) continue;
-    const ur = map.routes.get(u.route);
+    if (u === t) continue;
+    const ur = map.routes.get(routeId(u));
     if (!ur?.legs) continue;
     const vU = speedOf(u);
     const au = arrivalTicks(net, ur, u.d, vU, m.junction);

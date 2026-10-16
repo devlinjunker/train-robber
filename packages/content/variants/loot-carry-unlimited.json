@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "unlimited",
+  "group": "lootCarry",
+  "label": "Carry anything, no slowdown",
+  "question": "Does carry weight make choices interesting?",
+  "patch": {
+    "carry": {
+      "limitEnabled": false,
+      "slowdownEnabled": false
+    }
+  }
+}

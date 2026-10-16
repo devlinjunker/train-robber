@@ -1,13 +1,12 @@
-// Train scheduler: spawns trains, advances them along their routes and keeps the
-// committed one. Phase 1 trains loop forever: the one blank train, or the ones the map lists.
+// Train scheduler: spawns trains, advances them along their routes and keeps the committed
+// one. Trains loop forever; which ones run comes from the map and the trainMix setting.
+import { nextInt } from '../rng';
 import type { GameState, PlayerId, SimConfig, TrainState } from '../types';
-import { expandCars, placeCars, type CarPose } from './cars';
-import type { WorldMap } from './map';
+import { carCatalog, placeCars, trainLength, type CarPose } from './cars';
+import { pickTrainCars, trainCarsSeed } from './generate';
+import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
 import { wrapDistance } from './track';
-
-/** The train type spawned at load in phase 1 when the map lists no trains. */
-export const PHASE1_TRAIN = 'blank';
 
 /** A train's config and route: the route the map placed it on, else the one its type names. */
 export function routeOf(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route'>) {
@@ -19,19 +18,48 @@ export function routeOf(map: WorldMap, config: SimConfig, train: Pick<TrainState
   return { def, route };
 }
 
-/** Add a train of `type` with its engine's front at distance `d`, on `route` or its type's own. */
+/** Add a train of `type` with its engine's front at distance `d`, on `route` or its type's own, with its layouts picked for the next run. */
 export function spawnTrain(state: GameState, map: WorldMap, config: SimConfig, type: string, d = 0, route?: string): TrainState {
+  const def = config.values.trains[type];
+  const own = route === undefined || route === def?.route;
   const { route: r } = routeOf(map, config, { type, route });
   state.trainCount += 1;
-  const train: TrainState = { id: `${type}-${state.trainCount}`, type, ...(route ? { route } : {}), d: wrapDistance(r, d), pinnedBy: null };
+  const id = `${type}-${state.trainCount}`;
+  const train: TrainState = { id, type, d: wrapDistance(r, d), pinnedBy: null, cars: pickTrainCars(config, type, trainCarsSeed(state, id)), ...(own ? {} : { route }) };
   state.world.trains.push(train);
   return train;
 }
 
-/** At load: the map's trains, or else the one blank train with its engine at the start of its route. */
+/**
+ * The trains a map starts with under `trainMix`. `map`: the map's own trains, or one mail train at
+ * the start of its route. Otherwise the map's train slots (or `trainCount` slots spread evenly
+ * along the mail train's route) with round(slots × blankShare) of them blank, at least one mail
+ * train kept, the blank ones picked from the `schedule` stream.
+ */
+export function initialTrains(state: GameState, map: WorldMap, config: SimConfig): MapTrain[] {
+  const mix = config.values.trainMix;
+  const mail = config.values.trains[mix.mailTrain]!;
+  if (mix.mode === 'map') return map.trains ? map.trains.map((t) => ({ ...t })) : [{ type: mix.mailTrain, route: mail.route, d: 0 }];
+  let slots: MapTrain[];
+  if (map.trains) slots = map.trains.map((t) => ({ ...t }));
+  else {
+    const route = map.routes.get(mail.route);
+    if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${mail.route}, which map ${map.id} does not have`);
+    slots = Array.from({ length: mix.trainCount }, (_, i) => ({ type: mix.mailTrain, route: mail.route, d: (route.length * i) / mix.trainCount }));
+  }
+  const blanks = Math.min(slots.length - 1, Math.round(slots.length * mix.blankShare));
+  const order = slots.map((_, i) => i);
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = nextInt(state.rng, 'schedule', i + 1);
+    [order[i], order[j]] = [order[j]!, order[i]!];
+  }
+  const blank = new Set(order.slice(0, blanks));
+  return slots.map((s, i) => ({ ...s, type: blank.has(i) ? mix.blankTrain : mix.mailTrain }));
+}
+
+/** At load: the trains `initialTrains` lists. */
 export function spawnInitialTrains(state: GameState, map: WorldMap, config: SimConfig): void {
-  if (!map.trains) { spawnTrain(state, map, config, PHASE1_TRAIN, 0); return; }
-  for (const t of map.trains) spawnTrain(state, map, config, t.type, t.d, t.route);
+  for (const t of initialTrains(state, map, config)) spawnTrain(state, map, config, t.type, t.d, t.route);
 }
 
 /**
@@ -68,9 +96,10 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
 export function allCarPoses(state: GameState, map: WorldMap, config: SimConfig): CarPose[] {
   const out: CarPose[] = [];
   const scratch: CarPose[] = [];
+  const catalog = carCatalog(config);
   for (const t of state.world.trains) {
-    const { def, route } = routeOf(map, config, t);
-    for (const car of placeCars(t.id, expandCars(def.cars), route, t.d, scratch)) out.push(car);
+    const { route } = routeOf(map, config, t);
+    for (const car of placeCars(t.id, t.cars, route, t.d, catalog, scratch)) out.push(car);
   }
   return out;
 }
@@ -79,8 +108,13 @@ export function allCarPoses(state: GameState, map: WorldMap, config: SimConfig):
 export function carPosesOf(state: GameState, map: WorldMap, config: SimConfig, trainId: string): CarPose[] {
   const t = state.world.trains.find((q) => q.id === trainId);
   if (!t) return [];
-  const { def, route } = routeOf(map, config, t);
-  return placeCars(t.id, expandCars(def.cars), route, t.d);
+  const { route } = routeOf(map, config, t);
+  return placeCars(t.id, t.cars, route, t.d, carCatalog(config));
+}
+
+/** A train's length in tiles. */
+export function trainLengthOf(config: SimConfig, train: Pick<TrainState, 'cars'>): number {
+  return trainLength(train.cars, carCatalog(config));
 }
 
 /** A train's speed along its route in tiles per second. */

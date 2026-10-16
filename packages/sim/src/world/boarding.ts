@@ -2,7 +2,7 @@
 // The client only reads these; the decisions are the sim's.
 import { nextU32 } from '../rng';
 import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection } from '../types';
-import { CAR_TEMPLATES, entryPointWorld, type CarPose, type Side } from './cars';
+import { carCatalog, carTemplate, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
 import type { WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
@@ -53,8 +53,9 @@ export function boardingCheck(state: GameState, map: WorldMap, config: SimConfig
     if (d < nearest) { nearest = d; out.side = sideOf(car, h.x, h.y); }
   }
   let best: CarPose | null = null;
+  const catalog = carCatalog(config);
   for (const car of cars) {
-    for (const ep of CAR_TEMPLATES[car.template]!.entryPoints) {
+    for (const ep of carTemplate(catalog, car.template).sideEntries) {
       if (ep.side !== out.side) continue;
       entryPointWorld(car, ep, scratch);
       const dx = h.x - scratch.x, dy = h.y - scratch.y;

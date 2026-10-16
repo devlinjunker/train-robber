@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "mixed",
+  "group": "trainMix",
+  "label": "About half the trains blank",
+  "question": "Are blank decoy trains interesting?",
+  "patch": {
+    "trainMix": {
+      "mode": "mixed",
+      "blankShare": 0.5
+    }
+  }
+}

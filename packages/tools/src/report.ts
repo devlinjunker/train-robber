@@ -16,13 +16,15 @@ export interface BoardingReport {
   commitToAboardSec: number[];
   /** Run length in seconds, one per ended run. */
   runSec: number[];
+  /** Searches: items picked up and their value, refusals by reason, drops, and searches cancelled. */
+  loot: { picked: number; value: number; refused: Record<string, number>; dropped: number; cancelled: number };
 }
 
 const bump = (o: Record<string, number>, k: string) => { o[k] = (o[k] ?? 0) + 1; };
 
 /** Folds events into a report one at a time, so long bot sweeps need not keep them. */
 export class ReportBuilder {
-  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [] };
+  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [], loot: { picked: 0, value: 0, refused: {}, dropped: 0, cancelled: 0 } };
   private startedAt = new Map<number, number>();
   constructor(private readonly tickRateHz: number) {}
 
@@ -40,6 +42,10 @@ export class ReportBuilder {
       case 'TrainSwitched': r.trainSwitches++; break;
       case 'BoardingAttempt': r.attempts++; bump(r.results, e.result); break;
       case 'CommandRejected': bump(r.rejections, `${e.command}: ${e.reason}`); break;
+      case 'LootPickedUp': r.loot.picked++; r.loot.value += e.value; break;
+      case 'LootRefused': bump(r.loot.refused, e.reason); break;
+      case 'LootDropped': r.loot.dropped++; break;
+      case 'SearchCancelled': r.loot.cancelled++; break;
       case 'RunEnded':
         bump(r.outcomes, e.outcome);
         if (e.retry) r.quickRetries++;
@@ -81,5 +87,6 @@ export function formatReport(r: BoardingReport): string {
     `jumps ${r.attempts}, ${r.runs ? (r.attempts / r.runs).toFixed(2) : '-'} per run; perfect ${r.results.perfect ?? 0}, good ${r.results.good ?? 0}, fail ${fails} (${pct(fails, r.attempts)})`,
     `rejected: ${counts(r.rejections)}`,
     `commit to aboard: median ${sec(median(r.commitToAboardSec))}; run length: median ${sec(median(r.runSec))}`,
+    `loot: picked ${r.loot.picked} ($${r.loot.value}), refused: ${counts(r.loot.refused)}, dropped ${r.loot.dropped}, searches cancelled ${r.loot.cancelled}`,
   ].join('\n');
 }

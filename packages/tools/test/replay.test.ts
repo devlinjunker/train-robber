@@ -24,7 +24,7 @@ describe('golden replay', () => {
     // Fails when the sim, config or script changes; rerun `npm run golden:update` if intended.
     expect(recordGolden()).toBe(readFileSync(GOLDEN, 'utf8'));
   });
-  it('the golden run commits, fails two jumps, lands the third as good, and cancels aboard', () => {
+  it('the golden run commits, fails two jumps, lands the third as good, picks up loot, and cancels aboard', () => {
     const log = parseLog<CommandLogLine>(readFileSync(GOLDEN, 'utf8'));
     const h = log.header;
     const sim = createSim({ config: loadConfig({ preset: h.preset, variants: h.variants }), map: loadMapDef(h.mapId), seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
@@ -37,10 +37,11 @@ describe('golden replay', () => {
         if (e.type === 'RunStarted') seen.push('commit');
         else if (e.type === 'BoardingAttempt') seen.push(e.result);
         else if (e.type === 'RunPhaseChanged' && e.to === 'aboard') seen.push('aboard');
+        else if (e.type === 'LootPickedUp') seen.push('loot');
         else if (e.type === 'RunEnded') seen.push(e.outcome);
       }
     }
-    expect(seen).toEqual(['commit', 'fail', 'fail', 'good', 'aboard', 'cancelled']);
+    expect(seen).toEqual(['commit', 'fail', 'fail', 'good', 'aboard', 'loot', 'cancelled']);
   });
   it('a tampered command is detected', () => {
     const text = readFileSync(GOLDEN, 'utf8').replace('"x":127', '"x":126');

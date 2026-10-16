@@ -12,7 +12,7 @@ export interface SimMap {
   /** Row-major run-length encoding: [count, legend index] pairs. */
   zones: readonly (readonly [number, number])[];
   routes: readonly SimRoute[];
-  /** Trains the map starts with; without it the sim starts its default train. */
+  /** Trains the map starts with, each on one of its routes at distance `d` (trainMix `map`). */
   trains?: readonly MapTrain[];
   markers: { playerSpawn: { x: number; y: number } };
 }

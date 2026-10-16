@@ -6,6 +6,7 @@ import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './wo
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
+import { lootSystem } from './world/loot';
 import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
 import { countdownSystem } from './rules/heat';
 
@@ -52,7 +53,7 @@ export function createSim(opts: SimOptions): Sim {
     // Every player starts mounted at playerSpawn, stopped, facing up the screen toward the track.
     world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
-      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 },
+      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false,
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
@@ -78,6 +79,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const events: SimEvent[] = [];
       const ctx: RunCtx = { state, map, config, world, emit: (ev) => void events.push(ev) };
       const jumps = new Set<PlayerId>();
+      const drops = new Map<PlayerId, number[]>();
       // 1. Apply commands: validate and record intents. Jumps are sampled by the boarding system.
       for (const frame of inputs) {
         const p = state.players.find((q) => q.id === frame.player);
@@ -92,11 +94,16 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
           } else if (c.type === 'startRun') {
             startRun(ctx, p, c.trainId, 'startRun');
           } else if (c.type === 'interact') {
-            // Phase 1: interact only commits. Aboard it will loot, inspect and so on.
-            if (state.run) events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
-            else startRun(ctx, p, undefined, 'interact');
+            // Pressing E commits while idle; aboard, holding it searches (the loot system reads the
+            // held state). A release only ends the hold.
+            p.interactHeld = c.held;
+            if (!c.held) continue;
+            if (!state.run) startRun(ctx, p, undefined, 'interact');
+            else if (state.run.phase !== 'aboard') events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
           } else if (c.type === 'switchTrain') {
             switchTrain(ctx, p, c.trainId);
+          } else if (c.type === 'drop') {
+            drops.set(p.id, [...(drops.get(p.id) ?? []), c.slot]);
           } else if (c.type === 'cancelRun') {
             cancelRun(ctx, p);
           } else if (c.type === 'quickRetry') {
@@ -116,9 +123,10 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
       autoSwitchSystem(ctx);
-      // 4. Boarding, 5. movement aboard, 10. heat and countdown, 11. run end.
+      // 4. Boarding, 5. movement aboard, 9. searching and drops, 10. heat and countdown, 11. run end.
       boardingSystem(ctx, jumps);
-      walkAboard(state, world, config);
+      walkAboard(state, config);
+      lootSystem(ctx, drops);
       countdownSystem(ctx);
       runEndSystem(ctx);
       state.tick += 1;

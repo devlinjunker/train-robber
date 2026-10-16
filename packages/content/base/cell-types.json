@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "cellTypes": [
+    { "id": "floor",         "blocksMove": false, "blocksSight": false, "cover": 0,    "noise": 1.0, "colour": "#8a6a4a" },
+    { "id": "wall",          "blocksMove": true,  "blocksSight": true,  "cover": 1.0,                "colour": "#4a3022" },
+    { "id": "door",          "blocksMove": false, "blocksSight": true,  "cover": 0,    "noise": 1.5, "opensOnInteract": true, "colour": "#e8c872" },
+    { "id": "window",        "blocksMove": true,  "blocksSight": false, "cover": 0,    "shootThrough": true, "colour": "#9fd3e8" },
+    { "id": "crate-stack",   "blocksMove": true,  "blocksSight": false, "cover": 0.5,                "colour": "#b08850" },
+    { "id": "barrel",        "blocksMove": true,  "blocksSight": false, "cover": 0.4,                "colour": "#6e4426" },
+    { "id": "bench",         "blocksMove": false, "blocksSight": false, "cover": 0.25, "noise": 1.0, "colour": "#a07a52" },
+    { "id": "rug",           "blocksMove": false, "blocksSight": false, "cover": 0,    "noise": 0.5, "colour": "#8a3a4a" },
+    { "id": "creaky-boards", "blocksMove": false, "blocksSight": false, "cover": 0,    "noise": 2.0, "colour": "#6a5038" }
+  ]
+}

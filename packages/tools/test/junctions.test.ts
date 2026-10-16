@@ -80,7 +80,7 @@ describe('segments and services in build-maps', () => {
   });
 
   it('places trains on services, spaced from the offset', () => {
-    expect(map.trains).toEqual([{ type: 'blank', route: 'big', d: 0 }, { type: 'blank', route: 'small', d: 150 }]);
+    expect(map.trains).toEqual([{ type: 'mail-express', route: 'big', d: 0 }, { type: 'mail-express', route: 'small', d: 150 }]);
   });
 
   it('draws shared track once', () => {
@@ -107,7 +107,7 @@ function watch(map: MapDef, seed: string, ticks: number) {
   let closest = Infinity, jump = 0;
   const switches: string[] = [];
   let prev: CarPose[] = sim.cars();
-  let routes = sim.state.world.trains.map((t) => t.route);
+  let routes = sim.state.world.trains.map((t) => t.route ?? config.values.trains[t.type]!.route);
   for (let k = 0; k < ticks; k++) {
     sim.step([{ player: 1, commands: [] }]);
     const cars = sim.cars();
@@ -115,7 +115,7 @@ function watch(map: MapDef, seed: string, ticks: number) {
     if (k % 5 === 0) {
       for (const a of cars) for (const b of cars) if (a.trainId < b.trainId) closest = Math.min(closest, Math.hypot(a.x - b.x, a.y - b.y));
     }
-    const now = sim.state.world.trains.map((t) => t.route);
+    const now = sim.state.world.trains.map((t) => t.route ?? config.values.trains[t.type]!.route);
     now.forEach((r, i) => { if (r !== routes[i]) switches.push(`${sim.state.tick} ${sim.state.world.trains[i]!.id} ${routes[i]}>${r}`); });
     routes = now;
     prev = cars;
