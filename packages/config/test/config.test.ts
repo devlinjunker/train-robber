@@ -19,6 +19,12 @@ const base = {
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+    boost: { enabled: true, durationSec: 1.5, topSpeedScale: 1.4, cooldownSec: 6, accelTilesPerSec2: 20 },
+  },
+  ai: {
+    guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
+    sight: { rangeTiles: 7, coneHalfAngleDeg: 40 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5 },
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, catchRangeTiles: 0.8,
   },
   world: { mode: 'separate' },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
@@ -135,6 +141,16 @@ describe('resolveConfig', () => {
     expect(r.values.countdown.graceTicks).toBe(180);
     expect(r.values.heat.sources.timeAboardPerTick).toBeCloseTo(0.01, 12);
     expect(r.values.trains.blank!.countdown.baseTicks).toBe(9000);
+  });
+
+  it('derives the guards\' cone threshold, timers and speeds, and the boost timers (phase 2 M3)', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p' });
+    const ai = r.values.ai;
+    expect(ai.sight.coneCos).toBeCloseTo(Math.cos((40 * Math.PI) / 180), 12);
+    expect([ai.alertAfterTicks, ai.calmTicks, ai.alertCalmTicks, ai.patrolPauseTicks]).toEqual([60, 240, 360, 90]);
+    expect(ai.chaseSpeedTilesPerTick).toBeCloseTo(5 / 60, 12);
+    expect(ai.turnRateCosPerTick).toBeCloseTo(Math.cos((4 * Math.PI) / 180), 12);
+    expect([r.values.horse.boost.durationTicks, r.values.horse.boost.cooldownTicks]).toEqual([90, 360]);
   });
 });
 

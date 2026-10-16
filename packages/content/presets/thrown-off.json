@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "thrown-off",
+  "extends": "alpha-default",
+  "variants": {
+    "guardCatch": "thrown-off"
+  }
+}

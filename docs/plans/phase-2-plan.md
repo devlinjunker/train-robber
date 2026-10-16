@@ -72,13 +72,15 @@ After Devlin's M2 playtest (2026-10-14): search time per item (letters 0.8 s, la
 
 ### M3: Light guards and detection
 
-- [ ] Guard actors spawned from car guard spawns, count from config and wanted level
-- [ ] Patrol along car routes; stand watch without one
-- [ ] Sight cone with a precomputed cosine threshold and wall blocking; noise radius from footsteps and running
-- [ ] Suspicious then alert; spotted adds `playerSpotted` heat, alert raises an alarm (`alarmRaised` heat)
-- [ ] No combat yet: `guardCatch` variant group (G4) with `heat-only` and `thrown-off` (alert guards chase; contact throws you off the train)
-- [ ] Debug overlay draws sight cones; HUD notice when spotted
-- [ ] Horse boost (G20): a short burst above top speed with a cooldown, on by default, switchable through `handlingModel` (`arcade-boost`, `arcade`)
+- [x] Guard actors spawned from car guard spawns, count from config and wanted level
+- [x] Patrol along car routes; stand watch without one
+- [x] Sight cone with a precomputed cosine threshold and wall blocking; noise radius from footsteps and running
+- [x] Suspicious then alert; spotted adds `playerSpotted` heat, alert raises an alarm (`alarmRaised` heat)
+- [x] No combat yet: `guardCatch` variant group (G4) with `heat-only` and `thrown-off` (alert guards chase; contact throws you off the train)
+- [x] Debug overlay draws sight cones; HUD notice when spotted
+- [x] Horse boost (G20): a short burst above top speed with a cooldown, on by default, switchable through `handlingModel` (`arcade-boost`, `arcade`)
+
+Built in the M3 PR ([#28](https://github.com/devlinjunker/train-robber/pull/28), branch claude/phase-2-m3-guards-boost, v0.2.3). The mail express carries 3 guards (`trains.mail-express.guards.base`); the wanted-level bonus reads through `wantedGuardBonus`, which returns 0 until M5. Guards turn amber when suspicious and red when alert. Sight is 7 tiles in an 80° cone, and hearing is 1.5 tiles walking and 5 running, times the floor's noise. These guard numbers are Claude's picks and are all config under `ai.*`. Boost is on C. `?cones=on` shows sight cones without the debug panel. Switching trains now regenerates loot as well as guards.
 
 ### M4: Extraction
 

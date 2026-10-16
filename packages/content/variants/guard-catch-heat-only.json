@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-only",
+  "group": "guardCatch",
+  "label": "Guards only raise heat",
+  "question": "What should an alert guard do before there is combat?",
+  "patch": {}
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "no-boost",
+  "extends": "alpha-default",
+  "variants": {
+    "handlingModel": "arcade"
+  }
+}

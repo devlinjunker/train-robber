@@ -14,6 +14,7 @@ export * from './world/separate';
 export * from './world/frames';
 export * from './world/generate';
 export * from './world/loot';
+export * from './world/guards';
 export * from './run';
 export * from './rules/outcome';
 export * from './rules/heat';

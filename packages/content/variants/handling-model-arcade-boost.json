@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "arcade-boost",
+  "group": "handlingModel",
+  "label": "Arcade handling with a boost",
+  "question": "Is the horse boost worth having?",
+  "patch": {}
+}

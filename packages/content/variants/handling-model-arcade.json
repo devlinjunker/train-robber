@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "arcade",
+  "group": "handlingModel",
+  "label": "Arcade handling, no boost",
+  "question": "Is the horse boost worth having?",
+  "patch": { "horse": { "boost": { "enabled": false } } }
+}
