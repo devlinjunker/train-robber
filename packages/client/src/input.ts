@@ -6,13 +6,13 @@ import type { Command, Steering } from '@train-robber/sim';
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
 /** 1 to 9 drop that item from the open inventory (I). */
 export type SlotAction = `slot${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
-export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'heat' | 'alarm' | SlotAction;
+export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'whistle' | 'heat' | 'alarm' | SlotAction;
 export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'toggleInventory' | 'exportLogs' | 'addNote' | 'toggleMute';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
-  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop',
+  KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop', KeyF: 'whistle',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
   // Playtest debug: H raises heat by a step, Shift+H raises an alarm's worth (see actionFor).
@@ -22,7 +22,7 @@ export const BINDINGS: Readonly<Record<string, Action>> = {
   ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, `slot${i + 1}` as SlotAction])),
 };
 const SLOT_ACTIONS = Array.from({ length: 9 }, (_, i) => `slot${i + 1}` as SlotAction);
-const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'heat', 'alarm', ...SLOT_ACTIONS]);
+const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'whistle', 'heat', 'alarm', ...SLOT_ACTIONS]);
 
 /** The action a key press means; Shift+H is the alarm debug key. */
 export function actionFor(code: string, shift: boolean): Action | undefined {
@@ -151,6 +151,7 @@ export class InputMapper {
         const target = ctx.switchTarget();
         out.push(target ? { type: 'switchTrain', trainId: target } : { type: 'switchTrain' });
       }
+      else if (a === 'whistle') out.push({ type: 'whistle' });
       else if (a === 'heat') out.push({ type: 'debugHeat' });
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
       else if (a === 'drop') out.push({ type: 'drop', slot: Math.max(0, ctx.carriedCount() - 1) });

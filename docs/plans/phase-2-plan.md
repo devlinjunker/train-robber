@@ -82,13 +82,15 @@ After Devlin's M2 playtest (2026-10-14): search time per item (letters 0.8 s, la
 
 ### M4: Extraction
 
-- [ ] `whistle` (F) moves the run to `extracting` and draws the arrival delay from the `horse` stream (U4)
-- [ ] Horse states `away`, `approaching`, `alongside`, `leaving`, with `extraction.paceWindowSec` and a re-whistle cooldown
-- [ ] Physical horse (G3, changed): after boarding it runs off for horse.runOffSec and is removed; the whistle places it behind the last car on your side at the distance the seeded 5-20 s delay takes to close, and a steering AI rides it up a lane 2 tiles out from your car, pathing around blocked and water tiles. A second whistle sends it to the other side, crossing behind the train; HUD notice if it is blocked; after the pace window it drops back and is removed
-- [ ] Mount jump on the boarding meter at its own difficulty (`extraction.meter.*`); perfect mounts clean, good (amber) mounts but spills loot (`mountSpill` variant: `random`, `heaviest`, `share`; G15), fail leaves you on the train with failure damage to retry (G14)
-- [ ] `extracted` outcome when the mount lands; loot is cashed out at that moment
-- [ ] Grace (G18): while the horse is alongside and you are within reach of a door on its side, expiry waits up to `countdown.graceSec`
-- [ ] Events `HorseWhistled`, `HorseArrived`, `HorseDeparted`; horse visible approaching with hoofbeats when close; `horseArrivalCue` variant (`visible`, `visible-timer`) adds a HUD timer (G11)
+- [x] `whistle` (F) moves the run to `extracting` and draws the arrival delay from the `horse` stream (U4)
+- [x] Horse states `away`, `approaching`, `alongside`, `leaving`, with `extraction.paceWindowSec` and a re-whistle cooldown
+- [x] Physical horse (G3, changed): after boarding it runs off for horse.runOffSec and is removed; the whistle places it behind the last car on your side at the distance the seeded 5-20 s delay takes to close, and a steering AI rides it up a lane 2 tiles out from your car, pathing around blocked and water tiles. A second whistle sends it to the other side, crossing behind the train; HUD notice if it is blocked; after the pace window it drops back and is removed
+- [x] Mount jump on the boarding meter at its own difficulty (`extraction.meter.*`); perfect mounts clean, good (amber) mounts but spills loot (`mountSpill` variant: `random`, `heaviest`, `share`; G15), fail leaves you on the train with failure damage to retry (G14)
+- [x] `extracted` outcome when the mount lands; loot is cashed out at that moment
+- [x] Grace (G18): while the horse is alongside and you are within reach of a door on its side, expiry waits up to `countdown.graceSec`
+- [x] Events `HorseWhistled`, `HorseArrived`, `HorseDeparted`; horse visible approaching with hoofbeats when close; `horseArrivalCue` variant (`visible`, `visible-timer`) adds a HUD timer (G11)
+
+Built in PR [#29](https://github.com/devlinjunker/train-robber/pull/29), branch `claude/phase-2-m4-extraction` (v0.2.4). Also there: `HorseSideChanged`, `HorseBlocked`, `MountAttempt` and `LootSpilled` events, `RunEnded.cashOut`, presets `arrival-timer`, `spill-heaviest` and `spill-share`, and an Extracted column on the Playtests page. The horse starts behind your car by the distance the delay closes at 14 against 9 tiles/s, at least 4 tiles behind the last car. Claude's picks to playtest: drop back 3 s, alongside within 3 tiles, mount reach 4 tiles, door reach 1.5 cells, share spill 30%. Whichever of M3 and M4 merges second makes `guardCatch: thrown-off` place the horse beside you.
 
 ### M5: Wanted level, persistence and score
 

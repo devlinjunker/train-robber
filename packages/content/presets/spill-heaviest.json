@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "spill-heaviest",
+  "extends": "alpha-default",
+  "variants": {
+    "mountSpill": "heaviest"
+  }
+}

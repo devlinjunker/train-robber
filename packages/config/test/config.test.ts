@@ -18,7 +18,11 @@ const base = {
   playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
-    slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+    slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold', runOffSec: 3,
+  },
+  extraction: {
+    arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
+    doorReachTiles: 1.5, meter: { sweepPeriodSec: 1.85, zoneWidths: [0.03, 0.15] }, mountSpill: 'random', spillShare: 0.3, arrivalTimer: false, pathCellTiles: 3, stuckSec: 3,
   },
   world: { mode: 'separate' },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
@@ -33,6 +37,7 @@ const base = {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
     expired: { bankRunLoot: false, wantedDelta: 1 },
+    extracted: { bankRunLoot: true, wantedDelta: 0 },
   },
 };
 

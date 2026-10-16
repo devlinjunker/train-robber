@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carriedWeight, commitTarget, createSim, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, WORLD_FRAME,
+  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -61,12 +61,14 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     }
     if (p.placement.frame === WORLD_FRAME) {
       if (h.mode !== 'physical') return `player ${p.id} in the world on an ${h.mode} horse`;
-      if (run?.phase === 'aboard') return `player ${p.id} in the world while aboard`;
+      if (run?.phase === 'aboard' || run?.phase === 'extracting') return `player ${p.id} in the world while ${run.phase}`;
     } else {
       const f = parseCarFrame(p.placement.frame);
-      if (!f || f.trainId !== run?.trainId || run.phase !== 'aboard') return `player ${p.id} in ${p.placement.frame} in phase ${run?.phase ?? 'idle'}`;
+      if (!f || f.trainId !== run?.trainId || (run.phase !== 'aboard' && run.phase !== 'extracting')) return `player ${p.id} in ${p.placement.frame} in phase ${run?.phase ?? 'idle'}`;
       if (!sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
-      if (h.mode === 'physical') return `player ${p.id} aboard with the horse still physical`;
+      // Aboard, the horse is in the world only while it runs off or comes when whistled (U4).
+      if (h.mode === 'physical' && run.horse.state === 'away') return `player ${p.id} aboard with the horse physical but not called`;
+      if (h.mode !== 'physical' && run.horse.state !== 'away') return `player ${p.id} aboard with the horse ${run.horse.state} but ${h.mode}`;
     }
     if (rp) {
       for (const id of rp.carried) if (!v.items[id]) return `player ${p.id} carries unknown item ${id}`;
@@ -78,11 +80,13 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
       if (rp.search) {
         const l = run!.loot.find((q) => q.id === rp.search!.loot);
         if (!l || l.taken) return `player ${p.id} searching loot ${rp.search.loot}, which is gone`;
-        if (run!.phase !== 'aboard') return `player ${p.id} searching in phase ${run!.phase}`;
+        if (run!.phase !== 'aboard' && run!.phase !== 'extracting') return `player ${p.id} searching in phase ${run!.phase}`;
       }
     }
   }
   if (run) {
+    if (run.phase === 'extracting' && run.horse.state !== 'approaching' && run.horse.state !== 'alongside') return `extracting with the horse ${run.horse.state}`;
+    if (run.horse.state === 'alongside' && run.phase !== 'extracting') return `horse alongside in phase ${run.phase}`;
     const ids = new Set(run.loot.map((l) => l.id));
     if (ids.size !== run.loot.length) return 'duplicate loot ids';
     for (const l of run.loot) if (!v.items[l.item]) return `loot ${l.id} is unknown item ${l.item}`;
@@ -107,6 +111,7 @@ function randomBot(rng: RngState): Brain {
     else if (roll < 22) c.push({ type: 'startRun' });
     else if (roll < 23) c.push({ type: 'cancelRun' });
     else if (roll < 25) c.push({ type: 'switchTrain' });
+    else if (roll < 26) c.push({ type: 'whistle' });
     else if (roll < 27) c.push({ type: 'drop', slot: nextInt(rng, 'misc', 4) - 1 });
     // Heat from the debug keys, so the heat range and the faster drain see play.
     else if (roll < 30) c.push(roll < 29 ? { type: 'debugHeat' } : { type: 'debugHeat', source: 'alarmRaised' });
@@ -149,8 +154,28 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
       if (p.interactHeld && !rp.search && rp.searchLatched) c.push({ type: 'interact', held: false });
       if (rp.carried.length && nextInt(rng, 'misc', 600) === 0) c.push({ type: 'drop', slot: nextInt(rng, 'misc', rp.carried.length) });
       if (aboardFor > 60 * (14 + nextInt(rng, 'misc', 4))) { aboardFor = 0; move(0, 0); c.push({ type: 'interact', held: false }, { type: 'quickRetry' }); }
+      // After looting a while, whistle for the horse and get off.
+      if (aboardFor === 60 * 8) { move(0, 0); c.push({ type: 'interact', held: false }, { type: 'whistle' }); }
       return c;
     }
+    if (s.run?.phase === 'extracting') {
+      // Walk to the nearest door on the horse's side and jump when the mount meter sweeps.
+      aboardFor++;
+      const p = s.players[0]!;
+      const f = parseCarFrame(p.placement.frame)!;
+      const train = s.world.trains.find((q) => q.id === f.trainId)!;
+      const doors = carTemplate(carCatalog(config), train.cars[f.car]!).sideEntries.filter((e) => e.side === s.run!.horse.side);
+      const d = doors.map((e) => ({ dx: e.cell[0] + 0.5 - p.placement.x, dy: e.cell[1] + 0.5 - p.placement.y })).sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy))[0];
+      if (d && Math.hypot(d.dx, d.dy) > 0.6) move(Math.abs(d.dx) > 0.15 ? (d.dx > 0 ? -127 : 127) : 0, Math.abs(d.dy) > 0.15 ? (d.dy > 0 ? 127 : -127) : 0);
+      else move(0, 0);
+      if (mountCheck(s, sim.map, config, p).state === 'eligible') {
+        if (eligibleFor++ === 0) waitTicks = 1 + nextInt(rng, 'misc', 90);
+        if (eligibleFor >= waitTicks) { c.push({ type: 'jump' }); eligibleFor = 0; }
+      } else eligibleFor = 0;
+      if (aboardFor > 60 * 40) { aboardFor = 0; move(0, 0); c.push({ type: 'quickRetry' }); }
+      return c;
+    }
+    aboardFor = 0;
     if (!s.run) {
       if (commitTarget(s, sim.map, config, h)) c.push({ type: 'interact', held: true });
       else if (t % 1800 === 0) c.push({ type: 'quickRetry' });

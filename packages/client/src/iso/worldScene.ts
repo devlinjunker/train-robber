@@ -61,6 +61,8 @@ export interface WorldSceneInput {
   cars: readonly CarPose[];
   /** The horse, unless it is abstract (its rider is aboard). */
   horse: ActorPose | null;
+  /** The horse has no rider: its player is aboard and it runs off or comes when whistled. */
+  riderless?: boolean;
   stunned: boolean;
   /** Seconds since a crash cost health, while its red flash lasts, else null. */
   hitAge: number | null;
@@ -177,7 +179,7 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
-function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0): void {
+function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0, riderless = false): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
   const head: Box = { x: h.x + h.hx * 0.75, y: h.y + h.hy * 0.75, ux: h.hx, uy: h.hy, halfLength: 0.28, halfWidth: 0.2, z0: 0.9, z1: 1.5 };
   const legs: Box = { ...body, halfLength: 0.6, halfWidth: 0.22, z0: 0, z1: 0.45 };
@@ -187,7 +189,7 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
   drawBox(g, legs, flash ?? mix(shade(c, 0.7), MUDDY_LEGS, muddiness));
   drawBox(g, body, c);
   drawBox(g, head, c);
-  drawBox(g, rider, flash ?? RIDER_COLOUR);
+  if (!riderless) drawBox(g, rider, flash ?? RIDER_COLOUR);
 }
 
 /** `groundCover`: scatter grass and scrub over open ground from this seed, or none when null. */
@@ -401,7 +403,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
           : input.stunned && flashOn(input.timeSec) ? 0xffffff : null;
         // The shadow goes with the horse, so raised ground drawn in front of the shadows layer cannot hide it.
         groundEllipse(horseG, h.x + 0.2, h.y + 0.2, HORSE_RADIUS * 0.9, horseZ).fill({ color: 0x000000, alpha: 0.25 });
-        drawHorse(horseG, h, flash, mud.muddiness, horseZ);
+        drawHorse(horseG, h, flash, mud.muddiness, horseZ, input.riderless ?? false);
         horseG.zIndex = depthOf(h.x, h.y);
       }
 
