@@ -15,7 +15,16 @@ export const GameSchema = z.object({
     events: z.array(z.string()),
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
-  commit: z.object({ rangeTiles: positive, auto: z.boolean() }).strict(),
+  commit: z.object({
+    rangeTiles: positive,
+    auto: z.boolean(),
+    /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
+    switchRangeTiles: positive,
+    /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
+    autoSwitch: z.boolean(),
+    /** Auto switching needs the other train this much closer than the committed one, so the run does not flip back and forth. */
+    autoSwitchMarginTiles: positive,
+  }).strict(),
   boarding: z.object({
     rangeTiles: positive,
     speedToleranceTilesPerSec: positive,
@@ -39,8 +48,10 @@ export const GameSchema = z.object({
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
   collision: z.object({
-    /** Health lost by a crash at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
+    /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
+    /** The same for a crash into blocked ground (rocks), kept separate so train hits can hurt more. */
+    obstacleDamageFraction: fraction,
     /** Health lost by scraping a train car (any touch below minImpactTilesPerSec), as a fraction of max. Blocked ground never scrapes. */
     scrapeDamageFraction: fraction,
     /** Speed lost against a car or blocked ground from which a touch is a crash; below it a car touch is a scrape and a rock touch is free. */
@@ -56,22 +67,47 @@ export const GameSchema = z.object({
     quickRetry: z.boolean(),
     /** How far behind the train's last car quick retry places the horse. */
     quickRetryGapTiles: positive,
+    /** H raises heat by this much (cause `debug`), so the heat meter and drain can be playtested before loot and guards; 0 turns it off. */
+    debugHeatStep: z.number().min(0),
   }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
   countdown: z.object({
-    /** Off until phase 2 brings the countdown and heat. */
+    /** The run's clock (phase 2). Off, a run never expires. */
     enabled: z.boolean(),
     /** U1: the run and countdown start when the player commits to a train. */
     startsAt: z.enum(['commit', 'boarding']),
-    /** Multiplies every train's countdown.baseSec (runLength variants). */
+    /** Multiplies every train's countdown.baseSec: run length is a plain value (U7, G22); the medium-run preset sets 4. */
     scale: positive,
+    /** U3: how long expiry waits while the player is already escaping (horse alongside, near a door on its side). */
+    graceSec: z.number().min(0),
   }).strict(),
+  /** Heat 0 to maxHeat speeds up the countdown (U2). Every gain goes through raiseHeat with one of these sources. */
+  heat: z.object({
+    maxHeat: positive,
+    /** Countdown drain rate is 1 + heatDrainFactor x heat/100. */
+    heatDrainFactor: z.number().min(0),
+    /** Heat added per event; timeAboardPerSec is added per second aboard instead (0.33 by default since the M1 playtest, G26). */
+    sources: z.object({
+      shotFired: z.number().min(0),
+      alarmRaised: z.number().min(0),
+      playerSpotted: z.number().min(0),
+      actorKilled: z.number().min(0),
+      lootTaken: z.number().min(0),
+      timeAboardPerSec: z.number().min(0),
+    }).strict(),
+    /** Heat from which guards resist boarding once combat exists (G30); null or absent is off. A hook only in phase 2. */
+    boardingResistanceAt: z.number().min(0).nullable().optional(),
+  }).strict(),
+  /** Loot density is each train's loot.density x densityScale (U7); read once loot exists (phase 2 M2). */
+  loot: z.object({ densityScale: positive }).strict(),
   trains: z.record(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes'), z.object({
     name: z.string(),
     /** Route id in the map the train runs on. */
     route: z.string(),
     speedTilesPerSec: positive,
     cars: z.array(z.object({ template: z.string(), count: z.number().int().positive().optional() }).strict()).min(1),
+    /** The run's countdown is baseSec x countdown.scale, copied into the run at commit. */
+    countdown: z.object({ baseSec: positive }).strict(),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
   outcomePolicy: z.object({
     died: z.object({
@@ -82,6 +118,7 @@ export const GameSchema = z.object({
       reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
     }).strict(),
     cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   horse: z.object({
     /** Tiles per second. */
@@ -95,6 +132,8 @@ export const GameSchema = z.object({
     cruiseTargetRateTilesPerSec2: positive,
     /** Top speed on slow ground, as a fraction of maxSpeed. */
     slowZoneSpeedScale: z.number().gt(0).max(1),
+    /** Top speed wading through water, as a fraction of maxSpeed; entering water drops to it at once. */
+    waterSpeedScale: z.number().gt(0).max(1),
     turnRateDegPerSec: positive,
     /** steering variant group: direction keys set a screen heading, or A/D turn the horse. */
     steering: z.enum(['screen', 'heading']),
@@ -119,7 +158,11 @@ export type Variant = z.infer<typeof VariantSchema>;
 export const PresetSchema = z.object({
   schemaVersion: z.literal(1),
   id,
-  /** Exactly one variant per group. */
+  /** A preset to build on: its variants and values apply first, and this preset's replace them. */
+  extends: id.optional(),
+  /** Exactly one variant per group, counting the ones inherited through `extends`. */
   variants: z.record(z.string()),
+  /** Plain config values this preset sets, as a partial game.json tree (numbers are values, not variants). */
+  values: z.record(z.unknown()).optional(),
 }).strict();
 export type Preset = z.infer<typeof PresetSchema>;

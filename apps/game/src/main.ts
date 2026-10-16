@@ -4,7 +4,7 @@ import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
 import type { MapDef } from '@train-robber/config';
-import { loadMap, mapIdFromUrl } from './map';
+import { loadMap, loadScenery, mapIdFromUrl } from './map';
 import { RingBuffer } from './ringBuffer';
 import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
@@ -41,7 +41,15 @@ async function boot() {
     showFatal(app, (e as Error).message);
     throw e;
   }
-  const { config, seed } = setupFromUrl();
+  let setup: ReturnType<typeof setupFromUrl>;
+  try {
+    setup = setupFromUrl();
+  } catch (e) {
+    // A typo in ?preset=, ?v= or ?set= names the bad value on screen instead of a blank page.
+    showFatal(app, `Bad setup in the URL: ${(e as Error).message}`);
+    throw e;
+  }
+  const { config, seed } = setup;
   const tickRateHz = config.values.sim.tickRateHz;
   const STEP_MS = 1000 / tickRateHz;
   const startedAt = new Date().toISOString();
@@ -58,7 +66,7 @@ async function boot() {
   const evLog = eventLogWriter(header, (line) => { storeEvent(line); recent.push(line); }, { allow: config.values.logging.events });
 
   const tracker = createRunTracker({
-    session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants,
+    session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants, overrides: header.overrides,
     seed, mapId: header.mapId, url: location.search, tickRateHz,
   });
   const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };
@@ -102,7 +110,7 @@ async function boot() {
   document.body.appendChild(history);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
-  const client = createGameClient(app, { sim, map, config, onExportLogs: exportLogs, onAddNote: addNote });
+  const client = createGameClient(app, { sim, map, scenery: await loadScenery(map), config, onExportLogs: exportLogs, onAddNote: addNote });
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();

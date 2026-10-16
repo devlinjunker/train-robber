@@ -9,6 +9,26 @@ export function shade(color: number, k: number): number {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 }
 
+/** Mix two colours, `t` of the way from a to b. */
+export const mix = (a: number, b: number, t: number) => {
+  const ch = (s: number) => Math.round(((a >> s) & 0xff) * (1 - t) + ((b >> s) & 0xff) * t);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+};
+
+/**
+ * An ellipse (or circle, without `ry`) as a polygon with a few sides for its size. Graphics.ellipse
+ * makes dozens of vertices even for a speck, and the map draws tens of thousands of them.
+ */
+export function oval(g: Graphics, cx: number, cy: number, rx: number, ry = rx): Graphics {
+  const n = Math.min(40, Math.max(6, Math.ceil(2 * Math.sqrt(rx + ry))));
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
+  }
+  return g.poly(pts);
+}
+
 /** Flat points [x0, y0, x1, y1, ...] in iso pixels for world points at height z. */
 export function isoPoly(pts: readonly (readonly [number, number])[], z = 0): number[] {
   return pts.flatMap(([x, y]) => [isoX(x, y), isoY(x, y, z)]);
@@ -70,16 +90,16 @@ export function drawBox(g: Graphics, b: Box, color: number, skipFace: readonly b
 }
 
 /** An upright quad on one side face of a box, between `along0` and `along1` (from the centre toward the front) and two heights. */
-export function sidePanel(g: Graphics, b: Box, side: 'left' | 'right', along0: number, along1: number, z0: number, z1: number, color: number): void {
+export function sidePanel(g: Graphics, b: Box, side: 'left' | 'right', along0: number, along1: number, z0: number, z1: number, color: number, alpha = 1): void {
   const s = side === 'left' ? 1 : -1;
   const lx = b.uy * s * b.halfWidth, ly = -b.ux * s * b.halfWidth;
   const p = (a: number): [number, number] => [b.x + b.ux * a + lx, b.y + b.uy * a + ly];
   const nx = b.uy * s, ny = -b.ux * s;
   if (!facesViewer(nx, ny)) return;
-  g.poly([...isoPoly([p(along0), p(along1)], z0), ...isoPoly([p(along1), p(along0)], z1)]).fill(color);
+  g.poly([...isoPoly([p(along0), p(along1)], z0), ...isoPoly([p(along1), p(along0)], z1)]).fill({ color, alpha });
 }
 
 /** The ellipse a world circle of radius r becomes on the ground. */
 export function groundEllipse(g: Graphics, x: number, y: number, r: number, z = 0): Graphics {
-  return g.ellipse(isoX(x, y), isoY(x, y, z), r * Math.SQRT2 * (TILE_W / 2), r * Math.SQRT2 * (TILE_H / 2));
+  return oval(g, isoX(x, y), isoY(x, y, z), r * Math.SQRT2 * (TILE_W / 2), r * Math.SQRT2 * (TILE_H / 2));
 }

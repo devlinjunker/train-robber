@@ -39,7 +39,7 @@ npm run golden:update                       # rewrite the golden replay after a 
 
 ## Playing and previews
 
-In the client, `?preset=alpha-default&v=boardingFailure:time-only&seed=abc123` picks the setup, and the Export logs button (or L) downloads the session's command and event logs (N adds a note to them). The Playtests link opens `playtests.html`, a history of every run played in that browser with outcomes grouped by setup.
+In the client, `?preset=alpha-default&v=boardingFailure:time-only&set=countdown.scale=4&seed=abc123` picks the setup (`set=<path>=<value>` overrides any config value, and presets such as `medium-run` build on `alpha-default`), and the Export logs button (or L) downloads the session's command and event logs (N adds a note to them). The Playtests link opens `playtests.html`, a history of every run played in that browser with outcomes grouped by setup.
 
 Every pull request gets a playable build at `https://devlinjunker.github.io/train-robber/pr-preview/pr-<number>/` (linked in a PR comment), and `main` is published at `https://devlinjunker.github.io/train-robber/`. See `.github/workflows/pages.yml`.
 

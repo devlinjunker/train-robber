@@ -6,7 +6,7 @@ import { createGameClient, showFatal } from '@train-robber/client';
 import { headerWarnings } from '@train-robber/config';
 import { createReplay, eventLogWriter, indexCommandLog, mapHash, parseLog, type CommandLogLine, type HeaderLine, type Replay } from '@train-robber/sim';
 import pkg from '../package.json';
-import { DEFAULT_MAP, loadMap } from './map';
+import { DEFAULT_MAP, loadMap, loadScenery } from './map';
 import { RingBuffer } from './ringBuffer';
 import { configForHeader } from './setup';
 import type { ReplaySource } from './logDrop';
@@ -32,7 +32,7 @@ export async function bootReplay(app: Application, source: ReplaySource): Promis
     warnings = headerWarnings(header, { config, gameVersion: pkg.version, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
     if (!header.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
     replay = createReplay(indexCommandLog(log), { config, map, seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
-    run(app, { name, header, replay, warnings, config, map, startTick: source.startTick });
+    run(app, { name, header, replay, warnings, config, map, scenery: await loadScenery(map), startTick: source.startTick });
   } catch (e) {
     showFatal(app, `Replay: ${(e as Error).message}`);
     addTopLinks();
@@ -55,6 +55,7 @@ interface Ctx {
   warnings: string[];
   config: ReturnType<typeof configForHeader>;
   map: Awaited<ReturnType<typeof loadMap>>;
+  scenery: Awaited<ReturnType<typeof loadScenery>>;
   startTick: number | null;
 }
 
@@ -69,9 +70,9 @@ function run(app: Application, c: Ctx): void {
   // The page's own view options win over the logged ones, so ?view=topdown still works here.
   const search = new URLSearchParams(header.url ?? '');
   const here = new URLSearchParams(location.search);
-  for (const k of ['view', 'runZoom']) { const v = here.get(k); if (v !== null) search.set(k, v); }
+  for (const k of ['view', 'runZoom', 'runZoomRange', 'distanceCue']) { const v = here.get(k); if (v !== null) search.set(k, v); }
   const client = createGameClient(app, {
-    sim: replay.sim, map: c.map, config, search: `?${search}`,
+    sim: replay.sim, map: c.map, scenery: c.scenery, config, search: `?${search}`,
     replayControls: 'Space play/pause  ·  ←/→ 5 s  ·  ,/. one tick  ·  ↑/↓ speed  ·  [/] notes',
   });
   // The debug readout's recent events, rebuilt from the replayed events.

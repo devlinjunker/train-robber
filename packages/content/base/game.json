@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
-  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "BoardingAttempt", "DamageDealt", "CommandRejected", "RunEnded", "PersistentChanged"] },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged"] },
   "player": { "speedTilesPerSec": 8 },
   "world": { "mode": "separate" },
   "horse": {
     "maxSpeed": 14, "accel": 7, "brake": 12, "dragTilesPerSec2": 3, "cruiseTargetRateTilesPerSec2": 10,
-    "slowZoneSpeedScale": 0.5, "turnRateDegPerSec": 120, "steering": "heading", "throttleModel": "hold"
+    "slowZoneSpeedScale": 0.5, "waterSpeedScale": 0.25, "turnRateDegPerSec": 120, "steering": "heading", "throttleModel": "hold"
   },
-  "commit": { "rangeTiles": 12, "auto": true },
+  "commit": { "rangeTiles": 12, "auto": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
   "boarding": {
     "rangeTiles": 2,
     "speedToleranceTilesPerSec": 2,
@@ -17,19 +17,28 @@
     "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33 }
   },
   "health": { "max": 100 },
-  "collision": { "damageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "cooldownSec": 1 },
-  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60 },
-  "countdown": { "enabled": false, "startsAt": "commit", "scale": 1 },
+  "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "cooldownSec": 1 },
+  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10 },
+  "countdown": { "enabled": true, "startsAt": "commit", "scale": 1, "graceSec": 3 },
+  "heat": {
+    "maxHeat": 100,
+    "heatDrainFactor": 1.0,
+    "sources": { "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5, "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0.33 },
+    "boardingResistanceAt": null
+  },
+  "loot": { "densityScale": 1 },
   "trains": {
     "blank": {
       "name": "Blank train",
       "route": "main",
       "speedTilesPerSec": 9,
-      "cars": [{ "template": "engine" }, { "template": "blank-car", "count": 3 }]
+      "cars": [{ "template": "engine" }, { "template": "blank-car", "count": 3 }],
+      "countdown": { "baseSec": 150 }
     }
   },
   "outcomePolicy": {
     "died": { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [] },
-    "cancelled": { "bankRunLoot": false, "wantedDelta": 0 }
+    "cancelled": { "bankRunLoot": false, "wantedDelta": 0 },
+    "expired": { "bankRunLoot": false, "wantedDelta": 1 }
   }
 }

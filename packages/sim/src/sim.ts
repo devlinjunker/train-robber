@@ -6,7 +6,8 @@ import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './wo
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
-import { autoCommitSystem, boardingSystem, cancelRun, collisionSystem, quickRetry, runEndSystem, startRun, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
+import { countdownSystem } from './rules/heat';
 
 export interface SimOptions {
   config: SimConfig;
@@ -94,12 +95,16 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             // Phase 1: interact only commits. Aboard it will loot, inspect and so on.
             if (state.run) events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
             else startRun(ctx, p, undefined, 'interact');
+          } else if (c.type === 'switchTrain') {
+            switchTrain(ctx, p, c.trainId);
           } else if (c.type === 'cancelRun') {
             cancelRun(ctx, p);
           } else if (c.type === 'quickRetry') {
             quickRetry(ctx, p);
           } else if (c.type === 'jump') {
             jumps.add(p.id);
+          } else if (c.type === 'debugHeat') {
+            debugHeat(ctx, p, c.source);
           }
         }
       }
@@ -107,11 +112,14 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       advanceTrains(state, map, config);
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
       collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf));
-      // 3b. With `commit.auto`, an idle player commits once a train is in range.
+      // 3b. With `commit.auto`, an idle player commits once a train is in range; with
+      // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
-      // 4. Boarding, 5. movement aboard, 11. run end.
+      autoSwitchSystem(ctx);
+      // 4. Boarding, 5. movement aboard, 10. heat and countdown, 11. run end.
       boardingSystem(ctx, jumps);
       walkAboard(state, world, config);
+      countdownSystem(ctx);
       runEndSystem(ctx);
       state.tick += 1;
       return { tick: state.tick, events };

@@ -35,7 +35,7 @@ describe('determinism', () => {
     expect(() => restoreSim(run(10).snapshot(), { ...config, hash: 'other' }, map)).toThrow(/config/);
   });
   it('restore refuses a different map', () => {
-    expect(() => restoreSim(run(10).snapshot(), config, testMap((x) => (x === 3 ? 'water' : 'open')))).toThrow(/map test/);
+    expect(() => restoreSim(run(10).snapshot(), config, testMap((x) => (x === 3 ? 'deep' : 'open')))).toThrow(/map test/);
   });
 });
 
@@ -65,7 +65,7 @@ describe('logs', () => {
   it('event log applies the allowlist', () => {
     const lines: string[] = [];
     const log = eventLogWriter(header, (l) => lines.push(l), { allow: ['RunStarted'] });
-    log.events([{ type: 'RunStarted', tick: 3, player: 1, runNumber: 1, trainId: 'blank-1' }, { type: 'RunPhaseChanged', tick: 9, player: 1, from: 'approach', to: 'ended' }]);
-    expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1, runNumber: 1, trainId: 'blank-1' }]);
+    log.events([{ type: 'RunStarted', tick: 3, player: 1, runNumber: 1, trainId: 'blank-1', countdownSec: 150, wantedLevel: 0 }, { type: 'RunPhaseChanged', tick: 9, player: 1, from: 'approach', to: 'ended' }]);
+    expect(lines.slice(1).map((l) => JSON.parse(l))).toEqual([{ k: 'ev', t: 3, e: 'RunStarted', player: 1, runNumber: 1, trainId: 'blank-1', countdownSec: 150, wantedLevel: 0 }]);
   });
 });

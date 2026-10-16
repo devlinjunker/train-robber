@@ -1,8 +1,13 @@
 // The HTML HUD over the canvas: health, the run phase, the commit prompt, jump rejection reasons
-// and results, and the controls. The debug readout lives here too, toggled with the backquote key.
-// The meter is not here: it is drawn in the world above the horse (decision Q12).
+// and results, the countdown bar and heat meter, and the controls. The debug readout lives here
+// too, toggled with the backquote key. The meter is not here: it is drawn in the world above the
+// horse (decision Q12).
+import { clockStep, clockText, drainText, HEAT_BANDS, heatBand } from './clock';
 
 export type NoticeKind = 'bad' | 'good' | 'warn' | 'info';
+
+/** The run's clock: seconds left of the whole countdown, and how fast it drains now. */
+export interface ClockView { sec: number; total: number; rate: number }
 
 export interface HudState {
   phase: string;
@@ -17,6 +22,14 @@ export interface HudState {
   noticeKind: NoticeKind;
   controls: string;
   debug: string | null;
+  /** The countdown while a run has one, else null. */
+  clock: ClockView | null;
+  /** Heat while a run is active, else null. */
+  heat: { now: number; max: number } | null;
+  /** Recent heat gains, newest last, e.g. `+10 heat: debug key`. */
+  heatNotices: readonly string[];
+  /** True for a moment after an alarm: the screen edge pulses red. */
+  alarm: boolean;
 }
 
 const CSS = `
@@ -39,7 +52,37 @@ const CSS = `
 @keyframes tr-hit-blink { 50% { opacity: .25; } }
 .tr-hud .notice.info { background: rgba(30,60,120,.85); }
 .tr-hud .controls { margin-top: 8px; font-size: 12px; opacity: .8; text-shadow: 0 1px 2px #000; }
-.tr-hud .debug { position: absolute; top: 8px; left: 8px; margin: 0; font-size: 11px; white-space: pre; overflow: hidden; text-overflow: ellipsis; max-width: min(36vw, 560px);
+.tr-hud .clock { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
+.tr-hud .clock-row { display: flex; gap: 10px; align-items: center; }
+.tr-hud .clock-time { font-size: 22px; font-weight: 800; min-width: 64px; text-align: right; }
+.tr-hud .clock-bar { width: 280px; height: 16px; background: #222; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
+/* Stripes slide left at the drain rate, so a faster clock visibly runs faster. */
+.tr-hud .clock-bar > div { height: 100%; transition: width .25s linear, background-color .3s;
+  background-image: repeating-linear-gradient(-45deg, rgba(255,255,255,.22) 0 6px, transparent 6px 12px); background-size: 34px 16px;
+  animation: tr-clock-run var(--tr-stripe-sec, 1s) linear infinite; }
+@keyframes tr-clock-run { from { background-position: 0 0; } to { background-position: -34px 0; } }
+.tr-hud .clock.calm .clock-bar > div { background-color: #4caf50; }
+.tr-hud .clock.low .clock-bar > div { background-color: #e0a020; }
+.tr-hud .clock.critical .clock-bar > div { background-color: #e53935; }
+.tr-hud .clock.critical .clock-time { color: #ff6b5e; animation: tr-hit-blink .5s steps(1) infinite; }
+.tr-hud .clock-rate { font-size: 18px; font-weight: 800; min-width: 52px; color: #bbb; }
+.tr-hud .clock-rate.fast { color: #ffb02e; }
+.tr-hud .clock-rate.faster { color: #ff6b5e; }
+.tr-hud .heat-row { display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.tr-hud .heat-bar { position: relative; width: 240px; height: 10px; border: 1px solid #fff6; border-radius: 3px; overflow: hidden;
+  background: linear-gradient(90deg, #2c3a2c 0 33.3%, #4a3a1c 33.3% 66.6%, #4a1f1c 66.6% 100%); }
+.tr-hud .heat-bar > div { height: 100%; transition: width .2s, background-color .2s; }
+.tr-hud .heat-bar .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff8; }
+.tr-hud .heat-row.cool .heat-bar > div { background-color: #8bc34a; }
+.tr-hud .heat-row.warm .heat-bar > div { background-color: #ffb02e; }
+.tr-hud .heat-row.hot .heat-bar > div { background-color: #ff3b30; }
+.tr-hud .heat-label { min-width: 110px; font-weight: 700; }
+.tr-hud .heat-notices { display: flex; flex-direction: column; align-items: center; font-size: 13px; font-weight: 700; color: #ffcf7a; text-shadow: 0 1px 2px #000; }
+.tr-hud .edge { position: absolute; inset: 0; box-shadow: inset 0 0 60px 18px rgba(255,40,30,.75); opacity: 0; }
+.tr-hud .edge.on { animation: tr-edge-pulse .5s ease-in-out infinite alternate; }
+@keyframes tr-edge-pulse { from { opacity: .15; } to { opacity: 1; } }
+.tr-hud .debug { position: absolute; top: 8px; left: 8px; margin: 0; font-size: 11px; white-space: pre; overflow: hidden; text-overflow: ellipsis; max-width: min(33vw, 480px);
   background: rgba(0,0,0,.45); padding: 6px 8px; border-radius: 4px; }
 `;
 
@@ -49,7 +92,10 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.className = 'tr-hud';
-  root.innerHTML = `<pre class="debug"></pre>
+  root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
+    <div class="clock calm"><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
+      <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
+      <div class="heat-notices"></div></div>
     <div class="top"><span class="phase"></span><span class="hit">!</span><span class="hp-label">health</span><div class="health"><div></div></div><span class="hp-text"></span></div>
     <div class="bottom"><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
@@ -57,6 +103,9 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const top = q('.top'), hit = q('.hit');
   const debug = q('.debug'), phase = q('.phase'), hpLabel = q('.hp-label'), health = q('.health'), bar = q<HTMLDivElement>('.health > div'),
     hpText = q('.hp-text'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
+  const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
+  const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
+  const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
   // Only touch the DOM when a value changes.
   let last: Partial<HudState> = {};
   const set = (el: HTMLElement, text: string) => { if (el.textContent !== text) el.textContent = text; };
@@ -77,6 +126,30 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       notice.style.display = s.notice ? '' : 'none';
       if (last.noticeKind !== s.noticeKind) notice.className = `notice ${s.noticeKind}`;
       set(controls, s.controls);
+      clock.style.display = s.clock || s.heat ? '' : 'none';
+      clock.querySelector<HTMLElement>('.clock-row')!.style.display = s.clock ? '' : 'none';
+      if (s.clock) {
+        const share = s.clock.total > 0 ? Math.max(0, Math.min(1, s.clock.sec / s.clock.total)) : 0;
+        setClass(clock, `clock ${clockStep(share)}`);
+        clockFill.style.width = `${share * 100}%`;
+        set(clockTime, clockText(s.clock.sec));
+        set(clockRate, drainText(s.clock.rate));
+        setClass(clockRate, `clock-rate${s.clock.rate >= 1.5 ? ' faster' : s.clock.rate > 1.001 ? ' fast' : ''}`);
+        clockFill.style.setProperty('--tr-stripe-sec', `${(1 / s.clock.rate).toFixed(3)}s`);
+      }
+      heatRow.style.display = s.heat ? '' : 'none';
+      if (s.heat) {
+        const band = heatBand(s.heat.now, s.heat.max);
+        setClass(heatRow, `heat-row ${band}`);
+        heatFill.style.width = `${Math.max(0, Math.min(100, (s.heat.now / s.heat.max) * 100))}%`;
+        set(heatLabel, `HEAT ${Math.round(s.heat.now)} · ${band}`);
+      }
+      const notices = s.heatNotices.join('\n');
+      if (heatNotices.dataset.text !== notices) {
+        heatNotices.dataset.text = notices;
+        heatNotices.replaceChildren(...s.heatNotices.map((t) => Object.assign(document.createElement('div'), { textContent: t })));
+      }
+      if (last.alarm !== s.alarm) edge.classList.toggle('on', s.alarm);
       debug.style.display = s.debug === null ? 'none' : '';
       if (s.debug !== null) set(debug, s.debug);
       last = s;

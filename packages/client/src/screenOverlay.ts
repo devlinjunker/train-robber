@@ -2,7 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains off screen.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
-import { landingCue, LANDING_CUE_SEC, speedLabel } from './cues';
+import { COMMITTED_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
 
 /**
  * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
@@ -30,6 +30,15 @@ export interface TrainPointer {
   /** The service it is on now, on maps with junctions: a train may change service at each one. */
   service?: string;
   committed: boolean;
+  /** The train Tab would switch the run to. */
+  candidate: boolean;
+}
+
+/** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
+export interface DistanceCue {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  distanceTiles: number;
 }
 
 export interface ScreenOverlayInput {
@@ -48,6 +57,7 @@ export interface ScreenOverlayInput {
   landing: { result: 'perfect' | 'good'; ageSec: number } | null;
   /** Share of the good-landing stumble left, 1 to 0, or null when not stumbling. */
   stumble: number | null;
+  distanceCue?: DistanceCue | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -66,11 +76,15 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const bannerDetail = new Text({ text: '', style: style(16) });
   bannerDetail.anchor.set(0.5, 0);
   const stumbleBar = new Graphics();
-  root.addChild(arrows, meter, speed, stumbleBar, banner, bannerDetail);
+  const cueLine = new Graphics();
+  const cueLabel = new Text({ text: '', style: style(16) });
+  cueLabel.anchor.set(0.5);
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, banner, bannerDetail);
 
   return {
     root,
     update(input) {
+      drawDistanceCue(cueLine, cueLabel, input.distanceCue ?? null);
       meter.clear();
       speed.visible = false;
       if (input.horse) {
@@ -138,7 +152,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         const k = Math.min((cx - EDGE_MARGIN) / Math.abs(dx || 1e-9), (cy - EDGE_MARGIN) / Math.abs(dy || 1e-9));
         const ax = cx + dx * k, ay = cy + dy * k;
         const n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n;
-        const colour = t.committed ? 0xffd34d : 0xffffff;
+        const colour = t.committed ? COMMITTED_COLOUR : t.candidate ? SWITCH_CANDIDATE_COLOUR : 0xffffff;
         arrows.poly([ax + ux * 18, ay + uy * 18, ax - uy * 12 - ux * 6, ay + ux * 12 - uy * 6, ax + uy * 12 - ux * 6, ay - ux * 12 - uy * 6])
           .fill(colour).stroke({ width: 2, color: 0x000000 });
         let label = labels[used];
@@ -152,4 +166,29 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       for (let i = used; i < labels.length; i++) labels[i]!.visible = false;
     },
   };
+}
+
+const CUE_COLOUR = 0xffffff;
+
+/**
+ * A line on the ground from the horse to the side of the car, drawn over the car so it shows on
+ * the far side, with a tick on the car side and the gap in tiles beside the line.
+ */
+function drawDistanceCue(g: Graphics, label: Text, cue: DistanceCue | null): void {
+  g.clear();
+  label.visible = false;
+  if (!cue) return;
+  const { from, to } = cue;
+  const dx = to.x - from.x, dy = to.y - from.y, n = Math.hypot(dx, dy) || 1;
+  const px = -dy / n, py = dx / n;
+  g.moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 6, color: 0x000000, alpha: 0.5 })
+    .moveTo(from.x, from.y).lineTo(to.x, to.y).stroke({ width: 2.5, color: CUE_COLOUR, alpha: 0.85 });
+  g.moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 6, color: 0x000000, alpha: 0.6 })
+    .moveTo(to.x - px * 10, to.y - py * 10).lineTo(to.x + px * 10, to.y + py * 10).stroke({ width: 3, color: CUE_COLOUR });
+  label.text = `${cue.distanceTiles.toFixed(1)} tiles`;
+  label.style.fill = CUE_COLOUR;
+  // Beside the middle of the line, toward the bottom of the screen, clear of the line itself.
+  const side = py < 0 ? -1 : 1, gap = Math.abs(px) * label.width / 2 + Math.abs(py) * label.height / 2 + 8;
+  label.position.set((from.x + to.x) / 2 + px * gap * side, (from.y + to.y) / 2 + py * gap * side);
+  label.visible = true;
 }

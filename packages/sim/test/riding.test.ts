@@ -144,7 +144,20 @@ describe('terrain', () => {
     expect(h.speed).toBeCloseTo(14 - 12 / 60, 9);
   });
 
-  for (const zone of ['blocked', 'water'] as const) {
+  it('water drops the horse to a quarter of top speed at once, and lets it wade through', () => {
+    const { h, run } = rider({}, { paint: (x) => (x >= 40 && x < 50 ? 'water' : 'open') });
+    run(1, W);
+    while (h.x < 40) run(1);
+    expect(h.speed).toBeGreaterThan(13);
+    run(1);
+    expect(h.speed).toBe(3.5);
+    while (h.x < 50) run(1);
+    expect(h.speed).toBe(3.5);
+    run(30);
+    expect(h.speed).toBeGreaterThan(3.5);
+  });
+
+  for (const zone of ['blocked', 'deep'] as const) {
     it(`${zone} tiles stop the horse at their edge`, () => {
       const { h, run } = rider({}, { paint: (x) => (x >= 40 ? zone : 'open') });
       run(400, W);

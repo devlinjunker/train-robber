@@ -1,6 +1,7 @@
 // Picks the config and seed for a session from the URL:
-//   ?preset=alpha-default&v=boardingFailure:time-only&seed=abc123
-import { loadContent, resolveConfig, type ContentFile, type ResolvedConfig } from '@train-robber/config';
+//   ?preset=alpha-default&v=boardingFailure:time-only&set=countdown.scale=4&seed=abc123
+// Each `set=<path>=<value>` is a run-time override of one config value, recorded in the log header.
+import { loadContent, overridesFromSet, resolveConfig, type ContentFile, type ResolvedConfig } from '@train-robber/config';
 import base from '@train-robber/content/base/game.json';
 
 const DEFAULT_PRESET = 'alpha-default';
@@ -23,7 +24,7 @@ export function setupFromUrl(search = location.search): Setup {
     const [group, id] = v.split(':');
     if (group && id) variants[group] = id;
   }
-  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, variants });
+  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, variants, overrides: overridesFromSet(q.getAll('set')) });
   // Any string works as a seed; without one, the host picks a random one (the sim never does).
   const seed = q.get('seed') || Math.random().toString(36).slice(2, 10);
   return { config, seed };

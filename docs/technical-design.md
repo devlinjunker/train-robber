@@ -157,6 +157,7 @@ type Command =
   | { type: 'useItem'; slot: number }
   | { type: 'drop'; slot: number }                // drop a carried item, to swap for another (phase 2)
   | { type: 'startRun'; trainId?: string }       // commit to a train (flag U1)
+  | { type: 'switchTrain'; trainId?: string }    // move the run to another free train, keeping its timer
   | { type: 'cancelRun' }
   | { type: 'quickRetry' };                      // playtest only (`playtest.quickRetry`): end the run, wait behind the train
 ```
@@ -285,7 +286,7 @@ Heat sources are a config map from event to amount, so the playtest question "ho
   "decayPerSec": 0,
   "sources": {
     "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5,
-    "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0
+    "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0.33
   }
 }
 ```
@@ -377,7 +378,7 @@ The alpha starts with the separate map, and the continuous world is more work th
 
 ### Map and schedule data
 
-- **MapDef** holds the tile size, a terrain grid of zone ids (open, slow, blocked, water), a closed track polyline with an arc-length table, spawn points for the player and horse, and render-only scenery.
+- **MapDef** holds the tile size, a terrain grid of zone ids (open, slow, blocked, water, deep), a closed track polyline with an arc-length table, spawn points for the player and horse, and render-only scenery.
 - **Trains** are entities with a type id, an arc-length position and a speed. A train that a run has targeted is pinned: it cannot despawn or leave the loop until the run ends.
 - **Schedule** is a deterministic function of the `schedule` RNG stream and three config values (`frequencySec`, `maxConcurrent`, `typeWeights`). A missed train comes back around because the track is a loop. A future timetable is a read-only view over the upcoming schedule, so the data model already supports it.
 
@@ -391,7 +392,7 @@ The alpha map is drawn in Tiled and converted to our own `MapDef` format: a tile
 
 ### Authoring pipeline
 
-- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds named points such as `playerSpawn`. Scenery layers are render-only and ignored by the sim.
+- The Tiled file lives in `packages/content/maps-src/`. Its `terrain` tile layer sets a `zone` property per tile (`open`, `slow`, `blocked`, `water`, `deep`). A `track` object layer holds one polyline per route, and a speedZones layer holds rectangles that slow the train. A `markers` layer holds named points such as `playerSpawn`. Scenery layers are render-only and ignored by the sim.
 - `tools build-maps` converts the Tiled file into `base/maps/<id>.json`, validated by the config schemas. The game never reads Tiled files at runtime, so the sim does not depend on Tiled's format. CI runs the conversion.
 
 ### Tiled workflow in detail
@@ -401,7 +402,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 **One-time setup**
 
 1. Create `alpha-flats.tmj` in `packages/content/maps-src/`, orthogonal (top-down) orientation, 400 × 200 tiles, fixed size (not infinite). Use a 32 px tile for editing only; one Tiled tile is one sim tile.
-2. Add a placeholder tileset `zones` with four coloured tiles. Give each tile a custom string property `zone` set to `open`, `slow`, `blocked` or `water`.
+2. Add a placeholder tileset `zones` with five coloured tiles. Give each tile a custom string property `zone` set to `open`, `slow`, `blocked`, `water` or `deep`.
 3. Add the layers: `terrain` (tile layer), `track` (object layer), `speedZones` (object layer), `markers` (object layer), and any number of render-only layers whose names start with `scenery`.
 
 **What you draw**
@@ -410,6 +411,8 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - **Track.** On `track`, use the Insert Polyline tool and click control points. The curve passes through them, so the line you draw is roughly the track. Fewer points give a smoother curve. Add custom properties `route` (string, for example `main`) and `closed` (boolean).
 - **Speed zones.** On `speedZones`, draw rectangles with a float property `speedScale` between 0 and 1. Any stretch of track inside a rectangle runs at that fraction of normal speed.
 - **Markers.** On `markers`, place a point object named `playerSpawn`. The player starts there already mounted (see Map decisions).
+- **Scenery.** On any object layer whose name starts with `scenery`, give each object a class (or a `kind` property). A point is one `tree`, `pine`, `bush` or `flowers`; a rectangle, ellipse or polygon scatters them over the tiles inside it (an optional `density` in items per tile, and several kinds separated by commas). Trees and pines only go on `blocked` tiles and bushes and flowers only on `open` ones, so the terrain still decides where the horse can go. A `bridge` rectangle draws a plank deck over the open tiles where a river meets the track (`along` is `x` or `y`, the way you cross). Shallow `water` is wadeable and `deep` water is not, so paint a lake or river with a shallow edge and a deep core, and leave shallow fords where the horse should cross.
+- **Ground cover.** Grass tufts and scrub brush are not in the map: the iso view scatters them over open ground, away from the track, from a new random seed on each load (`?groundSeed=` repeats one, `?groundCover=off` drops them). A few thick patches grow denser and taller. They never slow the horse. Trees in front of the horse fade while they cover it, and a lone tree is drawn bigger so it reads as an obstacle. The minimap and debug panel start hidden (`?minimap=on`, `?debug=on`, or M and `).
 
 **What `tools build-maps` does**
 
@@ -417,7 +420,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 2. Converts `terrain` to zone ids through the tileset property and run-length encodes the grid.
 3. Converts each polyline from pixels to tile units. Both Tiled and the sim have y pointing down, so no flip is needed. The renderer does the isometric projection later.
 4. Smooths each route with a Catmull-Rom curve (wrapping around for closed routes) and samples it into segments about half a tile long. Each sample stores its position, distance along the route, unit tangent and speed scale (the lowest value of any overlapping zone). These baked samples are what the sim reads, so no spline maths runs in the game.
-5. Copies the markers, and copies the `scenery` layers into a separate render-only file.
+5. Copies the markers, and builds the `scenery` layers into a separate render-only file, `base/scenery/<id>.json` (`SceneryDef`: items as columns and bridges), with the same source hash. Area scatter is a fixed hash of the object and tile, so a rebuild places the same items.
 6. Runs the checks below and writes `base/maps/alpha-flats.json` with a hash of the source file, so a stale output is detectable.
 
 **Checks (errors unless noted)**
@@ -426,6 +429,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 - No sample lies on a `blocked` or `water` tile.
 - `playerSpawn` is inside the map on an `open` tile.
 - `speedScale` is greater than 0 and at most 1.
+- A scenery point sits on a tile its kind allows; a bridge covers no `blocked` or `water` tile; every kind is known.
 - Warning: the curve's radius is smaller than the longest car. Cars are rigid rectangles along the track, so a very tight bend would make them cut corners.
 
 **Junctions (segments and services).** Track that two loops share is drawn once, as segments, and each loop is a service that lists them. A map can mix this with ordinary routes.
@@ -441,7 +445,7 @@ Tiled is only an editor. You draw, save a `.tmj` file, and the converter writes 
 
 - Author in Tiled's orthogonal mode. Its isometric mode uses a different coordinate unit for objects, which would complicate the converter for no gain.
 - Tiled cannot attach properties to individual polyline vertices, which is why slow stretches use rectangles.
-- For hills later, add an `elevation` tile layer with a numeric value per tile. The converter would sample it into a height per route sample, and the alpha ignores it.
+- Elevation (added 2026-10-12, view only): an optional `elevation` tile layer painted with the `elevation.tsj` tileset (levels 0 to 8, 0.6 tiles of height each) becomes `MapDef.elevation`. The sim never reads it. A step of one level is a slope you can ride; two or more is a cliff, and the converter blocks the tile on top of it so the flat sim keeps riders off the edge. The track and six tiles either side must stay at level 0 for now, so rails and cars are not lifted and a car swinging wide on a curve never cuts into a slope. In the iso view, raised ground with a cliff all round is drawn as a mesa (rounded outline, banded cliffs, a see-through hole when it hides the horse). Height that changes riding (slopes, ledges, track grades) is on the wiki Ideas page.
 
 ### MapDef (sketch, placeholder values)
 
@@ -670,7 +674,7 @@ The examples below show the file shapes.
 }
 ```
 
-A preset chooses exactly one variant per group, so two options from the same test can never be active together.
+A preset chooses exactly one variant per group, so two options from the same test can never be active together. Since phase 2 M1 a preset may also name a preset it builds on with `extends` (its variants and values apply first) and carry plain config values in `values`, a partial `game.json` tree, for example `medium-run`: `{ "extends": "alpha-default", "variants": {}, "values": { "countdown": { "scale": 4 }, "loot": { "densityScale": 4 } } }`.
 
 ### Variant groups
 
@@ -710,7 +714,7 @@ Additional groups (stamina and speed-tier handling, structure preset) follow the
 ### Resolve pipeline
 
 1. Load files and check each `schemaVersion`.
-2. Merge `base`, then the chosen variants, then run-time overrides. Objects deep-merge, arrays replace, and a key set to `null` is removed. Two variants from different groups that patch the same path are an error.
+2. Merge `base`, then the chosen variants, then the preset's `values` (inherited ones first), then run-time overrides. Objects deep-merge, arrays replace, and a key set to `null` is removed. Two variants from different groups that patch the same path are an error.
 3. Validate with strict zod schemas. Unknown keys fail, which catches typos. Cross-references are checked: every train's loot table, car template and verb id must exist, ranges must be ordered, and weights must be positive.
 4. Derive values: seconds become integer ticks (timers count whole ticks, so no float drift), cone half-angles become cosine thresholds, and turn rates become per-tick rotation constants.
 5. Freeze deeply and compute a hash of the canonical JSON.
@@ -719,7 +723,7 @@ The result is a `ResolvedConfig`. Its hash, the preset, the chosen variants and 
 
 ### Selecting a setup
 
-- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&set=countdown.scale=4&seed=abc123`. Each `set=<path>=<value>` becomes a run-time override (step 2 of the resolve pipeline), recorded in the log header's `overrides` like the variants are (phase 2).
+- URL parameters set it for a session: `?preset=alpha-default&v=healthModel:downed&set=countdown.scale=4&seed=abc123`. Each `set=<path>=<value>` becomes a run-time override (step 2 of the resolve pipeline), recorded in the log header's `overrides` like the variants are (phase 2). Built in phase 2 M1 (`overridesFromSet` in `packages/config`): the value is read as JSON (numbers, `true`/`false`, `null`, arrays) and otherwise kept as a string, a later `set` for the same path wins, and a value that fails validation stops the page with the path, like a bad variant. The replay viewer and `tools replay` rebuild the overrides from the header, and the Playtests page counts them as part of the setup.
 - A debug panel in `apps/game` lists each variant group and its question, and edits individual values as overrides.
 - `tools validate` runs steps 1 to 5 on every preset and fails CI on any error.
 
@@ -771,12 +775,13 @@ The wall-clock `startedAt` exists only in the header, written by the host. The s
 
 | Event | Key payload | Used for |
 | --- | --- | --- |
-| `RunStarted` | run id, train, seed, countdown, wanted level | Grouping and comparing runs |
+| `RunStarted` | run id, train, seed, countdown (`countdownSec`, null with the countdown off), wanted level | Grouping and comparing runs |
 | `RunPhaseChanged` | from, to | Time spent per phase |
+| `TrainSwitched` | from, to | How often players change their mind about a train |
 | `BoardingAttempt` | result, attempt number, meter position | Boarding failures, meter difficulty |
 | `ShotFired`, `DamageDealt` | actor, target, amount | Combat feel |
 | `PlayerSpotted`, `AlarmRaised` | by, car | Stealth success, heat causes |
-| `HeatChanged` | heat, delta, cause | Heat tuning |
+| `HeatChanged` | heat, delta, cause (a `heat.sources` event, `timeAboard`, or `debug` for the playtest key) | Heat tuning |
 | `LootPickedUp` | item, value, weight | Loot density, carry tradeoff |
 | `ActorDowned`, `ActorKilled` | actor, by | Deaths and retries |
 | `HorseWhistled`, `HorseArrived`, `HorseDeparted`, `HorseSideChanged`, `HorseBlocked` | horse distance and side, pace window | Extraction tension |
@@ -803,7 +808,7 @@ The client turns sim state into pixels and device input into commands, and does 
 - **Inputs to the renderer.** The live read-only `sim.state`, plus the `SimEvent[]` from each tick for one-shot effects such as muzzle flashes, hit flashes, screen shake and sounds.
 - **Interpolation.** After each tick the client copies positions of visible actors into a small typed-array buffer and keeps the previous one. Each frame draws a lerp between them using the accumulator remainder. The client never clones whole state.
 - **Projection.** One pure module, `projection.ts`, with `worldToScreen(x, y, layer)` and `screenToWorld`. The default is 2:1 isometric with placeholder 64×32 px tiles, and both functions take the camera zoom.
-- **Draw order.** Sort by depth (`x + y`, plus a per-layer offset) using Pixi's sortable containers. In continuous mode, roof sprites fade out while the player's layer is `interior` inside that car. Occlusion is a list of rules in client config, so more can be added after the roof fade: the first extra is an x-ray silhouette for the player behind walls.
+- **Draw order.** Sort by depth (`x + y`, plus a per-layer offset) using Pixi's sortable containers. Static pieces that sort (hills, mesas, boulders, trees) sit in their own sorted render group under the moving things, so Pixi packs them once; where one is in front of a moving thing, a copy clipped to that thing's screen box is drawn over it (`packages/client/src/iso/overdraw.ts`). In continuous mode, roof sprites fade out while the player's layer is `interior` inside that car. Occlusion is a list of rules in client config, so more can be added after the roof fade: the first extra is an x-ray silhouette for the player behind walls.
 - **Placeholder art.** Shapes drawn once into textures through a `DrawableFactory` keyed by entity kind. Pixel art swaps in by changing the manifest. A 3D renderer implements the same factory idea.
 - **Camera.** Fixed angle, zoom levels from config (for example three steps), smoothed follow on the player. In separate mode it follows the car frame.
 
@@ -932,6 +937,8 @@ The build follows the requirements' five phases, preceded by a foundation phase 
 | 4. Passenger hold-up | `inspect` verb, passenger behaviour, armed passengers | Judging passengers is a decision, not a chore |
 | 5. Bank | `vault` verb, guard interruptions | The minigame holds up under time pressure, and each train favours a style while other approaches still work |
 
+**Phase 2 progress.** M1 (countdown, heat and run end) is built; see the Phase 2 checklist at the end of this document for what each milestone actually built.
+
 After the prototype come the cargo and tycoon trains, the later trains, progression, 3D and online multiplayer, in that order. The reference machine is a 2019 MacBook Pro (6-core Intel i7, integrated Intel UHD 630 graphics, 16 GB RAM). Record a baseline in both Chrome and Safari before phase 2, because the 30 fps floor needs one. Integrated graphics make overdraw and fill rate the main rendering risk, so the performance budget should be set on this machine first.
 
 ### Testing
@@ -959,12 +966,13 @@ This section turns the decisions so far into what to build first: the foundation
 ### Decisions
 
 - **Committing to a train.** Ride toward a train. When one is within `commit.rangeTiles`, a prompt appears, and pressing the interact key sends `startRun` with that train's id. The sim validates the range and that the train is free, and the run and countdown start (U1). The rule lives in the sim, so the client only asks it which train, if any, can be committed.
+- **Switching trains.** While approaching (or stunned after a failed jump), Tab sends `switchTrain` with the nearest other free train within `commit.switchRangeTiles`, which the prompt names. The sim unpins the old train and pins the new one; the run, its start tick (so the run timer and countdown), health, jump count and meter zones carry on (Devlin, extra-maps playtest, 2026-10-11). Aboard it is refused. The train a commit or switch lands on flashes gold for a moment, with no lasting highlight, and the Tab target's roofs are outlined pale blue, with matching edge arrows (Devlin, switch-train playtests, 2026-10-12 and 13). Variant group `trainSwitch`: `key` (the default, Tab only) and `auto` (`commit.autoSwitch`: riding within `commit.rangeTiles` of another free train and `commit.autoSwitchMarginTiles` closer to it than to the committed one switches with no key; Tab still works).
 - **Boarding jump rules.** The jump is allowed when the player is within `boarding.rangeTiles` of an entry point on the side they are riding; out of range, `jump` is rejected and the HUD says so. Speed matching (within `boarding.speedToleranceTilesPerSec` of the train) no longer gates the jump: after the M3 playtest on 2026-10-09 Devlin chose to let a mismatched rider try on a faster meter, so matching makes the jump easier rather than possible. The HUD still reads too fast, too slow or matched. The meter decides the landing.
 - **Failure cost.** A failed jump always costs time, and damage is a toggle. A failed player is thrown clear and the horse is stunned for `boarding.failure.stunSec`, so the train pulls ahead before a retry. Damage is `boarding.failure.damageFraction` of max health. A variant group `boardingFailure` has `time-and-damage` and `time-only` (damage fraction 0). Phase 1 includes a minimal health value so the failure and death paths are real; the full health system waits for phase 3.
 - **No countdown in phase 1.** The countdown and heat arrive in phase 2, so `countdown.enabled` is false until then. Cancel works from the start.
 
-* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and water tiles and the map edge collide the same way; slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed.
-* **Collision damage** (Devlin's playtest feedback, 2026-10-10 and 2026-10-11). On a run, touching a train car or blocked ground can cost health, emitted as `DamageDealt` with cause `collision`, `against` `train` or `obstacle`, `kind` `crash` or `scrape`, and the `impact`. The impact is the closing speed along the contact: the horse's velocity relative to what it hit (a car moves at its train's speed), along the direction the collision pushed it. So riding head-on into a rock or a car side, or a train running into a standing horse, hits hard, while scraping along a car at a shallow angle barely closes. Below `collision.minImpactTilesPerSec` a car touch is a scrape costing `collision.scrapeDamageFraction` of max health and a rock touch is free; from there the damage scales linearly up to `collision.damageFraction` at `collision.fullImpactTilesPerSec`, in whole health points. After a hit, contacts for `collision.cooldownSec` only cost what they exceed that hit by, so a long scrape costs about 1 a second and a crash right after a scrape still costs its full amount in total. Water, slow ground and the map edge never hurt, and with no run there is no health to lose. Variant group `collisionDamage`: `on` and `off` (both fractions 0).
+* **Horse and train collision.** Cars are solid. The horse stops or slides along a car's side, so it cannot ride through a train. The riding system collides the horse, a circle of radius 0.5 tiles, against each car's rectangle, computed from the car's place on the route. Each car is rigid: its front and rear sit on the track and its body is the chord between them. Contact lowers the horse's speed to the distance it actually covered, so a head-on hit stops it and a glancing one slides it along the car. Blocked and deep water tiles and the map edge collide the same way. Slow tiles cap the horse at `horse.slowZoneSpeedScale` of top speed, reining it in at its braking rate; shallow water caps it at `horse.waterSpeedScale` and drops it to that speed at once.
+* **Collision damage** (Devlin's playtest feedback, 2026-10-10 and 2026-10-11). On a run, touching a train car or blocked ground can cost health, emitted as `DamageDealt` with cause `collision`, `against` `train` or `obstacle`, `kind` `crash` or `scrape`, and the `impact`. The impact is the closing speed along the contact: the horse's velocity relative to what it hit (a car moves at its train's speed), along the direction the collision pushed it. So riding head-on into a rock or a car side, or a train running into a standing horse, hits hard, while scraping along a car at a shallow angle barely closes. Below `collision.minImpactTilesPerSec` a car touch is a scrape costing `collision.scrapeDamageFraction` of max health and a rock touch is free; from there the damage scales linearly up to `collision.damageFraction` for a car, or `collision.obstacleDamageFraction` for blocked ground, at `collision.fullImpactTilesPerSec`, in whole health points. Train hits are kept separate from rocks so a train can hurt much more (Devlin's playtest, 2026-10-12). After a hit, contacts for `collision.cooldownSec` only cost what they exceed that hit by, so a long scrape costs about 1 a second and a crash right after a scrape still costs its full amount in total. Water, slow ground and the map edge never hurt, and with no run there is no health to lose. Variant group `collisionDamage`: `on` and `off` (all three fractions 0).
 * **Boarding meter use.** In boarding range the meter sweeps continuously: at `boarding.meter.matchedSweepPeriodSec` when speed matched, and at the faster `boarding.meter.sweepPeriodSec` when not (changed after the 2026-10-09 playtest, see Boarding jump rules). The marker keeps its place when the speed changes, a single Space press samples it on that tick, and leaving range parks it at the start.
 * **Ending a phase 1 run.** After boarding, the player can walk the blank interior. Esc cancels the run and puts the mounted player back at `playerSpawn` while the train keeps looping.
 * **Repo.** A new repository using the monorepo layout from Package structure, with this document moved into `docs/`.
@@ -985,7 +993,10 @@ The `move` command's y axis is the throttle in both. Axes are in screen sense, s
 | W / S | Accelerate / brake (throttle under cruise) |
 | Space | Boarding jump (and mount jump later) |
 | E | Commit to a train (only with `commit.auto` off), interact |
+| Tab | Switch the run to the nearest other free train in range, keeping the run timer |
 | F | Whistle (phase 2) |
+| H / Shift+H | Raise heat by `playtest.debugHeatStep` / raise an alarm's worth (`heat.sources.alarmRaised`), playtest only (phase 2 M1) |
+| U | Mute the placeholder sounds (`?mute=1` starts muted) |
 | Esc | Cancel run |
 | R | Quick retry (playtest only, `playtest.quickRetry`) |
 | Shift | Run aboard (walking is the default) |
@@ -1001,6 +1012,8 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | --- | --- | --- |
 | Commit range | 12 tiles | `commit.rangeTiles` |
 | Commit by riding into range, no key (Devlin, Phase 1 gate playtest, 2026-10-10) | on | `commit.auto` |
+| Switch range (Tab), nearest car body | 30 tiles (placeholder, 2026-10-11; Devlin found it fine, 2026-10-12) | `commit.switchRangeTiles` |
+| Auto switch (trainSwitch `auto`), and how much closer the other train must be | off; 4 tiles (placeholder, 2026-10-12) | `commit.autoSwitch`, `commit.autoSwitchMarginTiles` |
 | Boarding range from an entry point | 2 tiles | `boarding.rangeTiles` |
 | Speed match tolerance | 2 tiles/s (1.5 until playtest tuning on 2026-10-09) | `boarding.speedToleranceTilesPerSec` |
 | Meter sweep period, in range but speed off | 1.3 s (Devlin's 2D tuning, 2026-10-10) | `boarding.meter.sweepPeriodSec` |
@@ -1011,7 +1024,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Horse speed after a failed jump, held during the stun | 50% | `boarding.failure.horseSpeedScale` |
 | Walking aboard | half of `player.speedTilesPerSec` (4 tiles/s); Shift runs at the full 8 (client-side, after the 2026-10-09 playtest) | `player.speedTilesPerSec` |
 | Good-landing stumble | 1.5 s at 33% walk speed (Devlin's isometric tuning, 2026-10-10; 2.5 s in his 2D tuning, 0.5 s at 50% before) | `boarding.landing.stumbleSec`, `boarding.landing.stumbleSpeedScale` |
-| Collision damage | scrape 1% of max health; crash from 2 tiles/s of closing speed (Devlin, 2026-10-11; was 4), rising to 10% at 8 tiles/s; 1 s cooldown (confirmed in Devlin's playtest, 2026-10-11) | `collision.scrapeDamageFraction`, `collision.minImpactTilesPerSec`, `collision.damageFraction`, `collision.fullImpactTilesPerSec`, `collision.cooldownSec` |
+| Collision damage | scrape 1% of max health; crash from 2 tiles/s of closing speed (Devlin, 2026-10-11; was 4), rising at 8 tiles/s to 45% for a train car (Devlin's playtest, 2026-10-12; was 10%) and 10% for blocked ground; 1 s cooldown (confirmed in Devlin's playtest, 2026-10-11) | `collision.scrapeDamageFraction`, `collision.minImpactTilesPerSec`, `collision.damageFraction`, `collision.obstacleDamageFraction`, `collision.fullImpactTilesPerSec`, `collision.cooldownSec` |
 | Quick retry (R) | on, 60 tiles behind the last car | `playtest.quickRetry`, `playtest.quickRetryGapTiles` |
 | Max health | 100 | `health.max` |
 | Horse top speed | 14 tiles/s | `horse.maxSpeed` |
@@ -1020,6 +1033,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Horse drag, throttle released (coast) | 3 tiles/s² (4 until playtest tuning on 2026-10-09) | `horse.dragTilesPerSec2` |
 | Cruise target rate | 10 tiles/s² | `horse.cruiseTargetRateTilesPerSec2` |
 | Horse top speed on slow ground | 50% | `horse.slowZoneSpeedScale` |
+| Horse top speed in shallow water | 25%, reached at once | `horse.waterSpeedScale` |
 | Train | engine plus 3 cars, 9 tiles/s | `trains.blank` |
 | Tick rate | 60 Hz | `sim.tickRateHz` |
 
@@ -1051,7 +1065,7 @@ Phase 0 is complete. The gate holds: the checked-in golden replay passes in CI, 
 - [x] Command and event log with header, an IndexedDB sink, and `tools replay` (the client keeps the newest 20 sessions in IndexedDB, an in-memory ring buffer feeds recent events to the overlay, and the Export logs button or L downloads both logs as `.log` files, after an optional comment, and N adds a note; `tools replay <commands log>` checks every logged hash and warns on a config-hash, tick-rate or game-version mismatch)
 - [x] Golden-run test and snapshot round-trip test (golden is the checked-in replay `packages/tools/test/fixtures/golden.commands.ndjson`; `npm run golden:update` rewrites it after a deliberate change)
 - [x] Blank PixiJS scene with the debug overlay (fps, tick time, seed, config hash, state hash, preset and variants)
-- [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; scenery layers are not done yet; `maps:watch` landed in phase 1)
+- [x] Minimal `tools build-maps` for the phase 1 map (terrain, track routes with centripetal Catmull-Rom smoothing baked into samples about half a tile apart, speed zones, markers, and the checks above; `maps:watch` landed in phase 1, and scenery layers after it with the minimap)
 
 ### Phase 1 checklist
 
@@ -1082,7 +1096,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 - **Boarding.** Only some mail car layouts have side doors; entry points come from each layout's `entryPoints` layer in Tiled and are drawn on the car's outside in the world view. To compare with doors everywhere, a variant limits the train to layouts that have doors on both sides (the train config lists which layouts it may pick), so at least one starter layout has doors on both sides; there is no separate all-doors switch. The horse comes up on the player's side at extraction, so they may need to walk to a car with a door on that side. Roof access, including side ladders for boarding straight onto the roof from the horse, waits for phase 3.
 - **Searching.** Hold E for the search time; the player can slow-walk at 30% speed meanwhile. Releasing E, or moving more than 1.5 tiles from the loot spot, cancels and loses the progress.
 - **Carrying.** A hard max of 10 weight units, with slowdown from 6 units down to 50% speed at the max, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6.
-- **Heat hooks.** `heat.sources.timeAboardPerSec` stays 0 by default and a playtest preset sets 0.2. `heat.boardingResistanceAt` (off by default) is the hook for guards shooting at the rider at high heat once combat exists.
+- **Heat hooks.** `heat.sources.timeAboardPerSec` is 0.33 by default (Devlin's M1 playtest, 2026-10-13: lingering aboard should cost something; it was 0 with a 0.2 preset before). The `no-time-aboard-heat` preset, or `?set=heat.sources.timeAboardPerSec=0`, turns it off. `heat.boardingResistanceAt` (off by default) is the hook for guards shooting at the rider at high heat once combat exists.
 - **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`), and a client option hides train names on the off-screen arrows.
 - **Grace window.** See U3.
 - **Saving.** One shared save; `wanted.forceLevel` runs save nothing; no way for wanted level to come down yet (U11). A Reset save button in the debug overlay and `?resetSave=1` both confirm before wiping.
@@ -1091,7 +1105,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 | Preset | Sets | Question | Milestone |
 | --- | --- | --- | --- |
 | `medium-run` | `countdown.scale` 4, `loot.densityScale` 4 | Short vs medium run (the phase gate) | M1 |
-| `time-aboard-heat` | `heat.sources.timeAboardPerSec` 0.2 | Should lingering aboard raise heat? | M1 |
+| `no-time-aboard-heat` | `heat.sources.timeAboardPerSec` 0 | Does lingering aboard need to cost heat? (on at 0.33 by default) | M1 |
 | `long-train` | mail train 6 cars, with `countdown.scale` 4 | Does a longer train fill a medium run? | M2 |
 | `slow-search` | `verbs.search.searchTimeSec` 3, hidden loot on, with `countdown.scale` 4 | Does slower looting fill a medium run? | M2 |
 | `no-carry-limit` | `lootCarry: unlimited` | Does carry weight make choices interesting? | M2 |
@@ -1124,3 +1138,17 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Carry max | 10 weight units, 20 items | `carry.maxWeight`, `carry.maxItems` |
 | Slowdown | from 6 units to 50% speed at the max | `carry.slowdownFromWeight`, `carry.minSpeedScale` |
 | Horse boost | 1.5 s at +40% top speed, 6 s cooldown | `horse.boost.*` |
+| Blank train countdown base (until the mail train lands; Claude's pick in M1, matching the mail placeholder) | 150 s | `trains.blank.countdown.baseSec` |
+| Heat drain factor | 1.0 (heat 100 doubles the drain) | `heat.heatDrainFactor` |
+| Debug heat step (H) | 10; 0 turns the key off | `playtest.debugHeatStep` |
+
+### Phase 2 checklist
+
+Legend as in the Phase 1 checklist. The live plan holds the task lists; this records what was built.
+
+- [x] **M1: countdown, heat and run end** (branch `claude/phase-2-m1-countdown-heat`). `countdown.enabled` is on: at commit the run copies the train's `countdown.baseSec` × `countdown.scale` into `run.countdownSec` (the blank train has a 150 s base until the mail train lands), and `countdownSystem` (`packages/sim/src/rules/heat.ts`, tick system 10, before run end) drains it each tick at `1 + heatDrainFactor × heat/100`; `countdown.startsAt: boarding` holds the clock until the player lands aboard. Heat lives in `RunState` (0 to `heat.maxHeat`) and only `raiseHeat` changes it, emitting `HeatChanged` with the amount actually added and the cause; `raiseHeatFor` adds a `heat.sources` amount for loot, guards and combat to call later. `heat.sources.timeAboardPerSec` (0.33 by default after the M1 playtest, so about +1 heat every 3 s aboard) builds up per tick aboard and is raised a whole point at a time, so each gain is one event. At zero the run ends `expired` in the run end system (a death on the same tick wins), applying `outcomePolicy.expired` (wanted +1) and resetting to `playerSpawn` like a cancel. The grace window (`countdown.graceSec` 3 s, counted in `run.graceTicks`) sits behind `graceApplies`, which returns false until the extraction horse exists (M4). `heat.boardingResistanceAt` (null, off) is read only by `boardingResistanceActive`, a hook for phase 3. `RunStarted` carries the countdown and wanted level; `RunEnded` carries `countdownLeftSec` (kept on cancels and quick retries, U6) and `heat`. `loot.densityScale` is a plain value nothing reads until M2. Presets gained `extends` and `values`, and `?set=path=value` overrides any value (see Selecting a setup); `medium-run` (scale 4, density 4) and `no-time-aboard-heat` (0 per second) build on `alpha-default`. The HUD has a countdown bar (green, amber below 50%, red and blinking below 20%) whose stripes slide at the drain rate beside a `×1.6` style readout, a heat meter in three bands, a notice per heat gain, and a pulsing red screen edge after an alarm. An `AudioBus` (`packages/client/src/audio.ts`) synthesizes a countdown tick per countdown second (so it speeds up with heat) that doubles below 20%, a heat blip, the alarm sting and an expiry tone; U mutes (M is the minimap). With no loot or guards yet, H raises heat by `playtest.debugHeatStep` (cause `debug`) and Shift+H raises an alarm's worth, as the `debugHeat` command, so it replays. The Playtests page records expired runs, time left and heat at end; the bots press the debug heat keys and check heat and the countdown stay in range; the golden run raises heat once
+- [ ] M2: mail train and loot
+- [ ] M3: light guards and the horse boost
+- [ ] M4: extraction (replaces `graceApplies` with the horse-alongside check)
+- [ ] M5: wanted level, saving and score
+- [ ] M6: tests, tuning and the run-length playtest

@@ -1,0 +1,107 @@
+{
+ "type": "tileset",
+ "version": "1.10",
+ "tiledversion": "1.10.2",
+ "name": "elevation",
+ "tilewidth": 32,
+ "tileheight": 32,
+ "tilecount": 9,
+ "columns": 9,
+ "image": "elevation.png",
+ "imagewidth": 288,
+ "imageheight": 32,
+ "margin": 0,
+ "spacing": 0,
+ "tiles": [
+  {
+   "id": 0,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 0
+    }
+   ]
+  },
+  {
+   "id": 1,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "id": 2,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 3
+    }
+   ]
+  },
+  {
+   "id": 4,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 4
+    }
+   ]
+  },
+  {
+   "id": 5,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 5
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 6
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 7
+    }
+   ]
+  },
+  {
+   "id": 8,
+   "properties": [
+    {
+     "name": "elevation",
+     "type": "int",
+     "value": 8
+    }
+   ]
+  }
+ ]
+}

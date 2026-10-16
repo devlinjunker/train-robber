@@ -2,35 +2,52 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, carToWorld, commitTarget, distanceToTrain, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  boardingCheck, boardingResistanceActive, carToWorld, commitTarget, switchTarget, distanceToTrain, drainRate, trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
-import type { MapDef, ResolvedConfig } from '@train-robber/config';
+import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
 import { Interpolator } from './interp';
 import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
-import { clampZoom, DEFAULT_ZOOM, isoX, isoY, keyDirToWorld, stepZoom, worldToScreen, type Camera } from './projection';
+import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, screenToWorld, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
-import { createScreenOverlay, type MeterView, type TrainPointer } from './screenOverlay';
+import { nearestOnCar } from './iso/occlusion';
+import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
-import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC } from './cues';
+import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
+import { createAudioBus } from './audio';
+import { heatNotice, tickBucket } from './clock';
 import { drawMapOverlay } from './topdown/mapOverlay';
+import { createMinimap } from './minimap';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
 
 const TOPDOWN_PX = 24;
 /**
- * Committing to a train locks the zoom until the run ends, aboard too (Devlin, 2026-10-10): the
- * wheel and zoom keys do nothing during a run, and the riding zoom comes back after it. Devlin
- * picked 1.75 in the top-down view and 1 in iso; `?runZoom=` overrides both for playtests.
+ * Committing to a train sets the run zoom until the run ends, aboard too (Devlin, 2026-10-10), and
+ * the riding zoom comes back after it. Devlin picked 1.75 in the top-down view and 1 in iso;
+ * `?runZoom=` overrides both for playtests. During the run the wheel and zoom keys move only
+ * RUN_ZOOM_RANGE of the run zoom either side (`?runZoomRange=`, 0 locks it as before).
  */
 export const RUN_ZOOM: Record<ViewMode, number> = { iso: 1, topdown: 1.75 };
 /** How fast the shown zoom closes on its target, per second (about 0.7 s to settle). */
 const ZOOM_RATE = 5;
 /** A camera target this far away (a reset or a quick retry) snaps instead of easing. */
 const SNAP_TILES = 30;
+/**
+ * Showing how close the horse is to the run's train (Devlin, 2026-10-11/12: on the far side it was
+ * not clear how close you are to the car). `?distanceCue=world` (default) stretches the see-through
+ * hole to the car side and makes the car edge glow (see iso/worldScene). `line` is the earlier
+ * debug cue instead: a line over the car to the nearest point on its side with the gap in tiles,
+ * far side in iso only. `off` shows neither.
+ */
+export type DistanceCueMode = 'world' | 'line' | 'off';
+/** The line cue shows within this many tiles of the car side. */
+export const DISTANCE_CUE_TILES = 8;
+/** How long each heat gain notice stays, how many show at once, and how long an alarm pulses the screen edge. */
+const HEAT_NOTICE_MS = 2500, HEAT_NOTICES = 4, ALARM_EDGE_MS = 2000;
 
 
 /** Numbers only the host knows, for the debug readout. */
@@ -58,8 +75,10 @@ export interface GameClient {
 export interface GameClientOptions {
   sim: Sim;
   map: MapDef;
+  /** The map's render-only scenery, if it has any. */
+  scenery?: SceneryDef | null;
   config: ResolvedConfig;
-  /** Client options (`view`, `runZoom`) come from this query string; a replay passes the logged one. */
+  /** Client options (`view`, `runZoom`, `runZoomRange`, `distanceCue`, `mute`) come from this query string; a replay passes the logged one. */
   search?: string;
   onExportLogs?(): void;
   onAddNote?(): void;
@@ -87,6 +106,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const params = new URLSearchParams(opts.search ?? location.search);
   const runZoomParam = Number(params.get('runZoom'));
   const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
+  const runZoomRangeParam = params.get('runZoomRange');
+  const runZoomRange = runZoomRangeParam !== null && Number(runZoomRangeParam) >= 0 ? Number(runZoomRangeParam) : RUN_ZOOM_RANGE;
+  const cueParam = params.get('distanceCue');
+  const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
   const b = config.values.boarding;
   const horseCfg = config.values.horse;
@@ -95,35 +118,53 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Toggles; the view can start top-down with ?view=topdown.
   let mode: ViewMode = params.get('view') === 'topdown' ? 'topdown' : 'iso';
   let zoom = DEFAULT_ZOOM;
-  let showDebug = true;
+  // The debug panel and the minimap are alpha and debugging aids, so they start hidden
+  // (Devlin, 2026-10-13): ` and M toggle them, and ?debug=on / ?minimap=on start them shown.
+  let showDebug = params.get('debug') === 'on';
   let zoomLocked = false, ridingZoom = zoom;
   // The zoom on screen eases toward `zoom`, so committing, the run ending and zoom keys never jump.
   let shownZoom = zoom;
 
   // Isometric scenes.
-  const isoWorld = createWorldScene(map);
+  const scenery = opts.scenery ?? null;
+  // Grass and scrub land differently on every load; ?groundSeed= repeats a layout, ?groundCover=off drops it.
+  const groundSeed = params.get('groundCover') === 'off' ? null : Number(params.get('groundSeed')) || Math.floor(Math.random() * 2 ** 32);
+  const isoWorld = createWorldScene(map, scenery, groundSeed);
   // Top-down debug view.
   const topdown = new Container();
-  const topdownOverlay = drawMapOverlay(map);
+  const topdownOverlay = drawMapOverlay(map, scenery);
   const topdownView = createWorldView();
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
-  app.stage.addChild(isoWorld.root, topdown, overlay.root);
+  const minimap = createMinimap(map, scenery);
+  minimap.root.visible = params.get('minimap') === 'on';
+  app.stage.addChild(isoWorld.root, topdown, overlay.root, minimap.root);
   const hud = createHud();
+  // Placeholder sounds: countdown ticks, heat gains, the alarm sting and expiry. U or ?mute=1 mutes.
+  const audio = createAudioBus(window, params.get('mute') === '1');
+  let lastTick: number | null = null;
 
   const onView = (a: ViewAction) => {
-    if (a === 'zoomIn' || a === 'zoomOut') { if (!zoomLocked) zoom = stepZoom(zoom, a === 'zoomIn' ? 1 : -1); }
+    if (a === 'zoomIn' || a === 'zoomOut') {
+      const dir = a === 'zoomIn' ? 1 : -1;
+      zoom = zoomLocked ? stepRunZoom(zoom, dir, runZoom(mode), runZoomRange) : stepZoom(zoom, dir);
+    }
     else if (a === 'toggleView') { mode = mode === 'iso' ? 'topdown' : 'iso'; if (zoomLocked) zoom = runZoom(mode); }
     else if (a === 'toggleMapOverlay') { const o = mode === 'iso' ? isoWorld.mapOverlay : topdownOverlay; o.visible = !o.visible; }
     else if (a === 'toggleZones') isoWorld.zoneOverlay.visible = topdownView.zones.visible = !topdownView.zones.visible;
     else if (a === 'toggleDebug') showDebug = !showDebug;
+    else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
+    else if (a === 'toggleMute') audio.muted = !audio.muted;
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
   // O toggles the active view's map overlay. The top-down one starts on (it is that view's only
   // terrain); the iso one starts off, since the iso view draws the ground and track itself.
   const keyboard = new KeyboardSource(onView);
-  addEventListener('wheel', (e) => { if (!zoomLocked) zoom = clampZoom(zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9)); }, { passive: true });
+  addEventListener('wheel', (e) => {
+    const z = zoom * (e.deltaY > 0 ? 0.9 : 1 / 0.9);
+    zoom = zoomLocked ? clampRunZoom(z, runZoom(mode), runZoomRange) : clampZoom(z);
+  }, { passive: true });
   const mapper = new InputMapper();
   const interp = new Interpolator();
   interp.push(sim.state, sim.cars());
@@ -147,13 +188,19 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       return worldDirToCar(...ctx.keyDirToWorld(dx, dy), car);
     },
     commitTarget: () => commitTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
+    switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
   };
 
   // Notices from events: the last rejection, jump result or run end.
   let notice = '', noticeKind: NoticeKind = 'info', noticeUntil = 0;
   // When the last crash and landing happened (performance.now ms), for their flashes and banner.
   let hitAt = -Infinity, hitFlashSec = HIT_FLASH_SEC, landing: { result: 'perfect' | 'good'; at: number } | null = null;
+  // When the run last committed or switched trains, for that train's gold flash.
+  let switchedAt = -Infinity;
   const show = (text: string, kind: NoticeKind, ms: number) => { notice = text; noticeKind = kind; noticeUntil = performance.now() + ms; };
+  // Heat gains get their own small list under the heat meter, so each one is readable.
+  let heatNotices: { text: string; until: number }[] = [], alarmAt = -Infinity;
+  const wantedOnExpiry = config.values.outcomePolicy.expired.wantedDelta;
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -166,18 +213,28 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
-    else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
+    else if (e.type === 'RunStarted') switchedAt = performance.now();
+    else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
+    else if (e.type === 'HeatChanged') {
+      const now = performance.now();
+      heatNotices = [...heatNotices.filter((n) => n.until > now), { text: heatNotice(e.delta, e.cause), until: now + HEAT_NOTICE_MS }].slice(-HEAT_NOTICES);
+      if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm'); } else audio.play('heat');
+    } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
+      audio.play('expired');
+      show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
+    } else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
   let zoneSec = 0, bestZoneSec = 0;
   const routeText = map.routes.map((r) => `${r.id} ${r.length.toFixed(0)} tiles`).join(', ');
   const variantText = Object.entries(config.variants).map(([g, id]) => `${g}:${id}`).join(' ');
-  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water' };
-  const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  B zones  ·  \` debug` : [
+  const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
+  const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
-    'Q/Z zoom', 'V view', 'O map', 'B zones', '` debug', 'N note', 'L logs',
+    ...(config.values.commit.auto ? [] : ['E commit']), 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
+    'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
 
   return {
@@ -188,7 +245,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     reset() {
       interp.push(sim.state, sim.cars());
       interp.push(sim.state, sim.cars());
-      noticeUntil = 0; zoneSec = 0;
+      noticeUntil = 0; zoneSec = 0; heatNotices = []; alarmAt = -Infinity; lastTick = null;
     },
     afterTick(events) {
       interp.push(sim.state, sim.cars());
@@ -217,11 +274,24 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const frame = parseCarFrame(placement.frame);
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === frame.car) ?? null : null;
       const aboardAt = aboardCar ? carToWorld(aboardCar, placement.x, placement.y) : null;
+      // The nearest point on the run's train to the horse, while approaching it.
+      let gap: { car: (typeof cars)[number]; x: number; y: number; distance: number } | null = null;
+      if (horse && s.run && phase === 'approach' && distanceCueMode !== 'off') {
+        for (const car of cars) {
+          if (car.trainId !== s.run.trainId) continue;
+          const p = nearestOnCar(car, horse.x, horse.y);
+          if (!gap || p.distance < gap.distance) gap = { car, ...p };
+        }
+      }
       // A run (committed, boarding or aboard) locks the zoom; idle gives the riding zoom back.
       const hitAge = (now - hitAt) / 1000 < hitFlashSec ? (now - hitAt) / 1000 : null;
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
       const stumbling = phase === 'aboard' && !!run && run.stumbleTicks > 0;
       const perfectAge = landing?.result === 'perfect' && phase === 'aboard' ? landingAge : null;
+      // The train Tab would switch to, while the run can still switch.
+      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : null;
+      const switchAge = (now - switchedAt) / 1000;
+      const focus: TrainFocus = { committed: s.run?.trainId ?? null, candidate, switchAge: switchAge < SWITCH_FLASH_SEC ? switchAge : null };
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
         if (zoomLocked) { ridingZoom = zoom; zoom = runZoom(mode); } else zoom = ridingZoom;
@@ -241,15 +311,25 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const camera: Camera = { x: cam.x, y: cam.y, zoom: shownZoom, width: W, height: H };
 
       const iso = mode === 'iso';
+      const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
+      // The ground under the screen's corners, for culling scenery and the minimap's view box.
+      const corners = ([[0, 0], [W, 0], [W, H], [0, H]] as const).map(([sx, sy]) => iso ? screenToWorld(sx, sy, camera)
+        : { x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
           cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
-          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null,
+          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
+          horseSpeed: horseState.speed, inMud,
+          gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
+          view: {
+            x0: Math.min(...corners.map((p) => p.x)), y0: Math.min(...corners.map((p) => p.y)),
+            x1: Math.max(...corners.map((p) => p.x)), y1: Math.max(...corners.map((p) => p.y)),
+          },
         });
         isoWorld.root.scale.set(shownZoom);
         isoWorld.root.pivot.set(isoX(cam.x, cam.y), isoY(cam.x, cam.y));
@@ -260,7 +340,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         topdownView.update(cars, {
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
-          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null,
+          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -280,26 +360,49 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, ...(sim.map.network && t.route ? { service: t.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id });
+          trains.push({ id: t.id, ...(sim.map.network && t.route ? { service: t.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
+      }
+      // The line cue, on the far side of the run's train in iso.
+      let distanceCue: DistanceCue | null = null;
+      if (horse && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(horse.x, horse.y) < depthOf(gap.car.x, gap.car.y)) {
+        distanceCue = { from: project(horse.x, horse.y, 0), to: project(gap.x, gap.y, 0), distanceTiles: gap.distance };
       }
       overlay.update({
         width: W, height: H,
-        horse: horse ? project(horse.x, horse.y, iso ? 2.2 : 0) : null,
-        meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains,
+        horse: horse ? project(horse.x, horse.y, iso ? 2.2 + isoWorld.groundZ(horse.x, horse.y) : 0) : null,
+        meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains, distanceCue,
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && phase === 'aboard' && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
       });
+      if (minimap.root.visible) {
+        minimap.update({
+          mode, screenWidth: W, cars, committedTrain: s.run?.trainId ?? null,
+          rider: horse ? horse : aboardAt && aboardCar ? { ...aboardAt, hx: aboardCar.ux, hy: aboardCar.uy } : null,
+          view: corners,
+        });
+      }
+
+      // The countdown ticks once per countdown second, twice as often below 20%, so the ticks
+      // speed up with heat too; nothing ticks before the clock starts or after the run.
+      const rs = s.run;
+      const clockOn = !!rs && rs.clockRunning && config.values.countdown.enabled;
+      const bucket = clockOn ? tickBucket(rs.countdownSec, rs.countdownTotalSec) : null;
+      if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick');
+      lastTick = bucket;
+      const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
+      heatNotices = heatNotices.filter((n) => n.until > now);
 
       // HUD.
       const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
-      const prompt = phase === 'idle'
+      const basePrompt = phase === 'idle'
         ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
           : target ? `E: commit to ${target}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance' : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run` : '';
+      const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
       hud.update({
@@ -310,15 +413,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
+        clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate } : null,
+        heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
+        heatNotices: heatNotices.map((n) => n.text),
+        alarm: now - alarmAt < ALARM_EDGE_MS,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
           `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
-          `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ' (locked for the run)' : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
+          `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
-          `run: ${phase.toUpperCase()}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
+          `run: ${phase.toUpperCase()}  wanted ${s.persistent.wantedLevel}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
           check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',
+          rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
           `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),

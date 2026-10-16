@@ -2,8 +2,9 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
-import type { Command, GameState, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf } from './world/boarding';
+import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
+import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { CAR_WIDTH, expandCars, trainLength, type Side } from './world/cars';
 import type { WorldMap } from './world/map';
@@ -65,9 +66,64 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = { health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0 };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
-  state.run = { runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach', players: { [p.id]: rp } };
-  ctx.emit({ type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id });
+  // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
+  const train = state.world.trains.find((t) => t.id === id)!;
+  const cd = config.values.countdown;
+  const countdownSec = runCountdownSec(config, train.type);
+  state.run = {
+    runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
+    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp },
+  };
+  ctx.emit({
+    type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
+    countdownSec: cd.enabled ? countdownSec : null, wantedLevel: state.persistent.wantedLevel,
+  });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
+}
+
+/**
+ * Tab, `switchTrain`: move the run's commitment to another free train. Only the train changes:
+ * the run number, start tick (so any run timer), health, jump count and meter zones carry on.
+ * The old train is unpinned and the new one pinned on the same tick.
+ */
+export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undefined): void {
+  const { state, map, config } = ctx;
+  const run = state.run;
+  if (!run) return reject(ctx, p.id, 'switchTrain', 'no run');
+  const h = horseOf(state, p);
+  const id = trainId ?? switchTarget(state, map, config, h);
+  if (!id) return reject(ctx, p.id, 'switchTrain', run.phase === 'aboard' || run.phase === 'ended' ? 'aboard' : 'no train in range');
+  const why = switchCheck(state, map, config, h, id);
+  if (why) return reject(ctx, p.id, 'switchTrain', why);
+  const from = run.trainId;
+  unpinTrain(state, from);
+  pinTrain(state, id, p.id);
+  run.trainId = id;
+  ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
+}
+
+/**
+ * With `commit.autoSwitch` on (trainSwitch variant `auto`), a run that can switch moves to the
+ * nearest other free train once it is within `commit.rangeTiles` and `autoSwitchMarginTiles`
+ * closer than the committed train, as auto-commit does for an idle rider.
+ */
+export function autoSwitchSystem(ctx: RunCtx): void {
+  const { state, map, config } = ctx;
+  const c = config.values.commit;
+  const run = state.run;
+  if (!c.autoSwitch || !run || (run.phase !== 'approach' && run.phase !== 'boarding')) return;
+  for (const p of state.players) {
+    if (!run.players[p.id]) continue;
+    const h = horseOf(state, p);
+    const id = switchTarget(state, map, config, h);
+    if (!id) continue;
+    const d = distanceToTrain(state, map, config, id, h.x, h.y);
+    if (d <= c.rangeTiles && d + c.autoSwitchMarginTiles <= distanceToTrain(state, map, config, run.trainId, h.x, h.y)) {
+      switchTrain(ctx, p, id);
+      return;
+    }
+  }
 }
 
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */
@@ -92,6 +148,7 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
   });
   const before = state.persistent;
   const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
@@ -225,12 +282,12 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
 
 /**
  * Health a contact costs (Devlin, 2026-10-11): scraping a train car below `collision.minImpactTilesPerSec`
- * costs `scrapeDamageFraction` of max health; a harder hit on a car or blocked ground scales from
- * that up to `damageFraction` at `fullImpactTilesPerSec` and above. A soft touch of blocked ground
- * is free. Whole health points, at least 1 for any contact that hurts.
+ * costs `scrapeDamageFraction` of max health; a harder hit scales from that up to `damageFraction`
+ * for a car (`obstacleDamageFraction` for blocked ground) at `fullImpactTilesPerSec` and above (train
+ * hits raised to 45%, Devlin's playtest, 2026-10-12). A soft touch of blocked ground is free. Whole health points, at least 1 for any contact that hurts.
  */
 export function collisionDamage(c: SimConfig['values']['collision'], maxHealth: number, target: Impact['target'], impact: number): number {
-  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * c.damageFraction;
+  const scrape = maxHealth * c.scrapeDamageFraction, full = maxHealth * (target === 'train' ? c.damageFraction : c.obstacleDamageFraction);
   if (impact < c.minImpactTilesPerSec) return target === 'train' && scrape > 0 ? Math.max(1, Math.round(scrape)) : 0;
   if (full <= 0) return 0;
   const span = c.fullImpactTilesPerSec - c.minImpactTilesPerSec;
@@ -269,7 +326,23 @@ export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
   }
 }
 
-/** Tick system 11, run end: a player at no health dies, then resets as cancel does. */
+/**
+ * H, with `playtest.debugHeatStep` above 0: raise heat by that step, cause `debug`. With a source
+ * (Shift+H: `alarmRaised`), raise what that source gives instead, as if the event happened.
+ */
+export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | undefined): void {
+  const step = ctx.config.values.playtest.debugHeatStep;
+  if (!(step > 0)) return reject(ctx, p.id, 'debugHeat', 'disabled');
+  if (!ctx.state.run || ctx.state.run.phase === 'ended') return reject(ctx, p.id, 'debugHeat', 'no run');
+  // Logged commands are untrusted input, so only a known source counts.
+  if (source !== undefined && HEAT_SOURCES.includes(source)) raiseHeatFor(ctx, source);
+  else raiseHeat(ctx, step, 'debug');
+}
+
+/**
+ * Tick system 11, run end: a player at no health dies; otherwise a run whose countdown is at zero
+ * expires once the grace window no longer holds it (U3). Both then reset as cancel does.
+ */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
   if (!run) return;
@@ -277,6 +350,13 @@ export function runEndSystem(ctx: RunCtx): void {
     const rp = run.players[p.id];
     if (rp && rp.health <= 0) {
       endRun(ctx, p, 'died', false);
+      resetToSpawn(ctx, p);
+      return;
+    }
+  }
+  for (const p of ctx.state.players) {
+    if (run.players[p.id] && countdownExpired(ctx, p)) {
+      endRun(ctx, p, 'expired', false);
       resetToSpawn(ctx, p);
       return;
     }

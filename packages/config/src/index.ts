@@ -5,6 +5,7 @@ import { deepFreeze, derive, type Derived } from './derive';
 
 export * from './schema';
 export * from './map';
+export * from './scenery';
 export * from './diff';
 export { derive, deepFreeze, type Derived } from './derive';
 
@@ -21,6 +22,7 @@ export interface Selection {
   preset: string;
   /** Per-group variant choices that replace the preset's, e.g. from `?v=group:id`. */
   variants?: Record<string, string>;
+  /** Run-time values merged last, as a partial game.json tree, e.g. from `?set=countdown.scale=4`. */
   overrides?: Record<string, unknown>;
 }
 
@@ -93,11 +95,66 @@ export function loadContent(content: ContentSet): LoadedContent {
   return { base: content.base, variants, groups, presets };
 }
 
+/**
+ * A preset with everything it inherits through `extends`: the variants and values of the
+ * presets it builds on, oldest first, with its own replacing theirs.
+ */
+function flattenPreset(loaded: LoadedContent, id: string): { preset: Preset & { file: string }; variants: Record<string, string>; values: unknown } {
+  const chain: (Preset & { file: string })[] = [];
+  for (let at: string | undefined = id, from = 'presets'; at !== undefined;) {
+    const p = loaded.presets.get(at);
+    if (!p) throw new ConfigError(from, chain.length ? 'extends' : '', `unknown preset ${at}`);
+    if (chain.includes(p)) throw new ConfigError(p.file, 'extends', `preset ${p.id} extends itself through ${chain.map((c) => c.id).join(' -> ')}`);
+    chain.push(p);
+    from = p.file;
+    at = p.extends;
+  }
+  let variants: Record<string, string> = {}, values: unknown = {};
+  for (const p of chain.reverse()) {
+    variants = { ...variants, ...p.variants };
+    if (p.values) values = merge(values, p.values);
+  }
+  return { preset: chain[chain.length - 1]!, variants, values };
+}
+
+/**
+ * `?set=` entries as overrides: each `path=value` becomes a nested value at that dotted path, so
+ * `countdown.scale=4` gives `{ countdown: { scale: 4 } }`. Values are read as JSON (numbers,
+ * booleans, null, arrays) and fall back to the plain string. A later entry for a path wins.
+ */
+export function overridesFromSet(entries: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const entry of entries) {
+    const eq = entry.indexOf('=');
+    const path = (eq < 0 ? entry : entry.slice(0, eq)).trim();
+    if (!path) continue;
+    const raw = eq < 0 ? '' : entry.slice(eq + 1);
+    let value: unknown;
+    try { value = JSON.parse(raw); } catch { value = raw; }
+    // Built by hand rather than with merge, which would drop a null instead of keeping it as "remove this key".
+    let at = out;
+    const keys = path.split('.');
+    // A URL can carry anything, so never let it reach an object's prototype.
+    if (keys.some((k) => k === '__proto__' || k === 'constructor' || k === 'prototype' || k === '')) continue;
+    keys.slice(0, -1).forEach((key) => { at = (isObject(at[key]) ? at[key] : (at[key] = {})) as Record<string, unknown>; });
+    at[keys[keys.length - 1]!] = value;
+  }
+  return out;
+}
+
+/** Overrides back to `path=value` entries, the inverse of overridesFromSet, for showing them. */
+export function setEntries(overrides: Record<string, unknown>, prefix = ''): string[] {
+  return Object.entries(overrides).flatMap(([k, v]) => {
+    const path = prefix ? `${prefix}.${k}` : k;
+    return isObject(v) ? setEntries(v, path) : [`${path}=${JSON.stringify(v)}`];
+  });
+}
+
 /** Steps 2 to 5: merge, validate, derive, freeze and hash. */
 export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedConfig {
-  const preset = loaded.presets.get(sel.preset);
-  if (!preset) throw new ConfigError('presets', '', `unknown preset ${sel.preset}`);
-  const chosen: Record<string, string> = { ...preset.variants, ...sel.variants };
+  const flat = flattenPreset(loaded, sel.preset);
+  const preset = flat.preset;
+  const chosen: Record<string, string> = { ...flat.variants, ...sel.variants };
   for (const group of loaded.groups.keys()) {
     if (!(group in chosen)) throw new ConfigError(preset.file, `variants.${group}`, `no variant chosen for group ${group}`);
   }
@@ -115,6 +172,8 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
     }
     merged = merge(merged, v.patch);
   }
+  // Preset values, then run-time overrides, both after the variants (step 2).
+  merged = merge(merged, flat.values);
   const overrides = sel.overrides ?? {};
   merged = merge(merged, overrides);
 
