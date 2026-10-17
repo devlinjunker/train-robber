@@ -127,7 +127,8 @@ export const GameSchema = z.object({
     /** Loot table and the share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
     /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
-    guards: z.object({ base: z.number().int().min(0) }).strict().optional(),
+    /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
+    guards: z.object({ base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional() }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),

@@ -27,9 +27,15 @@ export interface GuardCtx {
  * How many guards a train of this type gets at commit: its `guards.base` plus the wanted level
  * bonus. Run generation reads the count only through here, so M5 only fills in the bonus.
  */
-export function guardCount(config: SimConfig, trainType: string, wantedLevel: number): number {
+/**
+ * Guards a train gets: `guards.base` plus `guards.perCar` for each of its cars with guard spawns
+ * (rounded), plus the wanted-level bonus. Pass `guardedCars` when the train's cars are known;
+ * without it `perCar` counts the train's `carCount`.
+ */
+export function guardCount(config: SimConfig, trainType: string, wantedLevel: number, guardedCars?: number): number {
   const def = config.values.trains[trainType];
-  return Math.max(0, (def?.guards?.base ?? 0) + wantedGuardBonus(config, trainType, wantedLevel));
+  const perCar = Math.round((def?.guards?.perCar ?? 0) * (guardedCars ?? def?.carCount ?? 0));
+  return Math.max(0, (def?.guards?.base ?? 0) + perCar + wantedGuardBonus(config, trainType, wantedLevel));
 }
 
 /**
@@ -183,9 +189,10 @@ export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx:
 
 /** Place the train's guards for a run: `guardCount` of the layouts' spawns, picked from the `gen` stream. */
 export function generateGuards(state: GameState, config: SimConfig, train: TrainState): GuardState[] {
-  const n = guardCount(config, train.type, state.persistent.wantedLevel);
-  if (n <= 0) return [];
   const catalog = carCatalog(config);
+  const guarded = train.cars.filter((id) => carTemplate(catalog, id).guardSpawns.length > 0).length;
+  const n = guardCount(config, train.type, state.persistent.wantedLevel, guarded);
+  if (n <= 0) return [];
   const spawns: { car: number; spawn: ReturnType<typeof carTemplate>['guardSpawns'][number] }[] = [];
   train.cars.forEach((id, car) => { for (const spawn of carTemplate(catalog, id).guardSpawns) spawns.push({ car, spawn }); });
   // A partial shuffle picks which spawns get a guard; ids then follow train order.

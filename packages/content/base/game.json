@@ -47,7 +47,7 @@
       "requireSideDoors": "both",
       "countdown": { "baseSec": 150 },
       "loot": { "table": "mail-small-items", "density": 0.6 },
-      "guards": { "base": 3 },
+      "guards": { "base": 0, "perCar": 0.67 },
       "verbs": ["search"]
     },
     "blank": {

@@ -391,7 +391,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base: number };
+  guards?: { base?: number; perCar?: number };
   verbs: readonly string[];
 }
 

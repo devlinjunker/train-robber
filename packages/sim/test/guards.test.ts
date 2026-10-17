@@ -92,6 +92,11 @@ describe('guard spawns', () => {
     expect(guardCount(cfg, 'mail', 0)).toBe(3);
     expect(guardCount(cfg, 'mail', 4)).toBe(3);
     expect(guardCount(cfg, 'blank', 2)).toBe(0);
+    // perCar: about 2 guards for every 3 guarded cars, rounded.
+    const per = guardConfig({ train: { carCount: 3, guards: { base: 0, perCar: 0.67 } } });
+    expect(guardCount(per, 'mail', 0)).toBe(2);
+    expect(guardCount(per, 'mail', 0, 6)).toBe(4);
+    expect(guardCount(per, 'mail', 0, 1)).toBe(1);
   });
 });
 
