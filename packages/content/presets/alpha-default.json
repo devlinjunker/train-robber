@@ -1,5 +1,5 @@
 {
   "schemaVersion": 1,
   "id": "alpha-default",
-  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast", "collisionDamage": "on", "trainSwitch": "key", "lootCarry": "limit-and-slowdown", "trainMix": "mixed", "guardCatch": "heat-only", "handlingModel": "arcade-boost" }
+  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast", "collisionDamage": "on", "trainSwitch": "key", "lootCarry": "limit-and-slowdown", "trainMix": "mixed", "guardCatch": "thrown-off", "handlingModel": "arcade-boost" }
 }

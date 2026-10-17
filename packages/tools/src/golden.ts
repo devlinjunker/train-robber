@@ -68,7 +68,7 @@ function previewJump(sim: Sim, config: SimConfig, map: SimMap): BoardingResult |
 }
 
 export function recordGolden(): string {
-  const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map' } });
+  const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map', guardCatch: 'heat-only' } });
   const map = loadMapDef(DEFAULT_MAP);
   const lines: string[] = [];
   const header: RunHeader = {

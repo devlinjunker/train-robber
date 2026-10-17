@@ -234,11 +234,11 @@ export interface BenchResult { ticks: number; meanUs: number; p99Us: number; max
 /**
  * Tick-time benchmark: the chaser bot (riding, commits, jumps and walking aboard all exercised)
  * over a few seeds on the real map, after a warm-up so the JIT has settled. Only `step` is timed.
- * It runs the thrown-off preset, the costlier guard catch: alert guards path after the player.
+ * It runs the default preset, whose thrown-off guard catch is the costlier one: alert guards path after the player.
  */
 export function benchTicks(opts: { seeds?: number; seconds?: number } = {}): BenchResult {
   const map = loadMapDef();
-  const config = loadConfig({ preset: 'thrown-off' });
+  const config = loadConfig({ preset: 'alpha-default' });
   const ticks = Math.round((opts.seconds ?? 120) * config.values.sim.tickRateHz);
   const times: number[] = [];
   for (let i = -1; i < (opts.seeds ?? 3); i++) {

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "thrown-off",
+  "id": "heat-only",
   "extends": "alpha-default",
   "variants": {
-    "guardCatch": "thrown-off"
+    "guardCatch": "heat-only"
   }
 }

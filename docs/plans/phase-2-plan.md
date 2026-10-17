@@ -132,7 +132,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | Hide train names on arrows | Client option | names hidden (Devlin, 2026-10-14) | Does a mix only work as a guess (G17) | M2 |
 | long-train (no countdown change), slow-search presets | Presets | as above | What fills a medium run | M2 |
 | doors-both-sides preset | Preset | train picks only layouts with doors on both sides | Restricted doors vs doors everywhere (G21) | M2 |
-| guardCatch | Variant group | heat-only, thrown-off | What an alert guard does without combat (G4) | M3 |
+| guardCatch | Variant group | thrown-off, heat-only | What an alert guard does without combat (G4) | M3 |
 | handlingModel | Variant group | arcade-boost, arcade | Is the horse boost worth it (G20) | M3 |
 | Boost values | Values | 1.5 s, +40%, 6 s cooldown | Boost tuning | M3 |
 | mountSpill | Variant group | random, heaviest, share | What a good (amber) mount costs (G15) | M4 |
@@ -142,7 +142,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | wanted.forceLevel (?wanted=) | Value | none; forced runs save nothing | Play any wanted level without grinding (G9) | M5 |
 | Reset save (button and ?resetSave=1) | Tool | off | Start fresh while playtesting (G27) | M5 |
 
-Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
+Two defaults are my picks where the review didn't name one. guardCatch defaulted to heat-only; after the M3 playtest (2026-10-17) Devlin made thrown-off the default, with a heat-only preset in place of the thrown-off one. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), heat-only (was thrown-off), no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
 
 ## Decided values
 
