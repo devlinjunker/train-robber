@@ -42,14 +42,24 @@ function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
   ctx.emit({ type: 'RunPhaseChanged', tick: ctx.state.tick, player, from, to });
 }
 
-/** With `commit.auto` on, an idle player on a physical horse commits to the nearest train in range. */
+/**
+ * The commit prompt. While a free train is in `commit.rangeTiles` of an idle rider the client asks
+ * "commit?" and E commits. On top of that the rider commits with no key once they stay in range of
+ * the same train for `commit.timerSec` (null: never; 0: at once, the old auto-commit), or ride
+ * within `commit.closeRangeTiles` of it (null: off).
+ */
 export function autoCommitSystem(ctx: RunCtx): void {
   const { state, map, config } = ctx;
-  if (!config.values.commit.auto || state.run) return;
+  const { timerSec, closeRangeTiles } = config.values.commit;
   for (const p of state.players) {
+    if (state.run) { p.commitTimer = null; continue; }
     const h = horseOf(state, p);
     const id = commitTarget(state, map, config, h);
-    if (id) { startRun(ctx, p, id, 'startRun'); return; }
+    if (!id) { p.commitTimer = null; continue; }
+    p.commitTimer = p.commitTimer?.trainId === id ? { trainId: id, ticks: p.commitTimer.ticks + 1 } : { trainId: id, ticks: 1 };
+    const timerUp = timerSec != null && p.commitTimer.ticks >= Math.max(1, Math.round(timerSec * config.values.sim.tickRateHz));
+    const close = closeRangeTiles != null && distanceToTrain(state, map, config, id, h.x, h.y) <= closeRangeTiles;
+    if (timerUp || close) { p.commitTimer = null; startRun(ctx, p, id, 'startRun'); }
   }
 }
 

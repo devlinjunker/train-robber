@@ -189,6 +189,11 @@ export interface PlayerState {
   /** E is held (search). */
   interactHeld: boolean;
   placement: Placement;
+  /**
+   * The commit prompt's timer while idle: the train in commit range and how many ticks the rider
+   * has stayed in range of it. Null when no train is in range or a run is active.
+   */
+  commitTimer: { trainId: string; ticks: number } | null;
 }
 
 export interface HorseState {
@@ -254,7 +259,7 @@ export interface SimConfig {
      * `autoSwitch`: during a run, riding `autoSwitchMarginTiles` closer to another free train within
      * `rangeTiles` than to the committed one switches to it, with no key press.
      */
-    commit: { rangeTiles: number; auto: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
+    commit: { rangeTiles: number; timerSec?: number | null; closeRangeTiles?: number | null; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;

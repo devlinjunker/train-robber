@@ -75,9 +75,11 @@ describe('commit', () => {
     expect(S(sim).world.trains[0]!.pinnedBy).toBe(1);
   });
 
-  it('with commit.auto, an idle rider commits on the first tick a train is in range, with no command', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
-    const sim = setup(auto);
+  const commitCfg = (timerSec: number | null, closeRangeTiles: number | null) =>
+    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+
+  it('with commit.timerSec 0, an idle rider commits on the first tick a train is in range, with no command', () => {
+    const sim = setup(commitCfg(0, null));
     Object.assign(horse(sim), { x: 116, y: 10 }); // 17 tiles from the car
     const far = steps(sim, 5);
     expect(S(sim).run).toBeNull();
@@ -92,6 +94,37 @@ describe('commit', () => {
     expect(S(sim).run).toBeNull();
     steps(sim, 2);
     expect(S(sim).run).toBeNull();
+  });
+
+  it('with commit.timerSec, the rider commits after staying in range that long, and leaving range resets the timer', () => {
+    const sim = setup(commitCfg(0.5, null)); // 30 ticks at 60 Hz
+    Object.assign(horse(sim), { x: 116, y: 18 }); // 9 tiles: in range
+    steps(sim, 20);
+    expect(S(sim).run).toBeNull();
+    expect(S(sim).players[0]!.commitTimer).toEqual({ trainId: 'blank-1', ticks: 20 });
+    Object.assign(horse(sim), { x: 116, y: 10 }); // out of range clears it
+    step(sim);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 18 });
+    steps(sim, 29);
+    expect(S(sim).run).toBeNull();
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+  });
+
+  it('with commit.closeRangeTiles, riding that close commits at once; with both null only E commits', () => {
+    const sim = setup(commitCfg(null, 4));
+    Object.assign(horse(sim), { x: 116, y: 18 });
+    steps(sim, 30);
+    expect(S(sim).run).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 24 }); // 3 tiles
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+
+    const manual = setup(commitCfg(null, null));
+    Object.assign(horse(manual), { x: 116, y: 24 });
+    steps(manual, 30);
+    expect(S(manual).run).toBeNull();
+    expect(phases(step(manual, { type: 'interact', held: true }))).toEqual(['idle>approach']);
   });
 
   it('interact while idle commits like startRun with no id', () => {
@@ -436,7 +469,7 @@ describe('switching trains', () => {
   });
 
   it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
     const sim = twoTrains(auto);
     // Midway: neither train is in commit range or clearly closer, so nothing happens.
     expect(switched(steps(sim, 5))).toEqual([]);

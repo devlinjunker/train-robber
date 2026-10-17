@@ -17,8 +17,12 @@ export const GameSchema = z.object({
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
   commit: z.object({
+    /** A free train this close (nearest car body) brings up the commit prompt, and E commits. */
     rangeTiles: positive,
-    auto: z.boolean(),
+    /** Staying in range of the same train this long commits with no key (the prompt shows a filling bar). Missing or null (`?set=commit.timerSec=null`): only E commits; 0: at once. */
+    timerSec: z.number().min(0).nullable().optional(),
+    /** Riding this close to the prompted train commits at once. Missing or null: off. */
+    closeRangeTiles: positive.nullable().optional(),
     /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
     switchRangeTiles: positive,
     /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
