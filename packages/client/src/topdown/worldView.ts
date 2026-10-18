@@ -43,6 +43,8 @@ export interface ViewInput {
   /** The run's guards in the world, and their sight cones (debug), if shown. */
   guards?: readonly GuardView[];
   cones?: readonly ConeView[] | null;
+  /** How far the player's footsteps carry aboard, or null when silent. */
+  noise?: { x: number; y: number; r: number; running: boolean } | null;
 }
 
 export interface WorldView {
@@ -128,8 +130,10 @@ export function createWorldView(content: SceneContent): WorldView {
       guardG.clear();
       for (const cone of input.cones ?? []) {
         const col = GUARD_STATE_COLOURS[cone.state];
-        guardG.poly(cone.points.flat()).fill({ color: col, alpha: cone.state === 'unaware' ? 0.15 : 0.28 });
+        guardG.poly(cone.points.flat()).fill({ color: col, alpha: (cone.state === 'unaware' ? 0.15 : 0.28) * (cone.faint ? 0.5 : 1) });
       }
+      // How far your footsteps carry: a guard inside the ring hears you.
+      if (input.noise) guardG.circle(input.noise.x, input.noise.y, input.noise.r).stroke({ width: 0.08, color: 0xffffff, alpha: input.noise.running ? 0.45 : 0.2 });
       for (const v of input.guards ?? []) {
         guardG.circle(v.x, v.y, WALKER_RADIUS).fill(0x2c3e66).stroke({ width: 0.1, color: GUARD_STATE_COLOURS[v.state] });
         guardG.moveTo(v.x, v.y).lineTo(v.x + v.fx * 0.6, v.y + v.fy * 0.6).stroke({ width: 0.12, color: GUARD_STATE_COLOURS[v.state] });

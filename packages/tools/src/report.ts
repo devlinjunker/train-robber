@@ -17,7 +17,7 @@ export interface BoardingReport {
   /** Run length in seconds, one per ended run. */
   runSec: number[];
   /** Searches: items picked up and their value, refusals by reason, drops, and searches cancelled. */
-  loot: { picked: number; value: number; refused: Record<string, number>; dropped: number; cancelled: number };
+  loot: { picked: number; value: number; refused: Record<string, number>; dropped: number; lost: number; cancelled: number };
   /** Guards: times the player was spotted, alarms raised (a guard going alert), throws off the train; and horse boosts. */
   guards: { spotted: number; alarms: number; thrownOff: number };
   boosts: number;
@@ -27,7 +27,7 @@ const bump = (o: Record<string, number>, k: string) => { o[k] = (o[k] ?? 0) + 1;
 
 /** Folds events into a report one at a time, so long bot sweeps need not keep them. */
 export class ReportBuilder {
-  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [], loot: { picked: 0, value: 0, refused: {}, dropped: 0, cancelled: 0 }, guards: { spotted: 0, alarms: 0, thrownOff: 0 }, boosts: 0 };
+  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [], loot: { picked: 0, value: 0, refused: {}, dropped: 0, lost: 0, cancelled: 0 }, guards: { spotted: 0, alarms: 0, thrownOff: 0 }, boosts: 0 };
   private startedAt = new Map<number, number>();
   constructor(private readonly tickRateHz: number) {}
 
@@ -48,6 +48,7 @@ export class ReportBuilder {
       case 'LootPickedUp': r.loot.picked++; r.loot.value += e.value; break;
       case 'LootRefused': bump(r.loot.refused, e.reason); break;
       case 'LootDropped': r.loot.dropped++; break;
+      case 'LootLost': r.loot.lost++; break;
       case 'SearchCancelled': r.loot.cancelled++; break;
       case 'PlayerSpotted': r.guards.spotted++; break;
       case 'GuardStateChanged': if (e.to === 'alert') r.guards.alarms++; break;
@@ -94,7 +95,7 @@ export function formatReport(r: BoardingReport): string {
     `jumps ${r.attempts}, ${r.runs ? (r.attempts / r.runs).toFixed(2) : '-'} per run; perfect ${r.results.perfect ?? 0}, good ${r.results.good ?? 0}, fail ${fails} (${pct(fails, r.attempts)})`,
     `rejected: ${counts(r.rejections)}`,
     `commit to aboard: median ${sec(median(r.commitToAboardSec))}; run length: median ${sec(median(r.runSec))}`,
-    `loot: picked ${r.loot.picked} ($${r.loot.value}), refused: ${counts(r.loot.refused)}, dropped ${r.loot.dropped}, searches cancelled ${r.loot.cancelled}`,
+    `loot: picked ${r.loot.picked} ($${r.loot.value}), refused: ${counts(r.loot.refused)}, dropped ${r.loot.dropped}, lost ${r.loot.lost}, searches cancelled ${r.loot.cancelled}`,
     `guards: spotted ${r.guards.spotted}, alarms ${r.guards.alarms}, thrown off ${r.guards.thrownOff}; horse boosts ${r.boosts}`,
   ].join('\n');
 }

@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  trainSpeed, meterPosition, meterZones, parseCarFrame, runPhase, terrainAt, Terrain,
+  trainSpeed, meterPosition, meterZones, noiseRadius, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -110,8 +110,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
   const runZoomRangeParam = params.get('runZoomRange');
   const runZoomRange = runZoomRangeParam !== null && Number(runZoomRangeParam) >= 0 ? Number(runZoomRangeParam) : RUN_ZOOM_RANGE;
-  // Guards' sight cones show with the debug panel (`), or always with ?cones=on.
-  const conesAlways = params.get('cones') === 'on';
+  // Guards' sight cones: faint by default so you can read where they look, full with the debug
+  // panel (`) or ?cones=on, hidden with ?cones=off.
+  const conesParam = params.get('cones');
+  const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -222,6 +224,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Heat gains get their own small list under the heat meter, so each one is readable.
   let heatNotices: { text: string; until: number }[] = [], alarmAt = -Infinity;
   const wantedOnExpiry = config.values.outcomePolicy.expired.wantedDelta;
+  // Items lost to the last throw off, for its notice.
+  let lostOnThrow: string[] = [];
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -251,7 +255,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'SearchCancelled' && e.reason === 'moved away') show('Search lost: you moved away', 'warn', 1500);
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
-    else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; show('A guard threw you off the train!', 'bad', 2500); }
+    else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') show('Heard! A guard heard your footsteps (running is loud)', 'warn', 2200);
+    else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
+    else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`A guard threw you off: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
@@ -367,7 +373,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const runTrain = s.run ? s.world.trains.find((t) => t.id === s.run!.trainId) ?? null : null;
       const guardPoses = runTrain ? interp.guards(alpha) : [];
       const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id) : [];
-      const showCones = (showDebug || conesAlways) && runTrain !== null;
+      const showCones = (showDebug || conesMode !== 'off') && runTrain !== null;
+      const faintCones = !showDebug && conesMode === 'faint';
+      // The footstep ring aboard: how far a guard can hear you, while there are guards to hear.
+      let noise: { x: number; y: number; r: number; running: boolean } | null = null;
+      if (runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
+        const grid = trainGrid(config, runTrain.cars);
+        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
+        if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
+      }
       const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
@@ -377,7 +391,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car)),
-          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car)), cars, runTrain!.id) : null,
+          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car)), cars, runTrain!.id, faintCones) : null, noise,
+          boosting: horseState.boostTicks > 0,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
           view: {
             x0: Math.min(...corners.map((p) => p.x)), y0: Math.min(...corners.map((p) => p.y)),
@@ -394,7 +409,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
           playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
-          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id) : null,
+          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -504,7 +519,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
           `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
-          s.run && s.run.guards.length ? `guards (${config.values.ai.guardCatch}): ${s.run.guards.map((g) => `${g.id} car ${g.car} ${g.state}${g.state === 'suspicious' ? ` ${g.sightTicks}/${config.values.ai.alertAfterTicks}` : ''}`).join(', ')}  cones ${showCones ? 'on' : 'off'}` : '',
+          s.run && s.run.guards.length ? `guards (${config.values.ai.guardCatch}): ${s.run.guards.map((g) => `${g.id} car ${g.car} ${g.state}${g.state === 'suspicious' ? ` ${g.sightTicks}/${config.values.ai.alertAfterTicks}` : ''}`).join(', ')}  cones ${showCones ? (faintCones ? 'faint' : 'on') : 'off'}` : '',
           s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${searchTicks} ticks` : ''}` : '',
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),
         ].filter(Boolean).join('\n'),

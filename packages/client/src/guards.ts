@@ -1,5 +1,5 @@
 // Guards for the views: where each one stands in the world, which way it looks, and its sight
-// cone clipped by cells that block sight (debug overlay, or ?cones=on). The sim decides what a
+// cone clipped by cells that block sight (faint by default; full with the debug overlay or ?cones=on). The sim decides what a
 // guard sees; the cone is only a picture of the same rule.
 import { carToWorld, fromTrain, sightReach, toTrain, trainGrid, type CarPose, type GuardAwareness, type SimConfig } from '@train-robber/sim';
 import type { GuardPose } from './interp';
@@ -8,7 +8,7 @@ import type { GuardPose } from './interp';
 export interface GuardView { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness }
 
 /** A sight cone as a fan of world points, the guard first. */
-export interface ConeView { id: number; car: number; state: GuardAwareness; points: [number, number][] }
+export interface ConeView { id: number; car: number; state: GuardAwareness; points: [number, number][]; faint: boolean }
 
 /** Rays per cone: enough that a doorway reads, few enough to redraw every frame. */
 const CONE_RAYS = 18;
@@ -35,7 +35,7 @@ export function guardsInWorld(guards: readonly GuardPose[], cars: readonly CarPo
  * Each guard's sight cone: rays across the cone, each stopped where a cell that blocks sight
  * starts (`sightReach`, the sim's own sampling), carried through the train's cars end to end.
  */
-export function sightCones(config: SimConfig, templates: readonly string[], guards: readonly GuardPose[], cars: readonly CarPose[], trainId: string): ConeView[] {
+export function sightCones(config: SimConfig, templates: readonly string[], guards: readonly GuardPose[], cars: readonly CarPose[], trainId: string, faint = false): ConeView[] {
   const grid = trainGrid(config, templates);
   const ai = config.values.ai;
   const half = Math.acos(Math.max(-1, Math.min(1, ai.sight.coneCos)));
@@ -61,7 +61,7 @@ export function sightCones(config: SimConfig, templates: readonly string[], guar
       const p = world(lx + dx * r, g.y + dy * r);
       if (p) points.push(p);
     }
-    out.push({ id: g.id, car: g.car, state: g.state, points });
+    out.push({ id: g.id, car: g.car, state: g.state, points, faint });
   }
   return out;
 }

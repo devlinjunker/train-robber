@@ -111,7 +111,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180) }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, catchRangeTiles: 0.8,
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
       },
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
       trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },

@@ -216,10 +216,10 @@ describe('noise', () => {
 });
 
 describe('guardCatch thrown-off', () => {
-  it('an alert guard chases, and contact throws the player off beside the car, stunned and hurt, keeping their loot', () => {
+  it('an alert guard chases, and contact throws the player off beside the car, stunned and hurt, losing half their loot', () => {
     const cfg = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
     const sim = aboardAt(cfg, 5.5, 2.5);
-    S(sim).run!.players[1]!.carried = ['letter'];
+    S(sim).run!.players[1]!.carried = ['letter', 'letter', 'letter'];
     placeGuard(sim, 12.5, 2.5, -1, 0);
     const ev = steps(sim, 60 * 6);
     const thrown = ofType(ev, 'ThrownOff');
@@ -230,11 +230,26 @@ describe('guardCatch thrown-off', () => {
     expect(ev.slice(t).find((e) => e.type === 'RunPhaseChanged')).toMatchObject({ from: 'aboard', to: 'boarding' });
     expect(s.players[0]!.placement.frame).toBe('world');
     expect(s.world.horses[0]!.mode).toBe('physical');
+    // Half of three, rounded up: two go over the side, one is kept.
     expect(s.run!.players[1]!.carried).toEqual(['letter']);
+    expect(ofType(ev, 'LootLost').map((e) => [e.item, e.cause])).toEqual([['letter', 'thrownOff'], ['letter', 'thrownOff']]);
     expect(s.run!.players[1]!.health).toBe(100 - 25);
     // The stun passes and the approach resumes.
     steps(sim, cfg.values.boarding.failure.stunTicks + 2);
     expect(s.run!.phase).toBe('approach');
+  });
+});
+
+describe('thrownOffLootShare', () => {
+  it('0 keeps everything, 1 loses everything', () => {
+    for (const [share, kept] of [[0, 2], [1, 0]] as const) {
+      const cfg = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: share }, train: { layouts: ['watch-car'] } });
+      const sim = aboardAt(cfg, 5.5, 2.5);
+      S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+      placeGuard(sim, 12.5, 2.5, -1, 0);
+      expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
+      expect(S(sim).run!.players[1]!.carried).toHaveLength(kept);
+    }
   });
 });
 

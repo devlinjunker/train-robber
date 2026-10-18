@@ -333,6 +333,12 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   rp.search = null;
   rp.stumbleTicks = 0;
   ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+  // Some of what you carry goes over the side with you: the latest picked up first.
+  const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
+  for (const item of rp.carried.splice(rp.carried.length - lose, lose).reverse()) {
+    const def = config.values.items[item]!;
+    ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
+  }
   setPhase(ctx, p.id, 'boarding');
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {

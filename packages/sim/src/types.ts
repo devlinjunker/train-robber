@@ -96,6 +96,8 @@ export type SimEvent =
   /** A search finished but taking the item would break a carry cap, so it stays. */
   | { type: 'LootRefused'; tick: number; player: PlayerId; item: string; reason: LootRefusal; loot: number }
   | { type: 'LootRevealed'; tick: number; player: PlayerId; item: string; car: number; loot: number }
+  /** Carried items lost off the train (thrown off by a guard): gone, not left in the car. */
+  | { type: 'LootLost'; tick: number; player: PlayerId; item: string; value: number; weight: number; cause: 'thrownOff' }
   | { type: 'LootDropped'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** Releasing E or moving off the slot loses the search's progress (`progress` 0 to 1). */
   | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number }
@@ -362,6 +364,7 @@ export interface SimConfig {
       calmTicks: number;
       alertCalmTicks: number;
       catchRangeTiles: number;
+      thrownOffLootShare: number;
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };

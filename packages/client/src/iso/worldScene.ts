@@ -15,6 +15,7 @@ import type { TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
+import { createDust } from './dust';
 import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
@@ -82,6 +83,10 @@ export interface WorldSceneInput {
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
   horseSpeed: number;
   inMud: boolean;
+  /** The horse is boosting: dust flies up behind it. */
+  boosting?: boolean;
+  /** How far the player's footsteps carry aboard (a ring on the floor), or null when silent. */
+  noise?: { x: number; y: number; r: number; running: boolean } | null;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
@@ -92,7 +97,7 @@ export interface WorldSceneInput {
   inReach: number | null;
   /** Guards in the car the player is aboard (the open one), in the world. */
   guards?: readonly GuardView[];
-  /** Sight cones to draw on the floor (debug overlay or ?cones=on), or null. */
+  /** Sight cones to draw on the floor (faint by default, full with the debug overlay or ?cones=on), or null. */
   cones?: readonly ConeView[] | null;
 }
 
@@ -241,7 +246,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
-  objects.addChild(mud.clods);
+  const dust = createDust();
+  objects.addChild(mud.clods, dust.puffs);
 
   const spans = new Map<string, ReturnType<typeof doorSpans>>();
   const spansOf = (template: string) => { let v = spans.get(template); if (!v) { v = doorSpans(content, template); spans.set(template, v); } return v; };
@@ -302,6 +308,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       used = 0;
       const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
       mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
+      dust.update({ horse: input.horse, boosting: !!input.boosting, speed: input.horseSpeed, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
       floors.clear();
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
@@ -404,11 +411,15 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
-      // Guards in the open car, and their sight cones on the floor (debug).
+      // Guards in the open car, and their sight cones on the floor: faint so you can read where they look, stronger for debug.
       for (const cone of input.cones ?? []) {
         const col = GUARD_STATE_COLOURS[cone.state];
-        floors.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: cone.state === 'unaware' ? 0.14 : 0.26 }).stroke({ width: 1, color: col, alpha: 0.5 });
+        const fill = (cone.state === 'unaware' ? 0.14 : 0.26) * (cone.faint ? 0.5 : 1);
+        floors.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
       }
+      // How far your footsteps carry: a guard inside the ring hears you.
+      const n = input.noise;
+      if (n) groundEllipse(floors, n.x, n.y, n.r, 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
       const guardsShown = input.guards ?? [];
       for (const v of guardsShown) {
         const g = piece();
