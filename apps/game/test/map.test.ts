@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAP, loadMap, loadScenery, mapIdFromUrl } from '../src/map';
+import { DEFAULT_MAP, GENERATED_MAP_ID, loadMap, loadScenery, mapIdFromUrl, sessionMap } from '../src/map';
+import { setupFromUrl } from '../src/setup';
 
 describe('map loading', () => {
   it('reads ?map= and defaults to alpha-flats', () => {
@@ -39,5 +40,25 @@ describe('map loading', () => {
     expect(await loadScenery(tight, files, '')).toBeNull();
     const stale = new Map([['tight-loop', async () => ({ ...scenery, source: { ...scenery!.source, hash: 'old' } })]]);
     expect(await loadScenery(tight, stale, '')).toBeNull();
+  });
+
+  it('?map=gen generates the map from the run seed, the same every time', async () => {
+    const { config } = setupFromUrl('?map=gen&seed=abc');
+    const a = await sessionMap(GENERATED_MAP_ID, 'abc', config, '?map=gen&seed=abc');
+    const b = await sessionMap(GENERATED_MAP_ID, 'abc', config, '?map=gen&seed=abc');
+    const c = await sessionMap(GENERATED_MAP_ID, 'abd', config, '?map=gen&seed=abd');
+    expect(a.map.id).toBe('gen');
+    expect(a.map.source.file).toBe('gen:abc');
+    expect(a.map).toEqual(b.map);
+    expect(a.scenery).toEqual(b.scenery);
+    expect(c.map.zones).not.toEqual(a.map.zones);
+    expect((await sessionMap(GENERATED_MAP_ID, 'abc', config, '?scenery=off')).scenery).toBeNull();
+  });
+
+  it('?set=mapGen.<path>= changes the generator settings and a bad one names the path', async () => {
+    const { config } = setupFromUrl('?map=gen&set=mapGen.size.cols=300');
+    expect((await sessionMap(GENERATED_MAP_ID, 's', config, '')).map.size.cols).toBe(300);
+    const bad = setupFromUrl('?map=gen&set=mapGen.track.curviness=7').config;
+    await expect(sessionMap(GENERATED_MAP_ID, 's', bad, '')).rejects.toThrow(/mapGen\.track\.curviness/);
   });
 });

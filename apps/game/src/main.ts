@@ -3,8 +3,8 @@ import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, typ
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
-import type { MapDef } from '@train-robber/config';
-import { loadMap, loadScenery, mapIdFromUrl } from './map';
+import type { MapDef, SceneryDef } from '@train-robber/config';
+import { mapIdFromUrl, sessionMap } from './map';
 import { RingBuffer } from './ringBuffer';
 import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
@@ -37,20 +37,21 @@ async function boot() {
   const carId = new URLSearchParams(location.search).get('car');
   if (carId !== null) return createCarScene(app, setupFromUrl().config, carId);
 
-  const mapId = mapIdFromUrl();
-  let map: MapDef;
-  try {
-    map = await loadMap(mapId);
-  } catch (e) {
-    showFatal(app, (e as Error).message);
-    throw e;
-  }
   let setup: ReturnType<typeof setupFromUrl>;
   try {
     setup = setupFromUrl();
   } catch (e) {
     // A typo in ?preset=, ?v= or ?set= names the bad value on screen instead of a blank page.
     showFatal(app, `Bad setup in the URL: ${(e as Error).message}`);
+    throw e;
+  }
+  // ?map=gen builds the map from the run seed, so the seed in the debug panel and the log replays it.
+  const mapId = mapIdFromUrl();
+  let map: MapDef, scenery: SceneryDef | null;
+  try {
+    ({ map, scenery } = await sessionMap(mapId, setup.seed, setup.config));
+  } catch (e) {
+    showFatal(app, (e as Error).message);
     throw e;
   }
   const { config, seed } = setup;
@@ -114,7 +115,7 @@ async function boot() {
   document.body.appendChild(history);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
-  const client = createGameClient(app, { sim, map, scenery: await loadScenery(map), config, onExportLogs: exportLogs, onAddNote: addNote });
+  const client = createGameClient(app, { sim, map, scenery, config, onExportLogs: exportLogs, onAddNote: addNote });
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();

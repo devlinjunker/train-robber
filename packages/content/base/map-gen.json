@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "size": { "cols": 400, "rows": 200 },
+  "edgeTiles": 2,
+  "track": { "controlPoints": 48, "harmonics": [3, 5], "curviness": 0.9, "maxDent": 0.55, "marginTiles": 22, "minRadiusTiles": 19 },
+  "corridor": { "carClearTiles": 4.5, "laneTiles": 7, "stretchTiles": [50, 150], "bothOpenChance": 0.25, "switchGapTiles": 14, "stripChance": 0.6, "stripWidthTiles": [2, 6] },
+  "mud": { "scaleTiles": 22, "threshold": 0.8 },
+  "rocks": { "scaleTiles": 10, "threshold": 0.85 },
+  "forest": { "scaleTiles": 26, "threshold": 0.78, "treesPerTile": 0.6, "pineShare": 0.4 },
+  "lakes": { "scaleTiles": 40, "threshold": 0.84, "deepThreshold": 0.9, "trackGapTiles": 12 },
+  "rivers": { "count": [0, 2], "widthTiles": [3, 6], "lengthTiles": [50, 160], "meander": 0.06, "straightTiles": 14, "trackGapTiles": 12, "spacingTiles": 120 },
+  "hills": { "scaleTiles": 55, "threshold": 0.6, "maxLevel": 4, "trackGapTiles": 10, "tilesPerLevel": 3 },
+  "ground": { "bushesPerTile": 0.05, "flowersPerTile": 0.05, "scaleTiles": 18 },
+  "spawnDistanceTiles": 14
+}
