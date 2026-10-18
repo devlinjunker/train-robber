@@ -54,7 +54,7 @@ export function createSim(opts: SimOptions): Sim {
     // Every player starts mounted at playerSpawn, stopped, facing up the screen toward the track.
     world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
-      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false,
+      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false, commitTimer: null, commitHold: null, resumeRuns: [],
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
@@ -122,7 +122,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       advanceTrains(state, map, config);
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
       collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf));
-      // 3b. With `commit.auto`, an idle player commits once a train is in range; with
+      // 3b. The commit prompt's timer and close range commit an idle rider with no key; with
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
       autoSwitchSystem(ctx);

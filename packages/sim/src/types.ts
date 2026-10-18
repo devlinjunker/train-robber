@@ -70,7 +70,8 @@ export type LootRefusal = 'too heavy' | 'too many items';
 
 export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number }
+  /** `resumed`: the commit picked up a run cancelled in place on this train (clock, heat, health and meter carried over). */
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; resumed?: true }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
@@ -228,6 +229,21 @@ export interface Placement {
   layer: 'ground' | 'interior' | 'roof';
 }
 
+/** What an in-place cancel keeps for a later commit to the same train. */
+export interface ResumeRun {
+  trainId: string;
+  startedTick: number;
+  countdownSec: number;
+  countdownTotalSec: number;
+  clockRunning: boolean;
+  graceTicks: number;
+  heat: number;
+  pendingHeat: number;
+  health: number;
+  meter: MeterState;
+  boardingAttempts: number;
+}
+
 export interface PlayerState {
   id: PlayerId;
   /** The horse this player rides; every player starts mounted in phase 1. */
@@ -238,6 +254,19 @@ export interface PlayerState {
   /** E is held (search). */
   interactHeld: boolean;
   placement: Placement;
+  /**
+   * The commit prompt's timer: the train it asks about (to commit while idle, or to switch to
+   * during a run with `commit.promptSwitch`) and how many ticks the rider has stayed in range of it.
+   * Null when no such train is in range.
+   */
+  commitTimer: { trainId: string; ticks: number } | null;
+  /** The train an in-place cancel just left: only E commits to it until the rider leaves its commit range. */
+  commitHold: string | null;
+  /**
+   * Runs cancelled in place, one per train: committing to that train again picks up where it
+   * left off, so Esc cannot reset the clock or reroll the meter. Cleared when a run ends any other way (Esc aboard, quick retry, escape, death, expiry).
+   */
+  resumeRuns: ResumeRun[];
 }
 
 export interface HorseState {
@@ -308,7 +337,7 @@ export interface SimConfig {
      * `autoSwitch`: during a run, riding `autoSwitchMarginTiles` closer to another free train within
      * `rangeTiles` than to the committed one switches to it, with no key press.
      */
-    commit: { rangeTiles: number; auto: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
+    commit: { rangeTiles: number; timerSec?: number | null; switchTimerSec?: number | null; closeRangeTiles?: number | null; promptSwitch: boolean; cancelInPlace: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;

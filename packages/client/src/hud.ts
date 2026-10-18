@@ -21,6 +21,11 @@ export interface HudState {
   hit: boolean;
   /** The main prompt line: what to do next. */
   prompt: string;
+  /**
+   * The commit prompt while idle with a free train in range: the question, how far the
+   * `commit.timerSec` bar has filled (null when there is no timer), and how to answer.
+   */
+  commitAsk?: { title: string; progress: number | null; hint: string } | null;
   /** A short-lived notice (rejection reason, jump result, run end), or empty. */
   notice: string;
   noticeKind: NoticeKind;
@@ -62,6 +67,14 @@ const CSS = `
 .tr-hud .health > div { height: 100%; background: linear-gradient(#ff7a6b, #d63c2f); transition: width .2s; }
 .tr-hud .bottom { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
 .tr-hud .prompt { font-size: 20px; font-weight: 700; text-shadow: 0 2px 3px #000; }
+.tr-hud .ask { display: inline-block; margin: 0 auto 10px; text-align: center; min-width: 320px;
+  background: rgba(10,30,60,.8); border: 2px solid #9fd3ff; border-radius: 10px; padding: 10px 18px; box-shadow: 0 0 16px #9fd3ff88;
+  animation: tr-ask-flash .7s ease-in-out infinite alternate; }
+@keyframes tr-ask-flash { from { border-color: #9fd3ff; box-shadow: 0 0 6px #9fd3ff44; } to { border-color: #ffffff; box-shadow: 0 0 22px #9fd3ffcc; } }
+.tr-hud .ask-title { font-size: 24px; font-weight: 800; text-shadow: 0 2px 3px #000; }
+.tr-hud .ask-bar { margin: 8px auto 4px; width: 260px; height: 10px; background: #0008; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
+.tr-hud .ask-bar > div { height: 100%; background: #9fd3ff; }
+.tr-hud .ask-hint { font-size: 13px; opacity: .9; text-shadow: 0 1px 2px #000; }
 .tr-hud .notice { margin-top: 6px; font-size: 18px; font-weight: 700; padding: 4px 12px; border-radius: 6px; display: inline-block; }
 .tr-hud .notice.bad { background: rgba(160,40,30,.85); }
 .tr-hud .notice.good { background: rgba(40,130,60,.85); }
@@ -119,7 +132,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
     <div class="side"><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div></div>
-    <div class="bottom"><div class="inv"></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
+    <div class="bottom"><div class="inv"></div><div class="ask"><div class="ask-title"></div><div class="ask-bar"><div></div></div><div class="ask-hint"></div></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
   const top = q('.top');
@@ -127,6 +140,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
     hpText = q('.hp-text'), carryEl = q('.carry'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
+  const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
   // Only touch the DOM when a value changes.
@@ -168,6 +182,14 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         }
       }
       set(prompt, s.prompt);
+      prompt.style.display = s.prompt ? '' : 'none';
+      ask.style.display = s.commitAsk ? '' : 'none';
+      if (s.commitAsk) {
+        set(askTitle, s.commitAsk.title);
+        set(askHint, s.commitAsk.hint);
+        askBar.style.display = s.commitAsk.progress === null ? 'none' : '';
+        askFill.style.width = `${(s.commitAsk.progress ?? 0) * 100}%`;
+      }
       set(notice, s.notice);
       notice.style.display = s.notice ? '' : 'none';
       if (last.noticeKind !== s.noticeKind) notice.className = `notice ${s.noticeKind}`;
