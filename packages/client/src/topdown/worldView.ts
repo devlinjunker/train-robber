@@ -6,6 +6,7 @@ import { HORSE_RADIUS, WALKER_RADIUS, carEntryPoints, carTemplate, type Boarding
 import type { SceneContent } from '../iso/worldScene';
 import { CATEGORY_COLOURS, colourOf } from '../iso/interior';
 import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
+import { drawEar } from '../iso/worldScene';
 
 /** The debug view colours every cell by its catalog colour, so the layout the sim walks is what shows. */
 function drawCar(content: SceneContent, template: string): Graphics {
@@ -137,6 +138,7 @@ export function createWorldView(content: SceneContent): WorldView {
       for (const v of input.guards ?? []) {
         guardG.circle(v.x, v.y, WALKER_RADIUS).fill(0x2c3e66).stroke({ width: 0.1, color: GUARD_STATE_COLOURS[v.state] });
         guardG.moveTo(v.x, v.y).lineTo(v.x + v.fx * 0.6, v.y + v.fy * 0.6).stroke({ width: 0.12, color: GUARD_STATE_COLOURS[v.state] });
+        if (v.heard && v.state !== 'alert') drawEar(guardG, v.x, v.y - 0.9, GUARD_STATE_COLOURS.suspicious, 0.04);
       }
       zones.stroke({ width: 0.08, color: 0xffffff, alpha: 0.5 });
       // The nearest door on the riding side fills by the sim's verdict.

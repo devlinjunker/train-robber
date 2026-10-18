@@ -259,7 +259,7 @@ export const GameSchema = z.object({
     alertCalmSec: z.number().min(0),
     /** An alert, chasing guard this close catches the player (guardCatch `thrown-off`). */
     catchRangeTiles: positive,
-    /** Share of carried items lost when a guard throws the player off, rounded up, latest picked up first (0 keeps everything). */
+    /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
     thrownOffLootShare: z.number().min(0).max(1),
   }).strict(),
 }).strict();

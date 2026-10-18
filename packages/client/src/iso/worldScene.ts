@@ -106,6 +106,8 @@ export interface SceneContent {
   catalog: CarCatalog;
   cellTypes: readonly CellTypeDef[];
   items: Readonly<Record<string, { weight: number; category: string }>>;
+  /** Boost dust opacity scale (?boostDust=), 1 by default. */
+  boostDust?: number;
 }
 
 export interface WorldScene {
@@ -187,6 +189,19 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
   drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, colour);
 }
 
+/** An ear in a round badge, in screen pixels centred on (x, y): a guard heard you. */
+export function drawEar(g: Graphics, x: number, y: number, colour: number, s = 1): void {
+  g.circle(x, y, 11 * s).fill({ color: colour }).stroke({ width: 2 * s, color: 0x111111, alpha: 0.8 });
+  // The outer rim: a C open to the left, with the lobe curling in at the bottom.
+  g.moveTo(x - 3 * s, y - 4 * s).bezierCurveTo(x - 2 * s, y - 9 * s, x + 6 * s, y - 9 * s, x + 6 * s, y - 2 * s)
+    .bezierCurveTo(x + 6 * s, y + 2 * s, x + 2 * s, y + 3 * s, x + 2 * s, y + 6 * s)
+    .bezierCurveTo(x + 2 * s, y + 9 * s, x - 3 * s, y + 9 * s, x - 3 * s, y + 6 * s)
+    .stroke({ width: 2.5 * s, color: 0x111111, cap: 'round' });
+  // The inner fold.
+  g.moveTo(x - 0.5 * s, y - 2 * s).bezierCurveTo(x, y - 5 * s, x + 3.5 * s, y - 4 * s, x + 3 * s, y - 1 * s)
+    .stroke({ width: 2 * s, color: 0x111111, cap: 'round' });
+}
+
 /** A guard: a dark uniform turned the way it faces, a hat with a brim toward its face, and its shadow. */
 function drawGuard(g: Graphics, v: GuardView): void {
   groundEllipse(g, v.x, v.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
@@ -246,7 +261,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
-  const dust = createDust();
+  const dust = createDust(content.boostDust ?? 1);
   objects.addChild(mud.clods, dust.puffs);
 
   const spans = new Map<string, ReturnType<typeof doorSpans>>();
@@ -480,12 +495,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
-      // Above each guard in view: an amber ? when suspicious, a red ! when alert.
+      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert.
       for (const v of guardsShown) {
-        if (v.state === 'unaware') continue;
+        if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
         const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);
-        if (v.state === 'alert') {
+        if (v.heard && v.state !== 'alert') drawEar(markers, x, y, GUARD_STATE_COLOURS.suspicious);
+        else if (v.state === 'alert') {
           markers.roundRect(x - 7, y - 12, 14, 24, 4).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
           markers.rect(x - 1.5, y - 8, 3, 10).fill(0x111111).rect(x - 1.5, y + 5, 3, 3).fill(0x111111);
         } else {

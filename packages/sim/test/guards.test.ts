@@ -230,7 +230,7 @@ describe('guardCatch thrown-off', () => {
     expect(ev.slice(t).find((e) => e.type === 'RunPhaseChanged')).toMatchObject({ from: 'aboard', to: 'boarding' });
     expect(s.players[0]!.placement.frame).toBe('world');
     expect(s.world.horses[0]!.mode).toBe('physical');
-    // Half of three, rounded up: two go over the side, one is kept.
+    // Half of three, rounded up: two (picked at random) go over the side, one is kept.
     expect(s.run!.players[1]!.carried).toEqual(['letter']);
     expect(ofType(ev, 'LootLost').map((e) => [e.item, e.cause])).toEqual([['letter', 'thrownOff'], ['letter', 'thrownOff']]);
     expect(s.run!.players[1]!.health).toBe(100 - 25);

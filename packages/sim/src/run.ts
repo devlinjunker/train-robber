@@ -1,6 +1,6 @@
 // The run lifecycle (idle, approach, boarding, aboard, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
-import { runSeed, seedRng } from './rng';
+import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
@@ -392,9 +392,10 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   rp.search = null;
   rp.stumbleTicks = 0;
   ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
-  // Some of what you carry goes over the side with you: the latest picked up first.
+  // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
   const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
-  for (const item of rp.carried.splice(rp.carried.length - lose, lose).reverse()) {
+  for (let k = 0; k < lose; k++) {
+    const [item] = rp.carried.splice(nextInt(state.rng, 'ai', rp.carried.length), 1) as [string];
     const def = config.values.items[item]!;
     ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
   }

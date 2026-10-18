@@ -48,6 +48,8 @@ const SNAP_TILES = 30;
 export type DistanceCueMode = 'world' | 'line' | 'off';
 /** The line cue shows within this many tiles of the car side. */
 export const DISTANCE_CUE_TILES = 8;
+/** How long the ear stays over a guard that heard you. */
+const HEARD_MS = 1800;
 /** How long each heat gain notice stays, how many show at once, and how long an alarm pulses the screen edge. */
 const HEAT_NOTICE_MS = 2500, HEAT_NOTICES = 4, ALARM_EDGE_MS = 2000;
 
@@ -114,6 +116,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // panel (`) or ?cones=on, hidden with ?cones=off.
   const conesParam = params.get('cones');
   const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
+  // The footstep ring aboard; ?noiseRing=off hides it.
+  const noiseRingOn = params.get('noiseRing') !== 'off';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -132,7 +136,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let shownZoom = zoom;
 
   const items = config.values.items;
-  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items };
+  const boostDustParam = Number(params.get('boostDust') ?? 1);
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
   const search = config.values.verbs.search;
   // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
   const namesParam = params.get('trainNames');
@@ -224,6 +229,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Heat gains get their own small list under the heat meter, so each one is readable.
   let heatNotices: { text: string; until: number }[] = [], alarmAt = -Infinity;
   const wantedOnExpiry = config.values.outcomePolicy.expired.wantedDelta;
+  // When each guard last heard the player (performance.now ms): an ear shows over its head for a moment.
+  const heardAt = new Map<number, number>();
   // Items lost to the last throw off, for its notice.
   let lostOnThrow: string[] = [];
   const noticeFor = (e: SimEvent) => {
@@ -255,7 +262,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'SearchCancelled' && e.reason === 'moved away') show('Search lost: you moved away', 'warn', 1500);
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
-    else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') show('Heard! A guard heard your footsteps (running is loud)', 'warn', 2200);
+    else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') heardAt.set(e.guard, performance.now());
     else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
     else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`A guard threw you off: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
   };
@@ -374,12 +381,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // The run's guards: in iso only those in the open car you are in show (the other cars have roofs).
       const runTrain = s.run ? s.world.trains.find((t) => t.id === s.run!.trainId) ?? null : null;
       const guardPoses = runTrain ? interp.guards(alpha) : [];
-      const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id) : [];
+      const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id, (id) => now - (heardAt.get(id) ?? -Infinity) < HEARD_MS) : [];
       const showCones = (showDebug || conesMode !== 'off') && runTrain !== null;
       const faintCones = !showDebug && conesMode === 'faint';
       // The footstep ring aboard: how far a guard can hear you, while there are guards to hear.
       let noise: { x: number; y: number; r: number; running: boolean } | null = null;
-      if (runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
+      if (noiseRingOn && runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
         const grid = trainGrid(config, runTrain.cars);
         const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };

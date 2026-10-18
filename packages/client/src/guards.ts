@@ -5,7 +5,8 @@ import { carToWorld, fromTrain, sightReach, toTrain, trainGrid, type CarPose, ty
 import type { GuardPose } from './interp';
 
 /** A guard placed in the world: position, unit facing and awareness. */
-export interface GuardView { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness }
+/** `heard`: the guard just heard the player (an ear shows over its head). */
+export interface GuardView { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness; heard: boolean }
 
 /** A sight cone as a fan of world points, the guard first. */
 export interface ConeView { id: number; car: number; state: GuardAwareness; points: [number, number][]; faint: boolean }
@@ -19,14 +20,14 @@ export function carDirToWorld(car: Pick<CarPose, 'ux' | 'uy'>, dx: number, dy: n
 }
 
 /** The run's guards in the world, on the train's cars as drawn this frame. */
-export function guardsInWorld(guards: readonly GuardPose[], cars: readonly CarPose[], trainId: string): GuardView[] {
+export function guardsInWorld(guards: readonly GuardPose[], cars: readonly CarPose[], trainId: string, heard: (id: number) => boolean = () => false): GuardView[] {
   const out: GuardView[] = [];
   for (const g of guards) {
     const car = cars.find((c) => c.trainId === trainId && c.index === g.car);
     if (!car) continue;
     const at = carToWorld(car, g.x, g.y);
     const [fx, fy] = carDirToWorld(car, g.fx, g.fy);
-    out.push({ id: g.id, car: g.car, x: at.x, y: at.y, fx, fy, state: g.state });
+    out.push({ id: g.id, car: g.car, x: at.x, y: at.y, fx, fy, state: g.state, heard: heard(g.id) });
   }
   return out;
 }
