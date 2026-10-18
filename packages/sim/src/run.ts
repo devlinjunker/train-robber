@@ -3,7 +3,7 @@
 import { runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
 import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
@@ -109,9 +109,17 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
     heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length,
   };
+  // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
+  const resume = p.resumeRuns.find((r) => r.trainId === id);
+  if (resume) {
+    p.resumeRuns = p.resumeRuns.filter((r) => r !== resume);
+    const { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat } = resume;
+    Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat });
+    Object.assign(rp, { health: resume.health, meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
+  }
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
-    countdownSec: cd.enabled ? countdownSec : null, wantedLevel: state.persistent.wantedLevel,
+    countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: state.persistent.wantedLevel, ...(resume ? { resumed: true as const } : {}),
   });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
 }
@@ -191,6 +199,7 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
   }
   unpinTrain(state, run.trainId);
+  if (outcome !== 'cancelled') for (const q of state.players) q.resumeRuns = [];
   setPhase(ctx, p.id, 'idle');
   state.run = null;
   // Every free train gets the layouts of the next run's seed.
@@ -206,10 +215,21 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
 export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const phase = runPhase(ctx.state);
   if (phase === 'idle' || phase === 'ended') return reject(ctx, p.id, 'cancelRun', 'no run');
-  const left = ctx.state.run!.trainId;
+  const run = ctx.state.run!;
+  const left = run.trainId;
+  const inPlace = phase !== 'aboard' && ctx.config.values.commit.cancelInPlace;
+  const rp = run.players[p.id];
+  const resume: ResumeRun | null = inPlace && rp ? {
+    trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
+    clockRunning: run.clockRunning, graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
+    health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
+  } : null;
   endRun(ctx, p, 'cancelled', false);
-  if (phase !== 'aboard' && ctx.config.values.commit.cancelInPlace) { p.commitHold = left; p.commitTimer = null; }
-  else resetToSpawn(ctx, p);
+  if (inPlace) {
+    p.commitHold = left;
+    p.commitTimer = null;
+    p.resumeRuns = [...p.resumeRuns.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
+  } else resetToSpawn(ctx, p);
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */

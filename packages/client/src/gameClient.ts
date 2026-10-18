@@ -231,7 +231,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
-    else if (e.type === 'RunStarted') switchedAt = performance.now();
+    else if (e.type === 'RunStarted') { switchedAt = performance.now(); if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000); }
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'HeatChanged') {
       const now = performance.now();

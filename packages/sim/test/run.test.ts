@@ -419,6 +419,27 @@ describe('cancel', () => {
     expect(phases(step(sim))).toEqual(['idle>approach']);
   });
 
+  it('with commit.cancelInPlace, recommitting to the train left picks up its clock, heat, health and meter', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = approach(cfg);
+    jump(sim, 'fail');
+    while (S(sim).run!.phase === 'boarding') step(sim);
+    steps(sim, 30);
+    const run = S(sim).run!;
+    const before = { countdownSec: run.countdownSec, heat: run.heat, startedTick: run.startedTick, ...rp(sim), meter: { ...rp(sim).meter } };
+    expect(before.boardingAttempts).toBe(1);
+    step(sim, { type: 'cancelRun' });
+    expect(S(sim).players[0]!.resumeRuns).toHaveLength(1);
+    steps(sim, 10);
+    const ev = step(sim, { type: 'startRun', trainId: 'blank-1' });
+    expect(ev.find((e) => e.type === 'RunStarted')).toMatchObject({ resumed: true });
+    expect(S(sim).run).toMatchObject({ heat: before.heat, startedTick: before.startedTick });
+    // The clock carries on from where it was (it drains once on the commit tick).
+    expect(S(sim).run!.countdownSec).toBeCloseTo(before.countdownSec - 1 / 60, 6);
+    expect(rp(sim)).toMatchObject({ health: before.health, boardingAttempts: 1, meter: { zoneCentre: before.meter.zoneCentre } });
+    expect(S(sim).players[0]!.resumeRuns).toEqual([]);
+  });
+
   it('with commit.cancelInPlace, aboard still goes back to playerSpawn', () => {
     const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
     const sim = approach(cfg);
