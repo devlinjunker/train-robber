@@ -47,19 +47,32 @@ function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
  * "commit?" and E commits. On top of that the rider commits with no key once they stay in range of
  * the same train for `commit.timerSec` (null: never; 0: at once, the old auto-commit), or ride
  * within `commit.closeRangeTiles` of it (null: off).
+ *
+ * With `commit.promptSwitch` the same prompt asks "switch?" when a committed rider who can still
+ * switch (approach, or stunned after a failed jump) comes within `commit.rangeTiles` of another
+ * free train that is closer than the committed one: Tab switches, and the timer and close range switch with no key.
  */
 export function autoCommitSystem(ctx: RunCtx): void {
   const { state, map, config } = ctx;
-  const { timerSec, closeRangeTiles } = config.values.commit;
+  const { timerSec, closeRangeTiles, rangeTiles, promptSwitch } = config.values.commit;
   for (const p of state.players) {
-    if (state.run) { p.commitTimer = null; continue; }
+    const run = state.run;
+    const canSwitch = !!run && !!promptSwitch && !!run.players[p.id] && (run.phase === 'approach' || run.phase === 'boarding');
+    if (run && !canSwitch) { p.commitTimer = null; continue; }
     const h = horseOf(state, p);
-    const id = commitTarget(state, map, config, h);
-    if (!id) { p.commitTimer = null; continue; }
-    p.commitTimer = p.commitTimer?.trainId === id ? { trainId: id, ticks: p.commitTimer.ticks + 1 } : { trainId: id, ticks: 1 };
+    const target = run ? switchTarget(state, map, config, h) : commitTarget(state, map, config, h);
+    const d = target ? distanceToTrain(state, map, config, target, h.x, h.y) : Infinity;
+    // A switch also needs the other train closer than the committed one, so the prompt never
+    // offers to switch straight back to the train just left.
+    const closer = !run || d < distanceToTrain(state, map, config, run.trainId, h.x, h.y);
+    if (!target || d > rangeTiles || !closer) { p.commitTimer = null; continue; }
+    p.commitTimer = p.commitTimer?.trainId === target ? { trainId: target, ticks: p.commitTimer.ticks + 1 } : { trainId: target, ticks: 1 };
     const timerUp = timerSec != null && p.commitTimer.ticks >= Math.max(1, Math.round(timerSec * config.values.sim.tickRateHz));
-    const close = closeRangeTiles != null && distanceToTrain(state, map, config, id, h.x, h.y) <= closeRangeTiles;
-    if (timerUp || close) { p.commitTimer = null; startRun(ctx, p, id, 'startRun'); }
+    const close = closeRangeTiles != null && d <= closeRangeTiles;
+    if (!timerUp && !close) continue;
+    p.commitTimer = null;
+    if (run) switchTrain(ctx, p, target);
+    else startRun(ctx, p, target, 'startRun');
   }
 }
 

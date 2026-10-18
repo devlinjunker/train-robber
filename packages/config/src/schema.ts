@@ -23,6 +23,8 @@ export const GameSchema = z.object({
     timerSec: z.number().min(0).nullable().optional(),
     /** Riding this close to the prompted train commits at once. Missing or null: off. */
     closeRangeTiles: positive.nullable().optional(),
+    /** During a run that can still switch, another free train in `rangeTiles` gets the same prompt (Tab, timer, close range) to switch to it. */
+    promptSwitch: z.boolean(),
     /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
     switchRangeTiles: positive,
     /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */

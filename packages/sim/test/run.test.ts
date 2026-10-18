@@ -75,8 +75,8 @@ describe('commit', () => {
     expect(S(sim).world.trains[0]!.pinnedBy).toBe(1);
   });
 
-  const commitCfg = (timerSec: number | null, closeRangeTiles: number | null) =>
-    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+  const commitCfg = (timerSec: number | null, closeRangeTiles: number | null, promptSwitch = false) =>
+    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, promptSwitch, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
 
   it('with commit.timerSec 0, an idle rider commits on the first tick a train is in range, with no command', () => {
     const sim = setup(commitCfg(0, null));
@@ -469,7 +469,7 @@ describe('switching trains', () => {
   });
 
   it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
     const sim = twoTrains(auto);
     // Midway: neither train is in commit range or clearly closer, so nothing happens.
     expect(switched(steps(sim, 5))).toEqual([]);
@@ -478,6 +478,18 @@ describe('switching trains', () => {
     expect(S(sim).run!.trainId).toBe('blank-2');
     // Staying there does not flip back.
     expect(switched(steps(sim, 5))).toEqual([]);
+  });
+
+  it('with commit.promptSwitch, staying in commit range of another free train for commit.timerSec switches to it', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: 0.5, closeRangeTiles: null, promptSwitch: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = twoTrains(cfg);
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(steps(sim, 29))).toEqual([]);
+    expect(S(sim).players[0]!.commitTimer).toMatchObject({ trainId: 'blank-2', ticks: 29 });
+    expect(switched(step(sim))).toEqual(['blank-1>blank-2']);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+    // The train just left is farther away, so it is never offered back.
+    expect(switched(steps(sim, 120))).toEqual([]);
   });
 
   it('without commit.autoSwitch, riding closer to another train keeps the committed one', () => {

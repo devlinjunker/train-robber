@@ -437,14 +437,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
       // HUD.
       const commitCfg = config.values.commit;
-      const commitAsk = target ? {
-        title: `Commit to ${trainName(target) ?? 'the blue train'}?`,
-        progress: !commitCfg.timerSec ? null : player.commitTimer?.trainId === target ? Math.min(1, player.commitTimer.ticks / (commitCfg.timerSec * tickRateHz)) : 0,
+      // The prompt asks about committing while idle, or (with `commit.promptSwitch`) about switching
+      // when the sim's prompt timer is on another train during a run.
+      const askTrain = target ?? (phase !== 'idle' ? player.commitTimer?.trainId ?? null : null);
+      const askTicks = player.commitTimer?.trainId === askTrain ? player.commitTimer!.ticks : 0;
+      const commitAsk = askTrain ? {
+        title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'the blue train'}?`,
+        progress: !commitCfg.timerSec ? null : Math.min(1, askTicks / (commitCfg.timerSec * tickRateHz)),
         hint: [
-          'E commit',
-          ...(commitCfg.timerSec != null && commitCfg.timerSec > 0 ? [`auto in ${Math.max(0, commitCfg.timerSec - (player.commitTimer?.ticks ?? 0) / tickRateHz).toFixed(1)} s`] : []),
+          target ? 'E commit' : 'Tab switch',
+          ...(commitCfg.timerSec != null && commitCfg.timerSec > 0 ? [`auto in ${Math.max(0, commitCfg.timerSec - askTicks / tickRateHz).toFixed(1)} s`] : []),
           ...(commitCfg.closeRangeTiles != null ? [`or ride within ${commitCfg.closeRangeTiles} tiles`] : []),
-          'ride away to just look',
+          target ? 'ride away to just look' : 'ride away to stay on yours',
         ].join('  ·  '),
       } : null;
       const basePrompt = phase === 'idle'
@@ -455,7 +459,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
-      const prompt = candidate && phase !== 'idle' ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
+      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
       const carried = run?.carried ?? [];
       const weight = carriedWeight(config, carried);
       const carry = run ? {
