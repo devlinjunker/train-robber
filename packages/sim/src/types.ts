@@ -215,7 +215,7 @@ export interface PlayerState {
   commitHold: string | null;
   /**
    * Runs cancelled in place, one per train: committing to that train again picks up where it
-   * left off, so Esc cannot reset the clock or reroll the meter. Cleared when a run ends any other way.
+   * left off, so Esc cannot reset the clock or reroll the meter. Cleared when a run ends any other way (Esc aboard, quick retry, escape, death, expiry).
    */
   resumeRuns: ResumeRun[];
 }

@@ -438,6 +438,11 @@ describe('cancel', () => {
     expect(S(sim).run!.countdownSec).toBeCloseTo(before.countdownSec - 1 / 60, 6);
     expect(rp(sim)).toMatchObject({ health: before.health, boardingAttempts: 1, meter: { zoneCentre: before.meter.zoneCentre } });
     expect(S(sim).players[0]!.resumeRuns).toEqual([]);
+    // Cancelled in place again, then a quick retry: the saved run is gone and the next commit is fresh.
+    step(sim, { type: 'cancelRun' });
+    expect(S(sim).players[0]!.resumeRuns).toHaveLength(1);
+    step(sim, { type: 'quickRetry' });
+    expect(S(sim).players[0]!.resumeRuns).toEqual([]);
   });
 
   it('with commit.cancelInPlace, aboard still goes back to playerSpawn', () => {

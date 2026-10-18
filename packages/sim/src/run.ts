@@ -199,7 +199,8 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
   }
   unpinTrain(state, run.trainId);
-  if (outcome !== 'cancelled') for (const q of state.players) q.resumeRuns = [];
+  // Saved runs only survive an in-place cancel, which puts them back after this.
+  for (const q of state.players) q.resumeRuns = [];
   setPhase(ctx, p.id, 'idle');
   state.run = null;
   // Every free train gets the layouts of the next run's seed.
@@ -224,11 +225,12 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
     clockRunning: run.clockRunning, graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
     health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
+  const saved = p.resumeRuns;
   endRun(ctx, p, 'cancelled', false);
   if (inPlace) {
     p.commitHold = left;
     p.commitTimer = null;
-    p.resumeRuns = [...p.resumeRuns.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
+    p.resumeRuns = [...saved.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
   } else resetToSpawn(ctx, p);
 }
 
@@ -274,6 +276,8 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   if (!trainId) return reject(ctx, p.id, 'quickRetry', 'no such train');
   const side = retrySide(ctx, p, h, trainId);
   if (state.run) endRun(ctx, p, 'cancelled', true);
+  // A quick retry is a fresh start: no saved run from an in-place cancel carries into it.
+  for (const q of state.players) { q.resumeRuns = []; q.commitHold = null; }
   const train = state.world.trains.find((t) => t.id === trainId)!;
   const { route } = routeOf(map, config, train);
   const at = trackAt(route, train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles);
