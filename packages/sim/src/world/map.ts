@@ -1,9 +1,8 @@
 // The parts of a built map the sim reads, as structural types: `@train-robber/config`'s
 // MapDef satisfies SimMap, so the sim does not depend on the config package.
 import { hashState } from '../hash';
-import type { TrackRoute } from './track';
-
-export interface SimRoute extends TrackRoute { id: string }
+import type { SimRoute } from './track';
+import { buildNetwork, type Network } from './junctions';
 
 export interface SimMap {
   id: string;
@@ -40,6 +39,8 @@ export interface WorldMap {
   terrain: Uint8Array;
   routes: ReadonlyMap<string, SimRoute>;
   trains: readonly MapTrain[] | undefined;
+  /** Junctions between services; null on maps whose routes share no track. */
+  network: Network | null;
   playerSpawn: { x: number; y: number };
 }
 
@@ -47,7 +48,7 @@ export interface WorldMap {
 export function mapHash(map: SimMap): string {
   const r = (route: SimRoute) => {
     const { x, y, s, tx, ty } = route.samples;
-    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty } };
+    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty }, ...(route.legs ? { legs: route.legs } : {}) };
   };
   return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}) });
 }
@@ -69,6 +70,7 @@ export function prepareMap(map: SimMap): WorldMap {
     rows,
     terrain,
     routes: new Map(map.routes.map((r) => [r.id, r])),
+    network: buildNetwork(map.routes),
     trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
   };

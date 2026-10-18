@@ -398,7 +398,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, name: trainName(t.id), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
+          trains.push({ id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.

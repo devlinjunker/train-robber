@@ -18,6 +18,15 @@ export interface TrackRoute {
   samples: { x: readonly number[]; y: readonly number[]; s: readonly number[]; tx: readonly number[]; ty: readonly number[] };
 }
 
+/** One stretch of a service: segment `segment` from distance `start`, junction `from` to junction `to`. */
+export interface RouteLeg { segment: string; start: number; length: number; from: string; to: string }
+
+export interface SimRoute extends TrackRoute {
+  id: string;
+  /** Set on services built from shared segments; a train may switch services at a junction. */
+  legs?: readonly RouteLeg[];
+}
+
 export interface TrackPoint {
   /** Distance along the route after wrapping (closed) or clamping (open), in [0, length). */
   d: number;

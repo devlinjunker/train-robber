@@ -8,6 +8,7 @@ export * from './world/map';
 export * from './world/cars';
 export * from './world/collide';
 export * from './world/trains';
+export * from './world/junctions';
 export * from './world/riding';
 export * from './world/boarding';
 export * from './world/separate';

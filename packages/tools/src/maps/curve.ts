@@ -24,13 +24,16 @@ function catmullRom(p0: Vec, p1: Vec, p2: Vec, p3: Vec, u: number): Vec {
   return lerp(b1, b2, t1, t2, t);
 }
 
-/** Dense polyline through every control point. Closed routes wrap; open routes extrapolate the ends. */
-export function smooth(points: readonly Vec[], closed: boolean): Vec[] {
+/**
+ * Dense polyline through every control point. Closed routes wrap; open routes extrapolate the
+ * ends, or use the given phantom points beyond them so a segment leaves a junction along its tangent.
+ */
+export function smooth(points: readonly Vec[], closed: boolean, ends?: { before: Vec; after: Vec }): Vec[] {
   const n = points.length;
   const at = (i: number): Vec => {
     if (closed) return points[((i % n) + n) % n]!;
-    if (i < 0) { const a = points[0]!, b = points[1]!; return { x: 2 * a.x - b.x, y: 2 * a.y - b.y }; }
-    if (i >= n) { const a = points[n - 1]!, b = points[n - 2]!; return { x: 2 * a.x - b.x, y: 2 * a.y - b.y }; }
+    if (i < 0) { if (ends) return ends.before; const a = points[0]!, b = points[1]!; return { x: 2 * a.x - b.x, y: 2 * a.y - b.y }; }
+    if (i >= n) { if (ends) return ends.after; const a = points[n - 1]!, b = points[n - 2]!; return { x: 2 * a.x - b.x, y: 2 * a.y - b.y }; }
     return points[i]!;
   };
   const segments = closed ? n : n - 1;
@@ -66,4 +69,26 @@ export function resample(dense: readonly Vec[], closed: boolean, maxSpacing: num
     s.push(target);
   }
   return { length, spacing, points, s };
+}
+
+/**
+ * Resample an open dense polyline every `spacing` exactly, from its start up to but not
+ * including its end, so segments joined end to end keep one sample spacing. The last
+ * step, into the end point, is between half and one and a half spacings long.
+ */
+export function resampleFixed(dense: readonly Vec[], spacing: number): { length: number; points: Vec[]; s: number[] } {
+  const cum = [0];
+  for (let i = 1; i < dense.length; i++) cum.push(cum[i - 1]! + dist(dense[i - 1]!, dense[i]!));
+  const length = cum[cum.length - 1]!;
+  const count = Math.max(1, Math.round(length / spacing));
+  const points: Vec[] = [];
+  const s: number[] = [];
+  let j = 0;
+  for (let i = 0; i < count; i++) {
+    const target = i * spacing;
+    while (j < cum.length - 2 && cum[j + 1]! < target) j++;
+    points.push(lerp(dense[j]!, dense[j + 1]!, cum[j]!, cum[j + 1]!, target));
+    s.push(target);
+  }
+  return { length, points, s };
 }
