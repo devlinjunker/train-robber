@@ -6,8 +6,8 @@ import { oval } from './draw';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { ActorPose } from '../interp';
 
-const DUST_COLOUR = 0xf3ead6;
-const MAX_PUFFS = 80, PUFF_SEC = 0.9, PUFFS_PER_SEC = 34;
+const DUST_COLOUR = 0xfbf6ea;
+const MAX_PUFFS = 120, PUFF_SEC = 1.3, PUFFS_PER_SEC = 40;
 
 interface Puff { x: number; y: number; z: number; vx: number; vy: number; vz: number; bornSec: number; r: number }
 
@@ -49,9 +49,9 @@ export function createDust(): DustEffect {
             // Thrown back off the hooves, then left behind as the horse runs on.
             vx: -horse.hx * speed * 0.15 + (rand() - 0.5) * 1.2,
             vy: -horse.hy * speed * 0.15 + (rand() - 0.5) * 1.2,
-            vz: 0.6 + 0.8 * rand(),
+            vz: 0.8 + 1.0 * rand(),
             bornSec: timeSec,
-            r: 0.18 + 0.12 * rand(),
+            r: 0.35 + 0.2 * rand(),
           });
         }
       } else owed = 0;
@@ -64,8 +64,8 @@ export function createDust(): DustEffect {
         if (age >= 1) { live.splice(i, 1); continue; }
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
         p.vx *= 1 - 2 * dt; p.vy *= 1 - 2 * dt; p.vz *= 1 - 2 * dt;
-        const r = p.r * (1 + 2.2 * age) * TILE_H;
-        oval(puffs, isoX(p.x, p.y), isoY(p.x, p.y, p.z), r, r * 0.7).fill({ color: DUST_COLOUR, alpha: 0.75 * (1 - age) });
+        const r = p.r * (1 + 2.5 * age) * TILE_H;
+        oval(puffs, isoX(p.x, p.y), isoY(p.x, p.y, p.z), r, r * 0.7).fill({ color: DUST_COLOUR, alpha: 0.85 * (1 - age * age) });
         depth = Math.max(depth, depthOf(p.x, p.y));
       }
       puffs.zIndex = depth;
