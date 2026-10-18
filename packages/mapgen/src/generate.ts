@@ -14,7 +14,7 @@ import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import { generateTrack, type Vec } from './track';
 
 /** Bump when a change makes the same seed and settings give a different map. */
-export const GENERATOR_VERSION = 2;
+export const GENERATOR_VERSION = 3;
 /** The map id the game uses for a generated map (`?map=gen`). */
 export const GENERATED_MAP_ID = 'gen';
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
@@ -193,6 +193,72 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
     }
   }
 
+  // Long mesas, stamped as shapes on top of the noise clumps: free-standing ridges, ridges that run
+  // beside the track, and cuts where the track runs through a long mesa between two cliff walls.
+  const mesaMask = new Uint8Array(N);
+  {
+    const m = s.mesas, r = rng(`${seed}/mesas`);
+    const put = (x: number, y: number, minD: number) => {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      for (const [ax, ay] of [[tx, ty], [tx + 1, ty], [tx, ty + 1]] as const) {
+        if (ax < 0 || ay < 0 || ax >= cols || ay >= rows) continue;
+        const t = ay * cols + ax;
+        if (deck[t] || riverDist[t]! <= 3 || dist(t) < minD) continue;
+        mesaMask[t] = 1;
+      }
+    };
+    /** A band beside the track from sample `i` for `len` tiles, `gap` to `gap + width` out on `side`, rounded at the ends. */
+    const alongTrack = (i: number, len: number, side: number, gap: number, width: number) => {
+      const steps = Math.floor(len / spacing);
+      for (let k = 0; k <= steps; k++) {
+        const j = (i + k) % n, u = (2 * k) / steps - 1;
+        const w = width * Math.sqrt(Math.max(0, 1 - u * u * u * u));
+        const tg = tangents[j]!;
+        for (let o = gap; o <= gap + w; o += 0.5) put(xs[j]! - tg.y * o * side, ys[j]! + tg.x * o * side, gap - 0.5);
+      }
+    };
+    // Cuts: the track runs through a long mesa, cliffs both sides just outside the riding lanes.
+    const cuts = r.int(m.cuts[0], m.cuts[1]);
+    const used: number[] = [];
+    for (let attempt = 0; attempt < 40 && used.length < cuts; attempt++) {
+      const i = r.int(0, n - 1);
+      const len = r.range(m.cutLengthTiles[0], m.cutLengthTiles[1]);
+      const mid = i * spacing + len / 2;
+      if (used.some((u) => sDist(u, mid) < len + 40)) continue;
+      // Not across a river: every sample in the cut must be well clear of water.
+      let wet = false;
+      for (let k = 0; k * spacing <= len && !wet; k++) {
+        const j = (i + k) % n;
+        const t = Math.floor(ys[j]!) * cols + Math.floor(xs[j]!);
+        if (riverDist[t]! < 12) wet = true;
+      }
+      if (wet) continue;
+      used.push(mid);
+      for (const side of [-1, 1]) alongTrack(i, len, side, m.cutGapTiles, r.range(m.cutDepthTiles[0], m.cutDepthTiles[1]));
+      // Both lanes open through the cut: no mud bank or rock line inside it.
+      for (let k = -Math.ceil(10 / spacing); k * spacing <= len + 10; k++) stretchOf[(i + k + n) % n] = -1;
+    }
+    // Ridges that run beside the track, further out.
+    const beside = r.int(m.besideTrack[0], m.besideTrack[1]);
+    for (let k = 0; k < beside; k++) {
+      alongTrack(r.int(0, n - 1), r.range(m.ridgeLengthTiles[0], m.ridgeLengthTiles[1]), r.next() < 0.5 ? -1 : 1,
+        r.range(m.besideGapTiles[0], m.besideGapTiles[1]), r.range(m.ridgeWidthTiles[0], m.ridgeWidthTiles[1]));
+    }
+    // Free-standing ridges: a gently bending line of rock anywhere clear of the track.
+    const ridges = r.int(m.ridges[0], m.ridges[1]);
+    for (let k = 0; k < ridges; k++) {
+      let x = r.range(0, cols), y = r.range(0, rows), heading = r.next() * 2 * PI, bend = 0;
+      const len = r.range(m.ridgeLengthTiles[0], m.ridgeLengthTiles[1]), half = r.range(m.ridgeWidthTiles[0], m.ridgeWidthTiles[1]) / 2;
+      for (let step = 0; step < len; step++) {
+        const u = (2 * step) / len - 1, w = half * Math.sqrt(Math.max(0, 1 - u * u * u * u));
+        for (let a = -w; a <= w; a += 0.5) put(x - dsin(heading) * a, y + dcos(heading) * a, m.trackGapTiles);
+        bend = Math.max(-0.03, Math.min(0.03, bend + (r.next() - 0.5) * 0.02));
+        heading += bend;
+        x += dcos(heading); y += dsin(heading);
+      }
+    }
+  }
+
   // Zones and elevation.
   const zones = new Uint8Array(N);
   const heights = new Uint8Array(N);
@@ -216,7 +282,7 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
 
     if (x < s.edgeTiles || y < s.edgeTiles || x >= cols - s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
     // Mesas: sandstone plateaus that rise by a cliff all round (drawn by iso/mesa.ts), on rock.
-    if (fbm(cx, cy, s.mesas.scaleTiles, sMesa) > s.mesas.threshold && d > s.mesas.trackGapTiles && riverDist[t]! > 3 && lake <= s.lakes.threshold - 0.04) {
+    if ((mesaMask[t] || (fbm(cx, cy, s.mesas.scaleTiles, sMesa) > s.mesas.threshold && d > s.mesas.trackGapTiles)) && riverDist[t]! > 3 && lake <= s.lakes.threshold - 0.04) {
       const [lo, hi] = s.mesas.topLevels;
       heights[t] = Math.min(hi, lo + Math.floor(fbm(cx, cy, 40, sMesaTop) * (hi - lo + 1)));
       zones[t] = Z.blocked;

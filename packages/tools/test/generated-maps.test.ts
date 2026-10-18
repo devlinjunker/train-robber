@@ -20,6 +20,7 @@ describe('generated maps pass the map checks', () => {
     const variants: Record<string, unknown>[] = [
       { size: { cols: 240, rows: 160 } }, { size: { cols: 600, rows: 300 } }, { track: { curviness: 1 } },
       { track: { curviness: 0 } }, { track: { harmonics: [5, 8] } }, { rivers: { count: [3, 4] } },
+      { mesas: { cuts: [2, 2], besideTrack: [3, 3], ridges: [4, 4] } },
     ];
     const bad: string[] = [];
     for (const v of variants) {
@@ -82,4 +83,4 @@ describe('generated maps are deterministic', () => {
   });
 });
 
-const PINNED = { map: '094c094e373e28ee', scenery: '3cedfb78314714f3' };
+const PINNED = { map: 'e1ec0a710c497bc3', scenery: '474bb9d7547546cc' };

@@ -62,7 +62,21 @@ export const MapGenSchema = z.object({
   }).strict(),
   /** Sandstone mesas: flat-topped rock rising by a cliff all round, where the noise is above `threshold`. */
   mesas: z.object({
+    /** Clumps: where the noise at this scale is above `threshold`, at least trackGapTiles from the track. */
     scaleTiles: positive, threshold: unit, trackGapTiles: positive,
+    /** Free-standing long thin ridges per map, and how long and wide. */
+    ridges: range(z.number().int().min(0).max(12)),
+    ridgeLengthTiles: range(positive),
+    ridgeWidthTiles: range(positive),
+    /** Ridges that run beside the track (same length and width), this far out from the centre line. */
+    besideTrack: range(z.number().int().min(0).max(8)),
+    besideGapTiles: range(positive),
+    /** Cuts: stretches where the track runs through a long mesa, its cliff walls cutGapTiles out each side. */
+    cuts: range(z.number().int().min(0).max(4)),
+    cutLengthTiles: range(positive),
+    cutDepthTiles: range(positive),
+    /** Keep it beyond the riding lane and the 6 flat tiles the cars need. */
+    cutGapTiles: z.number().min(7),
     /** Top heights; keep the lowest at least 2 above hills.maxLevel so every edge is a cliff. */
     topLevels: range(z.number().int().min(2).max(8)),
   }).strict(),
