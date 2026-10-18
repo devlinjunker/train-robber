@@ -231,7 +231,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
-    else if (e.type === 'RunStarted') switchedAt = performance.now();
+    else if (e.type === 'RunStarted') { switchedAt = performance.now(); if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000); }
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'HeatChanged') {
       const now = performance.now();
@@ -255,7 +255,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -319,8 +319,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const landingAge = landing ? (now - landing.at) / 1000 : Infinity;
       const stumbling = phase === 'aboard' && !!run && run.stumbleTicks > 0;
       const perfectAge = landing?.result === 'perfect' && phase === 'aboard' ? landingAge : null;
-      // The train Tab would switch to, while the run can still switch.
-      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : null;
+      // The train Tab would switch to, while the run can still switch; while idle, the train the
+      // commit prompt asks about. Both get the pale blue outline.
+      const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
+      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : target;
       const switchAge = (now - switchedAt) / 1000;
       const focus: TrainFocus = { committed: s.run?.trainId ?? null, candidate, switchAge: switchAge < SWITCH_FLASH_SEC ? switchAge : null };
       if ((phase !== 'idle') !== zoomLocked) {
@@ -434,17 +436,33 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       heatNotices = heatNotices.filter((n) => n.until > now);
 
       // HUD.
-      const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
+      const commitCfg = config.values.commit;
+      // The prompt asks about committing while idle, or (with `commit.promptSwitch`) about switching
+      // when the sim's prompt timer is on another train during a run.
+      const askTrain = target ?? (phase !== 'idle' ? player.commitTimer?.trainId ?? null : null);
+      const askTicks = player.commitTimer?.trainId === askTrain ? player.commitTimer!.ticks : 0;
+      // The train an in-place cancel just left only commits on E until the rider rides out of range.
+      const held = !!target && player.commitHold === target;
+      const askSec = held ? null : target ? commitCfg.timerSec : commitCfg.switchTimerSec;
+      const commitAsk = askTrain ? {
+        title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'this train'}?`,
+        progress: !askSec ? null : Math.min(1, askTicks / (askSec * tickRateHz)),
+        hint: [
+          target ? 'E commit' : 'Tab switch',
+          ...(askSec != null && askSec > 0 ? [`auto in ${Math.max(0, askSec - askTicks / tickRateHz).toFixed(1)} s`] : []),
+          ...(commitCfg.closeRangeTiles != null && !held ? [`or ride within ${commitCfg.closeRangeTiles} tiles`] : []),
+          target ? 'ride away to just look' : 'ride away to stay on yours',
+        ].join('  ·  '),
+      } : null;
       const basePrompt = phase === 'idle'
-        ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
-          : target ? `E: commit to ${trainName(target) ?? 'this train'}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
+        ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance'
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
-      const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
+      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
       const weight = carriedWeight(config, carried);
       const carry = run ? {
@@ -462,6 +480,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
             ...(carried.length > 9 ? [`+${carried.length - 9} more (X drops the last)`] : [])] },
         hit: hitAge !== null,
         prompt,
+        commitAsk,
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,

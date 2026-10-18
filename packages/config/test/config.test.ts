@@ -6,7 +6,7 @@ const base = {
   sim: { tickRateHz: 60 },
   logging: { hashEverySec: 1, events: [] },
   player: { speedTilesPerSec: 8 },
-  commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
+  commit: { rangeTiles: 12, timerSec: 2, closeRangeTiles: 4, promptSwitch: true, switchTimerSec: 3, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
@@ -179,8 +179,8 @@ describe('presets that build on others', () => {
 
 describe('?set= overrides', () => {
   it('turn dotted paths into a nested tree, reading values as JSON', () => {
-    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.auto=false', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
-      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { auto: false }, horse: { steering: 'screen' } });
+    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.timerSec=null', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
+      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { timerSec: null }, horse: { steering: 'screen' } });
   });
   it('keep the last value for a path and skip anything aimed at a prototype', () => {
     expect(overridesFromSet(['countdown.scale=2', 'countdown.scale=3', '__proto__.polluted=1', 'a.constructor.b=1', '=5'])).toEqual({ countdown: { scale: 3 } });

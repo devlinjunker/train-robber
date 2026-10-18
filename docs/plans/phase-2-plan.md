@@ -140,7 +140,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | wanted.forceLevel (?wanted=) | Value | none; forced runs save nothing | Play any wanted level without grinding (G9) | M5 |
 | Reset save (button and ?resetSave=1) | Tool | off | Start fresh while playtesting (G27) | M5 |
 
-Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
+Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged. (commit.auto was replaced on 2026-10-17 by the commit prompt: `commit.timerSec` and `commit.closeRangeTiles`.)
 
 ## Decided values
 
