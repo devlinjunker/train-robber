@@ -441,13 +441,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // when the sim's prompt timer is on another train during a run.
       const askTrain = target ?? (phase !== 'idle' ? player.commitTimer?.trainId ?? null : null);
       const askTicks = player.commitTimer?.trainId === askTrain ? player.commitTimer!.ticks : 0;
+      // The train an in-place cancel just left only commits on E until the rider rides out of range.
+      const held = !!target && player.commitHold === target;
+      const askSec = held ? null : target ? commitCfg.timerSec : commitCfg.switchTimerSec;
       const commitAsk = askTrain ? {
         title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'this train'}?`,
-        progress: !commitCfg.timerSec ? null : Math.min(1, askTicks / (commitCfg.timerSec * tickRateHz)),
+        progress: !askSec ? null : Math.min(1, askTicks / (askSec * tickRateHz)),
         hint: [
           target ? 'E commit' : 'Tab switch',
-          ...(commitCfg.timerSec != null && commitCfg.timerSec > 0 ? [`auto in ${Math.max(0, commitCfg.timerSec - askTicks / tickRateHz).toFixed(1)} s`] : []),
-          ...(commitCfg.closeRangeTiles != null ? [`or ride within ${commitCfg.closeRangeTiles} tiles`] : []),
+          ...(askSec != null && askSec > 0 ? [`auto in ${Math.max(0, askSec - askTicks / tickRateHz).toFixed(1)} s`] : []),
+          ...(commitCfg.closeRangeTiles != null && !held ? [`or ride within ${commitCfg.closeRangeTiles} tiles`] : []),
           target ? 'ride away to just look' : 'ride away to stay on yours',
         ].join('  ·  '),
       } : null;

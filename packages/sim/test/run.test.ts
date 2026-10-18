@@ -76,7 +76,7 @@ describe('commit', () => {
   });
 
   const commitCfg = (timerSec: number | null, closeRangeTiles: number | null, promptSwitch = false) =>
-    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, promptSwitch, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, promptSwitch, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
 
   it('with commit.timerSec 0, an idle rider commits on the first tick a train is in range, with no command', () => {
     const sim = setup(commitCfg(0, null));
@@ -394,6 +394,39 @@ describe('cancel', () => {
   it('is rejected while idle', () => {
     expect(rejections(step(setup(), { type: 'cancelRun' }))).toEqual(['cancelRun: no run']);
   });
+
+  it('with commit.cancelInPlace, on the horse the rider stays put, and the train left only commits again on E until they ride out of range', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: 0.5, closeRangeTiles: 4, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = setup(cfg);
+    step(sim, { type: 'startRun', trainId: 'blank-1' });
+    Object.assign(horse(sim), { x: 116, y: 24, speed: 0, cruiseTarget: 0 }); // 3 tiles: inside the close range
+    const ev = step(sim, { type: 'cancelRun' });
+    expect(ev.find((e) => e.type === 'RunEnded')).toMatchObject({ outcome: 'cancelled' });
+    expect(horse(sim)).toMatchObject({ x: 116, y: 24 });
+    expect(S(sim).players[0]!.commitHold).toBe('blank-1');
+    // Neither the close range nor the timer recommits to it.
+    expect(phases(steps(sim, 40))).toEqual([]);
+    expect(S(sim).run).toBeNull();
+    // E still does.
+    expect(phases(step(sim, { type: 'interact', held: true }))).toEqual(['idle>approach']);
+    step(sim, { type: 'interact', held: false });
+    step(sim, { type: 'cancelRun' });
+    // Riding out of range clears the hold, and riding back in commits as usual.
+    Object.assign(horse(sim), { x: 116, y: 5 });
+    step(sim);
+    expect(S(sim).players[0]!.commitHold).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 24 });
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+  });
+
+  it('with commit.cancelInPlace, aboard still goes back to playerSpawn', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = approach(cfg);
+    jump(sim, 'perfect');
+    step(sim, { type: 'cancelRun' });
+    expect(horse(sim)).toMatchObject({ x: SPAWN.x, y: SPAWN.y });
+    expect(S(sim).players[0]!.commitHold).toBeNull();
+  });
 });
 
 describe('switching trains', () => {
@@ -469,7 +502,7 @@ describe('switching trains', () => {
   });
 
   it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
     const sim = twoTrains(auto);
     // Midway: neither train is in commit range or clearly closer, so nothing happens.
     expect(switched(steps(sim, 5))).toEqual([]);
@@ -480,8 +513,8 @@ describe('switching trains', () => {
     expect(switched(steps(sim, 5))).toEqual([]);
   });
 
-  it('with commit.promptSwitch, staying in commit range of another free train for commit.timerSec switches to it', () => {
-    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: 0.5, closeRangeTiles: null, promptSwitch: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+  it('with commit.promptSwitch, staying in commit range of another free train for commit.switchTimerSec switches to it', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, switchTimerSec: 0.5, closeRangeTiles: null, promptSwitch: true, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
     const sim = twoTrains(cfg);
     Object.assign(horse(sim), { x: 130, y: 62 });
     expect(switched(steps(sim, 29))).toEqual([]);

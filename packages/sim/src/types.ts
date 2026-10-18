@@ -195,6 +195,8 @@ export interface PlayerState {
    * Null when no such train is in range.
    */
   commitTimer: { trainId: string; ticks: number } | null;
+  /** The train an in-place cancel just left: only E commits to it until the rider leaves its commit range. */
+  commitHold: string | null;
 }
 
 export interface HorseState {
@@ -260,7 +262,7 @@ export interface SimConfig {
      * `autoSwitch`: during a run, riding `autoSwitchMarginTiles` closer to another free train within
      * `rangeTiles` than to the committed one switches to it, with no key press.
      */
-    commit: { rangeTiles: number; timerSec?: number | null; closeRangeTiles?: number | null; promptSwitch: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
+    commit: { rangeTiles: number; timerSec?: number | null; switchTimerSec?: number | null; closeRangeTiles?: number | null; promptSwitch: boolean; cancelInPlace: boolean; switchRangeTiles: number; autoSwitch: boolean; autoSwitchMarginTiles: number };
     boarding: {
       rangeTiles: number;
       speedToleranceTilesPerSec: number;

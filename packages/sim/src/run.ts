@@ -50,12 +50,15 @@ function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
  *
  * With `commit.promptSwitch` the same prompt asks "switch?" when a committed rider who can still
  * switch (approach, or stunned after a failed jump) comes within `commit.rangeTiles` of another
- * free train that is closer than the committed one: Tab switches, and the timer and close range switch with no key.
+ * free train that is closer than the committed one: Tab switches, and `commit.switchTimerSec` and the close range switch with no key.
  */
 export function autoCommitSystem(ctx: RunCtx): void {
   const { state, map, config } = ctx;
-  const { timerSec, closeRangeTiles, rangeTiles, promptSwitch } = config.values.commit;
+  const { timerSec, switchTimerSec, closeRangeTiles, rangeTiles, promptSwitch } = config.values.commit;
   for (const p of state.players) {
+    // The train left by an in-place cancel only commits again on E until the rider leaves its range.
+    if (p.commitHold && (state.run || !state.world.trains.some((t) => t.id === p.commitHold)
+      || distanceToTrain(state, map, config, p.commitHold, horseOf(state, p).x, horseOf(state, p).y) > rangeTiles)) p.commitHold = null;
     const run = state.run;
     const canSwitch = !!run && !!promptSwitch && !!run.players[p.id] && (run.phase === 'approach' || run.phase === 'boarding');
     if (run && !canSwitch) { p.commitTimer = null; continue; }
@@ -67,7 +70,9 @@ export function autoCommitSystem(ctx: RunCtx): void {
     const closer = !run || d < distanceToTrain(state, map, config, run.trainId, h.x, h.y);
     if (!target || d > rangeTiles || !closer) { p.commitTimer = null; continue; }
     p.commitTimer = p.commitTimer?.trainId === target ? { trainId: target, ticks: p.commitTimer.ticks + 1 } : { trainId: target, ticks: 1 };
-    const timerUp = timerSec != null && p.commitTimer.ticks >= Math.max(1, Math.round(timerSec * config.values.sim.tickRateHz));
+    if (!run && p.commitHold === target) continue;
+    const sec = run ? switchTimerSec : timerSec;
+    const timerUp = sec != null && p.commitTimer.ticks >= Math.max(1, Math.round(sec * config.values.sim.tickRateHz));
     const close = closeRangeTiles != null && d <= closeRangeTiles;
     if (!timerUp && !close) continue;
     p.commitTimer = null;
@@ -192,12 +197,19 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
   repickFreeTrains(state, ctx.config);
 }
 
-/** Esc: accepted in every phase but `ended`; back to playerSpawn while the train keeps looping. */
+/**
+ * Esc: accepted in every phase but `ended`. Aboard it goes back to playerSpawn while the train keeps
+ * looping. Still on the horse (approach, or stunned after a failed jump) with `commit.cancelInPlace`
+ * the rider keeps riding where they are, and the train just left only commits again on E until
+ * they ride out of its commit range (`PlayerState.commitHold`).
+ */
 export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const phase = runPhase(ctx.state);
   if (phase === 'idle' || phase === 'ended') return reject(ctx, p.id, 'cancelRun', 'no run');
+  const left = ctx.state.run!.trainId;
   endRun(ctx, p, 'cancelled', false);
-  resetToSpawn(ctx, p);
+  if (phase !== 'aboard' && ctx.config.values.commit.cancelInPlace) { p.commitHold = left; p.commitTimer = null; }
+  else resetToSpawn(ctx, p);
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */

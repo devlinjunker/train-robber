@@ -25,6 +25,10 @@ export const GameSchema = z.object({
     closeRangeTiles: positive.nullable().optional(),
     /** During a run that can still switch, another free train in `rangeTiles` gets the same prompt (Tab, timer, close range) to switch to it. */
     promptSwitch: z.boolean(),
+    /** The switch prompt's timer, like `timerSec` for committing. Missing or null: only Tab and the close range switch. */
+    switchTimerSec: z.number().min(0).nullable().optional(),
+    /** Esc while still on the horse ends the run where you are instead of back at the spawn. */
+    cancelInPlace: z.boolean(),
     /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
     switchRangeTiles: positive,
     /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
