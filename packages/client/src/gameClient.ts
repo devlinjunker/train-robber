@@ -442,7 +442,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const askTrain = target ?? (phase !== 'idle' ? player.commitTimer?.trainId ?? null : null);
       const askTicks = player.commitTimer?.trainId === askTrain ? player.commitTimer!.ticks : 0;
       const commitAsk = askTrain ? {
-        title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'the blue train'}?`,
+        title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'this train'}?`,
         progress: !commitCfg.timerSec ? null : Math.min(1, askTicks / (commitCfg.timerSec * tickRateHz)),
         hint: [
           target ? 'E commit' : 'Tab switch',
@@ -459,7 +459,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
-      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
+      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
       const weight = carriedWeight(config, carried);
       const carry = run ? {
