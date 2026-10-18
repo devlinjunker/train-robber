@@ -14,7 +14,7 @@ import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import { generateTrack, type Vec } from './track';
 
 /** Bump when a change makes the same seed and settings give a different map. */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;
 /** The map id the game uses for a generated map (`?map=gen`). */
 export const GENERATED_MAP_ID = 'gen';
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
@@ -197,7 +197,7 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
   const zones = new Uint8Array(N);
   const heights = new Uint8Array(N);
   const forest = new Uint8Array(N);
-  const sMud = salt('mud'), sRock = salt('rocks'), sForest = salt('forest'), sLake = salt('lakes'), sHill = salt('hills'), sStrip = salt('strips');
+  const sMud = salt('mud'), sRock = salt('rocks'), sForest = salt('forest'), sLake = salt('lakes'), sHill = salt('hills'), sStrip = salt('strips'), sMesa = salt('mesas'), sMesaTop = salt('mesa-tops');
   for (let t = 0; t < N; t++) {
     const x = t % cols, y = (t - x) / cols;
     const cx = x + 0.5, cy = y + 0.5;
@@ -215,6 +215,13 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
     heights[t] = level;
 
     if (x < s.edgeTiles || y < s.edgeTiles || x >= cols - s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
+    // Mesas: sandstone plateaus that rise by a cliff all round (drawn by iso/mesa.ts), on rock.
+    if (fbm(cx, cy, s.mesas.scaleTiles, sMesa) > s.mesas.threshold && d > s.mesas.trackGapTiles && riverDist[t]! > 3 && lake <= s.lakes.threshold - 0.04) {
+      const [lo, hi] = s.mesas.topLevels;
+      heights[t] = Math.min(hi, lo + Math.floor(fbm(cx, cy, 40, sMesaTop) * (hi - lo + 1)));
+      zones[t] = Z.blocked;
+      continue;
+    }
     if (deck[t] || d < s.corridor.carClearTiles) { zones[t] = Z.open; continue; }
     if (river[t]) { zones[t] = river[t] === 2 && d >= s.corridor.laneTiles + 1 ? Z.deep : Z.water; continue; }
     const st = stretchAt(t);

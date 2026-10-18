@@ -60,6 +60,12 @@ export const MapGenSchema = z.object({
     /** Bridges this far apart along the track at least. */
     spacingTiles: positive,
   }).strict(),
+  /** Sandstone mesas: flat-topped rock rising by a cliff all round, where the noise is above `threshold`. */
+  mesas: z.object({
+    scaleTiles: positive, threshold: unit, trackGapTiles: positive,
+    /** Top heights; keep the lowest at least 2 above hills.maxLevel so every edge is a cliff. */
+    topLevels: range(z.number().int().min(2).max(8)),
+  }).strict(),
   hills: z.object({ scaleTiles: positive, threshold: unit, maxLevel: z.number().int().min(0).max(8), trackGapTiles: positive, tilesPerLevel: positive }).strict(),
   ground: z.object({ bushesPerTile: z.number().min(0), flowersPerTile: z.number().min(0), scaleTiles: positive }).strict(),
   /** How far from the track the player starts, on the open side. */
