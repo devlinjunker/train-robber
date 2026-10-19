@@ -166,6 +166,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Placeholder sounds: countdown ticks, heat gains, the alarm sting and expiry. U or ?mute=1 mutes.
   const audio = createAudioBus(window, params.get('mute') === '1');
   let lastTick: number | null = null;
+  // Volumes and how often the countdown ticks: `audio` in game.json, e.g. ?set=audio.tickVolume=0.3.
+  const audioCfg = config.values.audio;
   // The inventory panel (I): what you carry, numbered so 1 to 9 drop that item.
   let inventoryOpen = false;
 
@@ -250,11 +252,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'HeatChanged') {
       const now = performance.now();
       heatNotices = [...heatNotices.filter((n) => n.until > now), { text: heatNotice(e.delta, e.cause), until: now + HEAT_NOTICE_MS }].slice(-HEAT_NOTICES);
-      if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm'); } else audio.play('heat');
+      if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm', audioCfg.volume); } else audio.play('heat', audioCfg.volume);
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
-      audio.play('expired');
+      audio.play('expired', audioCfg.volume);
       show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
-    } else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
+    } else if (e.type === 'RunEnded' && e.cashOut > 0) show(`Got away: $${e.cashOut} banked`, 'good', 3500);
+    else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
     else if (e.type === 'LootRevealed') show(`Found ${itemName(e.item)}: hold E again to take it`, 'good', 1800);
@@ -463,12 +466,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         });
       }
 
-      // The countdown ticks once per countdown second, twice as often below 20%, so the ticks
-      // speed up with heat too; nothing ticks before the clock starts or after the run.
+      // The countdown ticks every `audio.tickEverySec` countdown seconds, then every
+      // `audio.finalTickEverySec` in the last `audio.finalCountdownSec`, so the ticks speed up with
+      // heat too; nothing ticks before the clock starts or after the run.
       const rs = s.run;
       const clockOn = !!rs && rs.clockRunning && config.values.countdown.enabled;
-      const bucket = clockOn ? tickBucket(rs.countdownSec, rs.countdownTotalSec) : null;
-      if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick');
+      const bucket = clockOn ? tickBucket(rs.countdownSec, audioCfg) : null;
+      if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick', audioCfg.volume * audioCfg.tickVolume);
       lastTick = bucket;
       const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
       heatNotices = heatNotices.filter((n) => n.until > now);

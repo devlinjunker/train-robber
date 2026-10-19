@@ -98,7 +98,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
-        cancelled: { bankRunLoot: false, wantedDelta: 0 },
+        cancelled: { bankRunLoot: false, wantedDelta: 0, bankWhenMounted: true },
         expired: { bankRunLoot: false, wantedDelta: 1 },
       },
       horse: {

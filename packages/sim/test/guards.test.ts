@@ -240,6 +240,37 @@ describe('guardCatch thrown-off', () => {
   });
 });
 
+describe('Esc after being thrown off', () => {
+  const thrownOff = (bankWhenMounted: boolean) => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } });
+    const cfg = { ...base, values: { ...base.values, outcomePolicy: { ...base.values.outcomePolicy, cancelled: { ...base.values.outcomePolicy.cancelled, bankWhenMounted } } } };
+    const sim = aboardAt(cfg, 5.5, 2.5);
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
+    return { sim, value: 2 * cfg.values.items.letter!.value };
+  };
+  it('banks the loot carried into the bank and lifetime earned', () => {
+    const { sim, value } = thrownOff(true);
+    expect(value).toBeGreaterThan(0);
+    const ev = step(sim, { type: 'cancelRun' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cancelled', cashOut: value });
+    expect(ofType(ev, 'PersistentChanged')[0]!.after).toMatchObject({ bank: value, lifetimeEarned: value });
+    expect(S(sim).persistent.bank).toBe(value);
+  });
+  it('banks nothing with outcomePolicy.cancelled.bankWhenMounted off', () => {
+    const { sim } = thrownOff(false);
+    expect(ofType(step(sim, { type: 'cancelRun' }), 'RunEnded')[0]).toMatchObject({ cashOut: 0 });
+    expect(S(sim).persistent.bank).toBe(0);
+  });
+  it('Esc aboard banks nothing', () => {
+    const sim = aboardAt(guardConfig({ train: { layouts: ['watch-car'] } }), 5.5, 2.5);
+    S(sim).run!.players[1]!.carried = ['letter'];
+    expect(ofType(step(sim, { type: 'cancelRun' }), 'RunEnded')[0]).toMatchObject({ cashOut: 0 });
+    expect(S(sim).persistent.bank).toBe(0);
+  });
+});
+
 describe('thrownOffLootShare', () => {
   it('0 keeps everything, 1 loses everything', () => {
     for (const [share, kept] of [[0, 2], [1, 0]] as const) {

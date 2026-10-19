@@ -9,6 +9,7 @@ import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
+import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
 import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
@@ -191,8 +192,12 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
   remount(ctx.state, p, s.x, s.y, 0, -1);
 }
 
-/** End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`. */
-function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean): void {
+/**
+ * End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`.
+ * `cashOut` is the loot value the run banks (into the bank and lifetime earned); the caller passes
+ * only what its outcome's policy banks.
+ */
+function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
@@ -200,10 +205,10 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut,
   });
   const before = state.persistent;
-  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
+  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, cashOut);
   if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {
     state.persistent = after;
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
@@ -236,7 +241,11 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
     health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;
-  endRun(ctx, p, 'cancelled', false);
+  // On the horse (thrown off by a guard) the rider got away with what they carry: with
+  // `outcomePolicy.cancelled.bankWhenMounted` it is banked (Devlin, 2026-10-19). Aboard it is not.
+  const mounted = p.placement.frame === WORLD_FRAME;
+  const cashOut = mounted && rp && ctx.config.values.outcomePolicy.cancelled.bankWhenMounted ? carriedValue(ctx.config, rp.carried) : 0;
+  endRun(ctx, p, 'cancelled', false, cashOut);
   if (inPlace) {
     p.commitHold = left;
     p.commitTimer = null;

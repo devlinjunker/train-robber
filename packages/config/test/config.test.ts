@@ -35,9 +35,10 @@ const base = {
   carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
   hud: { showTrainNames: true },
+  audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
-    cancelled: { bankRunLoot: false, wantedDelta: 0 },
+    cancelled: { bankRunLoot: false, wantedDelta: 0, bankWhenMounted: true },
     expired: { bankRunLoot: false, wantedDelta: 1 },
   },
 };

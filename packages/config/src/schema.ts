@@ -187,6 +187,19 @@ export const GameSchema = z.object({
   }).strict(),
   /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
   hud: z.object({ showTrainNames: z.boolean() }).strict(),
+  /**
+   * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
+   * (1 = as before, 0 = silent); `tickVolume` multiplies `volume` for the countdown ticks. The
+   * countdown ticks every `tickEverySec` countdown seconds, then every `finalTickEverySec` in the
+   * last `finalCountdownSec` (Devlin, 2026-10-19). Any of the three at 0 turns that part off.
+   */
+  audio: z.object({
+    volume: z.number().min(0),
+    tickVolume: z.number().min(0),
+    tickEverySec: z.number().min(0),
+    finalCountdownSec: z.number().min(0),
+    finalTickEverySec: z.number().min(0),
+  }).strict(),
   /** Catalogs merged in from cell-types.json, items.json, loot-tables.json and car-templates.json. */
   cellTypes: z.array(CellTypeSchema).min(1),
   items: z.record(ItemSchema),
@@ -200,7 +213,8 @@ export const GameSchema = z.object({
       /** Persistent fields a death wipes (roguelike presets). */
       reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
     }).strict(),
-    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** `bankWhenMounted`: Esc while on the horse (thrown off by a guard) banks what the player carries; aboard it never does. */
+    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), bankWhenMounted: z.boolean() }).strict(),
     expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   horse: z.object({

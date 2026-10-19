@@ -88,9 +88,10 @@ export type SimEvent =
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
-   * null with the countdown off) and `heat` the heat at the end.
+   * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
+   * (a cancel on the horse with `outcomePolicy.cancelled.bankWhenMounted`), else 0.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
@@ -359,7 +360,8 @@ export interface SimConfig {
     };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
-      cancelled: { bankRunLoot: boolean; wantedDelta: number };
+      /** `bankWhenMounted`: Esc while on the horse (after being thrown off) banks the carried loot. */
+      cancelled: { bankRunLoot: boolean; wantedDelta: number; bankWhenMounted: boolean };
       expired: { bankRunLoot: boolean; wantedDelta: number };
     };
     horse: {
