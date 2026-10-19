@@ -213,10 +213,17 @@ export const GameSchema = z.object({
       /** Persistent fields a death wipes (roguelike presets). */
       reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
     }).strict(),
-    /** `bankWhenMounted`: Esc while on the horse (thrown off by a guard) banks what the player carries; aboard it never does. */
-    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), bankWhenMounted: z.boolean() }).strict(),
+    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** F on the horse mid-run (Devlin, 2026-10-19). */
+    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
+  /**
+   * F on the horse during a run (after a guard throws you off) ends the run and banks what you
+   * carry (Devlin, 2026-10-19). The downside: with `closeDoors` that train's doors shut, so it
+   * cannot be committed or switched to again for `doorsReopenSec` (0: for the rest of the session).
+   */
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,

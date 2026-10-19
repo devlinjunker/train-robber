@@ -240,34 +240,52 @@ describe('guardCatch thrown-off', () => {
   });
 });
 
-describe('Esc after being thrown off', () => {
-  const thrownOff = (bankWhenMounted: boolean) => {
+describe('F after being thrown off (cash out)', () => {
+  const thrownOff = (cashOut: Partial<Values['cashOut']> = {}) => {
     const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } });
-    const cfg = { ...base, values: { ...base.values, outcomePolicy: { ...base.values.outcomePolicy, cancelled: { ...base.values.outcomePolicy.cancelled, bankWhenMounted } } } };
+    const cfg = { ...base, values: { ...base.values, cashOut: { ...base.values.cashOut, ...cashOut } } };
     const sim = aboardAt(cfg, 5.5, 2.5);
     S(sim).run!.players[1]!.carried = ['letter', 'letter'];
     placeGuard(sim, 12.5, 2.5, -1, 0);
     expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
-    return { sim, value: 2 * cfg.values.items.letter!.value };
+    return { sim, value: 2 * cfg.values.items.letter!.value, trainId: S(sim).run!.trainId };
   };
-  it('banks the loot carried into the bank and lifetime earned', () => {
-    const { sim, value } = thrownOff(true);
+  it('ends the run cashedOut, banking the loot carried, and the train shuts its doors', () => {
+    const { sim, value, trainId } = thrownOff();
     expect(value).toBeGreaterThan(0);
-    const ev = step(sim, { type: 'cancelRun' });
-    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cancelled', cashOut: value });
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: value });
     expect(ofType(ev, 'PersistentChanged')[0]!.after).toMatchObject({ bank: value, lifetimeEarned: value });
-    expect(S(sim).persistent.bank).toBe(value);
+    expect(S(sim).run).toBeNull();
+    expect(S(sim).players[0]!.placement.frame).toBe('world');
+    // The doors stay shut: committing to that train is refused.
+    const again = step(sim, { type: 'startRun', trainId });
+    expect(ofType(again, 'CommandRejected')[0]).toMatchObject({ command: 'startRun', reason: 'doors closed' });
+    expect(S(sim).run).toBeNull();
   });
-  it('banks nothing with outcomePolicy.cancelled.bankWhenMounted off', () => {
-    const { sim } = thrownOff(false);
-    expect(ofType(step(sim, { type: 'cancelRun' }), 'RunEnded')[0]).toMatchObject({ cashOut: 0 });
-    expect(S(sim).persistent.bank).toBe(0);
+  it('with doorsReopenTicks the doors open again after that long; without closeDoors they never shut', () => {
+    const { sim, trainId } = thrownOff({ doorsReopenTicks: 30 });
+    step(sim, { type: 'cashOut' });
+    const t = S(sim).world.trains.find((q) => q.id === trainId)!;
+    expect(t.doorsClosed?.untilTick).toBe(S(sim).tick + 29);
+    S(sim).tick += 40;
+    expect(ofType(step(sim, { type: 'startRun', trainId }), 'CommandRejected').map((e) => e.reason)).not.toContain('doors closed');
+    const open = thrownOff({ closeDoors: false });
+    step(open.sim, { type: 'cashOut' });
+    expect(S(open.sim).world.trains.find((q) => q.id === open.trainId)!.doorsClosed).toBeUndefined();
   });
-  it('Esc aboard banks nothing', () => {
-    const sim = aboardAt(guardConfig({ train: { layouts: ['watch-car'] } }), 5.5, 2.5);
-    S(sim).run!.players[1]!.carried = ['letter'];
-    expect(ofType(step(sim, { type: 'cancelRun' }), 'RunEnded')[0]).toMatchObject({ cashOut: 0 });
-    expect(S(sim).persistent.bank).toBe(0);
+  it('is refused aboard, with nothing carried, and when disabled; Esc still banks nothing', () => {
+    const aboard = aboardAt(guardConfig({ train: { layouts: ['watch-car'] } }), 5.5, 2.5);
+    S(aboard).run!.players[1]!.carried = ['letter'];
+    expect(ofType(step(aboard, { type: 'cashOut' }), 'CommandRejected')[0]).toMatchObject({ reason: 'not mounted' });
+    const empty = thrownOff();
+    S(empty.sim).run!.players[1]!.carried = [];
+    expect(ofType(step(empty.sim, { type: 'cashOut' }), 'CommandRejected')[0]).toMatchObject({ reason: 'nothing to cash out' });
+    const off = thrownOff({ enabled: false });
+    expect(ofType(step(off.sim, { type: 'cashOut' }), 'CommandRejected')[0]).toMatchObject({ reason: 'disabled' });
+    const esc = thrownOff();
+    expect(ofType(step(esc.sim, { type: 'cancelRun' }), 'RunEnded')[0]).toMatchObject({ outcome: 'cancelled', cashOut: 0 });
+    expect(S(esc.sim).persistent.bank).toBe(0);
   });
 });
 

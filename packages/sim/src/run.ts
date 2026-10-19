@@ -194,21 +194,22 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
 
 /**
  * End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`.
- * `cashOut` is the loot value the run banks (into the bank and lifetime earned); the caller passes
- * only what its outcome's policy banks.
+ * `cashOut` is the loot value the run would bank; it goes into the bank and lifetime earned when
+ * the outcome's policy has `bankRunLoot`.
  */
 function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
+  const banked = ctx.config.values.outcomePolicy[outcome].bankRunLoot ? cashOut : 0;
   setPhase(ctx, p.id, 'ended');
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: banked,
   });
   const before = state.persistent;
-  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, cashOut);
+  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, banked);
   if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {
     state.persistent = after;
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
@@ -241,16 +242,32 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
     health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;
-  // On the horse (thrown off by a guard) the rider got away with what they carry: with
-  // `outcomePolicy.cancelled.bankWhenMounted` it is banked (Devlin, 2026-10-19). Aboard it is not.
-  const mounted = p.placement.frame === WORLD_FRAME;
-  const cashOut = mounted && rp && ctx.config.values.outcomePolicy.cancelled.bankWhenMounted ? carriedValue(ctx.config, rp.carried) : 0;
-  endRun(ctx, p, 'cancelled', false, cashOut);
+  endRun(ctx, p, 'cancelled', false);
   if (inPlace) {
     p.commitHold = left;
     p.commitTimer = null;
     p.resumeRuns = [...saved.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
   } else resetToSpawn(ctx, p);
+}
+
+/**
+ * F, on the horse during a run (Devlin, 2026-10-19): get away with what you carry. The run ends
+ * `cashedOut`, banking the carried value, and the rider keeps riding where they are. With
+ * `cashOut.closeDoors` the train shuts its doors: no commit or switch to it for
+ * `cashOut.doorsReopenSec` (0: for the rest of the session).
+ */
+export function cashOut(ctx: RunCtx, p: PlayerState): void {
+  const { state, config } = ctx;
+  const cfg = config.values.cashOut;
+  if (!cfg.enabled) return reject(ctx, p.id, 'cashOut', 'disabled');
+  const run = state.run;
+  const rp = run?.players[p.id];
+  if (!run || !rp || run.phase === 'ended') return reject(ctx, p.id, 'cashOut', 'no run');
+  if (p.placement.frame !== WORLD_FRAME) return reject(ctx, p.id, 'cashOut', 'not mounted');
+  if (rp.carried.length === 0) return reject(ctx, p.id, 'cashOut', 'nothing to cash out');
+  const train = state.world.trains.find((t) => t.id === run.trainId);
+  endRun(ctx, p, 'cashedOut', false, carriedValue(config, rp.carried));
+  if (train && cfg.closeDoors) train.doorsClosed = { untilTick: cfg.doorsReopenTicks > 0 ? state.tick + cfg.doorsReopenTicks : null };
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */

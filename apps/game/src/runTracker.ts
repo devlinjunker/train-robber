@@ -3,7 +3,7 @@
 import type { BoardingResult, RunPhase, SimEvent } from '@train-robber/sim';
 
 /** How a run ended. `retry` is a quick retry; `abandoned` means the page closed mid-run. */
-export type TrackedOutcome = 'died' | 'cancelled' | 'expired' | 'retry' | 'abandoned';
+export type TrackedOutcome = 'died' | 'cancelled' | 'expired' | 'cashedOut' | 'retry' | 'abandoned';
 
 /** What the session knows about itself, copied into every run it plays. */
 export interface SessionMeta {

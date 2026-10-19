@@ -256,7 +256,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
       show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
-    } else if (e.type === 'RunEnded' && e.cashOut > 0) show(`Got away: $${e.cashOut} banked`, 'good', 3500);
+    } else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') show(`Got away: $${e.cashOut} banked${config.values.cashOut.closeDoors ? '. That train has shut its doors' : ''}`, 'good', 3500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
@@ -278,7 +278,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['C boost'] : []),
-    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -504,8 +504,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
-      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
+      // Thrown off with loot: F gets away with it (cashOut).
+      const cashHint = (phase === 'approach' || phase === 'boarding') && carried.length > 0 && config.values.cashOut.enabled ? `F: get away with $${carriedValue(config, carried)}` : '';
+      const switchPrompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
+      const prompt = [switchPrompt, cashHint].filter(Boolean).join('  ·  ');
       const weight = carriedWeight(config, carried);
       const carry = run ? {
         value: carriedValue(config, carried), weight, items: carried.length, maxWeight: config.values.carry.maxWeight, maxItems: config.values.carry.maxItems,

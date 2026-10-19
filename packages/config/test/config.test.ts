@@ -38,9 +38,11 @@ const base = {
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
-    cancelled: { bankRunLoot: false, wantedDelta: 0, bankWhenMounted: true },
+    cancelled: { bankRunLoot: false, wantedDelta: 0 },
     expired: { bankRunLoot: false, wantedDelta: 1 },
+    cashedOut: { bankRunLoot: true, wantedDelta: 0 },
   },
+  cashOut: { enabled: true, closeDoors: true, doorsReopenSec: 0 },
 };
 
 const variant = (group: string, id: string, patch: object) =>

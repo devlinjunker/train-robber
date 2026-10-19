@@ -42,13 +42,18 @@ export type Command =
    */
   | { type: 'debugHeat'; source?: HeatSource }
   /** C, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
-  | { type: 'boost' };
+  | { type: 'boost' }
+  /**
+   * F, on the horse during a run (after a guard threw you off): end the run `cashedOut`, banking
+   * what you carry, and close that train's doors (`cashOut` config) so it cannot be committed to.
+   */
+  | { type: 'cashOut' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
 /** `idle` means no run; the others are `RunState.phase`. */
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
-export type RunOutcome = 'died' | 'cancelled' | 'expired';
+export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'cashedOut';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -61,10 +66,10 @@ export type BoardingResult = 'perfect' | 'good' | 'fail';
 export type CollisionTarget = 'train' | 'obstacle';
 /** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
 export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
-export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
+export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
-export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down';
+export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
+export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -89,7 +94,7 @@ export type SimEvent =
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
-   * (a cancel on the horse with `outcomePolicy.cancelled.bankWhenMounted`), else 0.
+   * (a cash-out on F), else 0.
    */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
@@ -310,6 +315,8 @@ export interface TrainState {
    * every free train when a run ends.
    */
   cars: string[];
+  /** Set by a cash-out: no commit or switch to this train until `untilTick` (null: never). */
+  doorsClosed?: { untilTick: number | null };
 }
 
 export interface WorldState {
@@ -360,10 +367,12 @@ export interface SimConfig {
     };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
-      /** `bankWhenMounted`: Esc while on the horse (after being thrown off) banks the carried loot. */
-      cancelled: { bankRunLoot: boolean; wantedDelta: number; bankWhenMounted: boolean };
+      cancelled: { bankRunLoot: boolean; wantedDelta: number };
       expired: { bankRunLoot: boolean; wantedDelta: number };
+      cashedOut: { bankRunLoot: boolean; wantedDelta: number };
     };
+    /** F on the horse mid-run: end the run and bank the loot; with `closeDoors` that train cannot be committed to again, for `doorsReopenTicks` (0: never). */
+    cashOut: { enabled: boolean; closeDoors: boolean; doorsReopenTicks: number };
     horse: {
       /** Tiles per second. */
       maxSpeed: number;
