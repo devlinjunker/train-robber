@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-only",
+  "extends": "alpha-default",
+  "variants": {
+    "guardCatch": "heat-only"
+  }
+}

@@ -13,7 +13,7 @@ const colour = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'colour as #rrggbb');
 /**
  * One cell type: each field feeds one system. `blocksMove` feeds movement, `blocksSight` and
  * `shootThrough` perception and combat, `cover` the share of ranged damage absorbed (0 to 1), and
- * `noise` the footstep multiplier (unused until guards listen in M3). `colour` is placeholder art
+ * `noise` the footstep multiplier guards hear (phase 2 M3; 1 when absent). `colour` is placeholder art
  * for the Tiled tileset and the renderer.
  */
 export const CellTypeSchema = z.object({

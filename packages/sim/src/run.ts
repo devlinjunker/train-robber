@@ -1,6 +1,6 @@
 // The run lifecycle (idle, approach, boarding, aboard, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
-import { runSeed, seedRng } from './rng';
+import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
@@ -8,9 +8,11 @@ import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain
 import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
+import { generateGuards } from './world/guards';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
-import { carPosesOf, pinTrain, routeOf, trainLengthOf, unpinTrain } from './world/trains';
+import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
+import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
 
 export interface RunCtx {
@@ -102,12 +104,14 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   const train = state.world.trains.find((t) => t.id === id)!;
   const cd = config.values.countdown;
   const countdownSec = runCountdownSec(config, train.type);
-  // Run generation: the train's layouts were picked for this run number; fill its loot slots.
+  // Run generation: the train's layouts were picked for this run number; fill its loot slots,
+  // then place its guards on the layouts' guard spawns.
   const loot = generateLoot(state, config, train);
+  const guards = generateGuards(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length,
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards,
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
   const resume = p.resumeRuns.find((r) => r.trainId === id);
@@ -142,6 +146,12 @@ export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undef
   unpinTrain(state, from);
   pinTrain(state, id, p.id);
   run.trainId = id;
+  // Loot and guards come from the train's own layouts, so the new train gets its own; what the
+  // player already carries (after being thrown off another train) stays with them.
+  const train = state.world.trains.find((t) => t.id === id)!;
+  run.loot = generateLoot(state, config, train);
+  run.nextLootId = run.loot.length;
+  run.guards = generateGuards(state, config, train);
   ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
 }
 
@@ -171,7 +181,7 @@ export function autoSwitchSystem(ctx: RunCtx): void {
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */
 function remount(state: GameState, p: PlayerState, x: number, y: number, hx: number, hy: number): void {
   const h = horseOf(state, p);
-  Object.assign(h, { x, y, hx, hy, speed: 0, cruiseTarget: 0, stunTicks: 0, mode: 'physical' as const });
+  Object.assign(h, { x, y, hx, hy, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' as const });
   p.placement = { frame: WORLD_FRAME, x, y, layer: 'ground' };
 }
 
@@ -348,6 +358,69 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
     rp.health = Math.max(0, rp.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'boarding' });
   }
+}
+
+/** How far beyond the car's side wall a thrown-off rider lands, in tiles (clear of the car, inside boarding range of its doors). */
+const THROWN_SIDE_GAP = 1.5;
+
+/**
+ * guardCatch `thrown-off`: an alert guard caught the player, who is thrown off the train like a
+ * failed boarding (G4, G5). They land back on the horse beside their car on the side they were
+ * nearest, facing along the track at `boarding.failure.horseSpeedScale` of the train's speed, stunned
+ * for `boarding.failure.stunSec` and losing `damageFraction` of max health. The run goes back to
+ * `boarding` (the failed jump's stun), then `approach`; the loot carried stays with them.
+ */
+export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
+  const { state, map, config } = ctx;
+  const run = state.run;
+  const rp = run?.players[p.id];
+  const f = parseCarFrame(p.placement.frame);
+  if (!run || !rp || !f || run.phase !== 'aboard') return;
+  const car = carPosesOf(state, map, config, f.trainId)[f.car]!;
+  const rows = car.halfWidth * 2, cols = car.halfLength * 2;
+  const left = p.placement.y < rows / 2;
+  // Away from the car's ends, so the next car on a bend cannot overlap the landing spot.
+  const x = Math.max(2, Math.min(cols - 2, p.placement.x));
+  const at = carToWorld(car, x, left ? -THROWN_SIDE_GAP : rows + THROWN_SIDE_GAP);
+  const train = state.world.trains.find((t) => t.id === f.trainId)!;
+  const b = config.values.boarding;
+  remount(state, p, at.x, at.y, car.ux, car.uy);
+  const h = horseOf(state, p);
+  h.speed = trainSpeed(config, train.type) * b.failure.horseSpeedScale;
+  h.cruiseTarget = h.speed;
+  h.stunTicks = b.failure.stunTicks;
+  rp.search = null;
+  rp.stumbleTicks = 0;
+  ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+  // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
+  const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
+  for (let k = 0; k < lose; k++) {
+    const [item] = rp.carried.splice(nextInt(state.rng, 'ai', rp.carried.length), 1) as [string];
+    const def = config.values.items[item]!;
+    ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
+  }
+  setPhase(ctx, p.id, 'boarding');
+  const amount = config.values.health.max * b.failure.damageFraction;
+  if (amount > 0) {
+    rp.health = Math.max(0, rp.health - amount);
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'thrownOff' });
+  }
+}
+
+/**
+ * C, handlingModel `arcade-boost`: start a boost on a ridden horse that is not stunned and has
+ * no boost running or cooling down. The riding system applies it.
+ */
+export function boost(ctx: RunCtx, p: PlayerState): void {
+  const { state, config } = ctx;
+  const cfg = config.values.horse.boost;
+  if (!cfg.enabled) return reject(ctx, p.id, 'boost', 'disabled');
+  const h = horseOf(state, p);
+  if (h.mode !== 'physical' || p.placement.frame !== WORLD_FRAME) return reject(ctx, p.id, 'boost', 'not mounted');
+  if (h.stunTicks > 0) return reject(ctx, p.id, 'boost', 'stunned');
+  if (h.boostTicks > 0 || h.boostCooldownTicks > 0) return reject(ctx, p.id, 'boost', 'cooling down');
+  h.boostTicks = cfg.durationTicks;
+  ctx.emit({ type: 'HorseBoosted', tick: state.tick, player: p.id });
 }
 
 /**

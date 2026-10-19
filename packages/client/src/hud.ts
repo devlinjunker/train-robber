@@ -39,6 +39,8 @@ export interface HudState {
   heatNotices: readonly string[];
   /** True for a moment after an alarm: the screen edge pulses red. */
   alarm: boolean;
+  /** The horse boost while riding with it on: ready, running down (`share` left) or cooling down (`share` back). */
+  boost?: { state: 'ready' | 'active' | 'cooldown'; share: number; text: string } | null;
 }
 
 const CSS = `
@@ -55,6 +57,12 @@ const CSS = `
 .tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
 .tr-hud .inv-item { background: rgba(0,0,0,.6); border: 1px solid #fff4; padding: 3px 10px; border-radius: 6px; white-space: nowrap; font-size: 13px; }
 .tr-hud .carry.slow { color: #ffb02e; }
+.tr-hud .boost { display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,.55); padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.tr-hud .boost-bar { width: 90px; height: 8px; background: #222; border: 1px solid #fff6; border-radius: 3px; overflow: hidden; }
+.tr-hud .boost-bar > div { height: 100%; background: #7a7a7a; }
+.tr-hud .boost.ready .boost-bar > div { background: #6bd3ff; }
+.tr-hud .boost.active { color: #ffe066; }
+.tr-hud .boost.active .boost-bar > div { background: #ffe066; }
 .tr-hud .health { width: 180px; height: 14px; background: #3a1d1d; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
 .tr-hud .health > div { height: 100%; background: linear-gradient(#ff7a6b, #d63c2f); transition: width .2s; }
 .tr-hud .bottom { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); text-align: center; }
@@ -123,7 +131,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="carry"></div></div>
+    <div class="side"><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div></div>
     <div class="bottom"><div class="inv"></div><div class="ask"><div class="ask-title"></div><div class="ask-bar"><div></div></div><div class="ask-hint"></div></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
@@ -131,6 +139,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
     hpText = q('.hp-text'), carryEl = q('.carry'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
+  const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
@@ -148,6 +157,12 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
         bar.style.width = `${pct}%`;
         set(hpText, `${s.health.now}/${s.health.max}`);
+      }
+      boostEl.style.display = s.boost ? '' : 'none';
+      if (s.boost) {
+        setClass(boostEl, `boost ${s.boost.state}`);
+        set(boostText, s.boost.text);
+        boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, s.boost.share)) * 100)}%`;
       }
       carryEl.style.display = s.carry ? '' : 'none';
       if (s.carry) {

@@ -17,7 +17,7 @@ const CHAR: Record<string, string> = { '#': 'wall', '.': 'floor', D: 'door', C: 
  * A car template from rows of characters (# wall, . floor, D door, C crate), as build-cars would
  * write it: cells run-length encoded against a legend.
  */
-export function asciiCar(carType: string, rows: string[], extra: Partial<Pick<CarTemplateDef, 'entryPoints' | 'lootSlots' | 'guardSpawns'>> = {}): CarTemplateDef {
+export function asciiCar(carType: string, rows: string[], extra: Partial<Pick<CarTemplateDef, 'entryPoints' | 'lootSlots' | 'guardSpawns' | 'patrols'>> = {}): CarTemplateDef {
   const legend: string[] = [];
   const cells: [number, number][] = [];
   for (const ch of rows.join('')) {
@@ -27,7 +27,7 @@ export function asciiCar(carType: string, rows: string[], extra: Partial<Pick<Ca
     if (last && last[1] === v) last[0]++;
     else cells.push([1, v]);
   }
-  return { carType, size: { cols: rows[0]!.length, rows: rows.length }, legend, cells, entryPoints: [], lootSlots: [], guardSpawns: [], ...extra };
+  return { carType, size: { cols: rows[0]!.length, rows: rows.length }, legend, cells, entryPoints: [], lootSlots: [], guardSpawns: [], patrols: {}, ...extra };
 }
 
 const WALLED = ['################', '#..............#', '#..............#', '#..............#', '#..............#', '################'];
@@ -77,7 +77,7 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 
 /** Like the real base config at 60 Hz; `more` replaces whole sections. */
 export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
-  const rad = (120 * Math.PI) / 180 / 60;
+  const rad = (120 * Math.PI) / 180 / 60, guardRad = (240 * Math.PI) / 180 / 60;
   return {
     hash,
     values: {
@@ -104,7 +104,14 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       horse: {
         maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10, slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25,
         turnRateCosPerTick: Math.cos(rad), turnRateSinPerTick: Math.sin(rad), steering: 'heading', throttleModel: 'hold',
+        boost: { enabled: true, durationTicks: 90, cooldownTicks: 360, topSpeedScale: 1.4, accelTilesPerSec2: 20 },
         ...horse,
+      },
+      ai: {
+        guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
+        turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
+        sight: { rangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180) }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5 },
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
       },
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
       trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
