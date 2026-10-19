@@ -31,6 +31,8 @@ const PERFECT_RING_SEC = 0.8;
  */
 export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a };
 const DOOR_COLOUR = 0xe8c872;
+/** A shut door (a cash-out closed the train's doors): dark planks the body's colour, barred across. */
+const SHUT_DOOR_SHADE = 0.62, DOOR_BAR_COLOUR = 0x2a1d12;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
@@ -91,6 +93,8 @@ export interface WorldSceneInput {
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
   view: { x0: number; y0: number; x1: number; y1: number };
+  /** Trains whose doors a cash-out shut: their side doors are drawn closed and barred. */
+  closedTrains?: ReadonlySet<string>;
   /** Loot lying in the car the player is aboard (its frame), the loot being searched and the one in reach. */
   loot: readonly InteriorLoot[];
   searching: number | null;
@@ -359,6 +363,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
         const colour = CAR_COLOURS[carTemplate(content.catalog, car.template).carType] ?? 0x777777;
         const doors = spansOf(car.template);
+        const shut = input.closedTrains?.has(car.trainId) ?? false;
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
@@ -380,7 +385,11 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
             if (a1 <= a0) continue;
             // sidePanel measures along the slice from its own centre.
             const mid = (s.along0 + s.along1) / 2;
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, DOOR_COLOUR);
+            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, DOOR_COLOUR); continue; }
+            // Shut: a dark plank door with two bars across it.
+            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, shade(colour, SHUT_DOOR_SHADE));
+            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.55, 0.75, DOOR_BAR_COLOUR);
+            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 1.35, 1.55, DOOR_BAR_COLOUR);
           }
           if (gap && gapCar === car && glow > 0) {
             // The glow on the near wall's bottom edge, where that face is in view.
@@ -480,7 +489,10 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
-      for (const car of input.cars) for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+      for (const car of input.cars) {
+        if (input.closedTrains?.has(car.trainId)) continue;
+        for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+      }
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
       markers.clear();
