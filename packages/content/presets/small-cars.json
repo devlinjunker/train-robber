@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "small-cars",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "trains": {
+      "mail-express": { "engine": "small-engine", "carType": "small-mail-car", "caboose": "small-caboose" },
+      "blank": { "engine": "small-engine", "carType": "small-blank-car", "caboose": "small-caboose" }
+    }
+  }
+}
