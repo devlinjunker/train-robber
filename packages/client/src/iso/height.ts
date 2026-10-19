@@ -10,6 +10,7 @@ import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-rob
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
 import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
 import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
+import { FOREST_FLOOR } from './scenery';
 import { isoX, isoY } from '../projection';
 
 /** Height of one elevation level, in tiles of z. */
@@ -251,9 +252,10 @@ export interface HeightLayer {
  * Draw every tile with any raised corner: its surface, lit by which way it slopes, then the
  * cliff faces toward the viewer where the next tile's edge is lower. A tile sorts by its back
  * corner (x + y), so it covers what stands behind it and is covered by what stands on or in front of it.
- * Pieces go into `objects` (the depth-sorted container) only while on screen.
+ * Pieces go into `objects` (the depth-sorted container) only while on screen. `forest` tiles
+ * (scenery.ts forestTiles) take the forest floor colour, as they do on flat ground.
  */
-export function createHeightLayer(map: MapDef, field: HeightField, objects: Container): HeightLayer {
+export function createHeightLayer(map: MapDef, field: HeightField, objects: Container, forest: ReadonlySet<number> = new Set()): HeightLayer {
   if (!field.raised) return { chunks: [], cull() {} };
   const { cols, rows } = map.size;
   const zones = decodeZones(map);
@@ -282,7 +284,8 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
       const g = cells.at(x + y - 0.01, x + 0.5, y + 0.5, Math.max(tl, tr, br, bl));
       const zone = map.zoneLegend[zones[y * cols + x]!]!;
       const t = scree[y * cols + x]! * (0.75 + 0.25 * hash(x * 3, y * 5));
-      const base = mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
+      const woods = forest.has(y * cols + x);
+      const base = woods ? FOREST_FLOOR : mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
       // Slopes rising toward +x or +y face the light (from up the screen) and are brighter.
       const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
       const wet = zone === 'water' || zone === 'deep';

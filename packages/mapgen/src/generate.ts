@@ -7,14 +7,14 @@
 // noise, kept off the cars and out of the open riding lane -> elevation (view only, but cliffs
 // block, so it is deterministic too) -> player spawn -> scenery.
 import {
-  ELEVATION_MAX, MapDefSchema, SCENERY_KINDS, SceneryDefSchema, ZONES,
+  ELEVATION_MAX, MapDefSchema, type MapTheme, SCENERY_KINDS, SceneryDefSchema, ZONES,
   type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone,
 } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import { generateTrack, type Vec } from './track';
 
 /** Bump when a change makes the same seed and settings give a different map. */
-export const GENERATOR_VERSION = 3;
+export const GENERATOR_VERSION = 4;
 /** The map id the game uses for a generated map (`?map=gen`). */
 export const GENERATED_MAP_ID = 'gen';
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
@@ -25,7 +25,33 @@ export interface GeneratedMap {
   scenery: SceneryDef;
   /** Tightest curve, for the checks and the debug panel. */
   minRadiusTiles: number;
-  info: { controlPoints: number; trackAttempts: number; rivers: number; trackLength: number };
+  info: { controlPoints: number; trackAttempts: number; rivers: number; trackLength: number; theme: MapTheme; busyness: number };
+}
+
+const clamp01 = (v: number) => Math.max(0, Math.min(0.9999, v));
+
+/** The map's theme and busyness (see MapGenSchema `mix`), applied to the noise thresholds. */
+export function applyMix(seed: string, s: MapGenSettings): { settings: MapGenSettings; theme: MapTheme; busyness: number } {
+  const r = rng(`${seed}/mix`);
+  const theme = s.mix.themes[r.int(0, s.mix.themes.length - 1)]!;
+  const busyness = Math.round(r.range(s.mix.busyness[0], s.mix.busyness[1]) * 1000) / 1000;
+  const shift = (t: number, mine: MapTheme) => clamp01(t - busyness + (theme === 'balanced' ? 0 : theme === mine ? -s.mix.boost : s.mix.damp));
+  const lakes = shift(s.lakes.threshold, 'water');
+  return {
+    theme, busyness,
+    settings: {
+      ...s,
+      mud: { ...s.mud, threshold: shift(s.mud.threshold, 'mud') },
+      rocks: { ...s.rocks, threshold: shift(s.rocks.threshold, 'rocks') },
+      forest: { ...s.forest, threshold: shift(s.forest.threshold, 'forest') },
+      lakes: { ...s.lakes, threshold: lakes, deepThreshold: clamp01(s.lakes.deepThreshold + lakes - s.lakes.threshold) },
+      rivers: theme === 'water' ? { ...s.rivers, count: [Math.min(6, s.rivers.count[0] + 1), Math.min(6, s.rivers.count[1] + 1)] } : s.rivers,
+      mesas: {
+        ...s.mesas, threshold: shift(s.mesas.threshold, 'mesas'),
+        ...(theme === 'mesas' ? { ridges: [s.mesas.ridges[0] + 1, s.mesas.ridges[1] + 1] as [number, number] } : {}),
+      },
+    },
+  };
 }
 
 const Z = Object.fromEntries(ZONES.map((z, i) => [z, i])) as Record<Zone, number>;
@@ -42,7 +68,8 @@ function rle(values: ArrayLike<number>): [number, number][] {
   return out;
 }
 
-export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
+export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
+  const { settings: s, theme, busyness } = applyMix(seed, given);
   const { cols, rows } = s.size;
   const N = cols * rows;
   const salt = (what: string) => hashString(`${seed}/${what}`) & 0xfffff;
@@ -122,6 +149,8 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
     const r = rng(`${seed}/rivers`);
     const count = r.int(s.rivers.count[0], s.rivers.count[1]);
     const crossings: number[] = [];
+    // Fords: shallow places every so often along a river, where the deep middle can be waded.
+    const fords: { x: number; y: number; radius: number }[] = [];
     const stamp = (p: Vec, half: number) => {
       const reach = half + s.hills.maxLevel * s.hills.tilesPerLevel + 1;
       const x0 = Math.max(0, Math.floor(p.x - reach)), x1 = Math.min(cols - 1, Math.floor(p.x + reach));
@@ -149,9 +178,10 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
         let bend = 0;
         const p = { ...c };
         const len = r.range(s.rivers.lengthTiles[0], s.rivers.lengthTiles[1]);
-        let k = 0, ended = false;
+        let k = 0, ended = false, nextFord = r.range(s.rivers.fordSpacingTiles[0], s.rivers.fordSpacingTiles[1]);
         stamp(p, half);
         for (; k < len; k++) {
+          if (k >= nextFord) { fords.push({ x: p.x, y: p.y, radius: Math.max(s.rivers.fordWidthTiles / 2, half) }); nextFord = k + r.range(s.rivers.fordSpacingTiles[0], s.rivers.fordSpacingTiles[1]); }
           if (k > s.rivers.straightTiles) {
             bend += (r.next() - 0.5) * s.rivers.meander;
             bend = Math.max(-s.rivers.meander, Math.min(s.rivers.meander, bend));
@@ -190,6 +220,16 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
       bridges.push({ x: minX, y: minY, w: maxX + 1 - minX, h: maxY + 1 - minY, along: alongX ? 'x' : 'y' });
       // No mud or rocks either side near a bridge: the lanes there are the river.
       for (let j = 0; j < n; j++) if (sDist(j * spacing, i * spacing) < half + 16) stretchOf[j] = -1;
+    }
+    for (const f of fords) {
+      const x0 = Math.max(0, Math.floor(f.x - f.radius)), x1 = Math.min(cols - 1, Math.floor(f.x + f.radius));
+      const y0 = Math.max(0, Math.floor(f.y - f.radius)), y1 = Math.min(rows - 1, Math.floor(f.y + f.radius));
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const t = ty * cols + tx;
+          if (river[t] === 2 && (tx + 0.5 - f.x) * (tx + 0.5 - f.x) + (ty + 0.5 - f.y) * (ty + 0.5 - f.y) <= f.radius * f.radius) river[t] = 1;
+        }
+      }
     }
   }
 
@@ -347,7 +387,8 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
     y: r4(Math.floor(ys[spawn.i]! + tg.x * s.spawnDistanceTiles * spawn.side) + 0.5),
   };
 
-  const source = { file: `gen:${seed}`, hash: hashString(`${GENERATOR_VERSION}/${seed}/${JSON.stringify(s)}`).toString(16).padStart(8, '0') };
+  // The file names the seed, then the theme and busyness it picked, for the debug panel.
+  const source = { file: `gen:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${GENERATOR_VERSION}/${seed}/${JSON.stringify(given)}`).toString(16).padStart(8, '0') };
   const map = MapDefSchema.parse({
     schemaVersion: 1, id: GENERATED_MAP_ID, source, size: { cols, rows },
     zoneLegend: [...ZONES], zones: rle(zones), elevation: rle(heights),
@@ -372,5 +413,5 @@ export function generateMap(seed: string, s: MapGenSettings): GeneratedMap {
     }
   }
   const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items, bridges });
-  return { map, scenery, minRadiusTiles: track.minRadiusTiles, info: { controlPoints: route.points.length, trackAttempts: track.attempts, rivers: bridges.length, trackLength: route.length } };
+  return { map, scenery, minRadiusTiles: track.minRadiusTiles, info: { controlPoints: route.points.length, trackAttempts: track.attempts, rivers: bridges.length, trackLength: route.length, theme, busyness } };
 }

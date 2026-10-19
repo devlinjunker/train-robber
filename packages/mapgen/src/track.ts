@@ -8,6 +8,8 @@ export interface Vec { x: number; y: number }
 
 export const SAMPLE_SPACING_TILES = 0.5;
 const DENSE_PER_TILE = 16;
+/** Passes of easing the tightest curves before a shape is given up. */
+const EASE_PASSES = 24;
 
 const dist = (a: Vec, b: Vec) => dlen(b.x - a.x, b.y - a.y);
 const lerp = (a: Vec, b: Vec, t0: number, t1: number, t: number): Vec => {
@@ -65,6 +67,11 @@ export interface Track { route: Route; points: Vec[]; tangents: Vec[]; minRadius
 
 /** Bake control points into a route, as build-maps does; null if a curve is tighter than `minRadius`. */
 export function bakeLoop(id: string, control: Vec[], minRadius: number): Track | null {
+  return bake(id, control, minRadius).track;
+}
+
+/** As bakeLoop, also giving the samples where a curve is too tight. */
+function bake(id: string, control: Vec[], minRadius: number): { track: Track | null; tight: Vec[] } {
   const rs = resampleClosed(smoothClosed(control), SAMPLE_SPACING_TILES);
   const n = rs.points.length;
   // Rounded first, so the tangents and the radius check see exactly the samples the sim gets.
@@ -79,14 +86,17 @@ export function bakeLoop(id: string, control: Vec[], minRadius: number): Track |
   // is the same as dot >= cos(spacing / R), which needs no acos.
   const limit = dcos(rs.spacing / minRadius);
   let minDot = 1;
+  const tight: Vec[] = [];
   for (let i = 0; i < n; i++) {
     const a = tangents[(i - 1 + n) % n]!, b = tangents[i]!;
-    minDot = Math.min(minDot, a.x * b.x + a.y * b.y);
+    const dot = a.x * b.x + a.y * b.y;
+    minDot = Math.min(minDot, dot);
+    if (dot < limit) tight.push(pts[i]!);
   }
-  if (minDot < limit) return null;
+  if (tight.length) return { track: null, tight };
   // Reported radius, for logs only (asin of the cross product would be exact; this is close enough).
   const turn = Math.sqrt(Math.max(0, 2 * (1 - minDot)));
-  return {
+  return { track: {
     route: {
       id, closed: true, smoothing: 'catmull-rom',
       points: control.map((p) => ({ x: r4(p.x), y: r4(p.y) })),
@@ -97,16 +107,61 @@ export function bakeLoop(id: string, control: Vec[], minRadius: number): Track |
       },
     },
     points: pts, tangents, minRadiusTiles: turn > 0 ? rs.spacing / turn : Infinity, attempts: 0,
-  };
+  }, tight };
+}
+
+/**
+ * Ease the curves that are too tight instead of giving up the whole shape: each pass moves the
+ * control points nearest a tight sample (and their neighbours) toward the midpoint of their
+ * neighbours, so the bends elsewhere keep their shape. Null if `passes` are not enough.
+ */
+function easeLoop(id: string, control: Vec[], minRadius: number, passes: number): Track | null {
+  const pts = control.map((p) => ({ ...p }));
+  const n = pts.length;
+  for (let pass = 0; pass <= passes; pass++) {
+    const { track, tight } = bake(id, pts, minRadius);
+    if (track) return track;
+    if (pass === passes) break;
+    const move = new Uint8Array(n);
+    for (const q of tight) {
+      let best = 0, bestD = Infinity;
+      for (let i = 0; i < n; i++) {
+        const d = (pts[i]!.x - q.x) * (pts[i]!.x - q.x) + (pts[i]!.y - q.y) * (pts[i]!.y - q.y);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      for (const k of [-1, 0, 1]) move[(best + k + n) % n] = 1;
+    }
+    const prev = pts.map((p) => ({ ...p }));
+    for (let i = 0; i < n; i++) {
+      if (!move[i]) continue;
+      const a = prev[(i - 1 + n) % n]!, b = prev[(i + 1) % n]!, c = prev[i]!;
+      pts[i] = { x: c.x * 0.5 + (a.x + b.x) * 0.25, y: c.y * 0.5 + (a.y + b.y) * 0.25 };
+    }
+  }
+  return null;
+}
+
+/** Closest approach between two parts of the loop that are at least 3 x `gap` apart along it. */
+function selfGap(t: Track, gap: number): number {
+  const p = t.points, n = p.length, step = 4, apart = Math.ceil((3 * gap) / t.route.spacing);
+  let min = Infinity;
+  for (let i = 0; i < n; i += step) {
+    for (let j = i + apart; j <= i + n - apart && j < n; j += step) {
+      const dx = p[i]!.x - p[j]!.x, dy = p[i]!.y - p[j]!.y;
+      min = Math.min(min, dx * dx + dy * dy);
+    }
+  }
+  return Math.sqrt(min);
 }
 
 /**
  * A closed loop round the map centre: an ellipse that fills the map less `marginTiles`, pulled in
  * toward the centre by a few low harmonics (2 up to the `harmonics` pick), so it bends into kidney,
  * bean and S shapes rather than wobbling. The dent at each angle is at most curviness x maxDent of
- * the way in. Pulling in only keeps the loop inside the margin and, since the radius is a function
- * of angle, the loop never crosses itself. Fresh shapes are tried until the tightest curve is at
- * least `minRadiusTiles`, then shallower ones; the last resort is the plain ellipse.
+ * the way in. Pulling in only keeps the loop inside the margin. Curves tighter than `minRadiusTiles`
+ * are eased locally (easeLoop), so the other bends keep their shape. A shape is kept when no two
+ * parts of the loop pass within `selfGapTiles` (which also rules out crossing itself); otherwise
+ * fresh shapes are tried, then shallower ones; the last resort is the plain ellipse.
  */
 export function generateTrack(r: Rng, cols: number, rows: number, s: MapGenSettings['track']): Track {
   const cx = cols / 2, cy = rows / 2;
@@ -136,8 +191,8 @@ export function generateTrack(r: Rng, cols: number, rows: number, s: MapGenSetti
       waves = [];
       for (let h = 2; h <= top; h++) waves.push({ k: h, w: r.next() * r.next(), phi: r.next() * TAU });
     }
-    const t = bakeLoop('main', loop(waves, k < fresh ? depth : depth * (1 - (k - fresh + 1) / (soft + 1))), s.minRadiusTiles);
-    if (t) return { ...t, attempts: k + 1 };
+    const t = easeLoop('main', loop(waves, k < fresh ? depth : depth * (1 - (k - fresh + 1) / (soft + 1))), s.minRadiusTiles, EASE_PASSES);
+    if (t && selfGap(t, s.selfGapTiles) >= s.selfGapTiles) return { ...t, attempts: k + 1 };
   }
   // A plain ellipse; its tightest curve is ay^2 / ax.
   const t = bakeLoop('main', loop([], 0), 0)!;

@@ -48,7 +48,7 @@ describe('map loading', () => {
     const b = await sessionMap(GENERATED_MAP_ID, 'abc', config, '?map=gen&seed=abc');
     const c = await sessionMap(GENERATED_MAP_ID, 'abd', config, '?map=gen&seed=abd');
     expect(a.map.id).toBe('gen');
-    expect(a.map.source.file).toBe('gen:abc');
+    expect(a.map.source.file).toMatch(/^gen:abc (balanced|forest|rocks|mesas|water|mud) [+-]\d/);
     expect(a.map).toEqual(b.map);
     expect(a.scenery).toEqual(b.scenery);
     expect(c.map.zones).not.toEqual(a.map.zones);

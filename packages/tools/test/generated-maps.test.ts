@@ -16,11 +16,14 @@ const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).diges
 
 // The 300 seeds run in generated-seeds-*.test.ts, split so test workers share them.
 describe('generated maps pass the map checks', () => {
-  it('with other sizes, curviness and river counts', () => {
+  it('with other sizes, curviness, river counts and themes', () => {
     const variants: Record<string, unknown>[] = [
       { size: { cols: 240, rows: 160 } }, { size: { cols: 600, rows: 300 } }, { track: { curviness: 1 } },
       { track: { curviness: 0 } }, { track: { harmonics: [5, 8] } }, { rivers: { count: [3, 4] } },
       { mesas: { cuts: [2, 2], besideTrack: [3, 3], ridges: [4, 4] } },
+      { track: { maxDent: 0.95 } }, { rivers: { widthTiles: [8, 12] } },
+      // Every theme, at its busiest.
+      ...['forest', 'rocks', 'mesas', 'water', 'mud'].map((t) => ({ mix: { themes: [t], busyness: [0.06, 0.06] } })),
     ];
     const bad: string[] = [];
     for (const v of variants) {
@@ -31,7 +34,7 @@ describe('generated maps pass the map checks', () => {
       }
     }
     expect(bad.slice(0, 10)).toEqual([]);
-  }, 60_000);
+  }, 120_000);
 
   it('start their trains, run a full lap and keep trains apart', () => {
     for (let k = 0; k < 8; k++) {
@@ -83,4 +86,4 @@ describe('generated maps are deterministic', () => {
   });
 });
 
-const PINNED = { map: 'e1ec0a710c497bc3', scenery: '474bb9d7547546cc' };
+const PINNED = { map: '5d6fd05eeb17ed7c', scenery: 'c0fb2f8d91e54d99' };

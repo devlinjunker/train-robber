@@ -9,6 +9,10 @@ const positive = z.number().positive();
 const unit = z.number().min(0).max(1);
 const range = (inner: z.ZodNumber) => z.tuple([inner, inner]).refine(([a, b]) => a <= b, { message: 'range min is above max' });
 
+/** What a generated map is full of; `balanced` favours nothing. */
+export const MAP_THEMES = ['balanced', 'forest', 'rocks', 'mesas', 'water', 'mud'] as const;
+export type MapTheme = (typeof MAP_THEMES)[number];
+
 export const MapGenSchema = z.object({
   schemaVersion: z.literal(1),
   size: z.object({ cols: z.number().int().min(160).max(1200), rows: z.number().int().min(120).max(1200) }).strict(),
@@ -21,11 +25,13 @@ export const MapGenSchema = z.object({
     harmonics: range(z.number().int().min(2).max(12)),
     /** 0 is a plain oval; 1 lets the loop pull in up to `maxDent` of the way to the centre. */
     curviness: unit,
-    maxDent: z.number().min(0).max(0.8),
+    maxDent: z.number().min(0).max(0.95),
     /** Gap between the track and the map edge. */
     marginTiles: positive,
     /** Tightest curve the generator accepts; the map checks need 17. Looser loops are tried until one passes. */
     minRadiusTiles: positive,
+    /** Two parts of the loop never come closer than this (the inside of a deep bend). */
+    selfGapTiles: positive,
   }).strict(),
   corridor: z.object({
     /** No rock, water or mud this close to the centre line (the cars are 3 tiles either side). */
@@ -59,6 +65,9 @@ export const MapGenSchema = z.object({
     trackGapTiles: positive,
     /** Bridges this far apart along the track at least. */
     spacingTiles: positive,
+    /** A ford (shallow water across the river, so it can be waded) every so often along each arm, this wide along the river. */
+    fordSpacingTiles: range(positive),
+    fordWidthTiles: positive,
   }).strict(),
   /** Sandstone mesas: flat-topped rock rising by a cliff all round, where the noise is above `threshold`. */
   mesas: z.object({
@@ -79,6 +88,18 @@ export const MapGenSchema = z.object({
     cutGapTiles: z.number().min(7),
     /** Top heights; keep the lowest at least 2 above hills.maxLevel so every edge is a cliff. */
     topLevels: range(z.number().int().min(2).max(8)),
+  }).strict(),
+  /**
+   * Each map picks a theme and a busyness, so maps differ in what they are full of. The theme's
+   * feature gets its noise threshold lowered by `boost` (more of it; water also gets one more
+   * river, mesas one more ridge) and the other features theirs raised by `damp`. Busyness, picked
+   * in its range, lowers every threshold (busier) or raises them (emptier).
+   */
+  mix: z.object({
+    themes: z.array(z.enum(MAP_THEMES)).min(1),
+    boost: z.number().min(0).max(0.5),
+    damp: z.number().min(0).max(0.5),
+    busyness: range(z.number().min(-0.3).max(0.3)),
   }).strict(),
   hills: z.object({ scaleTiles: positive, threshold: unit, maxLevel: z.number().int().min(0).max(8), trackGapTiles: positive, tilesPerLevel: positive }).strict(),
   ground: z.object({ bushesPerTile: z.number().min(0), flowersPerTile: z.number().min(0), scaleTiles: positive }).strict(),
