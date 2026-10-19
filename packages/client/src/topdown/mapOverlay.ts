@@ -1,8 +1,16 @@
 // Debug drawing of a map as the converter built it, in tile units, top-down (x right,
 // y down, as in Tiled), for checking the build against the Tiled file. The top-down debug
 // view (V) draws it; the isometric view has its own overlay in iso/terrain.ts.
-import { Container, Graphics } from 'pixi.js';
-import { decodeElevation, decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type Zone } from '@train-robber/config';
+import { Container, Graphics, Text } from 'pixi.js';
+import { decodeElevation, decodeZones, SOLID_SCENERY, trackPieces, type MapDef, type SceneryDef, type Zone } from '@train-robber/config';
+
+/** Small white text in tile units. */
+function label(text: string, x: number, y: number): Text {
+  const t = new Text({ text, style: { fontFamily: 'monospace', fontSize: 24, fill: 0xffffff, stroke: { color: 0x000000, width: 4 } } });
+  t.scale.set(0.1);
+  t.position.set(x, y);
+  return t;
+}
 
 const ZONE_COLOURS: Partial<Record<Zone, number>> = { slow: 0xc9a227, blocked: 0x6b6b6b, water: 0x6fa6dc, deep: 0x2f6fd6 };
 /** Draw a tangent tick on every Nth sample (samples are about half a tile apart). */
@@ -68,6 +76,20 @@ export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null): 
   for (const p of Object.values(map.markers)) markers.poly([p.x, p.y - 0.8, p.x + 0.8, p.y, p.x, p.y + 0.8, p.x - 0.8, p.y]);
   markers.fill({ color: 0xb46bff });
 
-  layer.addChild(zones, track, markers);
+  // Junctions: a ring and the shared tangent, labelled with their id, as are segments at their middle.
+  const junctions = new Graphics();
+  const labels = new Container();
+  for (const j of map.junctions ?? []) {
+    junctions.circle(j.x, j.y, 1.6).stroke({ width: 0.3, color: 0xffffff });
+    junctions.moveTo(j.x, j.y).lineTo(j.x + j.tx * 5, j.y + j.ty * 5).stroke({ width: 0.3, color: 0xffffff });
+    labels.addChild(label(j.id, j.x + 2, j.y - 3));
+  }
+  for (const p of trackPieces(map)) {
+    if (p.closed) continue;
+    const m = Math.floor(p.x.length / 2);
+    labels.addChild(label(p.id, p.x[m]! + 2, p.y[m]! + 1));
+  }
+
+  layer.addChild(zones, track, markers, junctions, labels);
   return layer;
 }

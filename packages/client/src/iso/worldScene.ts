@@ -15,10 +15,12 @@ import type { TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
+import { createDust } from './dust';
 import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { drawInterior, type InteriorLoot } from './interior';
+import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 
 const PERFECT_RING_SEC = 0.8;
 
@@ -33,6 +35,7 @@ const DOOR_COLOUR = 0xe8c872;
 export const SLICE_TILES = 2;
 const CAR_HEIGHT = 2.4;
 const PLAYER_COLOUR = 0x6bd3ff;
+const GUARD_COLOUR = 0x2c3e66, GUARD_HAT_COLOUR = 0x1a1a22;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
 /**
  * When a car hides the horse and rider (or you aboard), a round hole is cut through the cars in
@@ -82,6 +85,10 @@ export interface WorldSceneInput {
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
   horseSpeed: number;
   inMud: boolean;
+  /** The horse is boosting: dust flies up behind it. */
+  boosting?: boolean;
+  /** How far the player's footsteps carry aboard (a ring on the floor), or null when silent. */
+  noise?: { x: number; y: number; r: number; running: boolean } | null;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
@@ -90,6 +97,10 @@ export interface WorldSceneInput {
   loot: readonly InteriorLoot[];
   searching: number | null;
   inReach: number | null;
+  /** Guards in the car the player is aboard (the open one), in the world. */
+  guards?: readonly GuardView[];
+  /** Sight cones to draw on the floor (faint by default, full with the debug overlay or ?cones=on), or null. */
+  cones?: readonly ConeView[] | null;
 }
 
 /** What the scene needs from the config once: car layouts, the cell catalog and items. */
@@ -97,6 +108,8 @@ export interface SceneContent {
   catalog: CarCatalog;
   cellTypes: readonly CellTypeDef[];
   items: Readonly<Record<string, { weight: number; category: string }>>;
+  /** Boost dust opacity scale (?boostDust=), 1 by default. */
+  boostDust?: number;
 }
 
 export interface WorldScene {
@@ -178,6 +191,26 @@ function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_CO
   drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, colour);
 }
 
+/** An ear in a round badge, in screen pixels centred on (x, y): a guard heard you. */
+export function drawEar(g: Graphics, x: number, y: number, colour: number, s = 1): void {
+  g.circle(x, y, 11 * s).fill({ color: colour }).stroke({ width: 2 * s, color: 0x111111, alpha: 0.8 });
+  // The outer rim: a C open to the left, with the lobe curling in at the bottom.
+  g.moveTo(x - 3 * s, y - 4 * s).bezierCurveTo(x - 2 * s, y - 9 * s, x + 6 * s, y - 9 * s, x + 6 * s, y - 2 * s)
+    .bezierCurveTo(x + 6 * s, y + 2 * s, x + 2 * s, y + 3 * s, x + 2 * s, y + 6 * s)
+    .bezierCurveTo(x + 2 * s, y + 9 * s, x - 3 * s, y + 9 * s, x - 3 * s, y + 6 * s)
+    .stroke({ width: 2.5 * s, color: 0x111111, cap: 'round' });
+  // The inner fold.
+  g.moveTo(x - 0.5 * s, y - 2 * s).bezierCurveTo(x, y - 5 * s, x + 3.5 * s, y - 4 * s, x + 3 * s, y - 1 * s)
+    .stroke({ width: 2 * s, color: 0x111111, cap: 'round' });
+}
+
+/** A guard: a dark uniform turned the way it faces, a hat with a brim toward its face, and its shadow. */
+function drawGuard(g: Graphics, v: GuardView): void {
+  groundEllipse(g, v.x, v.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
+  drawBox(g, { x: v.x, y: v.y, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS * 0.9, z0: 0, z1: 1.6 }, GUARD_COLOUR);
+  drawBox(g, { x: v.x + v.fx * 0.12, y: v.y + v.fy * 0.12, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS + 0.06, halfWidth: WALKER_RADIUS * 0.85, z0: 1.6, z1: 1.75 }, GUARD_HAT_COLOUR);
+}
+
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
 function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: number, gz = 0, riderless = false): void {
   const body: Box = { x: h.x - h.hx * 0.15, y: h.y - h.hy * 0.15, ux: h.hx, uy: h.hy, halfLength: 0.75, halfWidth: 0.3, z0: 0.45, z1: 1.15 };
@@ -230,7 +263,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
-  objects.addChild(mud.clods);
+  const dust = createDust(content.boostDust ?? 1);
+  objects.addChild(mud.clods, dust.puffs);
 
   const spans = new Map<string, ReturnType<typeof doorSpans>>();
   const spansOf = (template: string) => { let v = spans.get(template); if (!v) { v = doorSpans(content, template); spans.set(template, v); } return v; };
@@ -291,6 +325,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       used = 0;
       const horseZ = input.horse ? field.groundZ(input.horse.x, input.horse.y) : 0;
       mud.update({ horse: input.horse, speed: input.horseSpeed, inMud: input.inMud, timeSec: input.timeSec, groundZ: horseZ });
+      dust.update({ horse: input.horse, boosting: !!input.boosting, speed: input.horseSpeed, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
       floors.clear();
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
@@ -393,6 +428,22 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
+      // Guards in the open car, and their sight cones on the floor: faint so you can read where they look, stronger for debug.
+      for (const cone of input.cones ?? []) {
+        const col = GUARD_STATE_COLOURS[cone.state];
+        const fill = (cone.state === 'unaware' ? 0.14 : 0.26) * (cone.faint ? 0.5 : 1);
+        floors.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
+      }
+      // How far your footsteps carry: a guard inside the ring hears you.
+      const n = input.noise;
+      if (n) groundEllipse(floors, n.x, n.y, n.r, 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
+      const guardsShown = input.guards ?? [];
+      for (const v of guardsShown) {
+        const g = piece();
+        drawGuard(g, v);
+        g.zIndex = depthOf(v.x, v.y);
+      }
+
       // The horse: a body box along its heading, a head, and the rider on top.
       horseG.clear();
       horseG.visible = input.horse !== null;
@@ -444,6 +495,21 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         const roof = () => isoPoly(boxCorners({ ...car, z0: 0, z1: 0 }), CAR_HEIGHT + 0.02);
         if (car.trainId === f.committed && flashing) markers.poly(roof()).fill({ color: COMMITTED_COLOUR, alpha: 0.55 }).stroke({ width: 4, color: COMMITTED_COLOUR });
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
+      }
+
+      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert.
+      for (const v of guardsShown) {
+        if (v.state === 'unaware' && !v.heard) continue;
+        const col = GUARD_STATE_COLOURS[v.state];
+        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);
+        if (v.heard && v.state !== 'alert') drawEar(markers, x, y, GUARD_STATE_COLOURS.suspicious);
+        else if (v.state === 'alert') {
+          markers.roundRect(x - 7, y - 12, 14, 24, 4).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
+          markers.rect(x - 1.5, y - 8, 3, 10).fill(0x111111).rect(x - 1.5, y + 5, 3, 3).fill(0x111111);
+        } else {
+          markers.circle(x, y, 8).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
+          markers.circle(x, y, 2.5).fill(0x111111);
+        }
       }
 
       // Entry markers on the riding side of the checked train: dim out of range, a ring when in

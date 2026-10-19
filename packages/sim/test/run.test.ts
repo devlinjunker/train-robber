@@ -75,9 +75,11 @@ describe('commit', () => {
     expect(S(sim).world.trains[0]!.pinnedBy).toBe(1);
   });
 
-  it('with commit.auto, an idle rider commits on the first tick a train is in range, with no command', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
-    const sim = setup(auto);
+  const commitCfg = (timerSec: number | null, closeRangeTiles: number | null, promptSwitch = false) =>
+    testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec, closeRangeTiles, promptSwitch, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+
+  it('with commit.timerSec 0, an idle rider commits on the first tick a train is in range, with no command', () => {
+    const sim = setup(commitCfg(0, null));
     Object.assign(horse(sim), { x: 116, y: 10 }); // 17 tiles from the car
     const far = steps(sim, 5);
     expect(S(sim).run).toBeNull();
@@ -92,6 +94,37 @@ describe('commit', () => {
     expect(S(sim).run).toBeNull();
     steps(sim, 2);
     expect(S(sim).run).toBeNull();
+  });
+
+  it('with commit.timerSec, the rider commits after staying in range that long, and leaving range resets the timer', () => {
+    const sim = setup(commitCfg(0.5, null)); // 30 ticks at 60 Hz
+    Object.assign(horse(sim), { x: 116, y: 18 }); // 9 tiles: in range
+    steps(sim, 20);
+    expect(S(sim).run).toBeNull();
+    expect(S(sim).players[0]!.commitTimer).toEqual({ trainId: 'blank-1', ticks: 20 });
+    Object.assign(horse(sim), { x: 116, y: 10 }); // out of range clears it
+    step(sim);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 18 });
+    steps(sim, 29);
+    expect(S(sim).run).toBeNull();
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+  });
+
+  it('with commit.closeRangeTiles, riding that close commits at once; with both null only E commits', () => {
+    const sim = setup(commitCfg(null, 4));
+    Object.assign(horse(sim), { x: 116, y: 18 });
+    steps(sim, 30);
+    expect(S(sim).run).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 24 }); // 3 tiles
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+
+    const manual = setup(commitCfg(null, null));
+    Object.assign(horse(manual), { x: 116, y: 24 });
+    steps(manual, 30);
+    expect(S(manual).run).toBeNull();
+    expect(phases(step(manual, { type: 'interact', held: true }))).toEqual(['idle>approach']);
   });
 
   it('interact while idle commits like startRun with no id', () => {
@@ -363,6 +396,65 @@ describe('cancel', () => {
   it('is rejected while idle', () => {
     expect(rejections(step(setup(), { type: 'cancelRun' }))).toEqual(['cancelRun: no run']);
   });
+
+  it('with commit.cancelInPlace, on the horse the rider stays put, and the train left only commits again on E until they ride out of range', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: 0.5, closeRangeTiles: 4, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = setup(cfg);
+    step(sim, { type: 'startRun', trainId: 'blank-1' });
+    Object.assign(horse(sim), { x: 116, y: 24, speed: 0, cruiseTarget: 0 }); // 3 tiles: inside the close range
+    const ev = step(sim, { type: 'cancelRun' });
+    expect(ev.find((e) => e.type === 'RunEnded')).toMatchObject({ outcome: 'cancelled' });
+    expect(horse(sim)).toMatchObject({ x: 116, y: 24 });
+    expect(S(sim).players[0]!.commitHold).toBe('blank-1');
+    // Neither the close range nor the timer recommits to it.
+    expect(phases(steps(sim, 40))).toEqual([]);
+    expect(S(sim).run).toBeNull();
+    // E still does.
+    expect(phases(step(sim, { type: 'interact', held: true }))).toEqual(['idle>approach']);
+    step(sim, { type: 'interact', held: false });
+    step(sim, { type: 'cancelRun' });
+    // Riding out of range clears the hold, and riding back in commits as usual.
+    Object.assign(horse(sim), { x: 116, y: 5 });
+    step(sim);
+    expect(S(sim).players[0]!.commitHold).toBeNull();
+    Object.assign(horse(sim), { x: 116, y: 24 });
+    expect(phases(step(sim))).toEqual(['idle>approach']);
+  });
+
+  it('with commit.cancelInPlace, recommitting to the train left picks up its clock, heat, health and meter', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = approach(cfg);
+    jump(sim, 'fail');
+    while (S(sim).run!.phase === 'boarding') step(sim);
+    steps(sim, 30);
+    const run = S(sim).run!;
+    const before = { countdownSec: run.countdownSec, heat: run.heat, startedTick: run.startedTick, ...rp(sim), meter: { ...rp(sim).meter } };
+    expect(before.boardingAttempts).toBe(1);
+    step(sim, { type: 'cancelRun' });
+    expect(S(sim).players[0]!.resumeRuns).toHaveLength(1);
+    steps(sim, 10);
+    const ev = step(sim, { type: 'startRun', trainId: 'blank-1' });
+    expect(ev.find((e) => e.type === 'RunStarted')).toMatchObject({ resumed: true });
+    expect(S(sim).run).toMatchObject({ heat: before.heat, startedTick: before.startedTick });
+    // The clock carries on from where it was (it drains once on the commit tick).
+    expect(S(sim).run!.countdownSec).toBeCloseTo(before.countdownSec - 1 / 60, 6);
+    expect(rp(sim)).toMatchObject({ health: before.health, boardingAttempts: 1, meter: { zoneCentre: before.meter.zoneCentre } });
+    expect(S(sim).players[0]!.resumeRuns).toEqual([]);
+    // Cancelled in place again, then a quick retry: the saved run is gone and the next commit is fresh.
+    step(sim, { type: 'cancelRun' });
+    expect(S(sim).players[0]!.resumeRuns).toHaveLength(1);
+    step(sim, { type: 'quickRetry' });
+    expect(S(sim).players[0]!.resumeRuns).toEqual([]);
+  });
+
+  it('with commit.cancelInPlace, aboard still goes back to playerSpawn', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = approach(cfg);
+    jump(sim, 'perfect');
+    step(sim, { type: 'cancelRun' });
+    expect(horse(sim)).toMatchObject({ x: SPAWN.x, y: SPAWN.y });
+    expect(S(sim).players[0]!.commitHold).toBeNull();
+  });
 });
 
 describe('switching trains', () => {
@@ -438,7 +530,7 @@ describe('switching trains', () => {
   });
 
   it('with commit.autoSwitch, riding clearly closer to another train in commit range switches to it', () => {
-    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, auto: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
+    const auto = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: true, autoSwitchMarginTiles: 4 } });
     const sim = twoTrains(auto);
     // Midway: neither train is in commit range or clearly closer, so nothing happens.
     expect(switched(steps(sim, 5))).toEqual([]);
@@ -447,6 +539,18 @@ describe('switching trains', () => {
     expect(S(sim).run!.trainId).toBe('blank-2');
     // Staying there does not flip back.
     expect(switched(steps(sim, 5))).toEqual([]);
+  });
+
+  it('with commit.promptSwitch, staying in commit range of another free train for commit.switchTimerSec switches to it', () => {
+    const cfg = testConfig({}, 'test0001', { commit: { rangeTiles: 12, timerSec: null, switchTimerSec: 0.5, closeRangeTiles: null, promptSwitch: true, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 } });
+    const sim = twoTrains(cfg);
+    Object.assign(horse(sim), { x: 130, y: 62 });
+    expect(switched(steps(sim, 29))).toEqual([]);
+    expect(S(sim).players[0]!.commitTimer).toMatchObject({ trainId: 'blank-2', ticks: 29 });
+    expect(switched(step(sim))).toEqual(['blank-1>blank-2']);
+    expect(S(sim).players[0]!.commitTimer).toBeNull();
+    // The train just left is farther away, so it is never offered back.
+    expect(switched(steps(sim, 120))).toEqual([]);
   });
 
   it('without commit.autoSwitch, riding closer to another train keeps the committed one', () => {

@@ -2,7 +2,7 @@
 // the mount jump and its spill, the extracted outcome and cash out, and the grace window (G18).
 import { describe, it, expect } from 'vitest';
 import {
-  applyOutcome, cellOf, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
+  applyOutcome, cellOf, throwOff, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
   type Command, type GameState, type MountSpill, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap, type Paint } from './fixtures';
@@ -204,7 +204,7 @@ describe('mount', () => {
     expect(horse(sim)).toMatchObject({ mode: 'physical' });
     expect(horse(sim).speed).toBeGreaterThan(5);
     // Auto-commit leaves the train you just robbed alone until you ride out of range.
-    expect(S(sim).autoCommitHold).toBe('blank-1');
+    expect(player(sim).commitHold).toBe('blank-1');
   });
 
   it('fail leaves you aboard with failure damage and a stumble; you can try again while it paces (G14)', () => {
@@ -292,5 +292,26 @@ describe('snapshots mid-extraction', () => {
       play(c, cut, 1500);
       expect(c.hash()).toBe(a.hash());
     }
+  });
+});
+
+describe('thrown off while the horse is called (M3 x M4)', () => {
+  it('lands you on your horse beside the train and ends the call', () => {
+    const sim = aboard();
+    step(sim, { type: 'whistle' });
+    steps(sim, 30);
+    expect(S(sim).run!.phase).toBe('extracting');
+    const events: SimEvent[] = [];
+    throwOff({ state: S(sim), map: sim.map, config, emit: (e: SimEvent) => events.push(e) } as never, player(sim), 7);
+    expect(of(events, 'ThrownOff')).toHaveLength(1);
+    expect(S(sim).run!.phase).toBe('boarding');
+    expect(call(sim).state).toBe('away');
+    expect(player(sim).placement.frame).toBe('world');
+    expect(horse(sim)).toMatchObject({ mode: 'physical' });
+    // Beside the car the player stood in, not where the called horse was.
+    const car = sim.cars()[1]!;
+    expect(Math.hypot(horse(sim).x - car.x, horse(sim).y - car.y)).toBeLessThan(car.halfLength + 4);
+    // Riding again, the next tick moves the ridden horse, not the extraction AI.
+    expect(rejections(step(sim, { type: 'whistle' }))).toEqual(['whistle: not aboard']);
   });
 });

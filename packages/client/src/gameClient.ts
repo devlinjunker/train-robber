@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  trainSpeed, meterPosition, meterZones, mountCheck, parseCarFrame, runPhase, terrainAt, Terrain,
+  trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -21,6 +21,7 @@ import { createAudioBus } from './audio';
 import { heatNotice, tickBucket } from './clock';
 import { drawMapOverlay } from './topdown/mapOverlay';
 import { createMinimap } from './minimap';
+import { guardsInWorld, sightCones } from './guards';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -47,6 +48,8 @@ const SNAP_TILES = 30;
 export type DistanceCueMode = 'world' | 'line' | 'off';
 /** The line cue shows within this many tiles of the car side. */
 export const DISTANCE_CUE_TILES = 8;
+/** How long the ear stays over a guard that heard you. */
+const HEARD_MS = 1800;
 /** How long each heat gain notice stays, how many show at once, and how long an alarm pulses the screen edge. */
 const HEAT_NOTICE_MS = 2500, HEAT_NOTICES = 4, ALARM_EDGE_MS = 2000;
 /** Hoofbeats play while the riderless horse is within this many tiles of you, louder as it closes. */
@@ -113,6 +116,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
   const runZoomRangeParam = params.get('runZoomRange');
   const runZoomRange = runZoomRangeParam !== null && Number(runZoomRangeParam) >= 0 ? Number(runZoomRangeParam) : RUN_ZOOM_RANGE;
+  // Guards' sight cones: faint by default so you can read where they look, full with the debug
+  // panel (`) or ?cones=on, hidden with ?cones=off.
+  const conesParam = params.get('cones');
+  const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
+  // The footstep ring aboard; ?noiseRing=off hides it.
+  const noiseRingOn = params.get('noiseRing') !== 'off';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -132,7 +141,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let shownZoom = zoom;
 
   const items = config.values.items;
-  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items };
+  const boostDustParam = Number(params.get('boostDust') ?? 1);
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
   const search = config.values.verbs.search;
   // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
   const namesParam = params.get('trainNames');
@@ -228,6 +238,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Hoofbeats: when the next one is due (performance.now ms) and where in the rhythm it is.
   let hoofAt = 0, hoofStep = 0;
   const sideName = (side: string) => side === 'left' ? 'left' : 'right';
+  // When each guard last heard the player (performance.now ms): an ear shows over its head for a moment.
+  const heardAt = new Map<number, number>();
+  // Items lost to the last throw off, for its notice.
+  let lostOnThrow: string[] = [];
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -240,7 +254,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
-    else if (e.type === 'RunStarted') switchedAt = performance.now();
+    else if (e.type === 'RunStarted') { switchedAt = performance.now(); if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000); }
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'HeatChanged') {
       const now = performance.now();
@@ -268,6 +282,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       landing = { result: e.result, at: performance.now() };
       show(`mount ${e.attempt}: ${e.result === 'perfect' ? 'PERFECT - clean getaway' : 'good - you lose some loot'}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
     } else if (e.type === 'LootSpilled' && e.items.length) show(`Spilled ${e.items.map(itemName).join(', ')} ($${e.value})`, 'warn', 2500);
+    else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
+    else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
+    else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') heardAt.set(e.guard, performance.now());
+    else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
+    else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`A guard threw you off: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
@@ -277,7 +296,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(config.values.commit.auto ? [] : ['E commit']), 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    ...(horseCfg.boost.enabled ? ['C boost'] : []),
+    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -352,8 +372,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const aboardPhase = phase === 'aboard' || extracting;
       const stumbling = aboardPhase && !riding && !!run && run.stumbleTicks > 0;
       const perfectAge = landing?.result === 'perfect' && aboardPhase ? landingAge : null;
-      // The train Tab would switch to, while the run can still switch.
-      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : null;
+      // The train Tab would switch to, while the run can still switch; while idle, the train the
+      // commit prompt asks about. Both get the pale blue outline.
+      const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
+      const candidate = phase === 'approach' || phase === 'boarding' ? switchTarget(s, sim.map, config, horseState) : target;
       const switchAge = (now - switchedAt) / 1000;
       const focus: TrainFocus = { committed: s.run?.trainId ?? null, candidate, switchAge: switchAge < SWITCH_FLASH_SEC ? switchAge : null };
       if ((phase !== 'idle') !== zoomLocked) {
@@ -389,6 +411,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const reachLoot = aboardPhase && !riding ? nearestLoot(s, player, search.reachTiles) : null;
       const searching = run?.search ?? null;
       const searchTicks = searching ? searchTicksForLoot(config, s.run?.loot.find((l) => l.id === searching.loot)) : 0;
+      // The run's guards: in iso only those in the open car you are in show (the other cars have roofs).
+      const runTrain = s.run ? s.world.trains.find((t) => t.id === s.run!.trainId) ?? null : null;
+      const guardPoses = runTrain ? interp.guards(alpha) : [];
+      const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id, (id) => now - (heardAt.get(id) ?? -Infinity) < HEARD_MS) : [];
+      const showCones = (showDebug || conesMode !== 'off') && runTrain !== null;
+      const faintCones = !showDebug && conesMode === 'faint';
+      // The footstep ring aboard: how far a guard can hear you, while there are guards to hear.
+      let noise: { x: number; y: number; r: number; running: boolean } | null = null;
+      if (noiseRingOn && runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
+        const grid = trainGrid(config, runTrain.cars);
+        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
+        if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
+      }
+      const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -396,6 +432,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
+          guards: guardViews.filter((v) => inOpenCar(v.car)),
+          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car)), cars, runTrain!.id, faintCones) : null, noise,
+          boosting: horseState.boostTicks > 0,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
           view: {
             x0: Math.min(...corners.map((p) => p.x)), y0: Math.min(...corners.map((p) => p.y)),
@@ -412,6 +451,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
           playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
+          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -431,7 +471,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, name: trainName(t.id), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
+          trains.push({ id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.
@@ -493,10 +533,26 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           : call.state === 'approaching' ? `Your horse is coming up the ${sideName(call.side)} side  ·  F: switch sides` : null;
 
       // HUD.
-      const target = phase === 'idle' ? commitTarget(s, sim.map, config, horseState) : null;
+      const commitCfg = config.values.commit;
+      // The prompt asks about committing while idle, or (with `commit.promptSwitch`) about switching
+      // when the sim's prompt timer is on another train during a run.
+      const askTrain = target ?? (phase !== 'idle' ? player.commitTimer?.trainId ?? null : null);
+      const askTicks = player.commitTimer?.trainId === askTrain ? player.commitTimer!.ticks : 0;
+      // The train an in-place cancel just left only commits on E until the rider rides out of range.
+      const held = !!target && player.commitHold === target;
+      const askSec = held ? null : target ? commitCfg.timerSec : commitCfg.switchTimerSec;
+      const commitAsk = askTrain ? {
+        title: `${target ? 'Commit to' : 'Switch to'} ${trainName(askTrain) ?? 'this train'}?`,
+        progress: !askSec ? null : Math.min(1, askTicks / (askSec * tickRateHz)),
+        hint: [
+          target ? 'E commit' : 'Tab switch',
+          ...(askSec != null && askSec > 0 ? [`auto in ${Math.max(0, askSec - askTicks / tickRateHz).toFixed(1)} s`] : []),
+          ...(commitCfg.closeRangeTiles != null && !held ? [`or ride within ${commitCfg.closeRangeTiles} tiles`] : []),
+          target ? 'ride away to just look' : 'ride away to stay on yours',
+        ].join('  ·  '),
+      } : null;
       const basePrompt = phase === 'idle'
-        ? config.values.commit.auto ? `Ride within ${config.values.commit.rangeTiles} tiles of the train to start the run`
-          : target ? `E: commit to ${trainName(target) ?? 'this train'}` : `Ride within ${config.values.commit.rangeTiles} tiles of the train to commit`
+        ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
         : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : aboardPhase ? stumbling ? 'Stumbling: you landed off balance'
@@ -504,7 +560,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot, F whistle for your horse` : '';
-      const prompt = candidate ? `${basePrompt}  ·  Tab: switch to the blue train` : basePrompt;
+      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
       const weight = carriedWeight(config, carried);
       const carry = run ? {
@@ -513,8 +569,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } : null;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);
+      // The boost readout while riding: ready, the burst running down, or the cooldown filling.
+      const bc = horseCfg.boost;
+      const boostView = !bc.enabled || !physical ? null
+        : horseState.boostTicks > 0 ? { state: 'active' as const, share: horseState.boostTicks / Math.max(1, bc.durationTicks), text: 'BOOST' }
+          : horseState.boostCooldownTicks > 0 ? { state: 'cooldown' as const, share: 1 - horseState.boostCooldownTicks / Math.max(1, bc.cooldownTicks), text: `boost ${(horseState.boostCooldownTicks / tickRateHz).toFixed(1)} s` }
+            : { state: 'ready' as const, share: 1, text: 'C boost ready' };
       hud.update({
         phase,
+        boost: boostView,
         health: run ? { now: run.health, max: config.values.health.max } : null,
         carry,
         inventory: !inventoryOpen ? null : carried.length === 0 ? { title: 'Inventory: empty  (I closes)', items: [] }
@@ -522,6 +585,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
             ...(carried.length > 9 ? [`+${carried.length - 9} more (X drops the last)`] : [])] },
         hit: hitAge !== null,
         prompt,
+        commitAsk,
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
@@ -536,13 +600,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           `preset ${config.preset}  ${variantText}`,
           `map ${map.id} ${map.size.cols}x${map.size.rows}  route ${routeText}`,
           `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
-          `horse ${horseState.speed.toFixed(2)} tiles/s${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
+          `horse ${horseState.speed.toFixed(2)} tiles/s${horseState.boostTicks > 0 ? ' BOOST' : ''}${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
           `run: ${phase.toUpperCase()}  wanted ${s.persistent.wantedLevel}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
           check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',
           rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
           `steering ${horseCfg.steering}  throttle ${horseCfg.throttleModel}${train ? `  train ${train.id} at ${train.d.toFixed(1)} tiles, ${config.values.trains[train.type]!.speedTilesPerSec} tiles/s` : ''}`,
           call && s.run ? `extraction: horse ${call.state.toUpperCase()} ${call.side}  ${(call.ticks / tickRateHz).toFixed(1)} s${call.blocked ? `  BLOCKED ${call.blocked}` : ''}  whistles ${call.whistles}  mounts ${call.mountAttempts}  cooldown ${cdSec.toFixed(1)} s${mount ? `  mount ${mount.state}${Number.isFinite(mount.horseDistance) ? ` ${mount.horseDistance.toFixed(1)} tiles` : ''}` : ''}` : '',
+          s.run && s.run.guards.length ? `guards (${config.values.ai.guardCatch}): ${s.run.guards.map((g) => `${g.id} car ${g.car} ${g.state}${g.state === 'suspicious' ? ` ${g.sightTicks}/${config.values.ai.alertAfterTicks}` : ''}`).join(', ')}  cones ${showCones ? (faintCones ? 'faint' : 'on') : 'off'}` : '',
           s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${searchTicks} ticks` : ''}` : '',
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),
         ].filter(Boolean).join('\n'),

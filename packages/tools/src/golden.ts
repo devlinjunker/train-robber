@@ -68,7 +68,7 @@ function previewJump(sim: Sim, config: SimConfig, map: SimMap): BoardingResult |
 }
 
 export function recordGolden(): string {
-  const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map' } });
+  const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map', guardCatch: 'heat-only' } });
   const map = loadMapDef(DEFAULT_MAP);
   const lines: string[] = [];
   const header: RunHeader = {
@@ -83,7 +83,9 @@ export function recordGolden(): string {
   let last = { x: 0, y: 0 };
   let eligibleFor = 0, aboardFor = 0, side: 'left' | 'right' = 'left';
   let looted = false, doneAt = 0;
-  // Ride, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
+  // A guard can stand in the way aboard: when the walk stalls, sidestep for a moment.
+  let prevX = 0, prevY = 0, stuckFor = 0, sidestep = 0;
+  // Ride, boost, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
   // then quick retry behind the train, catch it, commit, fail two jumps and land the third as
   // good; raise heat with the debug key, walk to the nearest loot, search it, whistle for the
   // horse and watch it ride up, then cancel.
@@ -91,6 +93,7 @@ export function recordGolden(): string {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
     if (t === 5) { commands.push({ type: 'startRun' }, { type: 'cancelRun' }); move(0, -127); }
+    else if (t === 30) commands.push({ type: 'boost' });
     else if (t === 60) { commands.push({ type: 'steer', x: -127, y: 0 }); move(127, -127); }
     else if (t === 90) move(0, 127);
     else if (t === 120) commands.push({ type: 'quickRetry' });
@@ -112,11 +115,17 @@ export function recordGolden(): string {
           const pl = p.placement;
           if (l && parseCarFrame(pl.frame)) {
             const dx = l.x - pl.x, dy = l.y - pl.y;
-            if (Math.hypot(dx, dy) > 0.8) move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
+            stuckFor = Math.hypot(pl.x - prevX, pl.y - prevY) < 0.005 ? stuckFor + 1 : 0;
+            prevX = pl.x; prevY = pl.y;
+            if (stuckFor > 10) { sidestep = 30; stuckFor = 0; }
+            const car = parseCarFrame(pl.frame)!.car;
+            const g = s.run?.guards.find((q) => q.car === car && Math.hypot(q.x - pl.x, q.y - pl.y) < 1.5);
+            if (sidestep > 0 && g) { sidestep--; move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, pl.y >= g.y ? 127 : -127); }
+            else if (Math.hypot(dx, dy) > 0.8) move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
             else { move(0, 0); if (!p.interactHeld) commands.push({ type: 'interact', held: true }); }
           }
         } else if (looted && aboardFor === doneAt + 10) { move(0, 0); commands.push({ type: 'whistle' }); }
-        else if (aboardFor === (doneAt ? doneAt + 420 : 920)) { move(0, 0); commands.push({ type: 'cancelRun' }); }
+        else if (aboardFor === (doneAt ? doneAt + 900 : 920)) { move(0, 0); commands.push({ type: 'cancelRun' }); }
       } else if (s.run?.phase !== 'boarding') {
         if (t === 121) side = boardingCheck(s, sim.map, config, trainId, h).side;
         // Like a person, the bot adjusts the keys a few times a second, not every tick.

@@ -7,7 +7,8 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, cancelRun, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
+import { guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 
@@ -46,16 +47,15 @@ export function createSim(opts: SimOptions): Sim {
     configHash: opts.config.hash,
     mapId: map.id,
     mapHash: map.hash,
-    autoCommitHold: null,
     runCount: 0,
     trainCount: 0,
     rng: seedRng(opts.seed),
     persistent: opts.persistent ? clone(opts.persistent) : { wantedLevel: 0, bank: 0, lifetimeEarned: 0 },
     run: null,
     // Every player starts mounted at playerSpawn, stopped, facing up the screen toward the track.
-    world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, mode: 'physical' })) },
+    world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
-      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false,
+      id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false, commitTimer: null, commitHold: null, resumeRuns: [],
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
@@ -117,6 +117,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             debugHeat(ctx, p, c.source);
           } else if (c.type === 'whistle') {
             whistles.add(p.id);
+          } else if (c.type === 'boost') {
+            boost(ctx, p);
           }
         }
       }
@@ -125,17 +127,20 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
       // A horse whose rider is aboard is riderless, steered by the extraction AI.
       collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf, horseIntent(ctx)));
-      // 3b. With `commit.auto`, an idle player commits once a train is in range; with
+      // 3b. The commit prompt's timer and close range commit an idle rider with no key; with
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
       autoSwitchSystem(ctx);
-      // 4. Boarding, 5. movement aboard, 6. extraction (whistles, the horse, mounting), 9. searching
-      // and drops, 10. heat and countdown, 11. run end.
+      // 4. Boarding, 5. movement aboard, 6-7. guards' perception and AI (an alert guard may throw
+      // the player off), 8. extraction (whistles, the horse, mounting), 9. searching and drops,
+      // 10. heat and countdown, 11. run end.
       // Space aboard is the mount jump: split those off before boarding can land anyone this tick.
       const aboardPhase = state.run?.phase === 'aboard' || state.run?.phase === 'extracting';
       const mountJumps = aboardPhase ? jumps : new Set<PlayerId>();
       boardingSystem(ctx, aboardPhase ? new Set<PlayerId>() : jumps);
       walkAboard(state, config);
+      const caught = guardSystem(ctx);
+      if (caught) throwOff(ctx, caught.player, caught.guard.id);
       extractionSystem(ctx, whistles, mountJumps);
       lootSystem(ctx, drops);
       countdownSystem(ctx);

@@ -40,9 +40,14 @@ export function steerToward(h: HorseState, tx: number, ty: number, cos: number, 
   rotate(h, cos, cross < 0 ? -sin : sin);
 }
 
-/** Apply one tick of throttle under the configured model; speeds are tiles/s. */
-export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['horse'], hz: number, cap: number): void {
+/**
+ * Apply one tick of throttle under the configured model; speeds are tiles/s. `top` is the top
+ * speed (raised during a boost) and `cap` the top speed on this ground. Above either, as after a
+ * boost or on entering mud, the horse reins in at its braking rate rather than all at once.
+ */
+export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['horse'], hz: number, cap: number, top: number = cfg.maxSpeed): void {
   const accel = cfg.accel / hz, brake = cfg.brake / hz;
+  const before = h.speed;
   if (cfg.throttleModel === 'cruise') {
     const rate = cfg.cruiseTargetRateTilesPerSec2 / hz;
     h.cruiseTarget += rate * thr;
@@ -56,7 +61,9 @@ export function throttle(h: HorseState, thr: number, cfg: SimConfig['values']['h
   } else if (cfg.throttleModel === 'coast') {
     h.speed -= cfg.dragTilesPerSec2 / hz;
   }
-  if (h.speed > cfg.maxSpeed) h.speed = cfg.maxSpeed;
+  // Never accelerate past the top speed, nor past where a boost left the horse.
+  const ceiling = Math.max(top, before);
+  if (h.speed > ceiling) h.speed = ceiling;
   if (h.speed < 0) h.speed = 0;
   // Slow ground lowers the cap; above it the horse reins in at its braking rate.
   if (h.speed > cap) h.speed = Math.max(cap, h.speed - brake);
@@ -162,14 +169,25 @@ export function ride(
     else if (cfg.steering === 'heading') steerHeading(h, axis(p.move.x), cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
     else steerToward(h, p.steer.x, p.steer.y, cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
 
+    // A boost (handlingModel arcade-boost) raises the top speed and pushes toward it; its
+    // cooldown starts when it ends. A stun holds both clocks. The riderless horse never boosts.
+    const boosting = mounted && h.boostTicks > 0 && !stunned;
     if (!stunned) {
+      if (h.boostTicks > 0) { h.boostTicks -= 1; if (h.boostTicks === 0) h.boostCooldownTicks = cfg.boost.cooldownTicks; }
+      else if (h.boostCooldownTicks > 0) h.boostCooldownTicks -= 1;
+    }
+    if (!stunned) {
+      const top = boosting ? cfg.maxSpeed * cfg.boost.topSpeedScale : cfg.maxSpeed;
       const ground = terrainAt(map, h.x, h.y);
-      const cap = ground === Terrain.Slow ? cfg.maxSpeed * cfg.slowZoneSpeedScale
-        : ground === Terrain.Water ? cfg.maxSpeed * cfg.waterSpeedScale : cfg.maxSpeed;
+      const cap = ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
+        : ground === Terrain.Water ? top * cfg.waterSpeedScale : top;
       // Mud reins the horse in at its braking rate; water drags it down to wading speed at once.
       if (ground === Terrain.Water && h.speed > cap) h.speed = cap;
       if (intent) aiThrottle(h, intent.speed, cfg, hz, cap);
-      else throttle(h, -axis(p.move.y), cfg, hz, cap);
+      else {
+        throttle(h, -axis(p.move.y), cfg, hz, cap, top);
+        if (boosting && h.speed < cap) h.speed = Math.min(cap, h.speed + cfg.boost.accelTilesPerSec2 / hz);
+      }
     }
 
     const x0 = h.x, y0 = h.y, speed = h.speed;

@@ -237,7 +237,8 @@ function resolveMount(ctx: RunCtx, p: PlayerState, h: HorseState): void {
   h.stunTicks = 0;
   p.placement = { frame: WORLD_FRAME, x: h.x, y: h.y, layer: 'ground' };
   endRun(ctx, p, 'extracted', false, cashOut);
-  state.autoCommitHold = trainId;
+  // Only E commits to the train just robbed until the rider leaves its commit range.
+  p.commitHold = trainId;
 }
 
 /**

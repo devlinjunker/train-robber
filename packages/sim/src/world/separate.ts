@@ -116,7 +116,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
       p.placement = { frame: carFrame(entry.trainId, entry.car), x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5, layer: 'interior' };
       // The horse stays in the world, riderless: it runs off and leaves (U4, see extraction.ts).
       const h = state.world.horses.find((q) => q.id === p.horseId);
-      if (h) { h.stunTicks = 0; h.cruiseTarget = 0; }
+      if (h) { h.cruiseTarget = 0; h.stunTicks = 0; h.boostTicks = 0; h.boostCooldownTicks = 0; }
     },
     leaveTrain(state, player) {
       const p = playerOf(state, player);
@@ -137,6 +137,8 @@ export function createWorldModel(map: WorldMap, config: SimConfig): WorldModel {
 
 /** Radius of a walking player, for wall collision in car frames. */
 export const WALKER_RADIUS = 0.3;
+/** Closest a player walks up to a guard: two walker radii. */
+const GUARD_BLOCK = WALKER_RADIUS * 2;
 
 const axis = (v: number) => (v < -127 ? -127 : v > 127 ? 127 : v | 0) / 127;
 
@@ -175,10 +177,16 @@ export function walkAboard(state: GameState, config: SimConfig): void {
     const clear = (x: number, y: number) =>
       open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
       && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
+    // Guards in this car stand in the way: a step may not end closer to one than GUARD_BLOCK, unless it moves away.
+    const guards = state.run?.guards.filter((g) => g.car === f.car) ?? [];
+    const free = (x: number, y: number) => guards.every((g) => {
+      const d2 = (g.x - x) ** 2 + (g.y - y) ** 2;
+      return d2 >= GUARD_BLOCK * GUARD_BLOCK || d2 >= (g.x - pl.x) ** 2 + (g.y - pl.y) ** 2;
+    });
     const nx = pl.x + mx * speed;
-    if (clear(nx, pl.y)) pl.x = nx;
+    if (clear(nx, pl.y) && free(nx, pl.y)) pl.x = nx;
     const ny = pl.y + my * speed;
-    if (clear(pl.x, ny)) pl.y = ny;
+    if (clear(pl.x, ny) && free(pl.x, ny)) pl.y = ny;
     // Through an end door: carry on in the neighbouring car's frame.
     const at = trainPoint(catalog, cars, f.car, pl.x);
     if (at && at.car !== f.car) {
