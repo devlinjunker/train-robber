@@ -494,6 +494,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (ridden && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(ridden.x, ridden.y) < depthOf(gap.car.x, gap.car.y)) {
         distanceCue = { from: project(ridden.x, ridden.y, 0), to: project(gap.x, gap.y, 0), distanceTiles: gap.distance };
       }
+      // Grace (G18): the clock is at zero but you are at a door with the horse alongside, so expiry waits.
+      const graceMax = config.values.countdown.graceTicks;
+      const inGrace = !!s.run && s.run.clockRunning && s.run.countdownSec <= 0 && s.run.graceTicks > 0;
+      const graceSec = config.values.countdown.graceTicks / tickRateHz;
+      const overtimeText = inGrace ? `OUT OF TIME: jump now! ${(Math.max(0, graceMax - s.run!.graceTicks) / tickRateHz).toFixed(1)} s` : null;
       overlay.update({
         width: W, height: H,
         // The meter's anchor: the horse while riding, you aboard for the mount meter.
@@ -504,6 +509,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         landing: landing && aboardPhase && !riding && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
         search: searching ? Math.min(1, searching.ticks / searchTicks) : null,
+        overtime: meter ? overtimeText : null,
         lostLoot: lostLootTextOn && spilled && ridden && (now - spilled.at) / 1000 < LOST_LOOT_SEC
           ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: LOST_LOOT_SEC }
           : null,
@@ -544,12 +550,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
       // The extraction horse's state, for the side panel and the prompt.
       const cdSec = call ? call.cooldownTicks / tickRateHz : 0;
-      // Grace (G18): the clock is at zero but you are at a door with the horse alongside, so expiry waits.
-      const graceMax = config.values.countdown.graceTicks;
-      const inGrace = !!rs && rs.clockRunning && rs.countdownSec <= 0 && rs.graceTicks > 0;
-      const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const horseLine: { text: string; kind: NoticeKind } | null = !call || riding || !aboardPhase ? null
-        : inGrace ? { text: `OUT OF TIME: jump now! ${(Math.max(0, graceMax - rs!.graceTicks) / tickRateHz).toFixed(1)} s grace`, kind: 'bad' }
         : call.state === 'alongside' && rs && rs.clockRunning && rs.countdownSec <= 10 && graceSec > 0
           ? { text: `Horse alongside (${sideName(call.side)}): ${(call.ticks / tickRateHz).toFixed(0)} s. At a door you get ${graceSec.toFixed(0)} s extra when time runs out`, kind: 'warn' }
         : call.state === 'approaching' && call.blocked ? { text: `Horse ${call.blocked === 'no path' ? 'blocked: no way through' : 'stuck'}: F to try the other side`, kind: 'bad' }

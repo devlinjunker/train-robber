@@ -64,6 +64,8 @@ export interface ScreenOverlayInput {
   search: number | null;
   /** "LOST LOOT" rising over the rider after a good mount spilled loot: screen position, what was lost, age and lifetime. */
   lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number } | null;
+  /** The grace text ("OUT OF TIME: jump now! 2.1 s") over the mount meter while grace holds expiry, or null. */
+  overtime?: string | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -90,7 +92,9 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   lost.anchor.set(0.5, 1);
   const lostDetail = new Text({ text: '', style: style(15, GOOD_COLOUR) });
   lostDetail.anchor.set(0.5, 0);
-  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
+  const overtime = new Text({ text: '', style: style(22, 0xff3b30) });
+  overtime.anchor.set(0.5, 1);
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, overtime, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
 
   return {
     root,
@@ -98,10 +102,17 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       drawDistanceCue(cueLine, cueLabel, input.distanceCue ?? null);
       meter.clear();
       speed.visible = false;
+      overtime.visible = false;
       if (input.horse) {
         const w = Math.min(METER_W, input.width * 0.9);
         const x0 = input.horse.x - w / 2, y0 = input.horse.y - METER_ABOVE - METER_H;
         const m = input.meter;
+        if (input.overtime) {
+          // Just above the meter's frame, so it sits where you are already looking.
+          overtime.text = input.overtime;
+          overtime.position.set(input.horse.x, y0 - 12);
+          overtime.visible = true;
+        }
         if (m) {
           // Track, good zone, perfect zone, then the marker; dim while parked out of range.
           const a = m.sweeping ? 1 : 0.45;
