@@ -5,7 +5,7 @@ const base = {
   schemaVersion: 1,
   sim: { tickRateHz: 60 },
   logging: { hashEverySec: 1, events: [] },
-  player: { speedTilesPerSec: 8 },
+  player: { speedTilesPerSec: 8, crouch: { speedScale: 0.25 } },
   commit: { rangeTiles: 12, timerSec: 2, closeRangeTiles: 4, promptSwitch: true, switchTimerSec: 3, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
@@ -23,8 +23,8 @@ const base = {
   },
   ai: {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
-    sight: { rangeTiles: 7, coneHalfAngleDeg: 40 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5 },
-    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
+    sight: { rangeTiles: 7, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3 },
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
   },
   world: { mode: 'separate' },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },

@@ -9,7 +9,7 @@ import { DEFAULT_MAP, loadConfig, loadMapDef } from './content';
 /** Pinned so a version bump at each milestone does not re-record the fixture. */
 export const GOLDEN_GAME_VERSION = '0.0.0';
 
-const TICKS = 2400;
+const TICKS = 3600;
 
 const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v)));
 
@@ -39,8 +39,9 @@ export function riderCommands(sim: Sim, config: SimConfig, trainId: string, side
   const catalog = carCatalog(config);
   const wrap = (g: number) => (g < -route.length / 2 ? g + route.length : g > route.length / 2 ? g - route.length : g);
   // Only some cars have a door on each side: aim for the nearest one there.
-  let gap = Infinity;
+  let gap = Infinity, halfWidth = 3;
   for (const car of carPosesOf(s, sim.map, config, trainId)) {
+    halfWidth = car.halfWidth;
     for (const ep of carEntryPoints(car, catalog)) {
       if (ep.side !== side) continue;
       const g = wrap(routeDistance(route, ep.x, ep.y) - horseD);
@@ -48,9 +49,9 @@ export function riderCommands(sim: Sim, config: SimConfig, trainId: string, side
     }
   }
   if (gap === Infinity) gap = 0;
-  // Steer toward a point a few tiles ahead on the riding line.
+  // Steer toward a point a few tiles ahead on the riding line, a tile out from the car side.
   const aim = trackAt(route, horseD + 6);
-  const off = side === 'left' ? 4 : -4;
+  const off = (halfWidth + 1) * (side === 'left' ? 1 : -1);
   const ax = aim.x + aim.ty * off - h.x, ay = aim.y - aim.tx * off - h.y;
   const n = Math.hypot(ax, ay) || 1;
   const cross = (h.hx * ay - h.hy * ax) / n;
@@ -82,7 +83,7 @@ export function recordGolden(): string {
   const h = s.world.horses[0]!;
   let last = { x: 0, y: 0 };
   let eligibleFor = 0, aboardFor = 0, side: 'left' | 'right' = 'left';
-  let looted = false, doneAt = 0;
+  let looted = false, hunt = 0;
   // A guard can stand in the way aboard: when the walk stalls, sidestep for a moment.
   let prevX = 0, prevY = 0, stuckFor = 0, sidestep = 0;
   // Ride, boost, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
@@ -106,7 +107,7 @@ export function recordGolden(): string {
         const p = s.players[0]!;
         const rp = s.run?.players[1];
         if (aboardFor === 20) commands.push({ type: 'debugHeat' });
-        if (rp && !looted && rp.carried.length > 0) { looted = true; doneAt = aboardFor; commands.push({ type: 'interact', held: false }); }
+        if (rp && !looted && rp.carried.length > 0) { looted = true; commands.push({ type: 'interact', held: false }); }
         if (!looted && aboardFor < 900) {
           // Walk to the nearest loot in this car (in the car's frame: +x toward the front, which
           // is lower cell x), then hold E on it until it is picked up.
@@ -123,7 +124,16 @@ export function recordGolden(): string {
             else if (Math.hypot(dx, dy) > 0.8) move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
             else { move(0, 0); if (!p.interactHeld) commands.push({ type: 'interact', held: true }); }
           }
-        } else if (aboardFor === (doneAt || 900) + 20) { move(0, 0); commands.push({ type: 'cancelRun' }); }
+        } else if (looted && hunt >= 0 && parseCarFrame(p.placement.frame)) {
+          // Creep toward the front crouched for a while, then stand and walk along row 4 into the
+          // guarded cars until a guard raises the alarm; then cancel.
+          hunt++;
+          if (hunt === 1) commands.push({ type: 'crouch', on: true });
+          if (hunt === 120) commands.push({ type: 'crouch', on: false });
+          const dy = 4.5 - p.placement.y;
+          move(127, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
+          if (s.run?.guards.some((g) => g.state === 'alert') || hunt > 1500) { hunt = -1; move(0, 0); commands.push({ type: 'cancelRun' }); }
+        } else if (!looted && aboardFor === 920) { move(0, 0); commands.push({ type: 'cancelRun' }); }
       } else if (s.run?.phase !== 'boarding') {
         if (t === 121) side = boardingCheck(s, sim.map, config, trainId, h).side;
         // Like a person, the bot adjusts the keys a few times a second, not every tick.

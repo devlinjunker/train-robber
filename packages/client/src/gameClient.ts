@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  trainSpeed, meterPosition, meterZones, noiseRadius, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
+  trainSpeed, meterPosition, meterZones, noiseRadius, isSearching, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -118,6 +118,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
   // The footstep ring aboard; ?noiseRing=off hides it.
   const noiseRingOn = params.get('noiseRing') !== 'off';
+  // C aboard: toggle crouch on each press (default), or ?crouch=hold to crouch only while C is held.
+  const crouchMode: 'toggle' | 'hold' = params.get('crouch') === 'hold' ? 'hold' : 'toggle';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -217,6 +219,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     switchTarget: () => switchTarget(sim.state, sim.map, config, sim.state.world.horses[0]!),
     carriedCount: () => sim.state.run?.players[sim.state.players[0]!.id]?.carried.length ?? 0,
     inventoryOpen: () => inventoryOpen,
+    crouchMode,
+    crouched: () => sim.state.run?.players[sim.state.players[0]!.id]?.crouched ?? false,
   };
 
   // Notices from events: the last rejection, jump result or run end.
@@ -261,6 +265,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'LootDropped') show(`Dropped ${itemName(e.item)}`, 'info', 1500);
     else if (e.type === 'SearchCancelled' && e.reason === 'moved away') show('Search lost: you moved away', 'warn', 1500);
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
+    else if (e.type === 'GuardLostTrack') show('A guard lost you and is searching', 'good', 2000);
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
     else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') heardAt.set(e.guard, performance.now());
     else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
@@ -274,7 +279,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(horseCfg.boost.enabled ? ['C boost'] : []),
+    ...(horseCfg.boost.enabled ? ['C boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
     'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
@@ -381,14 +386,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // The run's guards: in iso only those in the open car you are in show (the other cars have roofs).
       const runTrain = s.run ? s.world.trains.find((t) => t.id === s.run!.trainId) ?? null : null;
       const guardPoses = runTrain ? interp.guards(alpha) : [];
-      const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id, (id) => now - (heardAt.get(id) ?? -Infinity) < HEARD_MS) : [];
+      const searchingIds = new Set((s.run?.guards ?? []).filter((g) => isSearching(g, config)).map((g) => g.id));
+      const guardViews = runTrain ? guardsInWorld(guardPoses, cars, runTrain.id, (id) => now - (heardAt.get(id) ?? -Infinity) < HEARD_MS, (id) => searchingIds.has(id)) : [];
+      const crouched = s.run?.players[player.id]?.crouched ?? false;
       const showCones = (showDebug || conesMode !== 'off') && runTrain !== null;
       const faintCones = !showDebug && conesMode === 'faint';
       // The footstep ring aboard: how far a guard can hear you, while there are guards to hear.
       let noise: { x: number; y: number; r: number; running: boolean } | null = null;
       if (noiseRingOn && runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
         const grid = trainGrid(config, runTrain.cars);
-        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
+        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x), crouched);
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
       }
       const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
@@ -396,7 +403,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
           loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
-          cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
+          cars, horse, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car)),
@@ -417,7 +424,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         topdownView.update(cars, {
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
-          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
+          playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, crouched, focus,
           guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
@@ -499,7 +506,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance'
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
-                  : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot` : '';
+                  : crouched ? `Crouched: creeping quietly, hidden behind crates and barrels. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
+                    : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, C crouch, hold E on loot` : '';
       const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
       const weight = carriedWeight(config, carried);

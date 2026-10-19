@@ -97,7 +97,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = {
     health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0,
-    carried: [], search: null, searchLatched: false,
+    carried: [], search: null, searchLatched: false, crouched: false,
   };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
@@ -346,6 +346,7 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   if (result !== 'fail') {
     ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry });
     rp.stumbleTicks = result === 'good' ? b.landing.stumbleTicks : 0;
+    rp.crouched = false;
     setPhase(ctx, p.id, 'aboard');
     return;
   }
@@ -391,6 +392,7 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   h.stunTicks = b.failure.stunTicks;
   rp.search = null;
   rp.stumbleTicks = 0;
+  rp.crouched = false;
   ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
   // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
   const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
@@ -405,6 +407,13 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
     rp.health = Math.max(0, rp.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'thrownOff' });
   }
+}
+
+/** C aboard: crouch or stand up. Refused unless the player is walking the committed train. */
+export function crouch(ctx: RunCtx, p: PlayerState, on: boolean): void {
+  const rp = ctx.state.run?.players[p.id];
+  if (!rp || ctx.state.run!.phase !== 'aboard' || !parseCarFrame(p.placement.frame)) return reject(ctx, p.id, 'crouch', 'not aboard');
+  rp.crouched = on;
 }
 
 /**

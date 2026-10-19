@@ -2,7 +2,7 @@
 // and the horse boost.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, createSim, entryPointWorld, gridWalkable, guardCount, lineOfSight, toTrain, trainGrid,
+  canSee, createSim, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
   type Command, type GameState, type GuardState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { asciiCar, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
@@ -21,10 +21,16 @@ const WATCH_CAR = asciiCar('guarded', ['#######DD#######', '#.......#......#', '
   guardSpawns: [{ cell: [12, 1], facing: 'left' }],
 });
 
+/** A car with one crate in the middle of row 2, for cover; the guard stands watch. */
+const COVER_CAR = asciiCar('guarded', ['#######DD#######', '#..............#', 'D.......C......D', 'D..............D', '#..............#', '#######DD#######'], {
+  entryPoints: [{ id: 'side-left', side: 'left', cell: [7, 0] }, { id: 'front', side: 'front', cell: [0, 2] }, { id: 'rear', side: 'rear', cell: [15, 2] }],
+  guardSpawns: [{ cell: [12, 2], facing: 'left' }],
+});
+
 function guardConfig(more: { ai?: Partial<Values['ai']>; train?: Partial<Values['trains'][string]>; horse?: Partial<Values['horse']> } = {}): SimConfig {
   const base = testConfig(more.horse ?? {});
   return testConfig(more.horse ?? {}, 'guard001', {
-    carTemplates: { ...TEST_CARS, 'guard-car': GUARD_CAR, 'watch-car': WATCH_CAR },
+    carTemplates: { ...TEST_CARS, 'guard-car': GUARD_CAR, 'watch-car': WATCH_CAR, 'cover-car': COVER_CAR },
     trains: { ...base.values.trains, mail: { ...TEST_MAIL_TRAIN, carType: 'guarded', layouts: ['guard-car'], carCount: 1, loot: undefined, guards: { base: 1 }, ...more.train } },
     trainMix: { ...base.values.trainMix, mailTrain: 'mail' },
     ai: { ...base.values.ai, ...more.ai },
@@ -250,6 +256,99 @@ describe('thrownOffLootShare', () => {
       expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
       expect(S(sim).run!.players[1]!.carried).toHaveLength(kept);
     }
+  });
+});
+
+describe('crouching and cover', () => {
+  const cfg = guardConfig({ train: { layouts: ['cover-car'] } });
+  const grid = trainGrid(cfg, ['engine', 'cover-car']);
+  const ai = cfg.values.ai;
+  const at = (x: number) => toTrain(grid, 1, x);
+
+  it('a crate between them hides a crouched player, not a standing one, and only when it is on the line', () => {
+    // Guard at (12.5, 2.5) facing the front; the crate is cell (8, 2).
+    expect(canSee(grid, ai, at(12.5), 2.5, -1, 0, at(6.5), 2.5)).toBe(true);
+    expect(canSee(grid, ai, at(12.5), 2.5, -1, 0, at(6.5), 2.5, true)).toBe(false);
+    // Crouched in the next row, the line passes beside the crate.
+    expect(canSee(grid, ai, at(12.5), 2.5, -1, 0, at(6.5), 3.6, true)).toBe(true);
+    // Raising crouchCoverMin past the crate's 0.5 makes it too low to hide behind.
+    expect(canSee(grid, { ...ai, sight: { ...ai.sight, crouchCoverMin: 0.6 } }, at(12.5), 2.5, -1, 0, at(6.5), 2.5, true)).toBe(true);
+  });
+
+  it('C aboard crouches: no spotting from behind cover, a slow creep however hard you push, and almost no noise', () => {
+    const sim = aboardAt(cfg, 6.5, 2.5);
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    step(sim, { type: 'crouch', on: true });
+    expect(S(sim).run!.players[1]!.crouched).toBe(true);
+    expect(ofType(steps(sim, 30), 'PlayerSpotted')).toHaveLength(0);
+    // Running crouched toward the front: player.crouch.speedScale of full speed.
+    const p = S(sim).players[0]!;
+    const x0 = p.placement.x;
+    steps(sim, 10, { type: 'move', x: 127, y: 0 });
+    expect(x0 - p.placement.x).toBeCloseTo(10 * cfg.values.player.speedTilesPerTick * cfg.values.player.crouch.speedScale, 6);
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), true)).toBeCloseTo(ai.noise.crouchRadiusTiles, 9);
+    // Standing up in the open: seen.
+    S(sim).players[0]!.placement.x = 6.5;
+    step(sim, { type: 'move', x: 0, y: 0 });
+    expect(ofType(step(sim, { type: 'crouch', on: false }), 'PlayerSpotted')).toHaveLength(1);
+  });
+
+  it('crouched footsteps behind a guard go unheard where running ones are heard', () => {
+    const watch = guardConfig({ train: { layouts: ['watch-car'] } });
+    const sim = aboardAt(watch, 14.5, 2.5);
+    placeGuard(sim, 11.5, 2.5, -1, 0);
+    step(sim, { type: 'crouch', on: true });
+    // Pushing into the rear wall at full: crouched, it carries 0.3 tiles, not 5.
+    expect(ofType(steps(sim, 30, { type: 'move', x: -127, y: 0 }), 'GuardStateChanged')).toHaveLength(0);
+  });
+
+  it('crouch is refused off the train and cleared when you leave it', () => {
+    const sim = committed(cfg);
+    expect(ofType(step(sim, { type: 'crouch', on: true }), 'CommandRejected')[0]).toMatchObject({ command: 'crouch', reason: 'not aboard' });
+    const thrown = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
+    const aboard = aboardAt(thrown, 5.5, 2.5);
+    placeGuard(aboard, 12.5, 2.5, -1, 0);
+    // Seen standing, then crouched in the open: the guard still sees and catches.
+    steps(aboard, 30);
+    step(aboard, { type: 'crouch', on: true });
+    expect(ofType(steps(aboard, 60 * 6), 'ThrownOff')).toHaveLength(1);
+    expect(S(aboard).run!.players[1]!.crouched).toBe(false);
+  });
+});
+
+describe('losing the player', () => {
+  it('a chasing guard with no sight or sound of the player for loseSightSec gives up: still alert, it walks at patrol speed to where it last knew they were and does not catch', () => {
+    const cfg = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
+    // The player is out of range in the far corner, standing still.
+    const sim = aboardAt(cfg, 1.5, 1.5);
+    const g = placeGuard(sim, 14.5, 3.5, 1, 0);
+    Object.assign(g, { state: 'alert', spotted: true, lastKnown: { car: 1, x: 9.5, y: 3.5 } });
+    const ai = cfg.values.ai;
+    // Chasing at chase speed toward the last known spot first.
+    steps(sim, 10);
+    expect(14.5 - guard(sim).x).toBeGreaterThan(9 * ai.chaseSpeedTilesPerTick);
+    const ev = steps(sim, ai.loseSightTicks - 10);
+    expect(ofType(ev, 'GuardLostTrack')).toEqual([{ type: 'GuardLostTrack', tick: S(sim).tick - 1, guard: 0 }]);
+    expect(isSearching(guard(sim), cfg)).toBe(true);
+    expect(guard(sim).state).toBe('alert');
+    // Searching, it catches no one, and it drops back to suspicious once alertCalmTicks pass.
+    const later = steps(sim, ai.alertCalmTicks - ai.loseSightTicks + 2);
+    expect(ofType(later, 'ThrownOff')).toHaveLength(0);
+    expect(ofType(later, 'GuardStateChanged').map((e) => [e.from, e.to, e.cause])).toEqual([['alert', 'suspicious', 'calm']]);
+    expect(isSearching(guard(sim), cfg)).toBe(false);
+  });
+
+  it('seeing the player again while searching resumes the chase', () => {
+    const cfg = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
+    const sim = aboardAt(cfg, 1.5, 1.5);
+    const g = placeGuard(sim, 12.5, 2.5, -1, 0);
+    Object.assign(g, { state: 'alert', spotted: true, lastKnown: { car: 1, x: 12.5, y: 2.5 }, lostTicks: cfg.values.ai.loseSightTicks });
+    expect(isSearching(g, cfg)).toBe(true);
+    // Step into view in front of it.
+    S(sim).players[0]!.placement = { ...S(sim).players[0]!.placement, x: 9.5, y: 2.5 };
+    step(sim);
+    expect(guard(sim).lostTicks).toBe(0);
+    expect(ofType(steps(sim, 60 * 3), 'ThrownOff')).toHaveLength(1);
   });
 });
 

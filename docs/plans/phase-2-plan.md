@@ -82,6 +82,16 @@ After Devlin's M2 playtest (2026-10-14): search time per item (letters 0.8 s, la
 
 Built in the M3 PR ([#28](https://github.com/devlinjunker/train-robber/pull/28), branch claude/phase-2-m3-guards-boost, v0.2.3). The mail express carries 3 guards (`trains.mail-express.guards.base`); the wanted-level bonus reads through `wantedGuardBonus`, which returns 0 until M5. Guards turn amber when suspicious and red when alert. Sight is 7 tiles in an 80° cone, and hearing is 1.5 tiles walking and 5 running, times the floor's noise. These guard numbers are Claude's picks and are all config under `ai.*`. Boost is on C. After Devlin's playtest on 2026-10-18: chase speed is 4 tiles/s, being thrown off loses half your carried items, picked at random (`ai.thrownOffLootShare`), sight cones are drawn faint by default (`?cones=on` full, `?cones=off` hidden), a footstep ring (`?noiseRing=off` hides it) and an ear over the guard's head show when noise gives you away, and boosting kicks up dust (`?boostDust=` scales it). Switching trains now regenerates loot as well as guards.
 
+### Sneaking: outside the train and stealth (added 2026-10-17)
+
+After playtesting M3, Devlin wants to sneak past guards. The design and its seven decisions are in [Outside the train: roofs, ledges and stealth](https://claude.ai/code/artifact/5a6a4ecc-15cc-4747-9326-52c30881cc98). It pulls the roof forward from Phase 3 (changes G29) and grows cars from 16 x 6 to 28 x 7. Thrown-off became the default guard catch, with about 2 guards per 3 cars. Three PRs, in order, each after the one before; none waits on M4:
+
+- [ ] Stealth inside and bigger cars: crouch (C aboard), cover of 0.4 or more blocks sight to a crouched player, 28 x 7 layouts (cars about 5 tiles tall, visual only), chasing guards give up after `ai.loseSightSec` and stay alert
+- [ ] Platforms and side ledges: outside cells, guards see ledges through windows and follow you out, trackside rocks scrape you off, a fall lands you on the horse like thrown-off
+- [ ] Roof: ladders at end platforms, gap jumps with hang-and-climb, leaning toward the edge on curves (a skill check, never random), loud footsteps for guards below, guards climb up after you
+
+Side ladders for boarding straight onto the roof, and landing on foot after a fall, stay for later (wiki Ideas page).
+
 ### M4: Extraction
 
 - [ ] `whistle` (F) moves the run to `extracting` and draws the arrival delay from the `horse` stream (U4)
