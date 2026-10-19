@@ -97,7 +97,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,
         alongsideRangeTiles: 3, mountRangeTiles: 4, doorReachTiles: 1.5, meter: { sweepPeriodTicks: 111, zoneWidths: [0.1, 0.25] },
-        mountSpill: 'random', spillShare: 0.3, arrivalTimer: false, pathCellTiles: 3, stuckTicks: 180, passThroughBeyondTiles: 30, goodMountStunTicks: 60,
+        mountSpill: 'random', spillShare: 0.3, pathCellTiles: 3, stuckTicks: 180, passThroughBeyondTiles: 30, goodMountStunTicks: 60,
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },

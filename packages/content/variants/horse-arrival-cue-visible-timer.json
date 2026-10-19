@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "visible-timer",
-  "group": "horseArrivalCue",
-  "label": "See the horse coming, with a HUD timer",
-  "question": "Is seeing the horse enough, or is a timer needed?",
-  "patch": { "extraction": { "arrivalTimer": true } }
-}

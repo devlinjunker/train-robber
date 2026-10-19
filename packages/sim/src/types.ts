@@ -434,8 +434,6 @@ export interface SimConfig {
       mountSpill: MountSpill;
       /** Share of carried value a good mount loses under `mountSpill: share`. */
       spillShare: number;
-      /** horseArrivalCue `visible-timer`: the HUD shows the drawn delay counting down. */
-      arrivalTimer: boolean;
       /** Size of the coarse grid the horse paths around blocked and water tiles on. */
       pathCellTiles: number;
       /** No progress toward its target for this long and the horse counts as stuck. */

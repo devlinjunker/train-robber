@@ -109,8 +109,6 @@ export const GameSchema = z.object({
     mountSpill: z.enum(['random', 'heaviest', 'share']),
     /** Under `share`, the share of carried value a good mount loses. */
     spillShare: fraction,
-    /** horseArrivalCue variant group (G11): `visible-timer` adds a HUD timer counting down the drawn delay. */
-    arrivalTimer: z.boolean(),
     /** Cell size of the coarse grid the horse paths around blocked and water tiles on. */
     pathCellTiles: z.number().int().positive(),
     /** No progress toward the player's car for this long and the HUD says the horse is blocked. */

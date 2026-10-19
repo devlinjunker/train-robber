@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "arrival-timer",
-  "extends": "alpha-default",
-  "variants": {
-    "horseArrivalCue": "visible-timer"
-  }
-}

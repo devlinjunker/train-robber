@@ -90,7 +90,7 @@ Built in the M3 PR ([#28](https://github.com/devlinjunker/train-robber/pull/28),
 - [x] Mount jump on the boarding meter at its own difficulty (`extraction.meter.*`); perfect mounts clean, good (amber) mounts but spills loot (`mountSpill` variant: `random`, `heaviest`, `share`; G15), fail leaves you on the train with failure damage to retry (G14)
 - [x] `extracted` outcome when the mount lands; loot is cashed out at that moment
 - [x] Grace (G18): while the horse is alongside and you are within reach of a door on its side, expiry waits up to `countdown.graceSec`
-- [x] Events `HorseWhistled`, `HorseArrived`, `HorseDeparted`; horse visible approaching with hoofbeats when close; `horseArrivalCue` variant (`visible`, `visible-timer`) adds a HUD timer (G11)
+- [x] Events `HorseWhistled`, `HorseArrived`, `HorseDeparted`; horse visible approaching with hoofbeats when close; the `horseArrivalCue` timer variant was built, then removed after the M4 playtest (2026-10-19): seeing the horse is enough (G11)
 
 Built in PR [#29](https://github.com/devlinjunker/train-robber/pull/29), branch `claude/phase-2-m4-extraction` (v0.2.4). Also there: `HorseSideChanged`, `HorseBlocked`, `MountAttempt` and `LootSpilled` events, `RunEnded.cashOut`, presets `arrival-timer`, `spill-heaviest` and `spill-share`, and an Extracted column on the Playtests page. The horse starts behind your car by the distance the delay closes at 14 against 9 tiles/s, at least 4 tiles behind the last car. Claude's picks to playtest: drop back 3 s, alongside within 3 tiles, mount reach 4 tiles, door reach 1.5 cells, share spill 30%. Whichever of M3 and M4 merges second makes `guardCatch: thrown-off` place the horse beside you: done when M3 merged into it (2026-10-19), and guards keep watching while you extract.
 
@@ -138,7 +138,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | handlingModel | Variant group | arcade-boost, arcade | Is the horse boost worth it (G20) | M3 |
 | Boost values | Values | 1.5 s, +40%, 6 s cooldown | Boost tuning | M3 |
 | mountSpill | Variant group | random, heaviest, share | What a good (amber) mount costs (G15) | M4 |
-| horseArrivalCue | Variant group | visible, visible-timer | Is a visible horse enough, or is a timer needed (G11) | M4 |
+| horseArrivalCue | Removed 2026-10-19 | (was visible, visible-timer) | Answered in the M4 playtest: seeing the horse is enough (G11) | M4 |
 | Horse delay, alongside, re-whistle, run-off, lane | Values | 5-20 s (sets the spawn distance), 10 s, 5 s, 3 s, 2 tiles | Extraction tension tuning (G12, G24) | M4 |
 | Mount meter | Values | 3% perfect, 15% good, 1.85 s | Mount difficulty | M4 |
 | wanted.forceLevel (?wanted=) | Value | none; forced runs save nothing | Play any wanted level without grinding (G9) | M5 |

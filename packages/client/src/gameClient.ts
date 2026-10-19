@@ -283,7 +283,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'SearchCancelled' && e.reason === 'moved away') show('Search lost: you moved away', 'warn', 1500);
     else if (e.type === 'HorseWhistled') {
       audio.play('whistle');
-      show(ex.arrivalTimer ? `You whistle: your horse comes up the ${sideName(e.side)} side in ${e.delaySec.toFixed(0)} s` : `You whistle: your horse comes up the ${sideName(e.side)} side`, 'info', 2500);
+      show(`You whistle: your horse comes up the ${sideName(e.side)} side`, 'info', 2500);
     } else if (e.type === 'HorseSideChanged') { audio.play('whistle'); show(`You whistle: your horse crosses to the ${sideName(e.to)} side`, 'info', 2000); }
     else if (e.type === 'HorseArrived') show(`Your horse is alongside on the ${sideName(e.side)}: get to a door and Space to jump`, 'good', 2500);
     else if (e.type === 'HorseDeparted') show(`Your horse drops back. F whistles again in ${e.cooldownSec.toFixed(0)} s`, 'warn', 2500);
@@ -544,9 +544,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
       // The extraction horse's state, for the side panel and the prompt.
       const cdSec = call ? call.cooldownTicks / tickRateHz : 0;
+      // Grace (G18): the clock is at zero but you are at a door with the horse alongside, so expiry waits.
+      const graceMax = config.values.countdown.graceTicks;
+      const inGrace = !!rs && rs.clockRunning && rs.countdownSec <= 0 && rs.graceTicks > 0;
+      const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const horseLine: { text: string; kind: NoticeKind } | null = !call || riding || !aboardPhase ? null
+        : inGrace ? { text: `OUT OF TIME: jump now! ${(Math.max(0, graceMax - rs!.graceTicks) / tickRateHz).toFixed(1)} s grace`, kind: 'bad' }
+        : call.state === 'alongside' && rs && rs.clockRunning && rs.countdownSec <= 10 && graceSec > 0
+          ? { text: `Horse alongside (${sideName(call.side)}): ${(call.ticks / tickRateHz).toFixed(0)} s. At a door you get ${graceSec.toFixed(0)} s extra when time runs out`, kind: 'warn' }
         : call.state === 'approaching' && call.blocked ? { text: `Horse ${call.blocked === 'no path' ? 'blocked: no way through' : 'stuck'}: F to try the other side`, kind: 'bad' }
-          : call.state === 'approaching' ? { text: ex.arrivalTimer ? `Horse coming (${sideName(call.side)}): ${Math.max(0, call.delaySec - (s.tick - call.whistleTick) / tickRateHz).toFixed(0)} s` : `Horse coming (${sideName(call.side)})`, kind: 'info' }
+          : call.state === 'approaching' ? { text: `Horse coming (${sideName(call.side)})`, kind: 'info' }
             : call.state === 'alongside' ? { text: `Horse alongside (${sideName(call.side)}): ${(call.ticks / tickRateHz).toFixed(0)} s`, kind: 'good' }
               : (call.state === 'leaving' || call.state === 'away') && cdSec > 0 ? { text: `Horse dropping back: whistle in ${cdSec.toFixed(1)} s`, kind: 'warn' }
                 : null;
