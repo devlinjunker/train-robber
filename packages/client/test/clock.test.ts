@@ -52,5 +52,10 @@ describe('debug heat keys', () => {
     expect(actionFor('KeyM', false)).toBe('toggleMinimap');
     const cmds = new InputMapper().commands({ held: new Set(), actions: ['heat', 'alarm'] }, ctx);
     expect(cmds).toEqual([{ type: 'debugHeat' }, { type: 'debugHeat', source: 'alarmRaised' }]);
+  });  it('F cashes out on the horse and sends nothing aboard', () => {
+    expect(actionFor('KeyF', false)).toBe('cashOut');
+    expect(new InputMapper().commands({ held: new Set(), actions: ['cashOut'] }, ctx)).toEqual([{ type: 'cashOut' }]);
+    expect(new InputMapper().commands({ held: new Set(), actions: ['cashOut'] }, { ...ctx, aboard: true })).toEqual([]);
+    expect(new InputMapper().commands({ held: new Set(), actions: ['retry'] }, ctx)).toEqual([{ type: 'quickRetry' }]);
   });
 });

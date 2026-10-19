@@ -34,6 +34,8 @@ export interface TrainPointer {
   committed: boolean;
   /** The train Tab would switch the run to. */
   candidate: boolean;
+  /** A cash-out shut its doors: the label (with seconds until they reopen) and where it sits above the train. */
+  shut?: { text: string; x: number; y: number };
 }
 
 /** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
@@ -170,9 +172,24 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         let label = labels[used];
         if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
         label.visible = true;
-        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t`;
-        label.style.fill = colour;
+        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t${t.shut ? `\n${t.shut.text}` : ''}`;
+        label.style.fill = t.shut ? SHUT_COLOUR : colour;
         label.position.set(ax - ux * 34, ay - uy * 26);
+        keepOnScreen(label, input.width, input.height);
+        used++;
+      }
+      // Above a shut train on screen: how long until its doors reopen.
+      for (const t of input.trains) {
+        if (!t.shut) continue;
+        const inside = t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height;
+        if (!inside) continue;
+        let label = labels[used];
+        if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
+        label.visible = true;
+        label.text = t.shut.text;
+        label.style.fill = SHUT_COLOUR;
+        label.position.set(t.shut.x, t.shut.y);
+        keepOnScreen(label, input.width, input.height);
         used++;
       }
       for (let i = used; i < labels.length; i++) labels[i]!.visible = false;
@@ -181,6 +198,14 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
 }
 
 const CUE_COLOUR = 0xffffff;
+
+/** Slide a centred label back inside the screen, with a small margin. */
+function keepOnScreen(label: Text, w: number, h: number): void {
+  const hw = label.width / 2 + 4, hh = label.height / 2 + 4;
+  label.position.set(Math.min(w - hw, Math.max(hw, label.x)), Math.min(h - hh, Math.max(hh, label.y)));
+}
+/** Labels on a train a cash-out shut. */
+const SHUT_COLOUR = 0xff8a6a;
 
 /**
  * A line on the ground from the horse to the side of the car, drawn over the car so it shows on

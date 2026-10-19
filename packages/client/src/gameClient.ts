@@ -4,7 +4,7 @@ import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   trainSpeed, meterPosition, meterZones, noiseRadius, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
-  type Command, type Sim, type SimEvent,
+  type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
@@ -166,6 +166,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Placeholder sounds: countdown ticks, heat gains, the alarm sting and expiry. U or ?mute=1 mutes.
   const audio = createAudioBus(window, params.get('mute') === '1');
   let lastTick: number | null = null;
+  let lastClosed = new Set<string>();
+  // "doors shut 23 s" (or "doors shut" for the session) for a train a cash-out closed, else null.
+  const doorsShutText = (t: TrainState): string | null => {
+    if (!doorsClosed(sim.state, t)) return null;
+    const until = t.doorsClosed!.untilTick;
+    return until === null ? 'doors shut' : `doors shut ${Math.ceil((until - sim.state.tick) / tickRateHz)} s`;
+  };
   // Volumes and how often the countdown ticks: `audio` in game.json, e.g. ?set=audio.tickVolume=0.3.
   const audioCfg = config.values.audio;
   // The inventory panel (I): what you carry, numbered so 1 to 9 drop that item.
@@ -256,7 +263,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
       show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
-    } else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') show(`Got away: $${e.cashOut} banked${config.values.cashOut.closeDoors ? '. That train has shut its doors' : ''}`, 'good', 3500);
+    } else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
+      const c = config.values.cashOut;
+      show(`Got away: $${e.cashOut} banked${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
+    }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
@@ -394,8 +404,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
       }
-      // Trains a cash-out shut: their doors are drawn closed.
+      // Trains a cash-out shut: their doors are drawn closed, and a notice says when they reopen.
       const closedTrains = new Set(s.world.trains.filter((t) => doorsClosed(s, t)).map((t) => t.id));
+      for (const id of lastClosed) if (!closedTrains.has(id)) show(`${trainName(id) ?? 'The train you robbed'} has opened its doors again`, 'info', 3500);
+      lastClosed = closedTrains;
       const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
@@ -444,7 +456,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
+          const shutText = doorsShutText(t);
+          const shutAt = shutText ? project(best.x, best.y, iso ? 4.2 + isoWorld.groundZ(best.x, best.y) : 0) : null;
+          trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.

@@ -156,14 +156,17 @@ export class InputMapper {
       else if (a === 'heat') out.push({ type: 'debugHeat' });
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
       else if (a === 'boost') out.push({ type: 'boost' });
-      else if (a === 'cashOut' && !ctx.aboard) out.push({ type: 'cashOut' });
+      else if (a === 'cashOut') {
+        // Aboard, F stays free for the whistle (M4).
+        if (!ctx.aboard) out.push({ type: 'cashOut' });
+      }
       else if (a === 'drop') out.push({ type: 'drop', slot: Math.max(0, ctx.carriedCount() - 1) });
       else if (a.startsWith('slot')) {
         // Number keys only drop while the inventory is open, and only an item that is there.
         const slot = Number(a.slice(4)) - 1;
         if (ctx.inventoryOpen() && slot < ctx.carriedCount()) out.push({ type: 'drop', slot });
       }
-      else out.push({ type: 'quickRetry' });
+      else if (a === 'retry') out.push({ type: 'quickRetry' });
     }
     return out;
   }
