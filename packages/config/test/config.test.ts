@@ -28,7 +28,7 @@ const base = {
   },
   extraction: {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
-    doorReachTiles: 1.5, meter: { sweepPeriodSec: 1.85, zoneWidths: [0.03, 0.15] }, mountSpill: 'random', spillShare: 0.3, arrivalTimer: false, pathCellTiles: 3, stuckSec: 3,
+    doorReachTiles: 1.5, meter: { sweepPeriodSec: 1.85, zoneWidths: [0.03, 0.15] }, mountSpill: 'random', spillShare: 0.3, arrivalTimer: false, pathCellTiles: 3, stuckSec: 3, passThroughBeyondTiles: 30, goodMountStunSec: 1,
   },
   world: { mode: 'separate' },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },

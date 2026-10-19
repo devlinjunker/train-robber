@@ -2,7 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains off screen.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
-import { COMMITTED_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
+import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
 
 /**
  * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
@@ -62,6 +62,8 @@ export interface ScreenOverlayInput {
   distanceCue?: DistanceCue | null;
   /** Progress of the search in progress, 0 to 1, or null. */
   search: number | null;
+  /** "LOST LOOT" rising over the rider after a good mount spilled loot: screen position, what was lost, age and lifetime. */
+  lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number } | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -84,7 +86,11 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const cueLabel = new Text({ text: '', style: style(16) });
   cueLabel.anchor.set(0.5);
   const searchBar = new Graphics();
-  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, searchBar, banner, bannerDetail);
+  const lost = new Text({ text: 'LOST LOOT', style: style(26, GOOD_COLOUR) });
+  lost.anchor.set(0.5, 1);
+  const lostDetail = new Text({ text: '', style: style(15, GOOD_COLOUR) });
+  lostDetail.anchor.set(0.5, 0);
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
 
   return {
     root,
@@ -117,6 +123,17 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       }
 
       banner.visible = bannerDetail.visible = false;
+      lost.visible = lostDetail.visible = false;
+      const ll = input.lostLoot;
+      if (ll && ll.ageSec < ll.sec) {
+        // Rise from the rider's head and fade over the last third, like the landing banner.
+        const t = ll.ageSec / ll.sec;
+        lost.alpha = lostDetail.alpha = t < 2 / 3 ? 1 : 1 - (t - 2 / 3) * 3;
+        lost.position.set(ll.x, ll.y - 28 - t * 30);
+        lostDetail.text = ll.detail;
+        lostDetail.position.set(ll.x, ll.y - 24 - t * 30);
+        lost.visible = lostDetail.visible = true;
+      }
       stumbleBar.clear();
       searchBar.clear();
       if (input.player) {

@@ -56,6 +56,10 @@ const HEAT_NOTICE_MS = 2500, HEAT_NOTICES = 4, ALARM_EDGE_MS = 2000;
 export const HOOFBEAT_TILES = 25;
 /** Seconds between hoofbeats: a gallop of three quick beats and a gap. */
 const HOOF_RHYTHM = [0.09, 0.09, 0.27];
+/** Hoofbeat volume while you ride, against 1 for the called horse right beside you. */
+export const RIDE_HOOF_VOLUME = 0.3;
+/** How long "LOST LOOT" floats over the rider after a good mount spills loot. */
+export const LOST_LOOT_SEC = 2;
 
 
 /** Numbers only the host knows, for the debug readout. */
@@ -122,6 +126,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
   // The footstep ring aboard; ?noiseRing=off hides it.
   const noiseRingOn = params.get('noiseRing') !== 'off';
+  // "LOST LOOT" over your head when a good mount spills loot; ?lostLootText=off hides it.
+  const lostLootTextOn = params.get('lostLootText') !== 'off';
+  // Hoofbeats while you ride, quieter than the called horse's: ?rideHoofbeats= scales them (0 is silent).
+  const rideHoofParam = Number(params.get('rideHoofbeats') ?? 1);
+  const rideHoofScale = Number.isFinite(rideHoofParam) && rideHoofParam >= 0 ? rideHoofParam : 1;
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -242,6 +251,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const heardAt = new Map<number, number>();
   // Items lost to the last throw off, for its notice.
   let lostOnThrow: string[] = [];
+  // The last good mount's spill, for the "LOST LOOT" floater over the rider.
+  let spilled: { detail: string; at: number } | null = null;
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -281,7 +292,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'MountAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
       show(`mount ${e.attempt}: ${e.result === 'perfect' ? 'PERFECT - clean getaway' : 'good - you lose some loot'}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
-    } else if (e.type === 'LootSpilled' && e.items.length) show(`Spilled ${e.items.map(itemName).join(', ')} ($${e.value})`, 'warn', 2500);
+    } else if (e.type === 'LootSpilled') {
+      const what = e.items.length ? `${e.items.map(itemName).join(', ')} ($${e.value})` : `$${e.value}`;
+      show(`Spilled ${what}`, 'warn', 2500);
+      spilled = { detail: `-${what}`, at: performance.now() };
+    }
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
     else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') heardAt.set(e.guard, performance.now());
@@ -449,7 +464,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         // Top-down keeps the world's orientation; aboard, it follows the player's place on the car.
         topdownView.update(cars, {
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
-          horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : null,
+          horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : horseState.stunTicks > 0 && flashOn(now / 1000) ? 0xffffff : null,
           playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
           guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise,
         });
@@ -489,6 +504,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         landing: landing && aboardPhase && !riding && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
         search: searching ? Math.min(1, searching.ticks / searchTicks) : null,
+        lostLoot: lostLootTextOn && spilled && ridden && (now - spilled.at) / 1000 < LOST_LOOT_SEC
+          ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: LOST_LOOT_SEC }
+          : null,
       });
       if (minimap.root.visible) {
         minimap.update({
@@ -508,7 +526,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
       heatNotices = heatNotices.filter((n) => n.until > now);
 
-      // Hoofbeats while the riderless horse is near and moving, louder as it closes.
+      // Hoofbeats while the riderless horse is near and moving, louder as it closes; quieter
+      // ones while you ride, slower at low speed (Devlin, M4 playtest).
       if (riderless && horse && aboardAt && horseState.speed > 0.5) {
         const d = Math.hypot(horse.x - aboardAt.x, horse.y - aboardAt.y);
         if (d < HOOFBEAT_TILES && now >= hoofAt) {
@@ -516,6 +535,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           hoofAt = now + HOOF_RHYTHM[hoofStep % HOOF_RHYTHM.length]! * 1000;
           hoofStep++;
         }
+      } else if (ridden && rideHoofScale > 0 && horseState.speed > 0.5 && now >= hoofAt) {
+        const pace = Math.min(1, horseState.speed / horseCfg.maxSpeed);
+        audio.play('hoof', RIDE_HOOF_VOLUME * rideHoofScale * (0.5 + 0.5 * pace));
+        hoofAt = now + (HOOF_RHYTHM[hoofStep % HOOF_RHYTHM.length]! / Math.max(0.4, pace)) * 1000;
+        hoofStep++;
       }
 
       // The extraction horse's state, for the side panel and the prompt.

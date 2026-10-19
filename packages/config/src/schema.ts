@@ -115,6 +115,10 @@ export const GameSchema = z.object({
     pathCellTiles: z.number().int().positive(),
     /** No progress toward the player's car for this long and the HUD says the horse is blocked. */
     stuckSec: positive,
+    /** Farther than this from the player's car (off screen at the run zoom), the riderless horse passes through rocks and water so it cannot get stuck; 0 turns that off. */
+    passThroughBeyondTiles: z.number().min(0),
+    /** A good mount stuns the horse this long (no steering, speed held), as a failed boarding jump does. */
+    goodMountStunSec: z.number().min(0),
   }).strict(),
   countdown: z.object({
     /** The run's clock (phase 2). Off, a run never expires. */

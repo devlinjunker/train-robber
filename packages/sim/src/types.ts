@@ -440,6 +440,10 @@ export interface SimConfig {
       pathCellTiles: number;
       /** No progress toward its target for this long and the horse counts as stuck. */
       stuckTicks: number;
+      /** Farther than this from its lane point (off screen), the riderless horse ignores rocks and water; 0 never. */
+      passThroughBeyondTiles: number;
+      /** How long a good mount stuns the horse. */
+      goodMountStunTicks: number;
     };
     countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number };
     heat: {

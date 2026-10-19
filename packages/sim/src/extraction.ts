@@ -146,45 +146,59 @@ export function horseIntent(ctx: RunCtx): (p: PlayerState, h: HorseState) => Hor
     }
     const lane = laneTarget(state, map, config, p, call.side);
     if (!lane) return null;
-    // On the wrong side: drop back past the last car on this side, then cross behind it.
-    if (horseSide(cars, h) !== call.side) {
-      const last = cars[cars.length - 1]!;
-      const lx = (h.x - last.x) * last.ux + (h.y - last.y) * last.uy;
-      const bx = last.x - last.ux * (last.halfLength + CROSS_BEHIND), by = last.y - last.uy * (last.halfLength + CROSS_BEHIND);
-      const out = last.halfWidth + config.values.extraction.laneOffsetTiles;
-      const behind = lx < -(last.halfLength + 2);
-      const s = (behind ? call.side === 'left' : call.side !== 'left') ? 1 : -1;
-      return { tx: bx + last.uy * out * s, ty: by - last.ux * out * s, speed: behind ? trainV : Math.max(0, trainV - 4) };
-    }
-    // Round terrain: steer for the next cell of the planned path.
-    const g = pathGrid(map, config.values.extraction.pathCellTiles);
-    while (call.path.length > 1) {
-      const c = cellCentre(g, call.path[0]!);
-      if (Math.sqrt((c.x - h.x) ** 2 + (c.y - h.y) ** 2) > g.cell) break;
-      call.path.shift();
-    }
-    if (call.path.length > 1) {
-      const c = cellCentre(g, call.path[0]!);
-      return { tx: c.x, ty: c.y, speed: max };
-    }
-    // Still behind the player's car: ride up the lane car by car, so it follows the train round
-    // bends instead of cutting across them.
-    const near = nearestCar(cars, h);
-    if (near.index > lane.car.index) {
-      const out = (config.values.extraction.laneOffsetTiles) * (call.side === 'left' ? 1 : -1);
-      let car = near, a = (h.x - near.x) * near.ux + (h.y - near.y) * near.uy + LEAD_TILES;
-      if (a > car.halfLength && car.index > 0) { const ahead = cars[car.index - 1]!; a = -ahead.halfLength + (a - car.halfLength); car = ahead; }
-      a = Math.max(-car.halfLength, Math.min(car.halfLength, a));
-      const o = out + car.halfWidth * (call.side === 'left' ? 1 : -1);
-      return { tx: car.x + car.ux * a + car.uy * o, ty: car.y + car.uy * a - car.ux * o, speed: max };
-    }
-    // Close the gap along the car, then hold the train's speed beside the player.
-    // The gap is the straight distance, signed by whether the lane point is ahead, so a bend's
-    // sideways gap closes as fast as one along the car.
-    const along = (lane.x - h.x) * lane.ux + (lane.y - h.y) * lane.uy;
-    const gap = Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2) * (along >= 0 ? 1 : -1);
-    return { tx: lane.x + lane.ux * LEAD_TILES, ty: lane.y + lane.uy * LEAD_TILES, speed: Math.max(0, Math.min(max, trainV + gap / CLOSE_GAIN)) };
+    // Far from the player's car (off screen at the run zoom) it rides straight through rocks and
+    // water, so it can only get stuck where the player can see it (Devlin, M4 playtest).
+    const far = config.values.extraction.passThroughBeyondTiles;
+    const through = far > 0 && Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2) > far;
+    const steer = steerFor(ctx, h, call, cars, lane, trainV, max, through);
+    return steer && through ? { ...steer, passThrough: true } : steer;
   };
+}
+
+/** Where the approaching horse steers: round the back of the train, along a path, or up the lane. */
+function steerFor(
+  ctx: RunCtx, h: HorseState, call: NonNullable<RunCtx['state']['run']>['horse'],
+  cars: ReturnType<typeof carPosesOf>, lane: NonNullable<ReturnType<typeof laneTarget>>, trainV: number, max: number, through: boolean,
+): HorseIntent | null {
+  const { map, config } = ctx;
+  // On the wrong side: drop back past the last car on this side, then cross behind it.
+  if (horseSide(cars, h) !== call.side) {
+    const last = cars[cars.length - 1]!;
+    const lx = (h.x - last.x) * last.ux + (h.y - last.y) * last.uy;
+    const bx = last.x - last.ux * (last.halfLength + CROSS_BEHIND), by = last.y - last.uy * (last.halfLength + CROSS_BEHIND);
+    const out = last.halfWidth + config.values.extraction.laneOffsetTiles;
+    const behind = lx < -(last.halfLength + 2);
+    const s = (behind ? call.side === 'left' : call.side !== 'left') ? 1 : -1;
+    return { tx: bx + last.uy * out * s, ty: by - last.ux * out * s, speed: behind ? trainV : Math.max(0, trainV - 4) };
+  }
+  // Round terrain: steer for the next cell of the planned path (not while passing through).
+  const g = pathGrid(map, config.values.extraction.pathCellTiles);
+  while (!through && call.path.length > 1) {
+    const c = cellCentre(g, call.path[0]!);
+    if (Math.sqrt((c.x - h.x) ** 2 + (c.y - h.y) ** 2) > g.cell) break;
+    call.path.shift();
+  }
+  if (!through && call.path.length > 1) {
+    const c = cellCentre(g, call.path[0]!);
+    return { tx: c.x, ty: c.y, speed: max };
+  }
+  // Still behind the player's car: ride up the lane car by car, so it follows the train round
+  // bends instead of cutting across them.
+  const near = nearestCar(cars, h);
+  if (near.index > lane.car.index) {
+    const out = (config.values.extraction.laneOffsetTiles) * (call.side === 'left' ? 1 : -1);
+    let car = near, a = (h.x - near.x) * near.ux + (h.y - near.y) * near.uy + LEAD_TILES;
+    if (a > car.halfLength && car.index > 0) { const ahead = cars[car.index - 1]!; a = -ahead.halfLength + (a - car.halfLength); car = ahead; }
+    a = Math.max(-car.halfLength, Math.min(car.halfLength, a));
+    const o = out + car.halfWidth * (call.side === 'left' ? 1 : -1);
+    return { tx: car.x + car.ux * a + car.uy * o, ty: car.y + car.uy * a - car.ux * o, speed: max };
+  }
+  // Close the gap along the car, then hold the train's speed beside the player.
+  // The gap is the straight distance, signed by whether the lane point is ahead, so a bend's
+  // sideways gap closes as fast as one along the car.
+  const along = (lane.x - h.x) * lane.ux + (lane.y - h.y) * lane.uy;
+  const gap = Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2) * (along >= 0 ? 1 : -1);
+  return { tx: lane.x + lane.ux * LEAD_TILES, ty: lane.y + lane.uy * LEAD_TILES, speed: Math.max(0, Math.min(max, trainV + gap / CLOSE_GAIN)) };
 }
 
 /** A good mount's spill (G15). Returns the items lost and the value lost with them; `carried` is changed in place. */
@@ -234,7 +248,8 @@ function resolveMount(ctx: RunCtx, p: PlayerState, h: HorseState): void {
   const trainId = run.trainId;
   // Mounted where the horse is, riding on at its speed.
   h.cruiseTarget = h.speed;
-  h.stunTicks = 0;
+  // A good mount lands badly: the horse is stunned a moment, as after a failed boarding jump (Devlin, M4 playtest).
+  h.stunTicks = result === 'good' ? ex.goodMountStunTicks : 0;
   p.placement = { frame: WORLD_FRAME, x: h.x, y: h.y, layer: 'ground' };
   endRun(ctx, p, 'extracted', false, cashOut);
   // Only E commits to the train just robbed until the rider leaves its commit range.
@@ -263,15 +278,21 @@ export function extractionSystem(ctx: RunCtx, whistles: ReadonlySet<PlayerId>, j
       const lane = laneTarget(state, map, config, p, call.side);
       if (lane) {
         const d = Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2);
+        // Off screen it passes through terrain (horseIntent), so it is never stuck or blocked there.
+        const through = ex.passThroughBeyondTiles > 0 && d > ex.passThroughBeyondTiles;
+        if (through) {
+          call.stuckTicks = 0; call.path = []; call.replanTicks = 0;
+          call.bestDistance = d;
+          call.blocked = null;
         // Stuck: no progress toward the lane for `extraction.stuckSec`. It keeps trying either way.
-        if (d < call.bestDistance - PROGRESS_TILES) {
+        } else if (d < call.bestDistance - PROGRESS_TILES) {
           call.bestDistance = d; call.stuckTicks = 0;
           if (call.blocked === 'stuck') call.blocked = null;
         } else if (++call.stuckTicks >= ex.stuckTicks && call.blocked === null) {
           call.blocked = 'stuck';
           ctx.emit({ type: 'HorseBlocked', tick: state.tick, player: p.id, reason: 'stuck' });
         }
-        if (--call.replanTicks <= 0) {
+        if (!through && --call.replanTicks <= 0) {
           call.replanTicks = REPLAN_TICKS;
           if (lineClear(map, h.x, h.y, lane.x, lane.y)) {
             call.path = [];

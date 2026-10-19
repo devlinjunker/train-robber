@@ -129,7 +129,11 @@ function closingSpeed(vx: number, vy: number, px: number, py: number): number {
  * speed to reach, in tiles/s. It turns at the horse's turn rate and changes speed at its accel and
  * brake rates, so it rides with the same physics as a ridden horse (and never boosts).
  */
-export interface HorseIntent { tx: number; ty: number; speed: number }
+export interface HorseIntent {
+  tx: number; ty: number; speed: number;
+  /** Off screen: ignore rocks and water (no collision, no wading), so the horse cannot get stuck where nobody sees it. */
+  passThrough?: boolean;
+}
 
 /** One tick of AI throttle: accelerate or brake toward `target`, under the ground's cap. */
 function aiThrottle(h: HorseState, target: number, cfg: SimConfig['values']['horse'], hz: number, cap: number): void {
@@ -179,7 +183,7 @@ export function ride(
     if (!stunned) {
       const top = boosting ? cfg.maxSpeed * cfg.boost.topSpeedScale : cfg.maxSpeed;
       const ground = terrainAt(map, h.x, h.y);
-      const cap = ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
+      const cap = intent?.passThrough ? top : ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
         : ground === Terrain.Water ? top * cfg.waterSpeedScale : top;
       // Mud reins the horse in at its braking rate; water drags it down to wading speed at once.
       if (ground === Terrain.Water && h.speed > cap) h.speed = cap;
@@ -194,7 +198,7 @@ export function ride(
     h.x += (h.hx * h.speed) / hz;
     h.y += (h.hy * h.speed) / hz;
     const x1 = h.x, y1 = h.y;
-    const hitTerrain = collideTerrain(h, map);
+    const hitTerrain = intent?.passThrough ? 0 : collideTerrain(h, map);
     const x2 = h.x, y2 = h.y;
     const hitCar = collideCars(h, cars);
     const vx = h.hx * speed, vy = h.hy * speed;

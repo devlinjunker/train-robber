@@ -158,13 +158,27 @@ describe('the riderless horse', () => {
     step(sim, { type: 'whistle' });
     // A pocket walled in by rock, away from the track.
     const pocket: Paint = (x, y) => (Math.max(Math.abs(x - 60), Math.abs(y - 80)) === 6 ? 'blocked' : 'open');
-    const walled = aboard(config, testMap(pocket, SPAWN));
+    // Passing through off screen is off here, so the pocket holds it.
+    const walled = aboard(withExtraction({ passThroughBeyondTiles: 0 }, 'ext-nopass'), testMap(pocket, SPAWN));
     step(walled, { type: 'whistle' });
     Object.assign(horse(walled), { x: 60.5, y: 80.5 });
     call(walled).replanTicks = 0;
     const ev = steps(walled, 5);
     expect(of(ev, 'HorseBlocked')).toEqual([expect.objectContaining({ reason: 'no path' })]);
     expect(call(walled)).toMatchObject({ state: 'approaching', blocked: 'no path' });
+    expect(call(sim).blocked).toBeNull();
+  });
+
+  it('off screen (beyond passThroughBeyondTiles) it rides through rock and is never blocked', () => {
+    const pocket: Paint = (x, y) => (Math.max(Math.abs(x - 60), Math.abs(y - 80)) === 6 ? 'blocked' : 'open');
+    const sim = aboard(config, testMap(pocket, SPAWN));
+    step(sim, { type: 'whistle' });
+    Object.assign(horse(sim), { x: 60.5, y: 80.5 });
+    const lane = laneTarget(S(sim), sim.map, config, player(sim), call(sim).side)!;
+    expect(Math.hypot(lane.x - 60.5, lane.y - 80.5)).toBeGreaterThan(config.values.extraction.passThroughBeyondTiles);
+    const ev = steps(sim, 60 * 3);
+    expect(of(ev, 'HorseBlocked')).toEqual([]);
+    expect(Math.max(Math.abs(horse(sim).x - 60), Math.abs(horse(sim).y - 80))).toBeGreaterThan(7);
     expect(call(sim).blocked).toBeNull();
   });
 });
@@ -205,6 +219,17 @@ describe('mount', () => {
     expect(horse(sim).speed).toBeGreaterThan(5);
     // Auto-commit leaves the train you just robbed alone until you ride out of range.
     expect(player(sim).commitHold).toBe('blank-1');
+  });
+
+  it('a good mount stuns the horse for goodMountStunSec; a perfect one does not', () => {
+    const good = aboard();
+    untilAlongside(good);
+    mount(good, 'good');
+    expect(horse(good).stunTicks).toBe(config.values.extraction.goodMountStunTicks);
+    const perfect = aboard();
+    untilAlongside(perfect);
+    mount(perfect, 'perfect');
+    expect(horse(perfect).stunTicks).toBe(0);
   });
 
   it('fail leaves you aboard with failure damage and a stumble; you can try again while it paces (G14)', () => {
