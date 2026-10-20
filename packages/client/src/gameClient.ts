@@ -13,7 +13,7 @@ import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
 import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, screenToWorld, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
-import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
+import { createScreenOverlay, type DistanceCue, type MeterView, type TownPointer, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
 import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
@@ -133,6 +133,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Hoofbeats while you ride, quieter than the called horse's: ?rideHoofbeats= scales them (0 is silent).
   const rideHoofParam = Number(params.get('rideHoofbeats') ?? 1);
   const rideHoofScale = Number.isFinite(rideHoofParam) && rideHoofParam >= 0 ? rideHoofParam : 1;
+  // Edge arrows off the train. On an open line with towns they point at the next town, a countdown
+  // as you ride, and only at the committed train and the switch candidate (Devlin, PR #34):
+  // ?edgeArrows=town (default there), trains (every nearby train, the loop default) or both.
+  const arrowsParam = params.get('edgeArrows');
+  const towns = [...(opts.map.towns ?? [])].sort((a, b) => a.x - b.x);
+  const edgeArrows: 'town' | 'trains' | 'both' = arrowsParam === 'town' || arrowsParam === 'trains' || arrowsParam === 'both' ? arrowsParam : towns.length ? 'town' : 'trains';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -521,6 +527,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
+      // The next town east of the rider: the first whose clearing is not yet behind them.
+      let town: TownPointer | null = null;
+      if (ridden && edgeArrows !== 'trains') {
+        const i = towns.findIndex((t) => t.x + t.radiusTiles > ridden.x);
+        const t = towns[i];
+        if (t) {
+          const p = project(t.x, t.y, iso ? isoWorld.groundZ(t.x, t.y) : 0);
+          town = { name: `TOWN ${i + 1}`, sx: p.x, sy: p.y, distanceTiles: Math.hypot(t.x - ridden.x, t.y - ridden.y) };
+        }
+      }
       // The line cue, on the far side of the run's train in iso.
       let distanceCue: DistanceCue | null = null;
       if (ridden && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(ridden.x, ridden.y) < depthOf(gap.car.x, gap.car.y)) {
@@ -537,6 +553,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         horse: ridden ? project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0)
           : meter && aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 2.4 : 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains, distanceCue,
+        town, ...(edgeArrows === 'town' ? { maxTrainArrows: 0 } : {}),
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 : 0) : null,
         landing: landing && aboardPhase && !riding && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
