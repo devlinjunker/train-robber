@@ -9,11 +9,12 @@ import { assignTileIds, tileIdsOf, tilesetFor, TILESET_FILE } from '../src/cars/
 
 const ctx = carBuildContext();
 const read = (name: string) => readFileSync(join(CARS_SRC, name), 'utf8');
-const SRC = read('mail-car-a.tmj');
+// The broken-layout fixtures edit the 16 x 6 small-mail-car-a, whose cells they index by hand.
+const SRC = read('small-mail-car-a.tmj');
 type Tmj = { layers: { name: string; data?: number[]; objects?: { name: string; x: number; y: number; properties?: { name: string; value: unknown }[] }[] }[]; properties: { name: string; type: string; value: unknown }[] };
 
-/** Build mail-car-a after `edit` changes its parsed JSON. */
-function buildEdited(edit: (m: Tmj) => void, file = 'mail-car-a.tmj') {
+/** Build small-mail-car-a after `edit` changes its parsed JSON. */
+function buildEdited(edit: (m: Tmj) => void, file = 'small-mail-car-a.tmj') {
   const m = JSON.parse(SRC) as Tmj;
   edit(m);
   return buildCar(join(CARS_SRC, file), JSON.stringify(m), read, ctx);
@@ -29,8 +30,8 @@ describe('build-cars', () => {
     expect(r.text).toBe(readFileSync(CARS_OUT, 'utf8'));
   });
 
-  it('the three starter mail cars have both-side, one-side and end-only doors, hidden slots and one guard', () => {
-    const cars = (JSON.parse(readFileSync(CARS_OUT, 'utf8')) as { cars: Record<string, { carType: string; entryPoints: { side: string }[]; lootSlots: { tags: string[] }[]; guardSpawns: unknown[] }> }).cars;
+  it('the three starter mail cars have both-side, one-side and end-only doors, hidden slots and guards, at 28 x 7', () => {
+    const cars = (JSON.parse(readFileSync(CARS_OUT, 'utf8')) as { cars: Record<string, { carType: string; size: { cols: number; rows: number }; entryPoints: { side: string }[]; lootSlots: { tags: string[] }[]; guardSpawns: unknown[] }> }).cars;
     const sides = (id: string) => [...new Set(cars[id]!.entryPoints.map((e) => e.side))].sort();
     expect(sides('mail-car-a')).toEqual(['front', 'left', 'rear', 'right']);
     expect(sides('mail-car-b')).toEqual(['front', 'left', 'rear']);
@@ -39,7 +40,13 @@ describe('build-cars', () => {
       expect(cars[id]!.carType).toBe('mail-car');
       expect(cars[id]!.lootSlots.some((s) => s.tags.includes('hidden'))).toBe(true);
       expect(cars[id]!.lootSlots.some((s) => s.tags.includes('large'))).toBe(true);
-      expect(cars[id]!.guardSpawns).toHaveLength(1);
+      expect(cars[id]!.guardSpawns.length).toBeGreaterThanOrEqual(1);
+      expect(cars[id]!.size).toEqual({ cols: 28, rows: 7 });
+    }
+    // The 16 x 6 set stays for the small-cars preset, under its own car type.
+    for (const id of ['small-mail-car-a', 'small-mail-car-b', 'small-mail-car-c']) {
+      expect(cars[id]!.carType).toBe('small-mail-car');
+      expect(cars[id]!.size).toEqual({ cols: 16, rows: 6 });
     }
   });
 
@@ -72,6 +79,8 @@ describe('build-cars', () => {
       for (let c = 1; c < 15; c++) { d[16 + c] = gid('wall'); d[4 * 16 + c] = gid('wall'); d[3 * 16 + c] = gid('wall'); }
       for (const name of ['entryPoints', 'lootSlots', 'guardSpawns', 'patrol']) layer(m, name).objects = [];
       layer(m, 'entryPoints').objects = [{ name: 'front', x: 16, y: 80, properties: [{ name: 'side', value: 'front' }] }];
+      // A car type the mail train loots, so an empty car warns.
+      m.properties = [{ name: 'carType', type: 'string', value: 'mail-car' }];
     };
     expect(() => buildEdited(corridor)).toThrow(/unbroken corridor/);
     const r = buildEdited((m) => { corridor(m); m.properties.push({ name: 'corridor', type: 'bool', value: true }); });
@@ -81,7 +90,7 @@ describe('build-cars', () => {
 
   it('CarError names the file', () => {
     expect(() => buildEdited((m) => { m.properties = []; })).toThrow(CarError);
-    expect(() => buildEdited((m) => { m.properties = []; })).toThrow(/mail-car-a\.tmj/);
+    expect(() => buildEdited((m) => { m.properties = []; })).toThrow(/small-mail-car-a\.tmj/);
   });
 });
 

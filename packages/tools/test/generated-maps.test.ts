@@ -86,4 +86,4 @@ describe('generated maps are deterministic', () => {
   });
 });
 
-const PINNED = { map: '5d6fd05eeb17ed7c', scenery: 'c0fb2f8d91e54d99' };
+const PINNED = { map: 'c013ce052f8a5725', scenery: '11d9508bb99bf4a8' };

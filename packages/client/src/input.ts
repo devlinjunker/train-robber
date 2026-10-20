@@ -13,7 +13,7 @@ export type Action = GameAction | ViewAction;
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop',
-  // C: the horse boost (handlingModel arcade-boost). F: whistle for the horse aboard (M4), cash out on the horse mid-run.
+  // C: the horse boost (handlingModel arcade-boost) when riding, crouch aboard. F: whistle for the horse aboard (M4), cash out on the horse mid-run.
   KeyC: 'boost', KeyF: 'cashOut',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
@@ -87,6 +87,10 @@ export interface MapContext {
   carriedCount(): number;
   /** Whether the inventory panel (I) is open, so number keys drop items. */
   inventoryOpen(): boolean;
+  /** Aboard, C crouches: `toggle` flips it on each press, `hold` crouches while C is held (?crouch=). */
+  crouchMode: 'toggle' | 'hold';
+  /** Whether the sim has the player crouched now. */
+  crouched(): boolean;
 }
 
 /**
@@ -107,6 +111,7 @@ export class InputMapper {
   private lastMove = { x: 0, y: 0 };
   private lastSteer = { x: 0, y: 0 };
   private eDown = false;
+  private cDown = false;
 
   /** Commands for one tick. Intents are only sent when they change, which keeps the log small. */
   commands(snap: InputSnapshot, ctx: MapContext): Command[] {
@@ -144,6 +149,12 @@ export class InputMapper {
       out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: true });
     }
     if (this.eDown && !eHeld) { this.eDown = false; out.push({ type: 'interact', held: false }); }
+    // C aboard crouches. Held mode sends the press and the release, like E; toggle flips on each press.
+    if (ctx.aboard && ctx.crouchMode === 'hold') {
+      const cHeld = k.has('KeyC');
+      if (!this.cDown && (cHeld || snap.actions.includes('boost'))) { this.cDown = true; out.push({ type: 'crouch', on: true }); }
+      if (this.cDown && !cHeld) { this.cDown = false; out.push({ type: 'crouch', on: false }); }
+    } else this.cDown = false;
     for (const a of snap.actions) {
       if (a === 'commit') continue;
       if (a === 'jump') out.push({ type: 'jump' });
@@ -155,8 +166,10 @@ export class InputMapper {
       }
       else if (a === 'heat') out.push({ type: 'debugHeat' });
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
-      else if (a === 'boost') out.push({ type: 'boost' });
-      else if (a === 'cashOut') {
+      else if (a === 'boost') {
+        if (!ctx.aboard) out.push({ type: 'boost' });
+        else if (ctx.crouchMode === 'toggle') out.push({ type: 'crouch', on: !ctx.crouched() });
+      } else if (a === 'cashOut') {
         // F: aboard it whistles for the horse (M4); on the horse mid-run it cashes out.
         out.push(ctx.aboard ? { type: 'whistle' } : { type: 'cashOut' });
       }

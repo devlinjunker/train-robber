@@ -30,13 +30,22 @@ const PERFECT_RING_SEC = 0.8;
  * enough that a decoy train is a guess from a distance, different enough to read up close (G17,
  * Devlin's M2 playtest).
  */
-export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a };
+/** A positive number from the page URL, or `fallback` (also outside a browser, as in tests). */
+function urlNumber(name: string, fallback: number, min: number): number {
+  const raw = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get(name);
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) && v >= min ? v : fallback;
+}
+export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a, 'small-mail-car': 0x9a5534, 'small-blank-car': 0x86604a };
 const DOOR_COLOUR = 0xe8c872;
 /** A shut door (a cash-out closed the train's doors): dark planks the body's colour, barred across. */
 const SHUT_DOOR_SHADE = 0.62, DOOR_BAR_COLOUR = 0x2a1d12;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
-const CAR_HEIGHT = 2.4;
+/** Car height in tiles, visual only: about 5 (Devlin, 2026-10-20), `?carHeight=` to try others. */
+const CAR_HEIGHT = urlNumber('carHeight', 5, 1);
+/** Side doors stay person-sized however tall the car is. */
+const DOOR_TOP = Math.min(CAR_HEIGHT - 0.4, 2.6);
 const PLAYER_COLOUR = 0x6bd3ff;
 const GUARD_COLOUR = 0x2c3e66, GUARD_HAT_COLOUR = 0x1a1a22;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
@@ -76,6 +85,8 @@ export interface WorldSceneInput {
   hitAge: number | null;
   /** Aboard: the good-landing stumble is on (amber flash and a wobble), and seconds since a perfect landing for its ring burst. */
   stumbling: boolean;
+  /** Crouching aboard: the player is drawn low. */
+  crouched?: boolean;
   perfectAge: number | null;
   /** The boarding rule against the committed train, or the nearest one while idle. */
   check: BoardingCheck | null;
@@ -194,8 +205,21 @@ export function doorSpans(content: SceneContent, template: string): { side: 'lef
   return spans;
 }
 
-function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR): void {
-  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS, z0: 0, z1: 1.7 }, colour);
+/** Standing height of the player, and crouched (about crate height, so cover reads). */
+const PLAYER_HEIGHT = 1.7, CROUCH_HEIGHT = 0.95;
+
+function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR, crouched = false): void {
+  const r = crouched ? WALKER_RADIUS * 1.15 : WALKER_RADIUS;
+  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: r, halfWidth: r, z0: 0, z1: crouched ? CROUCH_HEIGHT : PLAYER_HEIGHT }, colour);
+}
+
+/** A question mark in a round badge, in screen pixels centred on (x, y): an alert guard lost you and is searching. */
+export function drawQuestion(g: Graphics, x: number, y: number, colour: number, s = 1): void {
+  g.circle(x, y, 11 * s).fill({ color: colour }).stroke({ width: 2 * s, color: 0x111111, alpha: 0.8 });
+  g.moveTo(x - 4 * s, y - 3 * s).bezierCurveTo(x - 4 * s, y - 9 * s, x + 5 * s, y - 9 * s, x + 4.5 * s, y - 3.5 * s)
+    .bezierCurveTo(x + 4 * s, y - 0.5 * s, x, y - 0.5 * s, x, y + 2.5 * s)
+    .stroke({ width: 2.5 * s, color: 0x111111, cap: 'round' });
+  g.circle(x, y + 6 * s, 1.6 * s).fill(0x111111);
 }
 
 /** An ear in a round badge, in screen pixels centred on (x, y): a guard heard you. */
@@ -396,9 +420,9 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
             if (a1 <= a0) continue;
             // sidePanel measures along the slice from its own centre.
             const mid = (s.along0 + s.along1) / 2;
-            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, DOOR_COLOUR); continue; }
+            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, DOOR_COLOUR); continue; }
             // Shut: a dark plank door with two bars across it.
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, shade(colour, SHUT_DOOR_SHADE));
+            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, shade(colour, SHUT_DOOR_SHADE));
             sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.55, 0.75, DOOR_BAR_COLOUR);
             sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 1.35, 1.55, DOOR_BAR_COLOUR);
           }
@@ -442,7 +466,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         // Stumbling: wobble side to side and flash amber.
         const wobble = input.stumbling ? Math.sin(input.timeSec * 22) * 0.12 : 0;
         const colour = input.stumbling && flashOn(input.timeSec) ? GOOD_COLOUR : PLAYER_COLOUR;
-        drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour);
+        drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour, input.crouched ?? false);
         playerG.zIndex = depthOf(p.x, p.y);
       }
 
@@ -518,12 +542,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
-      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert.
+      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert, a red ? when it lost you.
       for (const v of guardsShown) {
         if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
         const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);
         if (v.heard && v.state !== 'alert') drawEar(markers, x, y, GUARD_STATE_COLOURS.suspicious);
+        else if (v.searching) drawQuestion(markers, x, y, col);
         else if (v.state === 'alert') {
           markers.roundRect(x - 7, y - 12, 14, 24, 4).fill({ color: col }).stroke({ width: 2, color: 0x111111, alpha: 0.8 });
           markers.rect(x - 1.5, y - 8, 3, 10).fill(0x111111).rect(x - 1.5, y + 5, 3, 3).fill(0x111111);

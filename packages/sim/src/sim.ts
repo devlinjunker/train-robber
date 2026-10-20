@@ -7,7 +7,7 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
 import { guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
@@ -121,6 +121,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             boost(ctx, p);
           } else if (c.type === 'cashOut') {
             cashOut(ctx, p);
+          } else if (c.type === 'crouch') {
+            crouch(ctx, p, c.on);
           }
         }
       }

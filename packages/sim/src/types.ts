@@ -53,7 +53,13 @@ export type Command =
    * F, on the horse during a run (after a guard threw you off): end the run `cashedOut`, banking
    * what you carry, and close that train's doors (`cashOut` config) so it cannot be committed to.
    */
-  | { type: 'cashOut' };
+  | { type: 'cashOut' }
+  /**
+   * C, aboard: crouch (`on: true`) or stand. Crouching walks at `player.crouch.speedScale`, makes
+   * `ai.noise.crouchRadiusTiles` of noise, and hides you behind cover of at least
+   * `ai.sight.crouchCoverMin`. The client sends it as a toggle or while C is held (?crouch=).
+   */
+  | { type: 'crouch'; on: boolean };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -149,6 +155,8 @@ export type SimEvent =
   | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number }
   /** A guard's awareness changed: `sight` or `noise` raised it, `calm` let it drop after a while with no sign of the player. */
   | { type: 'GuardStateChanged'; tick: number; guard: number; from: GuardAwareness; to: GuardAwareness; cause: 'sight' | 'noise' | 'calm' }
+  /** An alert guard went `ai.loseSightSec` without seeing or hearing the player: it stops chasing and searches where they were last seen. */
+  | { type: 'GuardLostTrack'; tick: number; guard: number }
   /** A guard saw the player (once per guard until it calms back to unaware); raises `playerSpotted` heat. */
   | { type: 'PlayerSpotted'; tick: number; player: PlayerId; guard: number; car: number }
   /** An alert guard caught the player and threw them off the train (guardCatch `thrown-off`). */
@@ -183,6 +191,11 @@ export interface GuardState {
   sightTicks: number;
   /** Ticks since it last saw or heard the player, toward calming down. */
   calmTicks: number;
+  /**
+   * Ticks an alert guard has gone without seeing or hearing the player. At `ai.loseSightTicks` it
+   * gives up the chase: still alert, it walks to where it last knew the player was and looks round.
+   */
+  lostTicks: number;
   /** Where it last saw or heard the player (car frame), or null. */
   lastKnown: { car: number; x: number; y: number } | null;
   /** Set once it has spotted the player since it was last unaware, so the heat comes once per sighting. */
@@ -218,6 +231,8 @@ export interface PlayerRunState {
   search: { loot: number; ticks: number } | null;
   /** Set when a search ends (taken, refused or moved away) while E is still held; cleared on release. */
   searchLatched: boolean;
+  /** Crouching aboard (C): slower, quieter, hidden behind cover. Cleared on leaving the train. */
+  crouched: boolean;
 }
 
 /** A loot item lying in the committed train: placed by run generation, or dropped by a player. */
@@ -404,7 +419,7 @@ export interface SimConfig {
   hash: string;
   values: {
     sim: { tickRateHz: number };
-    player: { speedTilesPerTick: number };
+    player: { speedTilesPerTick: number; crouch: { speedScale: number } };
     world: { mode: 'separate' | 'continuous' };
     /**
      * `auto`: an idle player commits as soon as a train is in range, with no key press.
@@ -500,11 +515,13 @@ export interface SimConfig {
       chaseSpeedTilesPerTick: number;
       turnRateCosPerTick: number;
       turnRateSinPerTick: number;
-      sight: { rangeTiles: number; coneCos: number };
-      noise: { walkRadiusTiles: number; runRadiusTiles: number };
+      sight: { rangeTiles: number; coneCos: number; crouchCoverMin: number };
+      /** `searchRadiusTiles`: how far searching loot (holding E on a slot, hidden or not) carries, crouched or not. */
+      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number };
       alertAfterTicks: number;
       calmTicks: number;
       alertCalmTicks: number;
+      loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
     };

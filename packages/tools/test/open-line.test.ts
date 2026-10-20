@@ -120,4 +120,4 @@ describe('open lines are deterministic', () => {
   });
 });
 
-const PINNED = { map: '79293a092c9ba81f', scenery: '40379c7e2875f5f1' };
+const PINNED = { map: 'd03c568032ad2abe', scenery: '6890c5bf797b9430' };

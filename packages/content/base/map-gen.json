@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "size": { "cols": 400, "rows": 200 },
   "edgeTiles": 2,
-  "track": { "controlPoints": 48, "harmonics": [4, 7], "curviness": 1, "maxDent": 0.8, "marginTiles": 22, "minRadiusTiles": 19, "selfGapTiles": 40 },
+  "track": { "controlPoints": 48, "harmonics": [4, 7], "curviness": 0.2, "maxDent": 0.8, "marginTiles": 22, "minRadiusTiles": 19, "selfGapTiles": 40 },
   "corridor": { "carClearTiles": 4.5, "laneTiles": 7, "stretchTiles": [50, 150], "bothOpenChance": 0.25, "switchGapTiles": 14, "stripChance": 0.6, "stripWidthTiles": [2, 6] },
   "mud": { "scaleTiles": 22, "threshold": 0.8 },
   "rocks": { "scaleTiles": 10, "threshold": 0.85 },

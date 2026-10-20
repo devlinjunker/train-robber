@@ -44,7 +44,7 @@ describe('countdown and heat readouts', () => {
 });
 
 describe('debug heat keys', () => {
-  const ctx: MapContext = { steering: 'heading', aboard: false, keyDirToWorld: () => [0, 0], keyDirToCar: () => null, commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false };
+  const ctx: MapContext = { steering: 'heading', aboard: false, keyDirToWorld: () => [0, 0], keyDirToCar: () => null, commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, crouchMode: 'toggle', crouched: () => false };
   it('H raises heat and Shift+H raises an alarm', () => {
     expect(actionFor('KeyH', false)).toBe('heat');
     expect(actionFor('KeyH', true)).toBe('alarm');

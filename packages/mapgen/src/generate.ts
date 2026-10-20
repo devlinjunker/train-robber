@@ -100,6 +100,13 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
 /** Scale a count range, keeping a range that was above zero able to roll at least its own share. */
 const scaleRange = ([a, b]: readonly [number, number], f: number): [number, number] => [Math.round(a * f), Math.max(Math.round(a * f), Math.round(b * f))];
 
+/** The settings a line is built from: all but the loop's track, so tuning loops leaves line hashes alone. */
+function lineSettings(given: MapGenSettings): Omit<MapGenSettings, 'track'> {
+  const rest: Partial<MapGenSettings> = { ...given };
+  delete rest.track;
+  return rest as Omit<MapGenSettings, 'track'>;
+}
+
 /**
  * An open line across a long map (`?map=line`, G3): the track grows piece by piece from the west
  * edge to the east one (see line.ts), and the same terrain rules as the loop apply along it. Rivers,
@@ -121,7 +128,7 @@ export function generateLine(seed: string, given: MapGenSettings): GeneratedMap 
     mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
   };
   const w = buildWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns });
-  const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}/${seed}/${JSON.stringify(given)}`).toString(16).padStart(8, '0') };
+  const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}/${seed}/${JSON.stringify(lineSettings(given))}`).toString(16).padStart(8, '0') };
   const markers: Record<string, Vec> = { playerSpawn: w.playerSpawn };
   for (const t of w.towns) markers[t.id] = { x: t.x, y: t.y };
   const map = MapDefSchema.parse({

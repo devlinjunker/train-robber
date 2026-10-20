@@ -7,7 +7,24 @@ const iso = (over: Partial<MapContext> = {}): MapContext => ({
   steering: 'heading', aboard: false,
   // Aboard a car whose front points up-right on screen (world -y).
   keyDirToWorld, keyDirToCar: (dx, dy) => worldDirToCar(...keyDirToWorld(dx, dy), { ux: 0, uy: -1 }),
-  commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, ...over,
+  commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, crouchMode: 'toggle', crouched: () => false, ...over,
+});
+
+describe('C: boost riding, crouch aboard', () => {
+  it('riding, C boosts; aboard, it toggles crouch from what the sim says', () => {
+    const m = new InputMapper();
+    expect(m.commands(snap([], ['boost']), iso())).toEqual([{ type: 'boost' }]);
+    expect(m.commands(snap([], ['boost']), iso({ aboard: true }))).toEqual([{ type: 'crouch', on: true }]);
+    expect(m.commands(snap([], ['boost']), iso({ aboard: true, crouched: () => true }))).toEqual([{ type: 'crouch', on: false }]);
+  });
+
+  it('?crouch=hold crouches on the press and stands on the release', () => {
+    const m = new InputMapper();
+    const ctx = iso({ aboard: true, crouchMode: 'hold' });
+    expect(m.commands(snap(['KeyC'], ['boost']), ctx)).toEqual([{ type: 'crouch', on: true }]);
+    expect(m.commands(snap(['KeyC']), ctx)).toEqual([]);
+    expect(m.commands(snap([]), ctx)).toEqual([{ type: 'crouch', on: false }]);
+  });
 });
 
 describe('input mapper', () => {

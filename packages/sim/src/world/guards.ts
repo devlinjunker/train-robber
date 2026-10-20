@@ -5,6 +5,10 @@
 // combat: under guardCatch `thrown-off` an alert guard chases and, on contact, throws the player
 // off the train (run.ts `throwOff`); under `heat-only` guards only raise heat.
 //
+// Sneaking (phase 2): a crouched player is quieter and hidden from a guard by low cover (crates,
+// barrels) between them, and a chasing guard that loses the player for `ai.loseSightSec` stops
+// chasing, stays alert and searches where it last knew they were.
+//
 // Perception and movement work in train coordinates: the cars' frames laid end to end, so `lx`
 // is the column across the whole train (car offset + x) and y is the row. End doors join the
 // cars, so a guard can chase through them and see along a corridor that does not pass a door.
@@ -55,10 +59,11 @@ export interface TrainGrid {
   offsets: readonly number[];
   cols: number;
   rows: number;
-  /** Per cell, row-major over the whole train: 1 where it blocks movement / sight; noise multiplier. */
+  /** Per cell, row-major over the whole train: 1 where it blocks movement / sight; noise multiplier; cover. */
   blocksMove: Uint8Array;
   blocksSight: Uint8Array;
   noise: Float64Array;
+  cover: Float64Array;
 }
 
 const grids = new WeakMap<object, Map<string, TrainGrid>>();
@@ -75,7 +80,7 @@ export function trainGrid(config: SimConfig, cars: readonly string[], catalog: C
   let cols = 0, rows = 0;
   for (const t of templates) { offsets.push(cols); cols += t.size.cols; rows = Math.max(rows, t.size.rows); }
   const n = cols * rows;
-  const blocksMove = new Uint8Array(n).fill(1), blocksSight = new Uint8Array(n).fill(1), noise = new Float64Array(n).fill(1);
+  const blocksMove = new Uint8Array(n).fill(1), blocksSight = new Uint8Array(n).fill(1), noise = new Float64Array(n).fill(1), cover = new Float64Array(n).fill(1);
   const types = config.values.cellTypes;
   templates.forEach((t, k) => {
     for (let r = 0; r < t.size.rows; r++) {
@@ -85,10 +90,11 @@ export function trainGrid(config: SimConfig, cars: readonly string[], catalog: C
         blocksMove[i] = type.blocksMove ? 1 : 0;
         blocksSight[i] = type.blocksSight ? 1 : 0;
         noise[i] = type.noise ?? 1;
+        cover[i] = type.cover;
       }
     }
   });
-  const grid: TrainGrid = { offsets, cols, rows, blocksMove, blocksSight, noise };
+  const grid: TrainGrid = { offsets, cols, rows, blocksMove, blocksSight, noise, cover };
   byCars.set(key, grid);
   return grid;
 }
@@ -122,9 +128,10 @@ const SIGHT_STEP = 0.2;
 
 /**
  * Whether nothing that blocks sight lies between two train points. The cells the two ends stand
- * in never block, so a guard in a doorway can see out and a player in one can be seen.
+ * in never block, so a guard in a doorway can see out and a player in one can be seen. With
+ * `coverMin` (looking at a crouched player), a cell with at least that much cover blocks too.
  */
-export function lineOfSight(g: TrainGrid, ax: number, ay: number, bx: number, by: number): boolean {
+export function lineOfSight(g: TrainGrid, ax: number, ay: number, bx: number, by: number, coverMin = Infinity): boolean {
   const dx = bx - ax, dy = by - ay;
   const d = Math.sqrt(dx * dx + dy * dy);
   const a = gridCell(g, ax, ay), b = gridCell(g, bx, by);
@@ -133,7 +140,7 @@ export function lineOfSight(g: TrainGrid, ax: number, ay: number, bx: number, by
     const t = i / steps;
     const c = gridCell(g, ax + dx * t, ay + dy * t);
     if (c === a || c === b) continue;
-    if (c < 0 || g.blocksSight[c] === 1) return false;
+    if (c < 0 || g.blocksSight[c] === 1 || g.cover[c]! >= coverMin) return false;
   }
   return true;
 }
@@ -156,17 +163,22 @@ export function sightReach(g: TrainGrid, ax: number, ay: number, dx: number, dy:
 
 /**
  * The sight rule: within `ai.sight.rangeTiles`, inside the cone (the precomputed `coneCos` against
- * a dot product, so no trig), and with a clear line between them.
+ * a dot product, so no trig), and with a clear line between them. A crouched player also hides
+ * behind any cell with at least `ai.sight.crouchCoverMin` cover on that line.
  */
-export function canSee(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, fx: number, fy: number, px: number, py: number): boolean {
+export function canSee(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, fx: number, fy: number, px: number, py: number, crouched = false): boolean {
   const dx = px - gx, dy = py - gy;
   const d2 = dx * dx + dy * dy;
   const r = cfg.sight.rangeTiles;
   if (d2 > r * r) return false;
   const d = Math.sqrt(d2);
   if (d > 1e-9 && fx * dx + fy * dy < cfg.sight.coneCos * d) return false;
-  return lineOfSight(g, gx, gy, px, py);
+  return lineOfSight(g, gx, gy, px, py, crouched ? cfg.sight.crouchCoverMin : Infinity);
 }
+
+/** A searching guard turns on one tick in this many (a third of its turn rate), sweeping each way for this many ticks. */
+const SEARCH_TURN_EVERY = 3;
+const SEARCH_SWEEP_TICKS = 60;
 
 /** How close a guard comes to the player: two walker radii (0.3 each), so they never overlap. */
 const GUARD_GAP = 0.6;
@@ -175,16 +187,25 @@ const GUARD_GAP = 0.6;
 const RUN_AXIS = 0.75;
 
 /**
- * How far the player's footsteps carry this tick: `ai.noise.walkRadiusTiles` walking or
- * `runRadiusTiles` running, times the `noise` of the cell they stand on; 0 standing still.
+ * How far the player's footsteps carry this tick: `ai.noise.walkRadiusTiles` walking,
+ * `runRadiusTiles` running or `crouchRadiusTiles` crouched, times the `noise` of the cell they
+ * stand on; 0 standing still. Searching loot (`searching`) makes `searchRadiusTiles` of noise,
+ * crouched or not, or the footsteps if they carry further (Devlin, 2026-10-20).
  */
-export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number): number {
+export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number, crouched = false, searching = false): number {
+  const cfg = config.values.ai.noise;
+  const search = searching ? cfg.searchRadiusTiles : 0;
   const mx = p.move.x / 127, my = p.move.y / 127;
   const n = Math.sqrt(mx * mx + my * my);
-  if (n === 0) return 0;
-  const cfg = config.values.ai.noise;
+  if (n === 0) return search;
   const i = gridCell(g, lx, p.placement.y);
-  return (n > RUN_AXIS ? cfg.runRadiusTiles : cfg.walkRadiusTiles) * (i >= 0 ? g.noise[i]! : 1);
+  const r = crouched ? cfg.crouchRadiusTiles : n > RUN_AXIS ? cfg.runRadiusTiles : cfg.walkRadiusTiles;
+  return Math.max(search, r * (i >= 0 ? g.noise[i]! : 1));
+}
+
+/** Whether an alert guard has given up the chase (`ai.loseSightTicks` without sight or sound of the player) and is searching. */
+export function isSearching(g: GuardState, config: SimConfig): boolean {
+  return g.state === 'alert' && g.lostTicks >= config.values.ai.loseSightTicks;
 }
 
 /** Place the train's guards for a run: `guardCount` of the layouts' spawns, picked from the `gen` stream. */
@@ -219,7 +240,7 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     return {
       id, car, x, y, fx, fy, state: 'unaware' as GuardAwareness,
       post: { car, x, y, fx, fy }, patrol: route && route.length ? spawn.patrol! : null,
-      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lastKnown: null, spotted: false,
+      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false,
     };
   });
 }
@@ -306,6 +327,7 @@ function setState(ctx: GuardCtx, g: GuardState, to: GuardAwareness, cause: 'sigh
   g.state = to;
   g.sightTicks = 0;
   g.calmTicks = 0;
+  g.lostTicks = 0;
   if (to === 'unaware') { g.spotted = false; g.lastKnown = null; }
   // Going alert raises the alarm.
   if (to === 'alert') raiseHeatFor(ctx, 'alarmRaised');
@@ -327,13 +349,14 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
   const grid = trainGrid(config, train.cars);
   const turn = (w: { fx: number; fy: number }, x: number, y: number) => turnToward(w, x, y, ai.turnRateCosPerTick, ai.turnRateSinPerTick);
   // The one player in phase 2, when aboard this train.
-  let target: { p: PlayerState; lx: number; y: number; noise: number } | null = null;
+  let target: { p: PlayerState; lx: number; y: number; noise: number; crouched: boolean } | null = null;
   if (run.phase === 'aboard' || run.phase === 'extracting') {
     for (const p of state.players) {
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== train.id || !run.players[p.id]) continue;
       const lx = toTrain(grid, f.car, p.placement.x);
-      target = { p, lx, y: p.placement.y, noise: noiseRadius(config, grid, p, lx) };
+      const rp = run.players[p.id]!;
+      target = { p, lx, y: p.placement.y, noise: noiseRadius(config, grid, p, lx, rp.crouched, rp.search !== null), crouched: rp.crouched };
       break;
     }
   }
@@ -343,7 +366,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
     // Perception.
     let sees = false, hears = false;
     if (target) {
-      sees = canSee(grid, ai, w.lx, w.y, w.fx, w.fy, target.lx, target.y);
+      sees = canSee(grid, ai, w.lx, w.y, w.fx, w.fy, target.lx, target.y, target.crouched);
       if (!sees && target.noise > 0) {
         const dx = target.lx - w.lx, dy = target.y - w.y;
         hears = dx * dx + dy * dy <= target.noise * target.noise;
@@ -371,13 +394,24 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
         if (hears) g.calmTicks = 0;
         else if (++g.calmTicks >= ai.calmTicks) setState(ctx, g, 'unaware', 'calm');
       }
-    } else if (sees || hears) g.calmTicks = 0;
-    else if (++g.calmTicks >= ai.alertCalmTicks) setState(ctx, g, 'suspicious', 'calm');
+    } else if (sees || hears) { g.calmTicks = 0; g.lostTicks = 0; }
+    else {
+      // Alert with no sign of the player: after `loseSightTicks` a chasing guard gives up and searches.
+      if (++g.lostTicks === ai.loseSightTicks && ai.guardCatch === 'thrown-off') ctx.emit({ type: 'GuardLostTrack', tick: state.tick, guard: g.id });
+      if (++g.calmTicks >= ai.alertCalmTicks) setState(ctx, g, 'suspicious', 'calm');
+    }
+    const searching = isSearching(g, config);
 
     // Action. A guard never walks into the player: a step that ends closer than two walker radii is undone.
     const fromX = w.lx, fromY = w.y;
     const known = g.lastKnown ? { lx: toTrain(grid, g.lastKnown.car, g.lastKnown.x), y: g.lastKnown.y } : null;
-    if (g.state === 'alert' && ai.guardCatch === 'thrown-off' && known) {
+    if (searching && ai.guardCatch === 'thrown-off' && known) {
+      // Lost them: walk to where they were last seen or heard, then look one way and the other.
+      if (walkToward(grid, w, known.lx, known.y, ai.patrolSpeedTilesPerTick, turn) && g.lostTicks % SEARCH_TURN_EVERY === 0) {
+        const left = Math.floor(g.lostTicks / SEARCH_SWEEP_TICKS) % 2 === 0;
+        turn(w, left ? w.fy : -w.fy, left ? -w.fx : w.fx);
+      }
+    } else if (g.state === 'alert' && ai.guardCatch === 'thrown-off' && known) {
       // Chase: to the player while in sight, else to where they were last seen or heard.
       if (sees && target) walkToward(grid, w, target.lx, target.y, ai.chaseSpeedTilesPerTick, turn);
       else walkToward(grid, w, known.lx, known.y, ai.chaseSpeedTilesPerTick, turn);
@@ -395,7 +429,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
     }
     const at = fromTrain(grid, w.lx);
     g.car = at.car; g.x = at.x; g.y = w.y; g.fx = w.fx; g.fy = w.fy;
-    if (!caught && target && g.state === 'alert' && ai.guardCatch === 'thrown-off') {
+    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off') {
       const dx = target.lx - w.lx, dy = target.y - w.y;
       if (dx * dx + dy * dy <= ai.catchRangeTiles * ai.catchRangeTiles) caught = { guard: g, player: target.p };
     }
