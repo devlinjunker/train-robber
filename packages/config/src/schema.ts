@@ -228,6 +228,19 @@ export const GameSchema = z.object({
   }).strict(),
   /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
   hud: z.object({ showTrainNames: z.boolean() }).strict(),
+  /**
+   * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
+   * (1 = as before, 0 = silent); `tickVolume` multiplies `volume` for the countdown ticks. The
+   * countdown ticks every `tickEverySec` countdown seconds, then every `finalTickEverySec` in the
+   * last `finalCountdownSec` (Devlin, 2026-10-19). Any of the three at 0 turns that part off.
+   */
+  audio: z.object({
+    volume: z.number().min(0),
+    tickVolume: z.number().min(0),
+    tickEverySec: z.number().min(0),
+    finalCountdownSec: z.number().min(0),
+    finalTickEverySec: z.number().min(0),
+  }).strict(),
   /** Catalogs merged in from cell-types.json, items.json, loot-tables.json and car-templates.json. */
   cellTypes: z.array(CellTypeSchema).min(1),
   items: z.record(ItemSchema),
@@ -244,7 +257,17 @@ export const GameSchema = z.object({
     cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** F on the horse mid-run (Devlin, 2026-10-19). */
+    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
+  /**
+   * F on the horse during a run (after a guard throws you off) ends the run and banks what you
+   * carry (Devlin, 2026-10-19). Doors: with `closeDoors` a cash-out shuts that train's doors, and
+   * with `closeDoorsOnThrownOff` being thrown off by a guard does (Devlin, 2026-10-20), so you
+   * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
+   * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
+   */
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,

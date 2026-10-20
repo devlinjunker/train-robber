@@ -1,7 +1,7 @@
 // Committing to a train and the boarding rule: who can commit, who may jump, and the meter.
 // The client only reads these; the decisions are the sim's.
 import { nextU32 } from '../rng';
-import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection } from '../types';
+import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection, TrainState } from '../types';
 import { carCatalog, carTemplate, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
 import type { WorldMap } from './map';
@@ -87,8 +87,14 @@ export function commitCheck(state: GameState, map: WorldMap, config: SimConfig, 
   const t = state.world.trains.find((q) => q.id === trainId);
   if (!t) return 'no such train';
   if (t.pinnedBy !== null) return 'train taken';
+  if (doorsClosed(state, t)) return 'doors closed';
   if (distanceToTrain(state, map, config, trainId, h.x, h.y) > config.values.commit.rangeTiles) return 'out of range';
   return null;
+}
+
+/** Whether a cash-out shut this train's doors and they have not reopened yet. */
+export function doorsClosed(state: GameState, t: TrainState): boolean {
+  return !!t.doorsClosed && (t.doorsClosed.untilTick === null || state.tick < t.doorsClosed.untilTick);
 }
 
 /** The commit query: the nearest free train in `commit.rangeTiles`, or null. The client's prompt reads this. */
@@ -115,6 +121,7 @@ export function switchCheck(state: GameState, map: WorldMap, config: SimConfig, 
   const t = state.world.trains.find((q) => q.id === trainId);
   if (!t) return 'no such train';
   if (t.pinnedBy !== null) return 'train taken';
+  if (doorsClosed(state, t)) return 'doors closed';
   if (distanceToTrain(state, map, config, trainId, h.x, h.y) > config.values.commit.switchRangeTiles) return 'out of range';
   return null;
 }

@@ -21,7 +21,7 @@ const TONES: Record<SoundId, Tone> = {
 };
 
 export interface AudioBus {
-  /** Play a sound; `volume` (0 to 1) scales its loudness. */
+  /** `volume` scales the sound's gain: 1 is its normal level, 0 silent. */
   play(id: SoundId, volume?: number): void;
   muted: boolean;
 }
@@ -42,7 +42,7 @@ export function createAudioBus(target: Pick<Window, 'addEventListener'> = window
   const bus: AudioBus = {
     muted,
     play(id, volume = 1) {
-      if (bus.muted || !ctx || ctx.state !== 'running') return;
+      if (bus.muted || volume <= 0 || !ctx || ctx.state !== 'running') return;
       const t = TONES[id];
       for (let i = 0; i < (t.repeat ?? 1); i++) {
         const start = ctx.currentTime + i * t.sec;

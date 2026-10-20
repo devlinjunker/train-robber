@@ -2,9 +2,9 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, boardingResistanceActive, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
+  boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
-  type Command, type Sim, type SimEvent,
+  type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
@@ -180,6 +180,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Placeholder sounds: countdown ticks, heat gains, the alarm sting and expiry. U or ?mute=1 mutes.
   const audio = createAudioBus(window, params.get('mute') === '1');
   let lastTick: number | null = null;
+  let lastClosed = new Set<string>();
+  // "doors shut 23 s" (or "doors shut" for the session) for a train a cash-out closed, else null.
+  const doorsShutText = (t: TrainState): string | null => {
+    if (!doorsClosed(sim.state, t)) return null;
+    const until = t.doorsClosed!.untilTick;
+    return until === null ? 'doors shut' : `doors shut ${Math.ceil((until - sim.state.tick) / tickRateHz)} s`;
+  };
+  // Volumes and how often the countdown ticks: `audio` in game.json, e.g. ?set=audio.tickVolume=0.3.
+  const audioCfg = config.values.audio;
   // The inventory panel (I): what you carry, numbered so 1 to 9 drop that item.
   let inventoryOpen = false;
 
@@ -270,11 +279,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'HeatChanged') {
       const now = performance.now();
       heatNotices = [...heatNotices.filter((n) => n.until > now), { text: heatNotice(e.delta, e.cause), until: now + HEAT_NOTICE_MS }].slice(-HEAT_NOTICES);
-      if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm'); } else audio.play('heat');
+      if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm', audioCfg.volume); } else audio.play('heat', audioCfg.volume);
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
-      audio.play('expired');
+      audio.play('expired', audioCfg.volume);
       show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
+    else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
+      const c = config.values.cashOut;
+      show(`Got away: $${e.cashOut} banked${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
+    }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
@@ -312,7 +325,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['C boost'] : []),
-    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -353,12 +366,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const riderless = physical && !riding;
       // The boarding readout is against the committed train, or the nearest one while idle.
       const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, c) => distanceToTrain(s, sim.map, config, a.id, horseState.x, horseState.y) - distanceToTrain(s, sim.map, config, c.id, horseState.x, horseState.y))[0]?.id ?? null;
-      const check = physical && riding && readTrain ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
+      // A shut train (a cash-out, or thrown off) cannot be boarded: no boarding readout or meter for it.
+      const readShut = !!readTrain && doorsClosed(s, s.world.trains.find((t) => t.id === readTrain)!);
+      const check = physical && riding && readTrain && !readShut ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
       const extracting = phase === 'extracting';
       const call = s.run?.horse ?? null;
       const mount = extracting ? mountCheck(s, sim.map, config, player) : null;
       // The mount meter shows over you while the horse is alongside; it sweeps once you are at a door with the horse in reach.
-      const meter: MeterView | null = phase === 'approach' && run
+      const meter: MeterView | null = phase === 'approach' && run && !readShut
         ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
         : extracting && run && call?.state === 'alongside'
           ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, ex.meter.zoneWidths), sweeping: mount?.state === 'eligible', matched: false }
@@ -439,10 +454,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x));
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
       }
+      // Trains a cash-out shut: their doors are drawn closed, and a notice says when they reopen.
+      const closedTrains = new Set(s.world.trains.filter((t) => doorsClosed(s, t)).map((t) => t.id));
+      for (const id of lastClosed) if (!closedTrains.has(id)) show(`${trainName(id) ?? 'The train you robbed'} has opened its doors again`, 'info', 3500);
+      lastClosed = closedTrains;
       const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
+          closedTrains,
           loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
           cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
@@ -466,7 +486,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : horseState.stunTicks > 0 && flashOn(now / 1000) ? 0xffffff : null,
           playerFlash: stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, focus,
-          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise,
+          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise, closedTrains,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -486,7 +506,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          trains.push({ id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
+          const shutText = doorsShutText(t);
+          const shutAt = shutText ? project(best.x, best.y, iso ? 4.2 + isoWorld.groundZ(best.x, best.y) : 0) : null;
+          trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
       // The line cue, on the far side of the run's train in iso.
@@ -522,12 +544,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         });
       }
 
-      // The countdown ticks once per countdown second, twice as often below 20%, so the ticks
-      // speed up with heat too; nothing ticks before the clock starts or after the run.
+      // The countdown ticks every `audio.tickEverySec` countdown seconds, then every
+      // `audio.finalTickEverySec` in the last `audio.finalCountdownSec`, so the ticks speed up with
+      // heat too; nothing ticks before the clock starts or after the run.
       const rs = s.run;
       const clockOn = !!rs && rs.clockRunning && config.values.countdown.enabled;
-      const bucket = clockOn ? tickBucket(rs.countdownSec, rs.countdownTotalSec) : null;
-      if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick');
+      const bucket = clockOn ? tickBucket(rs.countdownSec, audioCfg) : null;
+      if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick', audioCfg.volume * audioCfg.tickVolume);
       lastTick = bucket;
       const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
       heatNotices = heatNotices.filter((n) => n.until > now);
@@ -585,15 +608,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } : null;
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
-        : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
+        : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : aboardPhase ? stumbling ? 'Stumbling: you landed off balance'
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
                   : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, hold E on loot, F whistle for your horse` : '';
-      const prompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const carried = run?.carried ?? [];
+      // Thrown off with loot: F gets away with it (cashOut).
+      const cashHint = (phase === 'approach' || phase === 'boarding') && carried.length > 0 && config.values.cashOut.enabled ? `F: get away with $${carriedValue(config, carried)}` : '';
+      const switchPrompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
+      const prompt = [switchPrompt, cashHint].filter(Boolean).join('  ·  ');
       const weight = carriedWeight(config, carried);
       const carry = run ? {
         value: carriedValue(config, carried), weight, items: carried.length, maxWeight: config.values.carry.maxWeight, maxItems: config.values.carry.maxItems,

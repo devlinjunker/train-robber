@@ -39,12 +39,15 @@ const base = {
   carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
   hud: { showTrainNames: true },
+  audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
     expired: { bankRunLoot: false, wantedDelta: 1 },
     extracted: { bankRunLoot: true, wantedDelta: 0 },
+    cashedOut: { bankRunLoot: true, wantedDelta: 0 },
   },
+  cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenSec: 0 },
 };
 
 const variant = (group: string, id: string, patch: object) =>

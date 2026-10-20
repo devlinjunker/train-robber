@@ -1,5 +1,6 @@
 // The only code that writes PersistentState: apply a run's outcome under `outcomePolicy`.
-// `bankRunLoot` cashes the run's loot into the bank and lifetime earned (an extraction, M4).
+// `runLootValue` is the loot value the run carried; it goes into the bank and lifetime earned when the
+// outcome's policy has `bankRunLoot` (an extraction or a cash-out).
 import type { PersistentState, RunOutcome, SimConfig } from '../types';
 
 export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, policy: SimConfig['values']['outcomePolicy'], runLootValue = 0): PersistentState {

@@ -46,6 +46,8 @@ export interface ViewInput {
   cones?: readonly ConeView[] | null;
   /** How far the player's footsteps carry aboard, or null when silent. */
   noise?: { x: number; y: number; r: number; running: boolean } | null;
+  /** Trains whose doors a cash-out shut: their doors show red and have no boarding zone. */
+  closedTrains?: ReadonlySet<string>;
 }
 
 export interface WorldView {
@@ -111,13 +113,17 @@ export function createWorldView(content: SceneContent): WorldView {
       // Entry points come from the sim's shared function, as the isometric markers do.
       entries.clear();
       zones.clear();
+      const shut = (car: CarPose) => input.closedTrains?.has(car.trainId) ?? false;
       for (const car of cars) {
+        if (shut(car)) continue;
         for (const ep of carEntryPoints(car, content.catalog)) {
           entries.circle(ep.x, ep.y, 0.35);
           zones.circle(ep.x, ep.y, input.rangeTiles);
         }
       }
       entries.fill({ color: 0x6bff8a, alpha: 0.9 });
+      for (const car of cars) if (shut(car)) for (const ep of carEntryPoints(car, content.catalog)) entries.circle(ep.x, ep.y, 0.35);
+      entries.fill({ color: 0xe0503a, alpha: 0.9 });
       // Loot as dots in each car, coloured by category; a hidden stash is dark.
       lootG.clear();
       for (const l of input.loot ?? []) {
