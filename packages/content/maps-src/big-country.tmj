@@ -615,7 +615,7 @@
       {
        "name": "trainOffset",
        "type": "float",
-       "value": 400
+       "value": 550
       }
      ]
     },
@@ -649,7 +649,7 @@
       {
        "name": "trainOffset",
        "type": "float",
-       "value": 400
+       "value": 150
       }
      ]
     }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
   "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "HorseBoosted"] },
-  "player": { "speedTilesPerSec": 8 },
+  "player": { "speedTilesPerSec": 8, "crouch": { "speedScale": 0.25 } },
   "world": { "mode": "separate" },
   "horse": {
     "maxSpeed": 14, "accel": 7, "brake": 12, "dragTilesPerSec2": 3, "cruiseTargetRateTilesPerSec2": 10,
@@ -13,9 +13,9 @@
   "ai": {
     "guardCatch": "heat-only",
     "patrolSpeedTilesPerSec": 1.5, "patrolPauseSec": 1.5, "chaseSpeedTilesPerSec": 4, "turnRateDegPerSec": 240,
-    "sight": { "rangeTiles": 7, "coneHalfAngleDeg": 40 },
-    "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5 },
-    "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "catchRangeTiles": 0.8,
+    "sight": { "rangeTiles": 10, "coneHalfAngleDeg": 40, "crouchCoverMin": 0.25 },
+    "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3 },
+    "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
     "thrownOffLootShare": 0.5
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },

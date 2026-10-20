@@ -145,7 +145,8 @@ const axis = (v: number) => (v < -127 ? -127 : v > 127 ? 127 : v | 0) / 127;
 /**
  * Tick system 5: players aboard walk the train at up to `player.speedTilesPerSec`, scaled by the
  * length of the `move` axes (the client walks at half and runs at full), by the weight they carry
- * (`carry.slowdownEnabled`), and by `verbs.search.walkSpeedScale` while searching. Aboard, `move`
+ * (`carry.slowdownEnabled`), by `verbs.search.walkSpeedScale` while searching, and crouching walks at
+ * `player.crouch.speedScale` of full speed whatever the axes say. Aboard, `move`
  * is in the car's frame, not the screen's: +x walks toward the front (lower cell x), +y toward the
  * right side (higher cell y). The client turns its screen keys into that frame, so the sim never
  * sees the screen. Each axis moves on its own so a wall stops one and the player slides along it.
@@ -171,6 +172,8 @@ export function walkAboard(state: GameState, config: SimConfig): void {
     const n = Math.sqrt(mx * mx + my * my);
     if (n === 0) continue;
     if (n > 1) { mx /= n; my /= n; }
+    // Crouched, any move is the same slow creep, so Shift does not make it faster.
+    if (run?.crouched) { const m = Math.sqrt(mx * mx + my * my); mx /= m; my /= m; speed *= config.values.player.crouch.speedScale; }
     const pl = p.placement;
     const cars = trainCars(state, f.trainId);
     const open = (x: number, y: number) => trainCellWalkable(catalog, cars, f.car, x, y);

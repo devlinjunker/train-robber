@@ -15,7 +15,11 @@ export const GameSchema = z.object({
     /** Event allowlist for the events log. */
     events: z.array(z.string()),
   }).strict(),
-  player: z.object({ speedTilesPerSec: positive }).strict(),
+  player: z.object({
+    speedTilesPerSec: positive,
+    /** Crouching aboard (C): the one speed you creep at, as a share of speedTilesPerSec (running; walking is half), whatever the move axes say. */
+    crouch: z.object({ speedScale: z.number().gt(0).max(1) }).strict(),
+  }).strict(),
   commit: z.object({
     /** A free train this close (nearest car body) brings up the commit prompt, and E commits. */
     rangeTiles: positive,
@@ -315,15 +319,18 @@ export const GameSchema = z.object({
     /** How fast a guard turns to face where it walks or what it noticed. */
     turnRateDegPerSec: positive,
     /** The sight cone: range, and half its angle (turned into a cosine threshold); cells with blocksSight stop it. */
-    sight: z.object({ rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180) }).strict(),
-    /** Footsteps carry this far walking and running, times the noise of the cell the player is on. */
-    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0) }).strict(),
+    /** `crouchCoverMin`: a cell with at least this `cover` between a guard and a crouched player blocks the guard's sight of them (crates 0.5, barrels 0.4). */
+    sight: z.object({ rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
+    /** Footsteps carry this far walking, running and crouching, times the noise of the cell the player is on. */
+    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), searchRadiusTiles: z.number().min(0) }).strict(),
     /** A suspicious guard that keeps seeing the player this long goes alert and raises the alarm. */
     alertAfterSec: z.number().min(0),
     /** A suspicious guard with no sight or sound of the player this long goes back to unaware. */
     calmSec: z.number().min(0),
     /** An alert guard that has not seen or heard the player this long drops back to suspicious. */
     alertCalmSec: z.number().min(0),
+    /** A chasing guard that has not seen or heard the player this long gives up the chase: it stays alert and searches where it last knew they were. */
+    loseSightSec: z.number().min(0),
     /** An alert, chasing guard this close catches the player (guardCatch `thrown-off`). */
     catchRangeTiles: positive,
     /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
