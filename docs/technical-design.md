@@ -1169,6 +1169,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Crouch speed (Claude's pick, sneaking PR 1) | a quarter of full speed (2 tiles/s, half a walk), however hard you push | `player.crouch.speedScale` |
 | Crouch noise (Devlin, 2026-10-20: guards hear you sneak right behind them) | 1 tile, times the cell's noise | `ai.noise.crouchRadiusTiles` |
 | Searching loot noise (Devlin, 2026-10-20: guards further away may hear you rummaging) | 3 tiles, crouched or not (between walking 1.5 and running 5) | `ai.noise.searchRadiusTiles` |
+| Good-landing stumble noise (Devlin, PR #35 playtest, 2026-10-20: loud, like running) | 5 tiles while the stumble lasts (`boarding.landing.stumbleSec`), moving or not; the stumble after a failed mount makes it too | `ai.noise.stumbleRadiusTiles` |
 | Cover that hides a crouched player (design doc) | a cell with cover 0.25 or more on the sight line (crates 0.5, barrels 0.4, benches 0.25; Devlin, 2026-10-20) | `ai.sight.crouchCoverMin` |
 | Chase give-up (design doc) | 3 s without sight or sound: the guard stays alert, walks at patrol speed to where it last knew you were and looks one way and the other, catching no one | `ai.loseSightSec` |
 | Car spacing (Claude's pick, sneaking PR 2; Devlin wanted a visible gap) | a 1-tile end platform at each end of every car and a 1-tile coupling gap, so car bodies sit 3 tiles of track apart | `outside.platformDepthTiles`, `outside.couplingGapTiles` |

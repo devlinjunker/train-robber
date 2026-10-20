@@ -520,7 +520,8 @@ export interface SimConfig {
       turnRateSinPerTick: number;
       sight: { rangeTiles: number; coneCos: number; crouchCoverMin: number };
       /** `searchRadiusTiles`: how far searching loot (holding E on a slot, hidden or not) carries, crouched or not. */
-      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number };
+      /** `stumbleRadiusTiles`: how far the stumble after a good landing carries, moving or not (Devlin, 2026-10-20: loud, like running). */
+      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number; stumbleRadiusTiles: number };
       alertAfterTicks: number;
       calmTicks: number;
       alertCalmTicks: number;
