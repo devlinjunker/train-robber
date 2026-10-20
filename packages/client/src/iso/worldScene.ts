@@ -29,13 +29,22 @@ const PERFECT_RING_SEC = 0.8;
  * enough that a decoy train is a guess from a distance, different enough to read up close (G17,
  * Devlin's M2 playtest).
  */
+/** A positive number from the page URL, or `fallback` (also outside a browser, as in tests). */
+function urlNumber(name: string, fallback: number, min: number): number {
+  const raw = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get(name);
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) && v >= min ? v : fallback;
+}
 export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a, 'small-mail-car': 0x9a5534, 'small-blank-car': 0x86604a };
 const DOOR_COLOUR = 0xe8c872;
 /** A shut door (a cash-out closed the train's doors): dark planks the body's colour, barred across. */
 const SHUT_DOOR_SHADE = 0.62, DOOR_BAR_COLOUR = 0x2a1d12;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
-const CAR_HEIGHT = 2.4;
+/** Car height in tiles, visual only: about 5 (Devlin, 2026-10-20), `?carHeight=` to try others. */
+const CAR_HEIGHT = urlNumber('carHeight', 5, 1);
+/** Side doors stay person-sized however tall the car is. */
+const DOOR_TOP = Math.min(CAR_HEIGHT - 0.4, 2.6);
 const PLAYER_COLOUR = 0x6bd3ff;
 const GUARD_COLOUR = 0x2c3e66, GUARD_HAT_COLOUR = 0x1a1a22;
 const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
@@ -403,9 +412,9 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
             if (a1 <= a0) continue;
             // sidePanel measures along the slice from its own centre.
             const mid = (s.along0 + s.along1) / 2;
-            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, DOOR_COLOUR); continue; }
+            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, DOOR_COLOUR); continue; }
             // Shut: a dark plank door with two bars across it.
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, CAR_HEIGHT - 0.4, shade(colour, SHUT_DOOR_SHADE));
+            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, shade(colour, SHUT_DOOR_SHADE));
             sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.55, 0.75, DOOR_BAR_COLOUR);
             sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 1.35, 1.55, DOOR_BAR_COLOUR);
           }

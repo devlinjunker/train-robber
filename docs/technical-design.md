@@ -828,7 +828,7 @@ The client turns sim state into pixels and device input into commands, and does 
 In separate mode the player is never inside a car in the world view, so cars there are always drawn closed. The roof fade belongs to the continuous mode only.
 
 - **Placement.** The sim gives each car a distance along the route. The client looks up the position and unit tangent for that distance and projects them through `projection.ts`, so cars follow the bends and stay rigid. Positions are interpolated between ticks like any actor.
-- **Placeholder look.** Each car is a flat-shaded box with a top face and two visible sides, tinted by car type, with a small mark for the front. Cars are 28 × 7 tiles since sneaking PR 1 (16 × 6 before), so the engine, three cars and the caboose are about 112 tiles long.
+- **Placeholder look.** Each car is a flat-shaded box with a top face and two visible sides, tinted by car type, with a small mark for the front. Cars are 28 × 7 tiles since sneaking PR 1 (16 × 6 before), so the engine, three cars and the caboose are about 112 tiles long. In 3D they are about 5 tiles tall (visual only, `?carHeight=` to try others), with person-sized side doors.
 - **Depth sorting.** A long car sorted by one centre point can draw in front of or behind the horse wrongly. Each car is therefore drawn as slices about two tiles long, and the slices sort individually against the horse and other objects.
 - **Entry markers.** The sim computes each entry point's world position (the car's place on the route plus an offset across the track), and the boarding check and the markers both use that value, so what you see is what the rule tests. Only the side you are riding on shows markers, and a train that restricts boarding shows only its allowed entry points.
   - dim when out of range
@@ -1158,7 +1158,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Heat drain factor | 1.0 (heat 100 doubles the drain) | `heat.heatDrainFactor` |
 | Debug heat step (H) | 10; 0 turns the key off | `playtest.debugHeatStep` |
 | Guards on the mail train | About 2 for every 3 cars with guard spawns at wanted level 0 (Devlin, 2026-10-17), plus the wanted-level bonus from M5 | `trains.<id>.guards.perCar` (0.67), `trains.<id>.guards.base` (0) |
-| Guard sight (Claude's pick in M3) | 7 tiles, 40° half-angle (an 80° cone) | `ai.sight.rangeTiles`, `ai.sight.coneHalfAngleDeg` |
+| Guard sight (M3; 10 tiles since Devlin's sneaking PR 1 playtest, 2026-10-20) | 10 tiles, 40° half-angle (an 80° cone) | `ai.sight.rangeTiles`, `ai.sight.coneHalfAngleDeg` |
 | Guard hearing (Claude's pick in M3) | 1.5 tiles walking, 5 running, times the cell's noise | `ai.noise.walkRadiusTiles`, `ai.noise.runRadiusTiles` |
 | Guard awareness (Claude's pick in M3) | alert after 1 s in view; suspicious calms after 4 s, alert after 6 s | `ai.alertAfterSec`, `ai.calmSec`, `ai.alertCalmSec` |
 | Guard movement (Claude's pick in M3) | patrol 1.5 tiles/s with 1.5 s pauses, chase 4 tiles/s (Devlin, M3 playtest 2026-10-18), turn 240°/s, catch within 0.8 tiles | `ai.patrolSpeedTilesPerSec`, `ai.patrolPauseSec`, `ai.chaseSpeedTilesPerSec`, `ai.turnRateDegPerSec`, `ai.catchRangeTiles` |
@@ -1166,8 +1166,8 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Boost acceleration (Claude's pick in M3) | 20 tiles/s² while boosting | `horse.boost.accelTilesPerSec2` |
 | Car size (Devlin, 2026-10-17) | 28 × 7 mail and blank cars, a 16 × 7 engine and 12 × 7 caboose; the `small-cars` preset keeps the 16 × 6 set | layouts in `cars-src/`, `small-*` ids |
 | Crouch speed (Claude's pick, sneaking PR 1) | a quarter of full speed (2 tiles/s, half a walk), however hard you push | `player.crouch.speedScale` |
-| Crouch noise (Claude's pick) | 0.3 tiles, times the cell's noise | `ai.noise.crouchRadiusTiles` |
-| Cover that hides a crouched player (design doc) | a cell with cover 0.4 or more on the sight line (crates 0.5, barrels 0.4; benches 0.25 do not) | `ai.sight.crouchCoverMin` |
+| Crouch noise (Devlin, 2026-10-20: guards hear you sneak right behind them) | 1 tile, times the cell's noise | `ai.noise.crouchRadiusTiles` |
+| Cover that hides a crouched player (design doc) | a cell with cover 0.25 or more on the sight line (crates 0.5, barrels 0.4, benches 0.25; Devlin, 2026-10-20) | `ai.sight.crouchCoverMin` |
 | Chase give-up (design doc) | 3 s without sight or sound: the guard stays alert, walks at patrol speed to where it last knew you were and looks one way and the other, catching no one | `ai.loseSightSec` |
 
 ### Phase 2 checklist

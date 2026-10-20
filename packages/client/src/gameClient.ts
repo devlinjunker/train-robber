@@ -621,7 +621,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
-                  : crouched ? `Crouched: creeping quietly, hidden behind crates and barrels. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
+                  : crouched ? `Crouched: creeping quietly, hidden behind crates, barrels and benches. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
                     : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, C crouch, hold E on loot, F whistle for your horse` : '';
       const carried = run?.carried ?? [];
       // Thrown off with loot: F gets away with it (cashOut).
