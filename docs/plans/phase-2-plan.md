@@ -86,7 +86,7 @@ Built in the M3 PR ([#28](https://github.com/devlinjunker/train-robber/pull/28),
 
 After playtesting M3, Devlin wants to sneak past guards. The design and its seven decisions are in [Outside the train: roofs, ledges and stealth](https://claude.ai/code/artifact/5a6a4ecc-15cc-4747-9326-52c30881cc98). It pulls the roof forward from Phase 3 (changes G29) and grows cars from 16 x 6 to 28 x 7. Thrown-off became the default guard catch, with about 2 guards per 3 cars. Three PRs, in order, each after the one before; none waits on M4:
 
-- [ ] Stealth inside and bigger cars: crouch (C aboard), cover of 0.4 or more blocks sight to a crouched player, 28 x 7 layouts (cars about 5 tiles tall, visual only), chasing guards give up after `ai.loseSightSec` and stay alert
+- [x] Stealth inside and bigger cars (PR #33, v0.2.4-sneaking-1): crouch (C aboard), cover of 0.25 or more (crates, barrels, benches) blocks sight to a crouched player, 28 x 7 layouts (cars about 5 tiles tall, visual only), chasing guards give up after `ai.loseSightSec` and stay alert. Playtest (2026-10-20): sight 10 tiles, crouch noise 1 tile, searching loot noise 3 tiles, generated maps curviness 0.2; car spacing moves to the platforms PR
 - [ ] Platforms and side ledges: outside cells, guards see ledges through windows and follow you out, trackside rocks scrape you off, a fall lands you on the horse like thrown-off
 - [ ] Roof: ladders at end platforms, gap jumps with hang-and-climb, leaning toward the edge on curves (a skill check, never random), loud footsteps for guards below, guards climb up after you
 
