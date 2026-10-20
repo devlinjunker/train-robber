@@ -2,7 +2,7 @@
 // doc: Minimum feedback). Real sound files replace the synth later by changing only this file.
 // Browsers start audio suspended until a key or click, so the bus resumes on the first one.
 
-export type SoundId = 'tick' | 'tickFast' | 'heat' | 'alarm' | 'expired';
+export type SoundId = 'tick' | 'tickFast' | 'heat' | 'alarm' | 'expired' | 'whistle' | 'hoof';
 
 interface Tone { type: OscillatorType; from: number; to: number; sec: number; gain: number; repeat?: number }
 
@@ -14,6 +14,10 @@ const TONES: Record<SoundId, Tone> = {
   // The alarm sting: a rising two-step siren.
   alarm: { type: 'sawtooth', from: 600, to: 1100, sec: 0.22, gain: 0.12, repeat: 3 },
   expired: { type: 'sawtooth', from: 440, to: 110, sec: 0.9, gain: 0.15 },
+  // The whistle for the horse: two rising notes.
+  whistle: { type: 'sine', from: 1400, to: 2300, sec: 0.18, gain: 0.12, repeat: 2 },
+  // One hoofbeat, a low thud; the client plays them in a gallop rhythm while the horse is close.
+  hoof: { type: 'triangle', from: 140, to: 70, sec: 0.06, gain: 0.12 },
 };
 
 export interface AudioBus {
@@ -46,7 +50,7 @@ export function createAudioBus(target: Pick<Window, 'addEventListener'> = window
         osc.type = t.type;
         osc.frequency.setValueAtTime(t.from, start);
         osc.frequency.linearRampToValueAtTime(t.to, start + t.sec);
-        amp.gain.setValueAtTime(t.gain * volume, start);
+        amp.gain.setValueAtTime(Math.max(0.0002, t.gain * volume), start);
         amp.gain.exponentialRampToValueAtTime(0.0001, start + t.sec);
         osc.connect(amp).connect(ctx.destination);
         osc.start(start);

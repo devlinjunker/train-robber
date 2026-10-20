@@ -328,7 +328,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
   const turn = (w: { fx: number; fy: number }, x: number, y: number) => turnToward(w, x, y, ai.turnRateCosPerTick, ai.turnRateSinPerTick);
   // The one player in phase 2, when aboard this train.
   let target: { p: PlayerState; lx: number; y: number; noise: number } | null = null;
-  if (run.phase === 'aboard') {
+  if (run.phase === 'aboard' || run.phase === 'extracting') {
     for (const p of state.players) {
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== train.id || !run.players[p.id]) continue;

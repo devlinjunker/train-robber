@@ -41,6 +41,12 @@ export type Command =
    * `alarmRaised`) it raises what that source would, with its cause, as if the event happened.
    */
   | { type: 'debugHeat'; source?: HeatSource }
+  /**
+   * F, aboard: whistle for the horse (U4). The first whistle starts `extracting` and places the horse
+   * behind the train on the player's side; another while it is coming or alongside sends it to the
+   * side the player is now nearest.
+   */
+  | { type: 'whistle' }
   /** C, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
   | { type: 'boost' }
   /**
@@ -52,8 +58,8 @@ export type Command =
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
 /** `idle` means no run; the others are `RunState.phase`. */
-export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'ended';
-export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'cashedOut';
+export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting' | 'ended';
+export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -62,14 +68,28 @@ export type HeatCause = 'shotFired' | 'alarmRaised' | 'playerSpotted' | 'actorKi
 /** Event-based heat sources in `heat.sources` (time aboard is per second instead). */
 export type HeatSource = Exclude<HeatCause, 'timeAboard' | 'debug'>;
 export type BoardingResult = 'perfect' | 'good' | 'fail';
+/** A side of the train, relative to its direction of travel. */
+export type TrainSide = 'left' | 'right';
+/**
+ * The riderless horse during a run (U4): `away` is out of the world, `approaching` rides up after a
+ * whistle, `alongside` paces beside the player's car for the pace window, and `leaving` runs off after
+ * boarding or drops back after the window, then goes `away`.
+ */
+export type HorseCallState = 'away' | 'approaching' | 'alongside' | 'leaving';
+/** What a good mount spills (mountSpill variant group, G15). */
+export type MountSpill = 'random' | 'heaviest' | 'share';
 /** What a horse ran into: a train car, or blocked ground (water and the map edge never hurt). */
 export type CollisionTarget = 'train' | 'obstacle';
 /** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
 export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard' | 'doors closed';
+/** Why a mount jump (Space while extracting) was refused. */
+export type MountRejection = 'no horse' | 'not at a door' | 'horse too far';
+/** Why a whistle was refused. */
+export type WhistleRejection = 'not aboard' | 'cooling down' | 'horse coming';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
+export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -83,7 +103,7 @@ export type SimEvent =
   | { type: 'CommandRejected'; tick: number; player: PlayerId; command: Command['type']; reason: RejectReason }
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
-  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' }
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' | 'mount' }
   /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
   /** Running into or scraping a train, or running into blocked ground; `impact` is the speed the horse lost, tiles/s. */
@@ -97,6 +117,24 @@ export type SimEvent =
    * (a cash-out on F), else 0.
    */
   | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number }
+  /**
+   * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
+   * horse starts delay x closing speed back from the player's place in the train (at least a few
+   * tiles behind the last car); `distanceTiles` is how far behind the last car. `whistle` counts the run's whistles.
+   */
+  | { type: 'HorseWhistled'; tick: number; player: PlayerId; side: TrainSide; delaySec: number; distanceTiles: number; whistle: number }
+  /** The horse reached the lane beside the player's car; the pace window starts. */
+  | { type: 'HorseArrived'; tick: number; player: PlayerId; side: TrainSide; paceWindowSec: number }
+  /** The pace window ran out and the horse drops back; a whistle works again after `cooldownSec`. */
+  | { type: 'HorseDeparted'; tick: number; player: PlayerId; cooldownSec: number }
+  /** A whistle while it was coming or alongside sent the horse to the other side. */
+  | { type: 'HorseSideChanged'; tick: number; player: PlayerId; from: TrainSide; to: TrainSide }
+  /** The horse cannot reach the player's car (no way round the terrain, or stuck); it keeps trying. */
+  | { type: 'HorseBlocked'; tick: number; player: PlayerId; reason: 'no path' | 'stuck' }
+  /** Space beside the alongside horse; `meter` is the sampled position, 0 to 1. */
+  | { type: 'MountAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
+  /** A good mount spilled loot (mountSpill): the items lost, and the value lost with them. */
+  | { type: 'LootSpilled'; tick: number; player: PlayerId; items: string[]; value: number; rule: MountSpill }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
@@ -222,6 +260,34 @@ export interface RunState {
   nextLootId: number;
   /** Guards aboard the committed train, by ascending id. */
   guards: GuardState[];
+  /** The riderless horse while the player is aboard (U4). */
+  horse: HorseCall;
+}
+
+/** The extraction horse's state, in the run so a snapshot resumes it mid-extraction. */
+export interface HorseCall {
+  state: HorseCallState;
+  /** The side of the train it rides up on. */
+  side: TrainSide;
+  /** Ticks left before a `leaving` horse is removed; ticks in the pace window while `alongside`. */
+  ticks: number;
+  /** Ticks before another whistle works, after the pace window ends. */
+  cooldownTicks: number;
+  whistles: number;
+  /** Tick of the last whistle and the delay it drew, for the optional HUD timer. */
+  whistleTick: number;
+  delaySec: number;
+  /** Set while it cannot reach the player's car; the HUD says so. */
+  blocked: 'no path' | 'stuck' | null;
+  /** Closest it has got to its target since it last made progress, and the ticks since then. */
+  bestDistance: number;
+  stuckTicks: number;
+  /** Coarse path cells (row-major index on the `extraction.pathCellTiles` grid) toward the target; empty to ride straight there. */
+  path: number[];
+  /** Ticks until the path is planned again. */
+  replanTicks: number;
+  /** Mount jumps made this run. */
+  mountAttempts: number;
 }
 
 /**
@@ -266,7 +332,7 @@ export interface PlayerState {
    * Null when no such train is in range.
    */
   commitTimer: { trainId: string; ticks: number } | null;
-  /** The train an in-place cancel just left: only E commits to it until the rider leaves its commit range. */
+  /** The train an in-place cancel or an extraction just left: only E commits to it until the rider leaves its commit range. */
   commitHold: string | null;
   /**
    * Runs cancelled in place, one per train: committing to that train again picks up where it
@@ -292,8 +358,8 @@ export interface HorseState {
   boostTicks: number;
   boostCooldownTicks: number;
   /**
-   * `physical` rides the map. `away` is the separate world mode's abstract horse while its
-   * rider is aboard: not simulated and not drawn (extraction adds the other states in phase 2).
+   * `physical` rides the map, ridden or riderless (running off after boarding, or called by the
+   * whistle). `away` is out of the world: not simulated and not drawn (U4).
    */
   mode: 'physical' | 'away';
 }
@@ -357,6 +423,34 @@ export interface SimConfig {
     /** Running into a train or blocked ground while on a run. */
     collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
     playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number };
+    /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
+    extraction: {
+      /** Arrival delay range, seconds; the horse starts delay x (horse.maxSpeed - train speed) behind the last car. */
+      arrivalDelaySec: readonly [number, number];
+      paceWindowTicks: number;
+      rewhistleCooldownTicks: number;
+      laneOffsetTiles: number;
+      /** How long the horse drops back after the pace window before it is removed. */
+      dropBackTicks: number;
+      /** Within this of its lane point beside the player's car, the horse counts as arrived. */
+      alongsideRangeTiles: number;
+      /** The horse must be this close to the door for a mount jump. */
+      mountRangeTiles: number;
+      /** The player must stand this close to a side door (on the horse's side) to mount, or for grace. */
+      doorReachTiles: number;
+      meter: { sweepPeriodTicks: number; zoneWidths: readonly [number, number] };
+      mountSpill: MountSpill;
+      /** Share of carried value a good mount loses under `mountSpill: share`. */
+      spillShare: number;
+      /** Size of the coarse grid the horse paths around blocked and water tiles on. */
+      pathCellTiles: number;
+      /** No progress toward its target for this long and the horse counts as stuck. */
+      stuckTicks: number;
+      /** Farther than this from its lane point (off screen), the riderless horse ignores rocks and water; 0 never. */
+      passThroughBeyondTiles: number;
+      /** How long a good mount stuns the horse. */
+      goodMountStunTicks: number;
+    };
     countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number };
     heat: {
       maxHeat: number;
@@ -369,6 +463,7 @@ export interface SimConfig {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
       expired: { bankRunLoot: boolean; wantedDelta: number };
+      extracted: { bankRunLoot: boolean; wantedDelta: number };
       cashedOut: { bankRunLoot: boolean; wantedDelta: number };
     };
     /**
@@ -391,6 +486,8 @@ export interface SimConfig {
       turnRateSinPerTick: number;
       steering: Steering;
       throttleModel: ThrottleModel;
+      /** After boarding the riderless horse runs off for this long, then leaves the world. */
+      runOffTicks: number;
       /** handlingModel `arcade-boost`: a burst to `topSpeedScale` x maxSpeed for `durationTicks`, then `cooldownTicks`. */
       boost: { enabled: boolean; durationTicks: number; cooldownTicks: number; topSpeedScale: number; accelTilesPerSec2: number };
     };

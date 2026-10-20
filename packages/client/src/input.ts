@@ -13,7 +13,7 @@ export type Action = GameAction | ViewAction;
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop',
-  // C: the horse boost (handlingModel arcade-boost). F on the horse mid-run cashes out (aboard it stays free for the whistle, M4).
+  // C: the horse boost (handlingModel arcade-boost). F: whistle for the horse aboard (M4), cash out on the horse mid-run.
   KeyC: 'boost', KeyF: 'cashOut',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
@@ -157,8 +157,8 @@ export class InputMapper {
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
       else if (a === 'boost') out.push({ type: 'boost' });
       else if (a === 'cashOut') {
-        // Aboard, F stays free for the whistle (M4).
-        if (!ctx.aboard) out.push({ type: 'cashOut' });
+        // F: aboard it whistles for the horse (M4); on the horse mid-run it cashes out.
+        out.push(ctx.aboard ? { type: 'whistle' } : { type: 'cashOut' });
       }
       else if (a === 'drop') out.push({ type: 'drop', slot: Math.max(0, ctx.carriedCount() - 1) });
       else if (a.startsWith('slot')) {

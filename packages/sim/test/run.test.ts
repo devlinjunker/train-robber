@@ -281,13 +281,15 @@ describe('meter', () => {
 });
 
 describe('landings', () => {
-  it('perfect: into the car frame at the entry cell, clean, with the horse abstract', () => {
+  it('perfect: into the car frame at the entry cell, clean, with the horse left riderless', () => {
     const sim = approach();
     const ev = jump(sim, 'perfect');
     expect(phases(ev)).toEqual(['approach>boarding', 'boarding>aboard']);
     expect(ev.find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'perfect', attempt: 1, meter: 0.5 });
     expect(S(sim).players[0]!.placement).toEqual({ frame: 'car:blank-1:1', x: 8.5, y: 0.5, layer: 'interior' });
-    expect(horse(sim)).toMatchObject({ mode: 'away', speed: 0 });
+    // The horse stays in the world, riderless, running off for horse.runOffSec (U4).
+    expect(horse(sim).mode).toBe('physical');
+    expect(S(sim).run!.horse).toMatchObject({ state: 'leaving', ticks: 179 }); // counted from the landing tick
     expect(rp(sim)).toMatchObject({ stumbleTicks: 0, health: 100 });
     // The entry cell sits just inside the door, where the boarding rule measured.
     const at = sim.world.toWorld(S(sim), S(sim).players[0]!.placement);
@@ -622,8 +624,8 @@ describe('aboard', () => {
     // Cars move along the route, and the player rides with them.
     const car = sim.cars()[1]!;
     expect(sim.world.toWorld(S(sim), p)).toEqual(carToWorld(car, p.x, p.y));
-    // Commands for the horse do nothing aboard; jumps are refused.
-    expect(rejections(step(sim, { type: 'jump' }))).toEqual(['jump: aboard']);
+    // Commands for the horse do nothing aboard; with no horse called, jumps are refused.
+    expect(rejections(step(sim, { type: 'jump' }))).toEqual(['jump: no horse']);
   });
 
   it('walks at a share of walk speed for a partial axis (the client walks at half, runs at full)', () => {
@@ -633,8 +635,18 @@ describe('aboard', () => {
     expect(p.y).toBeCloseTo(0.5 + (64 / 127) * (8 / 60), 12);
   });
 
-  it('the horse is abstract while aboard: it does not move', () => {
+  it('the riderless horse runs off away from the train, then leaves the world after horse.runOffSec', () => {
     const sim = IN_PHASE.aboard!();
+    const car = sim.cars()[1]!;
+    const gap0 = Math.hypot(horse(sim).x - car.x, horse(sim).y - car.y);
+    steps(sim, 120);
+    const gap1 = Math.hypot(horse(sim).x - sim.cars()[1]!.x, horse(sim).y - sim.cars()[1]!.y);
+    expect(gap1).toBeGreaterThan(gap0 + 5);
+    expect(horse(sim).mode).toBe('physical');
+    steps(sim, 70);
+    expect(horse(sim).mode).toBe('away');
+    expect(S(sim).run!.horse.state).toBe('away');
+    // Away, it is not simulated.
     const h = { ...horse(sim) };
     steps(sim, 30);
     expect(horse(sim)).toEqual(h);

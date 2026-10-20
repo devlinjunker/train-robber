@@ -116,7 +116,7 @@ export function commitTarget(state: GameState, map: WorldMap, config: SimConfig,
 export function switchCheck(state: GameState, map: WorldMap, config: SimConfig, h: HorseState, trainId: string): SwitchRejection | null {
   const run = state.run;
   if (!run) return 'no run';
-  if (run.phase === 'aboard' || run.phase === 'ended') return 'aboard';
+  if (run.phase === 'aboard' || run.phase === 'extracting' || run.phase === 'ended') return 'aboard';
   if (run.trainId === trainId) return 'already committed';
   const t = state.world.trains.find((q) => q.id === trainId);
   if (!t) return 'no such train';
@@ -150,6 +150,13 @@ export function meterPosition(phase: number): number {
 export function advanceMeter(meter: MeterState, state: BoardingState, periods: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number }): void {
   if (state === 'too far') { meter.phase = 0; return; }
   meter.phase += 1 / (state === 'eligible' ? periods.matchedSweepPeriodTicks : periods.sweepPeriodTicks);
+  if (meter.phase >= 1) meter.phase -= 1;
+}
+
+/** The mount meter (U4): sweep at one period while a mount is possible, else park at 0. */
+export function advanceMeterBy(meter: MeterState, sweeping: boolean, periodTicks: number): void {
+  if (!sweeping) { meter.phase = 0; return; }
+  meter.phase += 1 / periodTicks;
   if (meter.phase >= 1) meter.phase -= 1;
 }
 
