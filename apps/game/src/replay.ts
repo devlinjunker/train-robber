@@ -6,7 +6,8 @@ import { createGameClient, showFatal } from '@train-robber/client';
 import { headerWarnings } from '@train-robber/config';
 import { createReplay, eventLogWriter, indexCommandLog, mapHash, parseLog, type CommandLogLine, type HeaderLine, type Replay } from '@train-robber/sim';
 import pkg from '../package.json';
-import { DEFAULT_MAP, loadMap, loadScenery } from './map';
+import type { MapDef, SceneryDef } from '@train-robber/config';
+import { DEFAULT_MAP, sessionMap } from './map';
 import { RingBuffer } from './ringBuffer';
 import { configForHeader } from './setup';
 import type { ReplaySource } from './logDrop';
@@ -28,11 +29,12 @@ export async function bootReplay(app: Application, source: ReplaySource): Promis
     header = log.header;
     if (header.log !== 'commands') throw new Error(`expected a commands log, got the ${header.log} log`);
     config = configForHeader(header);
-    const map = await loadMap(header.mapId ?? DEFAULT_MAP);
+    // A generated map (?map=gen) is rebuilt from the logged seed and mapGen overrides.
+    const { map, scenery } = await sessionMap(header.mapId ?? DEFAULT_MAP, header.seed, config);
     warnings = headerWarnings(header, { config, gameVersion: pkg.version, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
     if (!header.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
     replay = createReplay(indexCommandLog(log), { config, map, seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
-    run(app, { name, header, replay, warnings, config, map, scenery: await loadScenery(map), startTick: source.startTick });
+    run(app, { name, header, replay, warnings, config, map, scenery, startTick: source.startTick });
   } catch (e) {
     showFatal(app, `Replay: ${(e as Error).message}`);
     addTopLinks();
@@ -54,8 +56,8 @@ interface Ctx {
   replay: Replay;
   warnings: string[];
   config: ReturnType<typeof configForHeader>;
-  map: Awaited<ReturnType<typeof loadMap>>;
-  scenery: Awaited<ReturnType<typeof loadScenery>>;
+  map: MapDef;
+  scenery: SceneryDef | null;
   startTick: number | null;
 }
 

@@ -1,4 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { overridesFromSet, resolveMapGen } from '@train-robber/config';
+import { generateMap } from '@train-robber/mapgen';
+import { CONTENT_DIR, readJson } from './content';
+import { mapProblems, minRadius } from './maps/checks';
+import { mapPicture } from './maps/picture';
 import { replayText } from './replay';
 import { recordGolden } from './golden';
 import { validateContent } from './validate';
@@ -65,6 +71,29 @@ const commands: Record<string, (args: string[]) => number | null> = {
     if (!files.length) { console.error('usage: tools report <file>.events.log...'); return 2; }
     console.log(formatReport(reportFromLogs(files.map((f) => readFileSync(f, 'utf8')))));
     return 0;
+  },
+  'gen-map'(args) {
+    // tools gen-map <seed>... [--set path=value]... [--out dir]: generate maps, run the map checks, write layout PNGs.
+    const seeds: string[] = [], sets: string[] = [];
+    let out = '.';
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--set') sets.push(args[++i] ?? '');
+      else if (args[i] === '--out') out = args[++i] ?? '.';
+      else seeds.push(args[i]!);
+    }
+    if (!seeds.length) { console.error('usage: tools gen-map <seed>... [--set path=value]... [--out dir]'); return 2; }
+    const settings = resolveMapGen(readJson(join(CONTENT_DIR, 'base/map-gen.json')), overridesFromSet(sets.map((e) => e.replace(/^mapGen\./, ''))));
+    let failed = 0;
+    for (const seed of seeds) {
+      const g = generateMap(seed, settings);
+      const problems = mapProblems(g.map, g.scenery, minRadius(g.map));
+      const file = join(out, `gen-${seed.replace(/[^\w.-]/g, '_')}.png`);
+      writeFileSync(file, mapPicture(g.map, g.scenery));
+      console.log(`${problems.length ? 'FAILED' : 'ok'} ${seed}: loop ${g.info.trackLength.toFixed(0)} tiles, tightest curve ${minRadius(g.map).toFixed(1)}, ${g.info.rivers} bridges, ${g.scenery.items.kind.length} scenery items -> ${file}`);
+      for (const p of problems.slice(0, 5)) console.log(`  ${p}`);
+      if (problems.length) failed++;
+    }
+    return failed ? 1 : 0;
   },
   'record-golden'([out]) {
     const text = recordGolden();
