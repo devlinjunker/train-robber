@@ -86,6 +86,47 @@ export const GameSchema = z.object({
     debugHeatStep: z.number().min(0),
   }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
+  /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
+  extraction: z.object({
+    /** Arrival delay [min, max] drawn from the horse stream at each whistle; it sets how far behind the last car the horse starts. */
+    arrivalDelaySec: z.tuple([z.number().min(0), z.number().min(0)]).refine(([a, b]) => a <= b, { message: 'min must not be above max' }),
+    /** How long the horse paces alongside before it drops back. */
+    paceWindowSec: positive,
+    /** After the pace window, how long before a whistle works again. */
+    rewhistleCooldownSec: z.number().min(0),
+    /** The lane the horse rides in, tiles out from the car's side. */
+    laneOffsetTiles: positive,
+    /** How long the horse drops back after the pace window before it leaves the world. */
+    dropBackSec: z.number().min(0),
+    /** The horse has arrived when it is this close to its lane point beside the player's car. */
+    alongsideRangeTiles: positive,
+    /** A mount jump needs the horse this close to the door the player stands at. */
+    mountRangeTiles: positive,
+    /** The player must be this close to a side door on the horse's side to mount (and for the grace window, G18). */
+    doorReachTiles: positive,
+    /** The mount meter: one back and forth, and perfect and good zone widths (G24: 3% and 15% at 1.85 s). */
+    meter: z.object({
+      sweepPeriodSec: positive,
+      zoneWidths: z.tuple([fraction, fraction]),
+    }).strict().refine((m) => m.zoneWidths[0] <= m.zoneWidths[1], { message: 'perfect zone must not be wider than good zone', path: ['zoneWidths'] }),
+    /** mountSpill variant group (G15): what a good mount spills. */
+    mountSpill: z.enum(['random', 'heaviest', 'share']),
+    /** Under `share`, the share of carried value a good mount loses. */
+    spillShare: fraction,
+    /** Cell size of the coarse grid the horse paths around blocked and water tiles on. */
+    pathCellTiles: z.number().int().positive(),
+    /** No progress toward the player's car for this long and the HUD says the horse is blocked. */
+    stuckSec: positive,
+    /** Farther than this from the player's car (off screen at the run zoom), the riderless horse passes through rocks and water so it cannot get stuck; 0 turns that off. */
+    passThroughBeyondTiles: z.number().min(0),
+    /** A good mount stuns the horse this long (no steering, speed held), as a failed boarding jump does. */
+    goodMountStunSec: z.number().min(0),
+  }).strict(),
+  /**
+   * Overrides for the procedural map generator (`?map=gen`), merged over base/map-gen.json and checked
+   * by MapGenSchema when a map is generated. Absent unless a run sets one, so other runs keep their hash.
+   */
+  mapGen: z.record(z.unknown()).optional(),
   countdown: z.object({
     /** The run's clock (phase 2). Off, a run never expires. */
     enabled: z.boolean(),
@@ -191,6 +232,19 @@ export const GameSchema = z.object({
   }).strict(),
   /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
   hud: z.object({ showTrainNames: z.boolean() }).strict(),
+  /**
+   * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
+   * (1 = as before, 0 = silent); `tickVolume` multiplies `volume` for the countdown ticks. The
+   * countdown ticks every `tickEverySec` countdown seconds, then every `finalTickEverySec` in the
+   * last `finalCountdownSec` (Devlin, 2026-10-19). Any of the three at 0 turns that part off.
+   */
+  audio: z.object({
+    volume: z.number().min(0),
+    tickVolume: z.number().min(0),
+    tickEverySec: z.number().min(0),
+    finalCountdownSec: z.number().min(0),
+    finalTickEverySec: z.number().min(0),
+  }).strict(),
   /** Catalogs merged in from cell-types.json, items.json, loot-tables.json and car-templates.json. */
   cellTypes: z.array(CellTypeSchema).min(1),
   items: z.record(ItemSchema),
@@ -206,7 +260,18 @@ export const GameSchema = z.object({
     }).strict(),
     cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** F on the horse mid-run (Devlin, 2026-10-19). */
+    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
+  /**
+   * F on the horse during a run (after a guard throws you off) ends the run and banks what you
+   * carry (Devlin, 2026-10-19). Doors: with `closeDoors` a cash-out shuts that train's doors, and
+   * with `closeDoorsOnThrownOff` being thrown off by a guard does (Devlin, 2026-10-20), so you
+   * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
+   * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
+   */
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,
@@ -226,6 +291,8 @@ export const GameSchema = z.object({
     steering: z.enum(['screen', 'heading']),
     /** throttleModel variant group: what releasing W does. */
     throttleModel: z.enum(['hold', 'coast', 'cruise']),
+    /** After boarding, the riderless horse runs off for this long and then leaves the world (U4). */
+    runOffSec: z.number().min(0),
     /** handlingModel variant group (`arcade-boost` on, `arcade` off): C gives a short burst above top speed, then a cooldown (G20). */
     boost: z.object({
       enabled: z.boolean(),

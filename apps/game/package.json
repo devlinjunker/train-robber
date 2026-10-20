@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.3-sneaking-1",
+  "version": "0.2.4-sneaking-1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "@train-robber/sim": "*",
     "@train-robber/config": "*",
     "@train-robber/content": "*",
-    "@train-robber/client": "*"
+    "@train-robber/client": "*",
+    "@train-robber/mapgen": "*"
   },
   "devDependencies": {
     "vite": "^5.4.0"

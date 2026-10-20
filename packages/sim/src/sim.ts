@@ -7,9 +7,10 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
 import { guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
+import { extractionSystem, horseIntent } from './extraction';
 
 export interface SimOptions {
   config: SimConfig;
@@ -80,6 +81,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const events: SimEvent[] = [];
       const ctx: RunCtx = { state, map, config, world, emit: (ev) => void events.push(ev) };
       const jumps = new Set<PlayerId>();
+      const whistles = new Set<PlayerId>();
       const drops = new Map<PlayerId, number[]>();
       // 1. Apply commands: validate and record intents. Jumps are sampled by the boarding system.
       for (const frame of inputs) {
@@ -100,7 +102,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             p.interactHeld = c.held;
             if (!c.held) continue;
             if (!state.run) startRun(ctx, p, undefined, 'interact');
-            else if (state.run.phase !== 'aboard') events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
+            else if (state.run.phase !== 'aboard' && state.run.phase !== 'extracting') events.push({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'interact', reason: 'nothing to interact with' });
           } else if (c.type === 'switchTrain') {
             switchTrain(ctx, p, c.trainId);
           } else if (c.type === 'drop') {
@@ -113,8 +115,12 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             jumps.add(p.id);
           } else if (c.type === 'debugHeat') {
             debugHeat(ctx, p, c.source);
+          } else if (c.type === 'whistle') {
+            whistles.add(p.id);
           } else if (c.type === 'boost') {
             boost(ctx, p);
+          } else if (c.type === 'cashOut') {
+            cashOut(ctx, p);
           } else if (c.type === 'crouch') {
             crouch(ctx, p, c.on);
           }
@@ -123,17 +129,23 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       // 2. Train scheduler, then 3. riding against the cars where they now are, and what the crashes cost.
       advanceTrains(state, map, config);
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
-      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf));
+      // A horse whose rider is aboard is riderless, steered by the extraction AI.
+      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf, horseIntent(ctx)));
       // 3b. The commit prompt's timer and close range commit an idle rider with no key; with
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
       autoSwitchSystem(ctx);
       // 4. Boarding, 5. movement aboard, 6-7. guards' perception and AI (an alert guard may throw
-      // the player off), 9. searching and drops, 10. heat and countdown, 11. run end.
-      boardingSystem(ctx, jumps);
+      // the player off), 8. extraction (whistles, the horse, mounting), 9. searching and drops,
+      // 10. heat and countdown, 11. run end.
+      // Space aboard is the mount jump: split those off before boarding can land anyone this tick.
+      const aboardPhase = state.run?.phase === 'aboard' || state.run?.phase === 'extracting';
+      const mountJumps = aboardPhase ? jumps : new Set<PlayerId>();
+      boardingSystem(ctx, aboardPhase ? new Set<PlayerId>() : jumps);
       walkAboard(state, config);
       const caught = guardSystem(ctx);
       if (caught) throwOff(ctx, caught.player, caught.guard.id);
+      extractionSystem(ctx, whistles, mountJumps);
       lootSystem(ctx, drops);
       countdownSystem(ctx);
       runEndSystem(ctx);

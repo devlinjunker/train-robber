@@ -124,14 +124,39 @@ function closingSpeed(vx: number, vy: number, px: number, py: number): number {
   return c > 0 ? c : 0;
 }
 
+/**
+ * What a riderless horse's steering AI wants this tick (U4): a world point to turn toward and a
+ * speed to reach, in tiles/s. It turns at the horse's turn rate and changes speed at its accel and
+ * brake rates, so it rides with the same physics as a ridden horse (and never boosts).
+ */
+export interface HorseIntent {
+  tx: number; ty: number; speed: number;
+  /** Off screen: ignore rocks and water (no collision, no wading), so the horse cannot get stuck where nobody sees it. */
+  passThrough?: boolean;
+}
+
+/** One tick of AI throttle: accelerate or brake toward `target`, under the ground's cap. */
+function aiThrottle(h: HorseState, target: number, cfg: SimConfig['values']['horse'], hz: number, cap: number): void {
+  const t = Math.min(target, cap, cfg.maxSpeed);
+  if (h.speed < t) h.speed = Math.min(t, h.speed + cfg.accel / hz);
+  else if (h.speed > t) h.speed = Math.max(t, h.speed - cfg.brake / hz);
+  if (h.speed < 0) h.speed = 0;
+}
+
 /** A horse touching a car or blocked ground this tick, and how hard: the closing speed along the contact, tiles/s. */
 export interface Impact { player: PlayerId; target: CollisionTarget; impact: number }
 
-/** Tick system 3. Returns every contact with a train car or blocked ground; deep water and the map edge stop the horse without one. */
+/**
+ * Tick system 3. Returns every contact a ridden horse makes with a train car or blocked ground; deep
+ * water and the map edge stop the horse without one. A physical horse whose rider is aboard is
+ * riderless: `ai` steers it, it collides the same way, and its contacts cost nothing.
+ */
 export function ride(
   players: readonly PlayerState[], horses: HorseState[], map: WorldMap, config: SimConfig, cars: readonly CarPose[],
   /** Each train's speed, tiles/s, for how hard a car and the horse meet; standing still when left out. */
   carSpeed: (trainId: string) => number = () => 0,
+  /** The steering AI for a riderless horse; without it (or a null intent) the horse reins in where it is. */
+  ai: (p: PlayerState, h: HorseState) => HorseIntent | null = () => null,
 ): Impact[] {
   const impacts: Impact[] = [];
   const cfg = config.values.horse;
@@ -139,15 +164,18 @@ export function ride(
   for (const p of players) {
     const h = horses.find((q) => q.id === p.horseId);
     if (!h || h.mode !== 'physical') continue;
+    const mounted = p.placement.frame === 'world';
+    const intent = mounted ? null : ai(p, h) ?? { tx: h.x + h.hx, ty: h.y + h.hy, speed: 0 };
     // A stunned horse ignores its rider: no steering or throttle, speed held where the failed jump left it.
     const stunned = h.stunTicks > 0;
     if (stunned) h.stunTicks -= 1;
+    else if (intent) steerToward(h, intent.tx - h.x, intent.ty - h.y, cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
     else if (cfg.steering === 'heading') steerHeading(h, axis(p.move.x), cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
     else steerToward(h, p.steer.x, p.steer.y, cfg.turnRateCosPerTick, cfg.turnRateSinPerTick);
 
     // A boost (handlingModel arcade-boost) raises the top speed and pushes toward it; its
-    // cooldown starts when it ends. A stun holds both clocks.
-    const boosting = h.boostTicks > 0 && !stunned;
+    // cooldown starts when it ends. A stun holds both clocks. The riderless horse never boosts.
+    const boosting = mounted && h.boostTicks > 0 && !stunned;
     if (!stunned) {
       if (h.boostTicks > 0) { h.boostTicks -= 1; if (h.boostTicks === 0) h.boostCooldownTicks = cfg.boost.cooldownTicks; }
       else if (h.boostCooldownTicks > 0) h.boostCooldownTicks -= 1;
@@ -155,26 +183,30 @@ export function ride(
     if (!stunned) {
       const top = boosting ? cfg.maxSpeed * cfg.boost.topSpeedScale : cfg.maxSpeed;
       const ground = terrainAt(map, h.x, h.y);
-      const cap = ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
+      const cap = intent?.passThrough ? top : ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
         : ground === Terrain.Water ? top * cfg.waterSpeedScale : top;
       // Mud reins the horse in at its braking rate; water drags it down to wading speed at once.
       if (ground === Terrain.Water && h.speed > cap) h.speed = cap;
-      throttle(h, -axis(p.move.y), cfg, hz, cap, top);
-      if (boosting && h.speed < cap) h.speed = Math.min(cap, h.speed + cfg.boost.accelTilesPerSec2 / hz);
+      if (intent) aiThrottle(h, intent.speed, cfg, hz, cap);
+      else {
+        throttle(h, -axis(p.move.y), cfg, hz, cap, top);
+        if (boosting && h.speed < cap) h.speed = Math.min(cap, h.speed + cfg.boost.accelTilesPerSec2 / hz);
+      }
     }
 
     const x0 = h.x, y0 = h.y, speed = h.speed;
     h.x += (h.hx * h.speed) / hz;
     h.y += (h.hy * h.speed) / hz;
     const x1 = h.x, y1 = h.y;
-    const hitTerrain = collideTerrain(h, map);
+    const hitTerrain = intent?.passThrough ? 0 : collideTerrain(h, map);
     const x2 = h.x, y2 = h.y;
     const hitCar = collideCars(h, cars);
     const vx = h.hx * speed, vy = h.hy * speed;
-    if (hitCar) {
+    // A riderless horse takes no crash damage (U4), so only a ridden one reports contacts.
+    if (mounted && hitCar) {
       const cs = carSpeed(hitCar.trainId);
       impacts.push({ player: p.id, target: 'train', impact: closingSpeed(vx - hitCar.ux * cs, vy - hitCar.uy * cs, h.x - x2, h.y - y2) });
-    } else if (hitTerrain === 2) impacts.push({ player: p.id, target: 'obstacle', impact: closingSpeed(vx, vy, x2 - x1, y2 - y1) });
+    } else if (mounted && hitTerrain === 2) impacts.push({ player: p.id, target: 'obstacle', impact: closingSpeed(vx, vy, x2 - x1, y2 - y1) });
     if (hitTerrain || hitCar) {
       // Speed drops to the distance actually covered: head-on stops the horse, a glancing
       // contact slides it along the obstacle and bleeds speed the steeper the angle.

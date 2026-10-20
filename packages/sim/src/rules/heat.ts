@@ -1,6 +1,8 @@
 // Heat and the countdown (U1, U2, U3). Heat only ever goes up through raiseHeat, so every gain
 // is one HeatChanged event with its cause; the countdown drains faster as heat rises.
 import type { GameState, HeatCause, HeatSource, PlayerState, RunState, SimConfig, SimEvent } from '../types';
+import type { WorldMap } from '../world/map';
+import { escaping } from '../world/mount';
 
 /** What these helpers need from the tick; the run system's context satisfies it. */
 export interface HeatCtx {
@@ -50,14 +52,11 @@ export function boardingResistanceActive(run: RunState | null, cfg: SimConfig['v
 }
 
 /**
- * U3 hook: the player is already escaping, so expiry waits up to `countdown.graceTicks`. That is
- * while the horse is alongside and the player is within reach of a door on its side (G18), which
- * needs the extraction horse (M4); until then nobody is ever escaping and the grace never applies.
+ * U3: the player is already escaping, so expiry waits up to `countdown.graceTicks`. That is while
+ * the horse is alongside and the player is within `extraction.doorReachTiles` of a door on its side (G18).
  */
-export function graceApplies(state: GameState, p: PlayerState): boolean {
-  // M4 replaces this with: the player's horse is alongside, and p is near a door on its side.
-  void state; void p;
-  return false;
+export function graceApplies(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState): boolean {
+  return escaping(state, map, config, p);
 }
 
 /**
@@ -70,8 +69,10 @@ export function countdownSystem(ctx: HeatCtx): void {
   const run = state.run;
   if (!run || run.phase === 'ended') return;
   const v = config.values;
-  if (!run.clockRunning && run.phase === 'aboard') run.clockRunning = v.countdown.enabled;
-  if (run.phase === 'aboard' && v.heat.sources.timeAboardPerTick > 0) {
+  // Extracting is still aboard: the player is on the train until the mount lands.
+  const aboard = run.phase === 'aboard' || run.phase === 'extracting';
+  if (!run.clockRunning && aboard) run.clockRunning = v.countdown.enabled;
+  if (aboard && v.heat.sources.timeAboardPerTick > 0) {
     run.pendingHeat += v.heat.sources.timeAboardPerTick;
     if (run.pendingHeat >= 1) {
       const whole = Math.floor(run.pendingHeat);
@@ -88,10 +89,10 @@ export function countdownSystem(ctx: HeatCtx): void {
  * True when the run should end as `expired` this tick: the clock is at zero and the grace window
  * does not hold it. Inside grace, each tick waited counts toward `countdown.graceTicks`.
  */
-export function countdownExpired(ctx: HeatCtx, p: PlayerState): boolean {
+export function countdownExpired(ctx: HeatCtx & { map: WorldMap }, p: PlayerState): boolean {
   const run = ctx.state.run;
   if (!run || !run.clockRunning || run.countdownSec > 0) return false;
-  if (graceApplies(ctx.state, p) && run.graceTicks < ctx.config.values.countdown.graceTicks) {
+  if (graceApplies(ctx.state, ctx.map, ctx.config, p) && run.graceTicks < ctx.config.values.countdown.graceTicks) {
     run.graceTicks += 1;
     return false;
   }

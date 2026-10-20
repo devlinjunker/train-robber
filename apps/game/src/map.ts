@@ -1,6 +1,10 @@
 // Picks the map for a session from the URL (?map=alpha-flats) and validates it.
 // Maps are the built files in packages/content/base/maps; only the chosen one is fetched.
-import { MapDefSchema, SceneryDefSchema, type MapDef, type SceneryDef } from '@train-robber/config';
+// ?map=gen generates one from the run seed instead (packages/mapgen), with the generator's
+// settings from base/map-gen.json and any ?set=mapGen.<path>=<value> overrides.
+import { MapDefSchema, SceneryDefSchema, resolveMapGen, type MapDef, type ResolvedConfig, type SceneryDef } from '@train-robber/config';
+import { generateMap, GENERATED_MAP_ID } from '@train-robber/mapgen';
+import mapGenDefaults from '@train-robber/content/base/map-gen.json';
 
 export const DEFAULT_MAP = 'alpha-flats';
 
@@ -44,4 +48,22 @@ export async function loadScenery(map: MapDef, files: ReadonlyMap<string, Loader
   if (!parsed.success) { console.warn(`scenery ${map.id}: invalid at ${parsed.error.issues[0]!.path.join('.')}; drawing the map without it`); return null; }
   if (parsed.data.source.hash !== map.source.hash) { console.warn(`scenery ${map.id}: built from a different source than the map; run npm run maps`); return null; }
   return parsed.data;
+}
+
+export { GENERATED_MAP_ID };
+
+/** A generated map and its scenery from the run seed and the config's `mapGen` overrides. Same inputs, same map. */
+export function generatedMap(seed: string, config: Pick<ResolvedConfig, 'values'>): { map: MapDef; scenery: SceneryDef } {
+  const { map, scenery } = generateMap(seed, resolveMapGen(mapGenDefaults, config.values.mapGen));
+  return { map, scenery };
+}
+
+/** The session's map and scenery: generated for `gen`, else the built file by id. */
+export async function sessionMap(id: string, seed: string, config: Pick<ResolvedConfig, 'values'>, search = location.search): Promise<{ map: MapDef; scenery: SceneryDef | null }> {
+  if (id === GENERATED_MAP_ID) {
+    const { map, scenery } = generatedMap(seed, config);
+    return { map, scenery: new URLSearchParams(search).get('scenery') === 'off' ? null : scenery };
+  }
+  const map = await loadMap(id);
+  return { map, scenery: await loadScenery(map, sceneryById, search) };
 }

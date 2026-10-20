@@ -3,7 +3,7 @@
 import type { BoardingResult, RunPhase, SimEvent } from '@train-robber/sim';
 
 /** How a run ended. `retry` is a quick retry; `abandoned` means the page closed mid-run. */
-export type TrackedOutcome = 'died' | 'cancelled' | 'expired' | 'retry' | 'abandoned';
+export type TrackedOutcome = 'extracted' | 'died' | 'cancelled' | 'expired' | 'cashedOut' | 'retry' | 'abandoned';
 
 /** What the session knows about itself, copied into every run it plays. */
 export interface SessionMeta {
@@ -52,11 +52,16 @@ export interface RunRecord extends SessionMeta {
   /** Dollar value and count of the loot carried when the run ended (picked up minus dropped); missing on records from before loot. */
   lootValue?: number;
   lootItems?: number;
+  /** Loot value banked by an extraction (after any spill); 0 for other outcomes, missing on records from before extraction. */
+  cashOut?: number;
+  /** Whistles and mount jumps made; missing on records from before extraction. */
+  whistles?: number;
+  mountAttempts?: number;
 }
 
-const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'ended'];
+const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number }
 
 export interface RunTracker {
   /**
@@ -85,7 +90,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
-    lootValue: o.lootValue, lootItems: o.lootItems,
+    lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -99,7 +104,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
       const ended: RunRecord[] = [];
       for (const ev of events) {
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0 };
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0 };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
         else if (ev.type === 'RunPhaseChanged') {
@@ -111,8 +116,11 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'HeatChanged') open.heat = ev.heat;
         else if (ev.type === 'LootPickedUp') { open.lootValue += ev.value; open.lootItems++; }
         else if (ev.type === 'LootDropped') { open.lootValue -= ev.value; open.lootItems--; }
+        else if (ev.type === 'LootSpilled') { open.lootValue -= ev.value; open.lootItems -= ev.items.length; }
+        else if (ev.type === 'HorseWhistled' || ev.type === 'HorseSideChanged') open.whistles++;
+        else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
-          open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat;
+          open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
           ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));
         }
       }

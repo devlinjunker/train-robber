@@ -2,7 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains off screen.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
-import { COMMITTED_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
+import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
 
 /**
  * Meter size in screen pixels, the same at every zoom. It matches PR #6's widened top-down meter
@@ -34,6 +34,8 @@ export interface TrainPointer {
   committed: boolean;
   /** The train Tab would switch the run to. */
   candidate: boolean;
+  /** A cash-out shut its doors: the label (with seconds until they reopen) and where it sits above the train. */
+  shut?: { text: string; x: number; y: number };
 }
 
 /** The far-side distance cue, in screen pixels: horse to the nearest point on the car side, on the ground. */
@@ -62,6 +64,10 @@ export interface ScreenOverlayInput {
   distanceCue?: DistanceCue | null;
   /** Progress of the search in progress, 0 to 1, or null. */
   search: number | null;
+  /** "LOST LOOT" rising over the rider after a good mount spilled loot: screen position, what was lost, age and lifetime. */
+  lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number } | null;
+  /** The grace text ("OUT OF TIME: jump now! 2.1 s") over the mount meter while grace holds expiry, or null. */
+  overtime?: string | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -84,7 +90,13 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const cueLabel = new Text({ text: '', style: style(16) });
   cueLabel.anchor.set(0.5);
   const searchBar = new Graphics();
-  root.addChild(cueLine, cueLabel, arrows, meter, speed, stumbleBar, searchBar, banner, bannerDetail);
+  const lost = new Text({ text: 'LOST LOOT', style: style(26, GOOD_COLOUR) });
+  lost.anchor.set(0.5, 1);
+  const lostDetail = new Text({ text: '', style: style(15, GOOD_COLOUR) });
+  lostDetail.anchor.set(0.5, 0);
+  const overtime = new Text({ text: '', style: style(22, 0xff3b30) });
+  overtime.anchor.set(0.5, 1);
+  root.addChild(cueLine, cueLabel, arrows, meter, speed, overtime, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
 
   return {
     root,
@@ -92,10 +104,17 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       drawDistanceCue(cueLine, cueLabel, input.distanceCue ?? null);
       meter.clear();
       speed.visible = false;
+      overtime.visible = false;
       if (input.horse) {
         const w = Math.min(METER_W, input.width * 0.9);
         const x0 = input.horse.x - w / 2, y0 = input.horse.y - METER_ABOVE - METER_H;
         const m = input.meter;
+        if (input.overtime) {
+          // Just above the meter's frame, so it sits where you are already looking.
+          overtime.text = input.overtime;
+          overtime.position.set(input.horse.x, y0 - 12);
+          overtime.visible = true;
+        }
         if (m) {
           // Track, good zone, perfect zone, then the marker; dim while parked out of range.
           const a = m.sweeping ? 1 : 0.45;
@@ -117,6 +136,17 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       }
 
       banner.visible = bannerDetail.visible = false;
+      lost.visible = lostDetail.visible = false;
+      const ll = input.lostLoot;
+      if (ll && ll.ageSec < ll.sec) {
+        // Rise from the rider's head and fade over the last third, like the landing banner.
+        const t = ll.ageSec / ll.sec;
+        lost.alpha = lostDetail.alpha = t < 2 / 3 ? 1 : 1 - (t - 2 / 3) * 3;
+        lost.position.set(ll.x, ll.y - 28 - t * 30);
+        lostDetail.text = ll.detail;
+        lostDetail.position.set(ll.x, ll.y - 24 - t * 30);
+        lost.visible = lostDetail.visible = true;
+      }
       stumbleBar.clear();
       searchBar.clear();
       if (input.player) {
@@ -170,9 +200,24 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         let label = labels[used];
         if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
         label.visible = true;
-        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t`;
-        label.style.fill = colour;
+        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t${t.shut ? `\n${t.shut.text}` : ''}`;
+        label.style.fill = t.shut ? SHUT_COLOUR : colour;
         label.position.set(ax - ux * 34, ay - uy * 26);
+        keepOnScreen(label, input.width, input.height);
+        used++;
+      }
+      // Above a shut train on screen: how long until its doors reopen.
+      for (const t of input.trains) {
+        if (!t.shut) continue;
+        const inside = t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height;
+        if (!inside) continue;
+        let label = labels[used];
+        if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
+        label.visible = true;
+        label.text = t.shut.text;
+        label.style.fill = SHUT_COLOUR;
+        label.position.set(t.shut.x, t.shut.y);
+        keepOnScreen(label, input.width, input.height);
         used++;
       }
       for (let i = used; i < labels.length; i++) labels[i]!.visible = false;
@@ -181,6 +226,14 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
 }
 
 const CUE_COLOUR = 0xffffff;
+
+/** Slide a centred label back inside the screen, with a small margin. */
+function keepOnScreen(label: Text, w: number, h: number): void {
+  const hw = label.width / 2 + 4, hh = label.height / 2 + 4;
+  label.position.set(Math.min(w - hw, Math.max(hw, label.x)), Math.min(h - hh, Math.max(hh, label.y)));
+}
+/** Labels on a train a cash-out shut. */
+const SHUT_COLOUR = 0xff8a6a;
 
 /**
  * A line on the ground from the horse to the side of the car, drawn over the car so it shows on
