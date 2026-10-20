@@ -42,7 +42,7 @@ const base = {
     expired: { bankRunLoot: false, wantedDelta: 1 },
     cashedOut: { bankRunLoot: true, wantedDelta: 0 },
   },
-  cashOut: { enabled: true, closeDoors: true, doorsReopenSec: 0 },
+  cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenSec: 0 },
 };
 
 const variant = (group: string, id: string, patch: object) =>

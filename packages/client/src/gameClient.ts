@@ -326,8 +326,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const physical = horseState.mode === 'physical';
       // The boarding readout is against the committed train, or the nearest one while idle.
       const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, c) => distanceToTrain(s, sim.map, config, a.id, horseState.x, horseState.y) - distanceToTrain(s, sim.map, config, c.id, horseState.x, horseState.y))[0]?.id ?? null;
-      const check = physical && readTrain ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
-      const meter: MeterView | null = phase === 'approach' && run
+      // A shut train (a cash-out, or thrown off) cannot be boarded: no boarding readout or meter for it.
+      const readShut = !!readTrain && doorsClosed(s, s.world.trains.find((t) => t.id === readTrain)!);
+      const check = physical && readTrain && !readShut ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
+      const meter: MeterView | null = phase === 'approach' && run && !readShut
         ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
         : null;
       if (check?.state === 'eligible') { zoneSec += dt; bestZoneSec = Math.max(bestZoneSec, zoneSec); } else zoneSec = 0;
@@ -515,7 +517,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } : null;
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
-        : phase === 'approach' ? check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
+        : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : phase === 'aboard' ? stumbling ? 'Stumbling: you landed off balance'
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`

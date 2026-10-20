@@ -270,8 +270,20 @@ describe('F after being thrown off (cash out)', () => {
     expect(t.doorsClosed?.untilTick).toBe(S(sim).tick + 29);
     S(sim).tick += 40;
     expect(ofType(step(sim, { type: 'startRun', trainId }), 'CommandRejected').map((e) => e.reason)).not.toContain('doors closed');
-    const open = thrownOff({ closeDoors: false });
+    const open = thrownOff({ closeDoors: false, closeDoorsOnThrownOff: false });
     step(open.sim, { type: 'cashOut' });
+    expect(S(open.sim).world.trains.find((q) => q.id === open.trainId)!.doorsClosed).toBeUndefined();
+  });
+  it('being thrown off shuts the doors (closeDoorsOnThrownOff): no jump back on, the meter parks', () => {
+    const { sim, trainId } = thrownOff();
+    expect(S(sim).world.trains.find((q) => q.id === trainId)!.doorsClosed).toEqual({ untilTick: null });
+    steps(sim, 200);
+    expect(S(sim).run!.phase).toBe('approach');
+    const ev = step(sim, { type: 'jump' });
+    expect(ofType(ev, 'CommandRejected')[0]).toMatchObject({ command: 'jump', reason: 'doors closed' });
+    expect(S(sim).run!.players[1]!.meter.phase).toBe(0);
+    // Off, the doors stay open after a throw.
+    const open = thrownOff({ closeDoorsOnThrownOff: false });
     expect(S(open.sim).world.trains.find((q) => q.id === open.trainId)!.doorsClosed).toBeUndefined();
   });
   it('is refused aboard, with nothing carried, and when disabled; Esc still banks nothing', () => {

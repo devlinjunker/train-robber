@@ -3,8 +3,8 @@
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent, TrainState } from './types';
+import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
@@ -267,7 +267,13 @@ export function cashOut(ctx: RunCtx, p: PlayerState): void {
   if (rp.carried.length === 0) return reject(ctx, p.id, 'cashOut', 'nothing to cash out');
   const train = state.world.trains.find((t) => t.id === run.trainId);
   endRun(ctx, p, 'cashedOut', false, carriedValue(config, rp.carried));
-  if (train && cfg.closeDoors) train.doorsClosed = { untilTick: cfg.doorsReopenTicks > 0 ? state.tick + cfg.doorsReopenTicks : null };
+  if (train && cfg.closeDoors) shutDoors(ctx, train);
+}
+
+/** Shut a train's doors for `cashOut.doorsReopenSec` (0: for good); a later shut restarts the wait. */
+function shutDoors(ctx: RunCtx, train: TrainState): void {
+  const ticks = ctx.config.values.cashOut.doorsReopenTicks;
+  train.doorsClosed = { untilTick: ticks > 0 ? ctx.state.tick + ticks : null };
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */
@@ -342,6 +348,12 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
     }
     if (run.phase !== 'approach') { if (jumped) reject(ctx, p.id, 'jump', 'aboard'); continue; }
 
+    // A shut train (thrown off with `cashOut.closeDoorsOnThrownOff`) cannot be boarded: the meter parks.
+    if (doorsClosed(state, state.world.trains.find((t) => t.id === run.trainId)!)) {
+      if (jumped) reject(ctx, p.id, 'jump', 'doors closed');
+      advanceMeter(rp.meter, 'too far', b.meter);
+      continue;
+    }
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
       // In range is enough to try; a speed mismatch only means the faster meter.
@@ -426,6 +438,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
     ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
   }
   setPhase(ctx, p.id, 'boarding');
+  // The train shuts its doors behind you: cash out (F) or switch to another train.
+  if (config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);

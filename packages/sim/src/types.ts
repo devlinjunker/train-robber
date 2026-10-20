@@ -65,7 +65,7 @@ export type BoardingResult = 'perfect' | 'good' | 'fail';
 /** What a horse ran into: a train car, or blocked ground (water and the map edge never hurt). */
 export type CollisionTarget = 'train' | 'obstacle';
 /** Why a `jump` was refused. Out of range is the boarding rule; a speed mismatch only speeds up the meter. */
-export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard';
+export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard' | 'doors closed';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
@@ -371,8 +371,12 @@ export interface SimConfig {
       expired: { bankRunLoot: boolean; wantedDelta: number };
       cashedOut: { bankRunLoot: boolean; wantedDelta: number };
     };
-    /** F on the horse mid-run: end the run and bank the loot; with `closeDoors` that train cannot be committed to again, for `doorsReopenTicks` (0: never). */
-    cashOut: { enabled: boolean; closeDoors: boolean; doorsReopenTicks: number };
+    /**
+     * F on the horse mid-run: end the run and bank the loot. With `closeDoors` a cash-out shuts that
+     * train's doors, and with `closeDoorsOnThrownOff` being thrown off does; a shut train cannot be
+     * boarded, committed or switched to for `doorsReopenTicks` (0: never).
+     */
+    cashOut: { enabled: boolean; closeDoors: boolean; closeDoorsOnThrownOff: boolean; doorsReopenTicks: number };
     horse: {
       /** Tiles per second. */
       maxSpeed: number;
