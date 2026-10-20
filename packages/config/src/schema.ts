@@ -17,8 +17,18 @@ export const GameSchema = z.object({
   }).strict(),
   player: z.object({ speedTilesPerSec: positive }).strict(),
   commit: z.object({
+    /** A free train this close (nearest car body) brings up the commit prompt, and E commits. */
     rangeTiles: positive,
-    auto: z.boolean(),
+    /** Staying in range of the same train this long commits with no key (the prompt shows a filling bar). Missing or null (`?set=commit.timerSec=null`): only E commits; 0: at once. */
+    timerSec: z.number().min(0).nullable().optional(),
+    /** Riding this close to the prompted train commits at once. Missing or null: off. */
+    closeRangeTiles: positive.nullable().optional(),
+    /** During a run that can still switch, another free train in `rangeTiles` gets the same prompt (Tab, timer, close range) to switch to it. */
+    promptSwitch: z.boolean(),
+    /** The switch prompt's timer, like `timerSec` for committing. Missing or null: only Tab and the close range switch. */
+    switchTimerSec: z.number().min(0).nullable().optional(),
+    /** Esc while still on the horse ends the run where you are instead of back at the spawn. */
+    cancelInPlace: z.boolean(),
     /** Switching the run to another train (Tab) needs it within this distance, nearest car body. */
     switchRangeTiles: positive,
     /** trainSwitch variant group `auto`: during a run, riding closer to another free train in `rangeTiles` moves the run to it. */
@@ -131,6 +141,9 @@ export const GameSchema = z.object({
     countdown: z.object({ baseSec: positive }).strict(),
     /** Loot table and the share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
+    /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
+    /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
+    guards: z.object({ base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional() }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
@@ -214,6 +227,45 @@ export const GameSchema = z.object({
     steering: z.enum(['screen', 'heading']),
     /** throttleModel variant group: what releasing W does. */
     throttleModel: z.enum(['hold', 'coast', 'cruise']),
+    /** handlingModel variant group (`arcade-boost` on, `arcade` off): C gives a short burst above top speed, then a cooldown (G20). */
+    boost: z.object({
+      enabled: z.boolean(),
+      /** How long the burst lasts. */
+      durationSec: positive,
+      /** Top speed during the burst, as a multiple of maxSpeed (1.4 is +40%). */
+      topSpeedScale: z.number().min(1),
+      /** Wait after a burst ends before the next. */
+      cooldownSec: z.number().min(0),
+      /** Extra acceleration toward the raised top speed during the burst, on top of the throttle. */
+      accelTilesPerSec2: positive,
+    }).strict(),
+  }).strict(),
+  /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
+  ai: z.object({
+    /** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off the train. */
+    guardCatch: z.enum(['heat-only', 'thrown-off']),
+    /** Walking a patrol route, and going back to it or to the post. */
+    patrolSpeedTilesPerSec: positive,
+    /** Pause at each end of a route that is not a loop. */
+    patrolPauseSec: z.number().min(0),
+    /** An alert guard's chase under guardCatch `thrown-off` (the player walks at half player.speedTilesPerSec and runs at full). */
+    chaseSpeedTilesPerSec: positive,
+    /** How fast a guard turns to face where it walks or what it noticed. */
+    turnRateDegPerSec: positive,
+    /** The sight cone: range, and half its angle (turned into a cosine threshold); cells with blocksSight stop it. */
+    sight: z.object({ rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180) }).strict(),
+    /** Footsteps carry this far walking and running, times the noise of the cell the player is on. */
+    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0) }).strict(),
+    /** A suspicious guard that keeps seeing the player this long goes alert and raises the alarm. */
+    alertAfterSec: z.number().min(0),
+    /** A suspicious guard with no sight or sound of the player this long goes back to unaware. */
+    calmSec: z.number().min(0),
+    /** An alert guard that has not seen or heard the player this long drops back to suspicious. */
+    alertCalmSec: z.number().min(0),
+    /** An alert, chasing guard this close catches the player (guardCatch `thrown-off`). */
+    catchRangeTiles: positive,
+    /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
+    thrownOffLootShare: z.number().min(0).max(1),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

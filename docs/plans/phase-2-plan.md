@@ -72,13 +72,15 @@ After Devlin's M2 playtest (2026-10-14): search time per item (letters 0.8 s, la
 
 ### M3: Light guards and detection
 
-- [ ] Guard actors spawned from car guard spawns, count from config and wanted level
-- [ ] Patrol along car routes; stand watch without one
-- [ ] Sight cone with a precomputed cosine threshold and wall blocking; noise radius from footsteps and running
-- [ ] Suspicious then alert; spotted adds `playerSpotted` heat, alert raises an alarm (`alarmRaised` heat)
-- [ ] No combat yet: `guardCatch` variant group (G4) with `heat-only` and `thrown-off` (alert guards chase; contact throws you off the train)
-- [ ] Debug overlay draws sight cones; HUD notice when spotted
-- [ ] Horse boost (G20): a short burst above top speed with a cooldown, on by default, switchable through `handlingModel` (`arcade-boost`, `arcade`)
+- [x] Guard actors spawned from car guard spawns, count from config and wanted level
+- [x] Patrol along car routes; stand watch without one
+- [x] Sight cone with a precomputed cosine threshold and wall blocking; noise radius from footsteps and running
+- [x] Suspicious then alert; spotted adds `playerSpotted` heat, alert raises an alarm (`alarmRaised` heat)
+- [x] No combat yet: `guardCatch` variant group (G4) with `heat-only` and `thrown-off` (alert guards chase; contact throws you off the train and costs half your carried loot)
+- [x] Debug overlay draws sight cones; HUD notice when spotted
+- [x] Horse boost (G20): a short burst above top speed with a cooldown, on by default, switchable through `handlingModel` (`arcade-boost`, `arcade`)
+
+Built in the M3 PR ([#28](https://github.com/devlinjunker/train-robber/pull/28), branch claude/phase-2-m3-guards-boost, v0.2.3). The mail express carries 3 guards (`trains.mail-express.guards.base`); the wanted-level bonus reads through `wantedGuardBonus`, which returns 0 until M5. Guards turn amber when suspicious and red when alert. Sight is 7 tiles in an 80° cone, and hearing is 1.5 tiles walking and 5 running, times the floor's noise. These guard numbers are Claude's picks and are all config under `ai.*`. Boost is on C. After Devlin's playtest on 2026-10-18: chase speed is 4 tiles/s, being thrown off loses half your carried items, picked at random (`ai.thrownOffLootShare`), sight cones are drawn faint by default (`?cones=on` full, `?cones=off` hidden), a footstep ring (`?noiseRing=off` hides it) and an ear over the guard's head show when noise gives you away, and boosting kicks up dust (`?boostDust=` scales it). Switching trains now regenerates loot as well as guards.
 
 ### M4: Extraction
 
@@ -130,7 +132,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | Hide train names on arrows | Client option | names hidden (Devlin, 2026-10-14) | Does a mix only work as a guess (G17) | M2 |
 | long-train (no countdown change), slow-search presets | Presets | as above | What fills a medium run | M2 |
 | doors-both-sides preset | Preset | train picks only layouts with doors on both sides | Restricted doors vs doors everywhere (G21) | M2 |
-| guardCatch | Variant group | heat-only, thrown-off | What an alert guard does without combat (G4) | M3 |
+| guardCatch | Variant group | thrown-off, heat-only | What an alert guard does without combat (G4) | M3 |
 | handlingModel | Variant group | arcade-boost, arcade | Is the horse boost worth it (G20) | M3 |
 | Boost values | Values | 1.5 s, +40%, 6 s cooldown | Boost tuning | M3 |
 | mountSpill | Variant group | random, heaviest, share | What a good (amber) mount costs (G15) | M4 |
@@ -140,7 +142,7 @@ Every playtest switch Phase 2 builds, and the milestone whose PR builds it. Vari
 | wanted.forceLevel (?wanted=) | Value | none; forced runs save nothing | Play any wanted level without grinding (G9) | M5 |
 | Reset save (button and ?resetSave=1) | Tool | off | Start fresh while playtesting (G27) | M5 |
 
-Two defaults are my picks where the review didn't name one. guardCatch defaults to heat-only. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), thrown-off, no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged.
+Two defaults are my picks where the review didn't name one. guardCatch defaulted to heat-only; after the M3 playtest (2026-10-17) Devlin made thrown-off the default, with a heat-only preset in place of the thrown-off one. Restricted versus all doors is a preset that sets the train's layout list, because G21 said no separate all-doors switch. The full preset list (13, including no-carry-limit, map-trains (was mixed-trains), heat-only (was thrown-off), no-boost, arrival-timer, the spill presets and wanted-3) is in the technical design's Phase 2 starting spec. Existing Phase 1 switches (steering, throttleModel, boardingFailure, collisionDamage, commit.auto) carry over unchanged. (commit.auto was replaced on 2026-10-17 by the commit prompt: `commit.timerSec` and `commit.closeRangeTiles`.)
 
 ## Decided values
 
@@ -230,7 +232,7 @@ Decisions from grilling the plan with Devlin, newest last.
 | G1 | What fills a 10-minute medium run on a 3-car mail train? | Test both: a longer train with more loot (for example 6 cars) and slower looting (longer search, hidden loot) | 2026-10-11 |
 | G2 | Should train length and search speed ride along with run length? | Separate knobs, all plain config values (per G22 and G23): `countdown.scale` with `loot.densityScale`, the train's car count (3, or 6 in a preset) and the search time plus a hidden-loot flag. Ready-made presets cover the main combinations, and the design doc's U7 says the same | 2026-10-11 |
 | G3 | Real horse or scripted horse for extraction? | Changed 2026-10-11 in the PR #14 review: a horse ignoring rocks looks wrong in the world view, so the Phase 2 horse is physical. It runs off and is removed when you board; the whistle places it behind the train at a seeded distance that takes 5-20 s to close, and it rides up around terrain. Whistling again switches it to your side. (Was: a scripted horse riding a lane, ignoring terrain.) | 2026-10-11 |
-| G4 | What happens when a guard spots you, before combat? | Test both as a `guardCatch` variant group: `heat-only` (spotted and alarm raise heat) and `thrown-off` (an alert guard chases you; contact throws you off the train like a failed boarding, costing time and health; you keep your loot) | 2026-10-11 |
+| G4 | What happens when a guard spots you, before combat? | Test both as a `guardCatch` variant group: `heat-only` (spotted and alarm raise heat) and `thrown-off` (an alert guard chases you; contact throws you off the train like a failed boarding, costing time and health; changed 2026-10-18: you lose half your carried loot, `ai.thrownOffLootShare`) | 2026-10-11 |
 | G5 | Where do you land when thrown off? | Back on your horse beside the train, stunned, as after a failed boarding. Landing on foot and whistling for the horse goes on the wiki Ideas page | 2026-10-11 |
 | G6 | How do mail cars get their layouts? | Drawn in Tiled with `tools build-cars` (answers Q4). Claude generates 3 starter mail car layouts as .tmj files for Devlin to edit | 2026-10-11 |
 | G7 | How to play through the switches? | Free play, with a few ready-made presets for the main questions (run length, train length, search pace, guard catch), linked from the wiki Playtesting page. Answers Q18: no in-game panel yet | 2026-10-11 |

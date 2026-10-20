@@ -9,7 +9,7 @@ import {
   ELEVATION_MAX, MapDefSchema, SCENERY_KINDS, SOLID_SCENERY, SceneryDefSchema, ZONES, decodeElevation, decodeZones,
   type MapDef, type Route, type SceneryDef, type SceneryKind, type Zone,
 } from '@train-robber/config';
-import { resample, smooth, type Vec } from './curve';
+import { resample, resampleFixed, smooth, type Vec } from './curve';
 
 export const SAMPLE_SPACING_TILES = 0.5;
 /** Levels between neighbours that make a cliff rather than a slope you can ride up. */
@@ -178,22 +178,11 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
   const speedAt = (p: Vec) => speedZones.reduce((m, z) =>
     p.x >= z.x && p.x < z.x + z.w && p.y >= z.y && p.y < z.y + z.h ? Math.min(m, z.speedScale) : m, 1);
 
-  // Routes: one polyline (or polygon, which is closed) per route.
+  // Routes: one polyline (or polygon, which is closed) per route, or services joined from
+  // segments (polylines with a `segment` property) that meet at junctions.
   let minRadiusTiles = Infinity;
   const trains: { type: string; route: string; d: number }[] = [];
-  const routes: Route[] = (layer('track', 'objectgroup', true)!.objects ?? []).map((o) => {
-    const line = o.polyline ?? o.polygon;
-    const id = String(prop(o.properties, 'route') ?? o.name ?? '') || fail(`track object ${o.id}: set a "route" property`);
-    if (!line) fail(`route ${id}: must be a polyline`);
-    const closed = o.polygon ? true : prop(o.properties, 'closed') === true;
-    const points = line!.map((p) => toTiles({ x: o.x + p.x, y: o.y + p.y }));
-    if (points.length < (closed ? 3 : 2)) fail(`route ${id}: needs at least ${closed ? 3 : 2} points`);
-    points.forEach((p, i) => {
-      const q = points[(i + 1) % points.length]!;
-      if ((i + 1 < points.length || closed) && p.x === q.x && p.y === q.y) fail(`route ${id}: point ${i} repeats the next point`);
-    });
-
-    const rs = resample(smooth(points, closed), closed, SAMPLE_SPACING_TILES);
+  const bake = (id: string, closed: boolean, points: Vec[], rs: { length: number; spacing: number; points: Vec[]; s: number[] }, o: TiledObject, legs?: Route['legs']): Route => {
     const n = rs.points.length;
     const cols6 = { x: [] as number[], y: [] as number[], s: [] as number[], tx: [] as number[], ty: [] as number[], speedScale: [] as number[] };
     const tangents: Vec[] = [];
@@ -220,25 +209,46 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
       cols6.tx.push(r6(tangents[i]!.x)); cols6.ty.push(r6(tangents[i]!.y));
       cols6.speedScale.push(speedAt(p));
     });
-    // Radius from the turn between consecutive segment tangents.
+    // Radius from the turn between consecutive segment tangents, over the local step length.
     for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
       const a = tangents[(i - 1 + n) % n]!, b = tangents[i]!;
       const angle = Math.acos(Math.min(1, Math.max(-1, a.x * b.x + a.y * b.y)));
-      if (angle > 1e-9) minRadiusTiles = Math.min(minRadiusTiles, rs.spacing / angle);
+      const step = i + 1 < n ? rs.s[i + 1]! - rs.s[i]! : rs.length - rs.s[i]!;
+      if (angle > 1e-9) minRadiusTiles = Math.min(minRadiusTiles, Math.min(rs.spacing, step) / angle);
     }
     // Optional `trains` (how many) and `trainType` (default mail-express, the mail train): spaced evenly round the route.
     const count = prop(o.properties, 'trains');
     if (count !== undefined) {
       if (!Number.isInteger(count) || (count as number) < 0) fail(`route ${id}: trains must be a whole number`);
       const type = String(prop(o.properties, 'trainType') ?? 'mail-express');
-      for (let k = 0; k < (count as number); k++) trains.push({ type, route: id, d: r4((rs.length * k) / (count as number)) });
+      const offset = Number(prop(o.properties, 'trainOffset') ?? 0);
+      for (let k = 0; k < (count as number); k++) trains.push({ type, route: id, d: r4(((rs.length * k) / (count as number) + offset) % rs.length) });
     }
     return {
       id, closed, smoothing: 'catmull-rom' as const,
       points: points.map((p) => ({ x: r4(p.x), y: r4(p.y) })),
       length: r4(rs.length), spacing: r6(rs.spacing), samples: cols6,
+      ...(legs ? { legs } : {}),
     };
+  };
+
+  const trackObjects = layer('track', 'objectgroup', true)!.objects ?? [];
+  const routes: Route[] = trackObjects.filter((o) => prop(o.properties, 'segment') === undefined).map((o) => {
+    const line = o.polyline ?? o.polygon;
+    const id = String(prop(o.properties, 'route') ?? o.name ?? '') || fail(`track object ${o.id}: set a "route" property`);
+    if (!line) fail(`route ${id}: must be a polyline`);
+    const closed = o.polygon ? true : prop(o.properties, 'closed') === true;
+    const points = line!.map((p) => toTiles({ x: o.x + p.x, y: o.y + p.y }));
+    if (points.length < (closed ? 3 : 2)) fail(`route ${id}: needs at least ${closed ? 3 : 2} points`);
+    points.forEach((p, i) => {
+      const q = points[(i + 1) % points.length]!;
+      if ((i + 1 < points.length || closed) && p.x === q.x && p.y === q.y) fail(`route ${id}: point ${i} repeats the next point`);
+    });
+    return bake(id, closed, points, resample(smooth(points, closed), closed, SAMPLE_SPACING_TILES), o);
   });
+
+  const { junctions, services } = buildServices(trackObjects, layer('services', 'objectgroup', false)?.objects ?? [], toTiles, fail);
+  for (const sv of services) routes.push(bake(sv.id, true, sv.points, sv.rs, sv.object, sv.legs));
   const ids = routes.map((r) => r.id);
   if (new Set(ids).size !== ids.length) fail(`duplicate route ids: ${ids.join(', ')}`);
 
@@ -264,6 +274,7 @@ export function buildMap(file: string, text: string, readSibling: (name: string)
     ...(elevationLayer ? { elevation } : {}),
     routes,
     speedZones,
+    ...(junctions.length ? { junctions } : {}),
     ...(trains.length ? { trains } : {}),
     markers,
   });
@@ -374,6 +385,116 @@ function buildScenery(
     }
   }
   return SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source: map.source, kindLegend: [...SCENERY_KINDS], items, bridges });
+}
+
+/** Segment ends this close together meet at one junction. */
+const JUNCTION_SNAP_TILES = 0.5;
+/** How far a segment's first or last chord may point away from its junction's shared tangent. */
+const JUNCTION_MAX_DEGREES = 25;
+
+interface Segment { id: string; points: Vec[]; from: string; to: string; rs: { length: number; points: Vec[]; s: number[] } }
+
+/**
+ * Segments and services: find where segment ends meet, give each junction one tangent, bake
+ * each segment once along it, and join each service's segments into one closed route.
+ */
+function buildServices(track: TiledObject[], serviceObjects: TiledObject[], toTiles: (p: Vec) => Vec, fail: (m: string) => never) {
+  const raw = track.filter((o) => prop(o.properties, 'segment') !== undefined).map((o) => {
+    const id = String(prop(o.properties, 'segment'));
+    if (!o.polyline || o.polyline.length < 2) fail(`segment ${id}: must be an open polyline with at least 2 points`);
+    return { id, points: o.polyline!.map((p) => toTiles({ x: o.x + p.x, y: o.y + p.y })) };
+  }).sort((a, b) => (a.id < b.id ? -1 : 1));
+  if (new Set(raw.map((r) => r.id)).size !== raw.length) fail(`duplicate segment ids: ${raw.map((r) => r.id).join(', ')}`);
+  if (!raw.length && !serviceObjects.length) return { junctions: [], services: [] };
+  if (!raw.length) fail('a services layer needs segments on the track layer');
+
+  // Junctions: cluster segment ends, then snap every end onto its junction.
+  const js: { id: string; x: number; y: number; ends: { seg: number; end: 'start' | 'end' }[] }[] = [];
+  raw.forEach((r, seg) => {
+    for (const end of ['start', 'end'] as const) {
+      if (r.points.length < 2) continue;
+      const p = end === 'start' ? r.points[0]! : r.points[r.points.length - 1]!;
+      let j = js.find((q) => Math.hypot(q.x - p.x, q.y - p.y) <= JUNCTION_SNAP_TILES);
+      if (!j) { j = { id: `j${js.length + 1}`, x: r4(p.x), y: r4(p.y), ends: [] }; js.push(j); }
+      j.ends.push({ seg, end });
+    }
+  });
+  const unit = (a: Vec, b: Vec): Vec => { const l = Math.hypot(b.x - a.x, b.y - a.y); return { x: (b.x - a.x) / l, y: (b.y - a.y) / l }; };
+  const junctions = js.map((j) => {
+    if (j.ends.length < 2) fail(`segment ${raw[j.ends[0]!.seg]!.id}: its ${j.ends[0]!.end} at ${j.x},${j.y} meets no other segment`);
+    // Shared tangent: the trunk's direction where one track splits in two or two join into
+    // one; otherwise the arriving and leaving chords that line up best.
+    const dirs = j.ends.map(({ seg, end }) => {
+      const pts = raw[seg]!.points;
+      return end === 'start' ? unit(pts[0]!, pts[1]!) : unit(pts[pts.length - 2]!, pts[pts.length - 1]!);
+    });
+    const ins = j.ends.flatMap((e, i) => (e.end === 'end' ? [i] : [])), outs = j.ends.flatMap((e, i) => (e.end === 'start' ? [i] : []));
+    if (!ins.length || !outs.length) fail(`junction ${j.id} at ${j.x},${j.y}: track only ${ins.length ? 'arrives' : 'leaves'} there; a junction needs track in and out`);
+    let sx = 0, sy = 0;
+    if (ins.length === 1 || outs.length === 1) {
+      const trunk = dirs[ins.length === 1 ? ins[0]! : outs[0]!]!;
+      sx = trunk.x; sy = trunk.y;
+    } else {
+      let bestDot = -2;
+      for (const ia of ins) for (const ib of outs) {
+        const da = dirs[ia]!, db = dirs[ib]!, dot = da.x * db.x + da.y * db.y;
+        if (dot > bestDot) { bestDot = dot; sx = da.x + db.x; sy = da.y + db.y; }
+      }
+    }
+    const len = Math.hypot(sx, sy);
+    if (len < 1e-9) fail(`junction ${j.id} at ${j.x},${j.y}: its segments point in opposite directions`);
+    const t = { x: sx / len, y: sy / len };
+    j.ends.forEach(({ seg, end }, k) => {
+      const deg = (Math.acos(Math.min(1, dirs[k]!.x * t.x + dirs[k]!.y * t.y)) * 180) / Math.PI;
+      if (deg > JUNCTION_MAX_DEGREES) fail(`junction ${j.id} at ${j.x},${j.y}: segment ${raw[seg]!.id} ${end === 'start' ? 'leaves' : 'arrives'} ${deg.toFixed(0)} degrees off the junction's direction (max ${JUNCTION_MAX_DEGREES}); line its ${end === 'start' ? 'second' : 'second-last'} point up with the track`);
+    });
+    return { id: j.id, x: j.x, y: j.y, tx: r6(t.x), ty: r6(t.y) };
+  });
+  const junctionOf = (seg: number, end: 'start' | 'end') => js.findIndex((j) => j.ends.some((e) => e.seg === seg && e.end === end));
+
+  const segments = new Map<string, Segment>();
+  raw.forEach((r, seg) => {
+    const a = junctionOf(seg, 'start'), b = junctionOf(seg, 'end');
+    const ja = junctions[a]!, jb = junctions[b]!;
+    const pts = [{ x: ja.x, y: ja.y }, ...r.points.slice(1, -1), { x: jb.x, y: jb.y }];
+    // Phantom points beyond each end: the neighbouring point mirrored across the junction's
+    // tangent and through the junction. The curve then passes through the junction exactly
+    // along its tangent, bending toward the segment's own points.
+    const phantom = (j: { x: number; y: number; tx: number; ty: number }, nb: Vec): Vec => {
+      const dx = nb.x - j.x, dy = nb.y - j.y;
+      const a = dx * j.tx + dy * j.ty, b = -dx * j.ty + dy * j.tx;
+      return { x: j.x - a * j.tx - b * j.ty, y: j.y - a * j.ty + b * j.tx };
+    };
+    const ends = { before: phantom(ja, pts[1]!), after: phantom(jb, pts[pts.length - 2]!) };
+    segments.set(r.id, { id: r.id, points: pts, from: ja.id, to: jb.id, rs: resampleFixed(smooth(pts, false, ends), SAMPLE_SPACING_TILES) });
+  });
+
+  const used = new Set<string>();
+  const services = serviceObjects.map((o) => {
+    const id = String(prop(o.properties, 'route') ?? o.name ?? '') || fail(`service object ${o.id}: set a "route" property`);
+    const path = String(prop(o.properties, 'path') ?? '').split(/[\s,]+/).filter(Boolean);
+    if (!path.length) fail(`service ${id}: set a "path" property listing its segments in order`);
+    if (path.some((p) => p.endsWith('<'))) fail(`service ${id}: running a segment backwards (<) is not supported yet`);
+    if (new Set(path).size !== path.length) fail(`service ${id}: a segment appears twice in its path`);
+    const legs: NonNullable<Route['legs']> = [];
+    const pts: Vec[] = [], samples: Vec[] = [], s: number[] = [];
+    let start = 0;
+    path.forEach((sid, i) => {
+      for (const p of path) if (!segments.has(p)) fail(`service ${id}: no segment ${p}`);
+      const seg = segments.get(sid)!;
+      const prev = segments.get(path[(i - 1 + path.length) % path.length]!)!;
+      if (prev.to !== seg.from) fail(`service ${id}: segment ${prev.id} ends at ${prev.to} but ${seg.id} starts at ${seg.from}`);
+      used.add(sid);
+      legs.push({ segment: sid, start: r4(start), length: r4(seg.rs.length), from: seg.from, to: seg.to });
+      pts.push(...seg.points.slice(0, -1));
+      samples.push(...seg.rs.points);
+      s.push(...seg.rs.s.map((v) => v + start));
+      start += seg.rs.length;
+    });
+    return { id, object: o, points: pts, legs, rs: { length: start, spacing: SAMPLE_SPACING_TILES, points: samples, s } };
+  });
+  for (const id of segments.keys()) if (!used.has(id)) fail(`segment ${id}: no service runs on it`);
+  return { junctions, services };
 }
 
 export function buildMapFile(path: string): BuildResult {

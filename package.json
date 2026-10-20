@@ -1,7 +1,7 @@
 {
   "name": "train-robber",
   "private": true,
-  "version": "0.2.2-procedural-maps",
+  "version": "0.2.3-procedural-maps",
   "type": "module",
   "workspaces": [
     "packages/*",

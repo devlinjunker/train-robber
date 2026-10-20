@@ -6,7 +6,7 @@ const base = {
   sim: { tickRateHz: 60 },
   logging: { hashEverySec: 1, events: [] },
   player: { speedTilesPerSec: 8 },
-  commit: { rangeTiles: 12, auto: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
+  commit: { rangeTiles: 12, timerSec: 2, closeRangeTiles: 4, promptSwitch: true, switchTimerSec: 3, cancelInPlace: true, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
   boarding: {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
@@ -19,6 +19,12 @@ const base = {
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold',
+    boost: { enabled: true, durationSec: 1.5, topSpeedScale: 1.4, cooldownSec: 6, accelTilesPerSec2: 20 },
+  },
+  ai: {
+    guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
+    sight: { rangeTiles: 7, coneHalfAngleDeg: 40 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5 },
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
   },
   world: { mode: 'separate' },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
@@ -136,6 +142,16 @@ describe('resolveConfig', () => {
     expect(r.values.heat.sources.timeAboardPerTick).toBeCloseTo(0.01, 12);
     expect(r.values.trains.blank!.countdown.baseTicks).toBe(9000);
   });
+
+  it('derives the guards\' cone threshold, timers and speeds, and the boost timers (phase 2 M3)', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p' });
+    const ai = r.values.ai;
+    expect(ai.sight.coneCos).toBeCloseTo(Math.cos((40 * Math.PI) / 180), 12);
+    expect([ai.alertAfterTicks, ai.calmTicks, ai.alertCalmTicks, ai.patrolPauseTicks]).toEqual([60, 240, 360, 90]);
+    expect(ai.chaseSpeedTilesPerTick).toBeCloseTo(5 / 60, 12);
+    expect(ai.turnRateCosPerTick).toBeCloseTo(Math.cos((4 * Math.PI) / 180), 12);
+    expect([r.values.horse.boost.durationTicks, r.values.horse.boost.cooldownTicks]).toEqual([90, 360]);
+  });
 });
 
 describe('presets that build on others', () => {
@@ -179,8 +195,8 @@ describe('presets that build on others', () => {
 
 describe('?set= overrides', () => {
   it('turn dotted paths into a nested tree, reading values as JSON', () => {
-    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.auto=false', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
-      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { auto: false }, horse: { steering: 'screen' } });
+    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.timerSec=null', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
+      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { timerSec: null }, horse: { steering: 'screen' } });
   });
   it('keep the last value for a path and skip anything aimed at a prototype', () => {
     expect(overridesFromSet(['countdown.scale=2', 'countdown.scale=3', '__proto__.polluted=1', 'a.constructor.b=1', '=5'])).toEqual({ countdown: { scale: 3 } });
