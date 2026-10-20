@@ -90,7 +90,8 @@ export type SimEvent =
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number }
+  /** `endOfLine`: on an open line, the committed train reached the end of the line (the run expires there). */
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; endOfLine?: true }
   | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }

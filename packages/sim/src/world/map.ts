@@ -15,6 +15,8 @@ export interface SimMap {
   /** Trains the map starts with, each on one of its routes at distance `d` (trainMix `map`). */
   trains?: readonly MapTrain[];
   markers: { playerSpawn: { x: number; y: number } };
+  /** Open line maps: trains enter at the start of the line once the last one is headwayTiles in, and leave past its end. */
+  openLine?: { headwayTiles: number };
 }
 
 export interface MapTrain { type: string; route: string; d: number }
@@ -42,6 +44,8 @@ export interface WorldMap {
   /** Junctions between services; null on maps whose routes share no track. */
   network: Network | null;
   playerSpawn: { x: number; y: number };
+  /** Set on open line maps (see SimMap.openLine). */
+  openLine: { headwayTiles: number } | null;
 }
 
 /** Hash of everything the sim reads from a map, so a snapshot only restores against the same map. */
@@ -50,7 +54,7 @@ export function mapHash(map: SimMap): string {
     const { x, y, s, tx, ty } = route.samples;
     return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty }, ...(route.legs ? { legs: route.legs } : {}) };
   };
-  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}) });
+  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}), ...(map.openLine ? { openLine: map.openLine } : {}) });
 }
 
 export function prepareMap(map: SimMap): WorldMap {
@@ -73,6 +77,7 @@ export function prepareMap(map: SimMap): WorldMap {
     network: buildNetwork(map.routes),
     trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
+    openLine: map.openLine ? { ...map.openLine } : null,
   };
 }
 

@@ -253,7 +253,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm'); } else audio.play('heat');
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired');
-      show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
+      show(`${e.endOfLine ? 'The train reached the end of the line' : "Time's up"}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);

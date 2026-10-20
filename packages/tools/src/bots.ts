@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carriedWeight, commitTarget, createSim, gridWalkable, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
+  boardingCheck, carriedWeight, commitTarget, createSim, distanceToTrain, gridWalkable, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -133,7 +133,7 @@ function randomBot(rng: RngState): Brain {
 }
 
 function chaserBot(rng: RngState, config: SimConfig): Brain {
-  let eligibleFor = 0, waitTicks = 0, aboardFor = 0;
+  let eligibleFor = 0, waitTicks = 0, aboardFor = 0, stuckFor = 0;
   let last = { x: 0, y: 0 };
   return (sim, t) => {
     const s = sim.state as GameState;
@@ -170,8 +170,14 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
       if (commitTarget(s, sim.map, config, h)) c.push({ type: 'interact', held: true });
       else if (t % 1800 === 0) c.push({ type: 'quickRetry' });
     }
-    // Ride for a train with loot (mixed trains put blank decoys first), else the first.
-    const trainId = s.run?.trainId ?? (s.world.trains.find((q) => config.values.trains[q.type]?.loot) ?? s.world.trains[0]!).id;
+    // On an open line the rider steers straight at the doors and can wedge itself on rocks for good
+    // (a loop's train comes back round): after 4 s stuck, line up again.
+    if (sim.map.openLine) {
+      stuckFor = h.speed < 1 && s.run?.phase !== 'boarding' ? stuckFor + 1 : 0;
+      if (stuckFor > 240) { stuckFor = 0; c.push({ type: 'quickRetry' }); }
+    }
+    // Ride for a train with loot (mixed trains put blank decoys first), else the first; on an open line the nearest.
+    const trainId = s.run?.trainId ?? (sim.map.openLine ? lineTarget(sim, config, h) : (s.world.trains.find((q) => config.values.trains[q.type]?.loot) ?? s.world.trains[0]!).id);
     if (s.run?.phase === 'boarding') return c;
     const check = boardingCheck(s, sim.map, config, trainId, h);
     if (t % 10 === 0) { const r = riderCommands(sim, config, trainId, check.side); move(r.x, r.y); }
@@ -183,6 +189,18 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
     } else eligibleFor = 0;
     return c;
   };
+}
+
+/** On an open line: the train with loot nearest the rider (trains leave the map, so the first one listed may be gone soon), else the nearest. */
+function lineTarget(sim: Sim, config: SimConfig, h: { x: number; y: number }): string {
+  const s = sim.state as GameState;
+  let best: string | null = null, bestD = Infinity, any = s.world.trains[0]!.id, anyD = Infinity;
+  for (const t of s.world.trains) {
+    const d = distanceToTrain(s, sim.map, config, t.id, h.x, h.y);
+    if (d < anyD) { anyD = d; any = t.id; }
+    if (config.values.trains[t.type]?.loot && d < bestD) { bestD = d; best = t.id; }
+  }
+  return best ?? any;
 }
 
 export function brainFor(kind: BotKind, seed: string, config: SimConfig): Brain {

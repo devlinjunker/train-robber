@@ -11,9 +11,9 @@ import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
-import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
+import { atLineEnd, carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
-import { trackAt } from './world/track';
+import { trackAt, type SimRoute } from './world/track';
 
 export interface RunCtx {
   state: GameState;
@@ -192,7 +192,7 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
 }
 
 /** End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`. */
-function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean): void {
+function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, endOfLine = false): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
@@ -201,6 +201,7 @@ function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
+    ...(endOfLine ? { endOfLine: true as const } : {}),
   });
   const before = state.persistent;
   const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
@@ -269,6 +270,21 @@ function retrySide(ctx: RunCtx, p: PlayerState, h: HorseState, trainId: string):
   return side;
 }
 
+/** How far inside the map an open line's track must be for a quick retry to wait beside it. */
+const RETRY_EDGE_TILES = 12;
+const insideMap = (map: WorldMap, x: number, y: number) => x >= RETRY_EDGE_TILES && y >= RETRY_EDGE_TILES && x < map.cols - RETRY_EDGE_TILES && y < map.rows - RETRY_EDGE_TILES;
+/** The first and last distance along an open route where the track is well inside the map. */
+function onMapFrom(map: WorldMap, route: SimRoute): number {
+  const { x, y, s } = route.samples;
+  for (let i = 0; i < s.length; i++) if (insideMap(map, x[i]!, y[i]!)) return s[i]!;
+  return 0;
+}
+function onMapTo(map: WorldMap, route: SimRoute): number {
+  const { x, y, s } = route.samples;
+  for (let i = s.length - 1; i >= 0; i--) if (insideMap(map, x[i]!, y[i]!)) return s[i]!;
+  return route.length;
+}
+
 /** Track centre to the waiting horse beyond the car's side, so it lines up inside boarding range of the doors. */
 const RETRY_SIDE_GAP = 1.5;
 
@@ -290,7 +306,10 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   for (const q of state.players) { q.resumeRuns = []; q.commitHold = null; }
   const train = state.world.trains.find((t) => t.id === trainId)!;
   const { route } = routeOf(map, config, train);
-  const at = trackAt(route, train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles);
+  let d = train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles;
+  // An open line runs off the map at both ends: wait where the track is still on it.
+  if (!route.closed) d = Math.max(onMapFrom(map, route), Math.min(d, onMapTo(map, route)));
+  const at = trackAt(route, d);
   const last = carTemplate(carCatalog(config), train.cars[train.cars.length - 1]!);
   // Left of travel is (ty, -tx).
   const off = last.size.rows / 2 + RETRY_SIDE_GAP;
@@ -484,7 +503,9 @@ export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | unde
 
 /**
  * Tick system 11, run end: a player at no health dies; otherwise a run whose countdown is at zero
- * expires once the grace window no longer holds it (U3). Both then reset as cancel does.
+ * expires once the grace window no longer holds it (U3), and on an open line a run whose train
+ * reaches the end of the line expires there too (the law gets on in the next town). All of them
+ * then reset as cancel does.
  */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
@@ -500,6 +521,15 @@ export function runEndSystem(ctx: RunCtx): void {
   for (const p of ctx.state.players) {
     if (run.players[p.id] && countdownExpired(ctx, p)) {
       endRun(ctx, p, 'expired', false);
+      resetToSpawn(ctx, p);
+      return;
+    }
+  }
+  const train = ctx.map.openLine ? ctx.state.world.trains.find((t) => t.id === run.trainId) : undefined;
+  if (train && atLineEnd(ctx.map, ctx.config, train)) {
+    for (const p of ctx.state.players) {
+      if (!run.players[p.id]) continue;
+      endRun(ctx, p, 'expired', false, true);
       resetToSpawn(ctx, p);
       return;
     }

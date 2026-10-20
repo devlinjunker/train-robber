@@ -29,7 +29,7 @@ export async function bootReplay(app: Application, source: ReplaySource): Promis
     header = log.header;
     if (header.log !== 'commands') throw new Error(`expected a commands log, got the ${header.log} log`);
     config = configForHeader(header);
-    // A generated map (?map=gen) is rebuilt from the logged seed and mapGen overrides.
+    // A generated map (?map=gen or ?map=line) is rebuilt from the logged seed and mapGen overrides.
     const { map, scenery } = await sessionMap(header.mapId ?? DEFAULT_MAP, header.seed, config);
     warnings = headerWarnings(header, { config, gameVersion: pkg.version, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
     if (!header.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
