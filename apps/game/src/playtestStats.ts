@@ -69,7 +69,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   return [...groups].map(([setup, rs]) => {
-    const outcomes: Record<TrackedOutcome, number> = { died: 0, cancelled: 0, expired: 0, retry: 0, abandoned: 0 };
+    const outcomes: Record<TrackedOutcome, number> = { died: 0, cancelled: 0, expired: 0, cashedOut: 0, retry: 0, abandoned: 0 };
     for (const r of rs) outcomes[r.outcome]++;
     const attempts = rs.reduce((n, r) => n + r.boardingAttempts, 0);
     const share = (k: 'perfect' | 'good' | 'fail') => (attempts ? rs.reduce((n, r) => n + r.boarding[k], 0) / attempts : 0);
@@ -136,9 +136,9 @@ export function issueMarkdown(runs: readonly RunRecord[], maxChars = 6000): stri
   const testers = [...new Set(runs.map((r) => r.tester).filter(Boolean))].join(', ') || 'unnamed';
   const lines = [
     `Playtest results from ${testers}: ${runs.length} runs on version ${[...new Set(runs.map(runVersion))].sort(compareVersions).join(', ')}.`, '',
-    '| Setup | Runs | Died | Cancelled | Expired | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board | Avg loot |',
+    '| Setup | Runs | Died | Cancelled | Expired | Cashed out | Retry | Abandoned | Avg length | Avg jumps | Perfect / good / fail | Got aboard | Median to board | Avg loot |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
-    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.expired} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} | ${money(s.avgLoot)} |`),
+    ...summarize(runs).map((s) => `| ${s.setup} | ${s.runs} | ${s.outcomes.died} | ${s.outcomes.cancelled} | ${s.outcomes.expired} | ${s.outcomes.cashedOut} | ${s.outcomes.retry} | ${s.outcomes.abandoned} | ${s.avgSec.toFixed(1)} s | ${s.avgAttempts.toFixed(1)} | ${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)} | ${pct(s.aboard)} | ${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`} | ${money(s.avgLoot)} |`),
   ];
   const noted = runs.filter((r) => r.notes.length);
   if (noted.length) {

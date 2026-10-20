@@ -42,12 +42,16 @@ export const HEAT_CAUSE_TEXT: Readonly<Record<HeatCause, string>> = {
 
 export const heatNotice = (delta: number, cause: HeatCause) => `+${Number.isInteger(delta) ? delta : delta.toFixed(1)} heat: ${HEAT_CAUSE_TEXT[cause]}`;
 
+/** When the countdown ticks (`audio` in game.json): every `tickEverySec` countdown seconds, then every `finalTickEverySec` in the last `finalCountdownSec`. 0 turns that part off. */
+export interface TickPlan { tickEverySec: number; finalCountdownSec: number; finalTickEverySec: number }
+
 /**
- * Which countdown tick the clock is on: one per countdown second, two per second below 20%. The
- * client plays a tick whenever this changes, so the ticks follow the clock: faster with heat, and
- * twice as fast near the end.
+ * Which countdown tick the clock is on. The client plays a tick whenever this changes, so the
+ * ticks follow the clock (faster with heat): one each time it passes a multiple of `tickEverySec`
+ * (2:00, 1:30, ...), then every `finalTickEverySec` once `finalCountdownSec` or less is left.
+ * Final-stretch buckets are negative so the client can play the sharper tick for them.
  */
-export function tickBucket(sec: number, total: number): number {
-  const critical = total > 0 && sec / total < CRITICAL_SHARE;
-  return critical ? -Math.ceil(sec * 2) : Math.ceil(sec);
+export function tickBucket(sec: number, plan: TickPlan): number {
+  if (plan.finalCountdownSec > 0 && plan.finalTickEverySec > 0 && sec <= plan.finalCountdownSec) return -Math.ceil(sec / plan.finalTickEverySec) - 1;
+  return plan.tickEverySec > 0 ? Math.ceil(sec / plan.tickEverySec) : 0;
 }

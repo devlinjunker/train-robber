@@ -24,14 +24,22 @@ describe('countdown and heat readouts', () => {
     expect(heatNotice(15, 'alarmRaised')).toBe('+15 heat: alarm raised');
     expect(heatNotice(1, 'timeAboard')).toBe('+1 heat: lingering aboard');
   });
-  it('ticks once per countdown second, then twice per second below 20%', () => {
-    const ticks = (from: number, to: number, total: number, step = 0.01) => {
-      let n = 0, last = tickBucket(from, total);
-      for (let t = from; t > to; t -= step) { const b = tickBucket(t, total); if (b !== last) n++; last = b; }
+  it('ticks every 30 s, then every second in the last 30 s', () => {
+    const plan = { tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 };
+    const ticks = (from: number, to: number, p = plan, step = 0.01) => {
+      let n = 0, last = tickBucket(from, p);
+      for (let t = from; t > to; t -= step) { const b = tickBucket(t, p); if (b !== last) n++; last = b; }
       return n;
     };
-    expect(ticks(100, 90, 150)).toBe(9);
-    expect(ticks(20, 10, 150)).toBe(19);
+    // 2:30 down to 0:31 passes 2:00, 1:30 and 1:00.
+    expect(ticks(150, 31)).toBe(3);
+    // Ticks at 0:30 and then every second: 0:30 to 0:21.
+    expect(ticks(31, 20)).toBe(10);
+    expect(tickBucket(25, plan)).toBeLessThan(0);
+    expect(tickBucket(45, plan)).toBeGreaterThan(0);
+    // 0 turns a part off.
+    expect(ticks(150, 31, { ...plan, tickEverySec: 0 })).toBe(0);
+    expect(ticks(31, 1, { ...plan, finalCountdownSec: 0 })).toBe(1);
   });
 });
 
@@ -44,5 +52,10 @@ describe('debug heat keys', () => {
     expect(actionFor('KeyM', false)).toBe('toggleMinimap');
     const cmds = new InputMapper().commands({ held: new Set(), actions: ['heat', 'alarm'] }, ctx);
     expect(cmds).toEqual([{ type: 'debugHeat' }, { type: 'debugHeat', source: 'alarmRaised' }]);
+  });  it('F cashes out on the horse and sends nothing aboard', () => {
+    expect(actionFor('KeyF', false)).toBe('cashOut');
+    expect(new InputMapper().commands({ held: new Set(), actions: ['cashOut'] }, ctx)).toEqual([{ type: 'cashOut' }]);
+    expect(new InputMapper().commands({ held: new Set(), actions: ['cashOut'] }, { ...ctx, aboard: true })).toEqual([]);
+    expect(new InputMapper().commands({ held: new Set(), actions: ['retry'] }, ctx)).toEqual([{ type: 'quickRetry' }]);
   });
 });

@@ -3,12 +3,13 @@
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent, TrainState } from './types';
+import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
+import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
 import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
@@ -191,19 +192,24 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
   remount(ctx.state, p, s.x, s.y, 0, -1);
 }
 
-/** End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`. */
-function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean): void {
+/**
+ * End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`.
+ * `cashOut` is the loot value the run would bank; it goes into the bank and lifetime earned when
+ * the outcome's policy has `bankRunLoot`.
+ */
+function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
+  const banked = ctx.config.values.outcomePolicy[outcome].bankRunLoot ? cashOut : 0;
   setPhase(ctx, p.id, 'ended');
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: banked,
   });
   const before = state.persistent;
-  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
+  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, banked);
   if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {
     state.persistent = after;
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
@@ -242,6 +248,32 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
     p.commitTimer = null;
     p.resumeRuns = [...saved.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
   } else resetToSpawn(ctx, p);
+}
+
+/**
+ * F, on the horse during a run (Devlin, 2026-10-19): get away with what you carry. The run ends
+ * `cashedOut`, banking the carried value, and the rider keeps riding where they are. With
+ * `cashOut.closeDoors` the train shuts its doors: no commit or switch to it for
+ * `cashOut.doorsReopenSec` (0: for the rest of the session).
+ */
+export function cashOut(ctx: RunCtx, p: PlayerState): void {
+  const { state, config } = ctx;
+  const cfg = config.values.cashOut;
+  if (!cfg.enabled) return reject(ctx, p.id, 'cashOut', 'disabled');
+  const run = state.run;
+  const rp = run?.players[p.id];
+  if (!run || !rp || run.phase === 'ended') return reject(ctx, p.id, 'cashOut', 'no run');
+  if (p.placement.frame !== WORLD_FRAME) return reject(ctx, p.id, 'cashOut', 'not mounted');
+  if (rp.carried.length === 0) return reject(ctx, p.id, 'cashOut', 'nothing to cash out');
+  const train = state.world.trains.find((t) => t.id === run.trainId);
+  endRun(ctx, p, 'cashedOut', false, carriedValue(config, rp.carried));
+  if (train && cfg.closeDoors) shutDoors(ctx, train);
+}
+
+/** Shut a train's doors for `cashOut.doorsReopenSec` (0: for good); a later shut restarts the wait. */
+function shutDoors(ctx: RunCtx, train: TrainState): void {
+  const ticks = ctx.config.values.cashOut.doorsReopenTicks;
+  train.doorsClosed = { untilTick: ticks > 0 ? ctx.state.tick + ticks : null };
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */
@@ -316,6 +348,12 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
     }
     if (run.phase !== 'approach') { if (jumped) reject(ctx, p.id, 'jump', 'aboard'); continue; }
 
+    // A shut train (thrown off with `cashOut.closeDoorsOnThrownOff`) cannot be boarded: the meter parks.
+    if (doorsClosed(state, state.world.trains.find((t) => t.id === run.trainId)!)) {
+      if (jumped) reject(ctx, p.id, 'jump', 'doors closed');
+      advanceMeter(rp.meter, 'too far', b.meter);
+      continue;
+    }
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
       // In range is enough to try; a speed mismatch only means the faster meter.
@@ -400,6 +438,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
     ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
   }
   setPhase(ctx, p.id, 'boarding');
+  // The train shuts its doors behind you: cash out (F) or switch to another train.
+  if (config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);

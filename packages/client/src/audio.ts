@@ -17,7 +17,8 @@ const TONES: Record<SoundId, Tone> = {
 };
 
 export interface AudioBus {
-  play(id: SoundId): void;
+  /** `volume` scales the sound's gain: 1 is its normal level, 0 silent. */
+  play(id: SoundId, volume?: number): void;
   muted: boolean;
 }
 
@@ -36,8 +37,8 @@ export function createAudioBus(target: Pick<Window, 'addEventListener'> = window
   target.addEventListener('pointerdown', wake);
   const bus: AudioBus = {
     muted,
-    play(id) {
-      if (bus.muted || !ctx || ctx.state !== 'running') return;
+    play(id, volume = 1) {
+      if (bus.muted || volume <= 0 || !ctx || ctx.state !== 'running') return;
       const t = TONES[id];
       for (let i = 0; i < (t.repeat ?? 1); i++) {
         const start = ctx.currentTime + i * t.sec;
@@ -45,7 +46,7 @@ export function createAudioBus(target: Pick<Window, 'addEventListener'> = window
         osc.type = t.type;
         osc.frequency.setValueAtTime(t.from, start);
         osc.frequency.linearRampToValueAtTime(t.to, start + t.sec);
-        amp.gain.setValueAtTime(t.gain, start);
+        amp.gain.setValueAtTime(t.gain * volume, start);
         amp.gain.exponentialRampToValueAtTime(0.0001, start + t.sec);
         osc.connect(amp).connect(ctx.destination);
         osc.start(start);

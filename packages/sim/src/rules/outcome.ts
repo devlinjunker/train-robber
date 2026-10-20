@@ -1,9 +1,13 @@
 // The only code that writes PersistentState: apply a run's outcome under `outcomePolicy`.
-// Phase 1 has no loot, so `bankRunLoot` has nothing to bank yet.
+// `runLootValue` is the loot value the run cashes into the bank and lifetime earned.
 import type { PersistentState, RunOutcome, SimConfig } from '../types';
 
-export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, policy: SimConfig['values']['outcomePolicy']): PersistentState {
+export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, policy: SimConfig['values']['outcomePolicy'], runLootValue = 0): PersistentState {
   const next = { ...persistent };
+  if (runLootValue > 0) {
+    next.bank += runLootValue;
+    next.lifetimeEarned += runLootValue;
+  }
   const p = policy[outcome];
   next.wantedLevel = Math.max(0, next.wantedLevel + p.wantedDelta);
   if (outcome === 'died') {
