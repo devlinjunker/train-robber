@@ -118,6 +118,11 @@ export const GameSchema = z.object({
     /** A good mount stuns the horse this long (no steering, speed held), as a failed boarding jump does. */
     goodMountStunSec: z.number().min(0),
   }).strict(),
+  /**
+   * Overrides for the procedural map generator (`?map=gen`), merged over base/map-gen.json and checked
+   * by MapGenSchema when a map is generated. Absent unless a run sets one, so other runs keep their hash.
+   */
+  mapGen: z.record(z.unknown()).optional(),
   countdown: z.object({
     /** The run's clock (phase 2). Off, a run never expires. */
     enabled: z.boolean(),

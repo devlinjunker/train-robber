@@ -6,6 +6,12 @@ import { drawBox, groundEllipse, isoPoly, shade, oval } from './draw';
 import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 
+/** Height of the ground under a world point, in tiles of z (iso/height.ts); flat maps use 0. */
+export type GroundAt = (x: number, y: number) => number;
+const flat: GroundAt = () => 0;
+/** Bushes and flowers on ground at least this high sort with the hills instead of lying under them. */
+const RAISED_Z = 0.02;
+
 export const FOREST_FLOOR = 0x3f5a2e;
 const BRIDGE = 0x8b6a45, BRIDGE_RAIL = 0x5a3d26;
 const TREE = 0x3f8a3a, PINE = 0x2c6b45, TRUNK = 0x6b4a2a, BUSH = 0x5f9446;
@@ -104,49 +110,52 @@ export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Chunk[] {
   return out;
 }
 
-/** Ground cover: bushes are low mounds, flowers a few dots. In cells, so off-screen cells cull. */
-export function drawSceneryCover(scenery: SceneryDef): Chunk[] {
+/**
+ * Ground cover on flat ground: bushes are low mounds, flowers a few dots. In cells, so off-screen
+ * cells cull. Cover on raised ground is drawn with the trees, at its height (drawTrees).
+ */
+export function drawSceneryCover(scenery: SceneryDef, groundAt: GroundAt = flat): Chunk[] {
   const { kind, x, y, size } = scenery.items;
   const cover: number[] = [];
-  for (let i = 0; i < kind.length; i++) if (!SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!)) cover.push(i);
+  for (let i = 0; i < kind.length; i++) if (!SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!) && groundAt(x[i]!, y[i]!) < RAISED_Z) cover.push(i);
   const cells = group(cover, x, y, (i) => Math.floor(y[i]! / COVER_CELL) * 100000 + Math.floor(x[i]! / COVER_CELL));
   return [...cells.values()].map(({ items, ...box }) => {
     const g = new Graphics();
-    for (const i of items) drawCover(g, scenery.kindLegend[kind[i]!]!, x[i]!, y[i]!, size[i]!, i);
+    for (const i of items) drawCover(g, scenery.kindLegend[kind[i]!]!, x[i]!, y[i]!, size[i]!, i, 0);
     return { g, ...box };
   });
 }
 
-function drawCover(g: Graphics, k: SceneryKind, px: number, py: number, s: number, i: number): void {
+function drawCover(g: Graphics, k: SceneryKind, px: number, py: number, s: number, i: number, z: number): void {
   if (k === 'bush') {
-    groundEllipse(g, px + 0.15, py + 0.15, 0.35 * s).fill({ color: 0x000000, alpha: 0.18 });
-    oval(g, isoX(px, py), isoY(px, py, 0.25 * s), 13 * s, 9 * s).fill(BUSH);
-    oval(g, isoX(px, py) - 3 * s, isoY(px, py, 0.32 * s), 7 * s, 5 * s).fill(shade(BUSH, 1.2));
+    groundEllipse(g, px + 0.15, py + 0.15, 0.35 * s, z).fill({ color: 0x000000, alpha: 0.18 });
+    oval(g, isoX(px, py), isoY(px, py, z + 0.25 * s), 13 * s, 9 * s).fill(BUSH);
+    oval(g, isoX(px, py) - 3 * s, isoY(px, py, z + 0.32 * s), 7 * s, 5 * s).fill(shade(BUSH, 1.2));
   } else if (k === 'flowers') {
     // A clump of five blooms round a centre, each with a darker heart.
     for (let j = 0; j < 5; j++) {
       const a = (j / 5) * Math.PI * 2 + i, d = j === 0 ? 0 : 0.28 * s;
       const fx = px + Math.cos(a) * d, fy = py + Math.sin(a) * d;
-      oval(g, isoX(fx, fy), isoY(fx, fy, 0.08), 4 * s).fill(FLOWERS[(i + j) % FLOWERS.length]!);
-      oval(g, isoX(fx, fy), isoY(fx, fy, 0.08), 1.5 * s).fill(0xd08a2a);
+      oval(g, isoX(fx, fy), isoY(fx, fy, z + 0.08), 4 * s).fill(FLOWERS[(i + j) % FLOWERS.length]!);
+      oval(g, isoX(fx, fy), isoY(fx, fy, z + 0.08), 1.5 * s).fill(0xd08a2a);
     }
   }
 }
 
-/** One tree: a ground shadow, a trunk, and a round canopy or a stack of cones. */
-function drawTree(g: Graphics, k: SceneryKind, x: number, y: number, s: number): void {
-  groundEllipse(g, x + 0.45 * s, y + 0.45 * s, 0.6 * s).fill({ color: 0x000000, alpha: 0.22 });
-  drawBox(g, { x, y, ux: 1, uy: 0, halfLength: 0.1 * s, halfWidth: 0.1 * s, z0: 0, z1: 0.8 * s }, TRUNK);
+/** One tree standing on ground at height z: a ground shadow, a trunk, and a round canopy or a stack of cones. */
+function drawTree(g: Graphics, k: SceneryKind, x: number, y: number, s: number, z: number): void {
+  groundEllipse(g, x + 0.45 * s, y + 0.45 * s, 0.6 * s, z).fill({ color: 0x000000, alpha: 0.22 });
+  drawBox(g, { x, y, ux: 1, uy: 0, halfLength: 0.1 * s, halfWidth: 0.1 * s, z0: z, z1: z + 0.8 * s }, TRUNK);
   const cx = isoX(x, y);
   if (k === 'pine') {
     // Three cones, wider at the bottom, each a lit left half and a shaded right half.
     for (const [z0, z1, half] of [[0.5, 1.9, 0.75], [1.2, 2.6, 0.58], [1.9, 3.2, 0.4]] as const) {
-      const yb = isoY(x, y, z0 * s), yt = isoY(x, y, z1 * s), w = half * s * TILE_H;
+      const yb = isoY(x, y, z + z0 * s), yt = isoY(x, y, z + z1 * s), w = half * s * TILE_H;
       g.poly([cx, yt, cx - w, yb, cx, yb + w * 0.25]).fill(shade(PINE, 1.15));
       g.poly([cx, yt, cx, yb + w * 0.25, cx + w, yb]).fill(PINE);
     }
   } else {
-    const r = 0.85 * s * TILE_H, cy = isoY(x, y, 1.6 * s);
+    const r = 0.85 * s * TILE_H, cy = isoY(x, y, z + 1.6 * s);
     oval(g, cx, cy, r).fill(shade(TREE, 0.85));
     oval(g, cx - r * 0.25, cy - r * 0.25, r * 0.7).fill(TREE);
     oval(g, cx - r * 0.4, cy - r * 0.4, r * 0.3).fill(shade(TREE, 1.2));
@@ -156,12 +165,15 @@ function drawTree(g: Graphics, k: SceneryKind, x: number, y: number, s: number):
 /**
  * Trees grouped by diagonal band and by stretch across it, each group one Graphics with its zIndex
  * at the band's depth, to add to the depth-sorted objects container: the horse and the cars draw in
- * front of trees behind them and behind trees in front of them.
+ * front of trees behind them and behind trees in front of them. Each stands on the ground under it,
+ * so trees on a hill stand on its slope; bushes and flowers on a hill join them, since the hill
+ * sorts with these pieces and would cover anything drawn under it.
  */
-export function drawTrees(scenery: SceneryDef): Chunk[] {
+export function drawTrees(scenery: SceneryDef, groundAt: GroundAt = flat): Chunk[] {
   const { kind, x, y, size } = scenery.items;
   const trees: number[] = [];
-  for (let i = 0; i < kind.length; i++) if (SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!)) trees.push(i);
+  const solid = (i: number) => SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!);
+  for (let i = 0; i < kind.length; i++) if (solid(i) || groundAt(x[i]!, y[i]!) >= RAISED_Z) trees.push(i);
   // Back to front, so trees in one group overlap correctly.
   trees.sort((a, b) => depthOf(x[a]!, y[a]!) - depthOf(x[b]!, y[b]!));
   const band = (i: number) => Math.floor(depthOf(x[i]!, y[i]!) / BAND_TILES);
@@ -171,6 +183,7 @@ export function drawTrees(scenery: SceneryDef): Chunk[] {
   const near = new Map<number, number>();
   const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
   for (const i of trees) {
+    if (!solid(i)) continue;
     const k = cellKey(Math.floor(x[i]! / LONE_TILES), Math.floor(y[i]! / LONE_TILES));
     near.set(k, (near.get(k) ?? 0) + 1);
   }
@@ -183,9 +196,16 @@ export function drawTrees(scenery: SceneryDef): Chunk[] {
   return [...groups.values()].map(({ items, ...box }) => {
     const g = new Graphics();
     g.zIndex = (band(items[0]!) + 0.5) * BAND_TILES;
-    for (const i of items) drawTree(g, scenery.kindLegend[kind[i]!]!, x[i]!, y[i]!, size[i]! * (lone(i) ? LONE_SCALE : 1));
-    // Canopies stand up to about 3 tiles tall, which reaches about 6 tiles up the screen.
-    return { g, ...box, x0: box.x0 - 4, y0: box.y0 - 4 };
+    let top = 0;
+    for (const i of items) {
+      const z = groundAt(x[i]!, y[i]!), k = scenery.kindLegend[kind[i]!]!;
+      top = Math.max(top, z);
+      if (solid(i)) drawTree(g, k, x[i]!, y[i]!, size[i]! * (lone(i) ? LONE_SCALE : 1), z);
+      else drawCover(g, k, x[i]!, y[i]!, size[i]!, i, z);
+    }
+    // Canopies stand up to about 3 tiles tall (plus the hill), which reaches about 6 tiles up the screen.
+    const up = 4 + Math.ceil(top);
+    return { g, ...box, x0: box.x0 - up, y0: box.y0 - up };
   });
 }
 
@@ -207,12 +227,13 @@ export interface SceneryLayers {
   fade(at: { x: number; y: number; z: number } | null, dt: number): void;
 }
 
-export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container): SceneryLayers {
+/** `groundAt`: the ground height under a point (HeightField.groundZ), so scenery on hills stands on them. */
+export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container, groundAt: GroundAt = flat): SceneryLayers {
   const ground = new Container();
   ground.label = 'iso-scenery-ground';
-  const flat = drawSceneryFlat(map, scenery), cover = [...flat, ...drawSceneryCover(scenery)];
+  const cover = [...drawSceneryFlat(map, scenery), ...drawSceneryCover(scenery, groundAt)];
   ground.addChild(...cover.map((c) => c.g));
-  const trees = drawTrees(scenery).map((t) => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
+  const trees = drawTrees(scenery, groundAt).map((t) => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
   return {
     ground,
     trees: trees.map((t) => t.g),

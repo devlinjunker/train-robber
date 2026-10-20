@@ -8,6 +8,9 @@
       "path": "packages/config"
     },
     {
+      "path": "packages/mapgen"
+    },
+    {
       "path": "packages/tools"
     },
     {

@@ -1,8 +1,9 @@
 // `tools validate`: resolve every preset (steps 1 to 5) and every single-variant
 // swap from it, so a broken variant fails CI even if no preset picks it yet. Then the
 // train-level car checks: cars that line up, end doors that join, side doors to board by.
+import { existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { MapDefSchema, SceneryDefSchema, resolveConfig, type ResolvedConfig } from '@train-robber/config';
+import { MapDefSchema, SceneryDefSchema, resolveConfig, resolveMapGen, type ResolvedConfig } from '@train-robber/config';
 import { carCatalog, cellOpen, layoutPool, type PreparedCar } from '@train-robber/sim';
 import { CONTENT_DIR, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
 
@@ -86,6 +87,11 @@ export function validateContent(dir?: string): ValidateResult {
         if (!trainTypes.has(t.type)) errors.push(`${relative(REPO_ROOT, path)} at trains.${i}.type: unknown train ${t.type}`);
       });
     }
+  }
+  // The procedural generator's defaults (?map=gen).
+  const mapGen = join(dir ?? CONTENT_DIR, 'base/map-gen.json');
+  if (existsSync(mapGen)) {
+    try { resolveMapGen(readJson(mapGen)); } catch (e) { errors.push(`${relative(REPO_ROOT, mapGen)}: ${(e as Error).message}`); }
   }
   return { errors, resolved };
 }

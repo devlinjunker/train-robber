@@ -10,6 +10,7 @@ export * from './catalogs';
 export { checkReferences } from './references';
 export * from './map';
 export * from './scenery';
+export * from './mapGen';
 export * from './diff';
 export { derive, deepFreeze, type Derived } from './derive';
 
