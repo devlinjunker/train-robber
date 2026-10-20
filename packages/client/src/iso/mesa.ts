@@ -8,7 +8,7 @@
 // outline, and sorts like the ground; each cliff face segment sorts by its own depth, so the
 // horse in front of a cliff draws over it and the horse behind is hidden by it.
 import { Container, Graphics } from 'pixi.js';
-import { cullSorted, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, type BuildBudget, type Chunk, type TileBox } from './cells';
 import type { MapDef } from '@train-robber/config';
 import { facesViewer, mix, shade } from './draw';
 import { hash } from './terrain';
@@ -29,10 +29,10 @@ interface V { x: number; y: number; zb: number; zt: number }
 export interface MesaLayer {
   /** Masks for the see-through hole; add to the scene (not the sorted container). */
   masks: Container;
-  /** The sortable pieces. */
-  chunks: Chunk[];
-  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
-  cull(view: TileBox): void;
+  /** The sortable pieces built so far. */
+  readonly chunks: readonly Chunk[];
+  /** Build what has come near a box of world tiles, and put the pieces that overlap it into the sorted container; true while some still wait for budget. */
+  cull(view: TileBox, budget?: BuildBudget): boolean;
   /** Whether a mesa piece in front of world depth `depth` covers any of these iso pixel points. */
   hides(points: readonly (readonly [number, number])[], depth: number): boolean;
   /** Cut a round hole (iso pixels) through every piece in front of `depth` near it, or clear it with null. */
@@ -139,10 +139,10 @@ function clipToTile(poly: readonly V[], tx: number, ty: number): V[] {
  * with the hole cut in it moves to `cutInto` while cut: an inverse mask does nothing inside the
  * static render group `objects` can be (Devlin saw the horse drawn on top of the mesa).
  */
-export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: readonly Chunk[] = [], cutInto: Container = objects): MesaLayer {
+export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: () => readonly Chunk[] = () => [], cutInto: Container = objects, lazyDraw = false, hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}): MesaLayer {
   const masks = new Container();
   masks.label = 'mesa-masks';
-  const pieces = new Map<string, Piece>();
+  let pieces = new Map<string, Piece>();
   /** The piece for sort depth `zIndex` at world point (x, y), grown to cover it standing `lift` tiles high. */
   const piece = (zIndex: number, x: number, y: number, lift: number): Piece => {
     const key = `${zIndex}:${Math.floor((x - y) / ACROSS_TILES)}`;
@@ -173,7 +173,7 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
   const at = (v: { x: number; y: number }, z: number) => [isoX(v.x, v.y), isoY(v.x, v.y, z)];
   const { cols, rows } = map.size;
 
-  field.plateaus.forEach((plateau, k) => {
+  const drawPlateau = (plateau: Plateau, k: number) => {
     const loops = plateauOutlines(cols, rows, k, plateau, field);
     const outer = loops.filter((l) => area(l) > 0);
     // The top: each tile near the plateau, clipped to its outline, sorted like the ground.
@@ -255,13 +255,51 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
       }
       flush();
     }
-  });
+  };
 
-  const list = [...pieces.values()].sort((a, b) => a.g.zIndex - b.g.zIndex);
-  const cuttable = [...list, ...alsoCut.map((c): Piece => {
-    const b = c.g.getLocalBounds();
-    return { ...c, polys: [], minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, mask: null, masked: false };
-  })];
+  const maskedNow = new Set<Piece>();
+  // One unit per mesa, built as it comes near the view on big maps (cells.ts LazyChunks), all at once otherwise.
+  const units = field.plateaus.map((plateau, k) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, top = 0;
+    for (const i of plateau.tiles) {
+      const x = i % cols, y = (i - x) / cols;
+      x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1);
+      top = Math.max(top, plateau.topZ(x + 0.5, y + 0.5));
+    }
+    const lift = Math.ceil(top) + 3;
+    return {
+      box: { x0: x0 - lift, y0: y0 - lift, x1: x1 + 2, y1: y1 + 2 },
+      build: (): Chunk[] => {
+        pieces = new Map();
+        drawPlateau(plateau, k);
+        return [...pieces.values()];
+      },
+    };
+  });
+  // Cut pieces from other layers (boulders), wrapped once each for the hole's bounds.
+  const wrapped = new WeakMap<Chunk, Piece>();
+  const wrap = (c: Chunk): Piece => {
+    let p = wrapped.get(c);
+    if (!p) {
+      const b = c.g.getLocalBounds();
+      wrapped.set(c, p = { ...c, polys: [], minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, mask: null, masked: false });
+    }
+    return p;
+  };
+  const lazy = new LazyChunks(units, {
+    onBuild: hooks.onBuild,
+    onDrop: (cs) => {
+      for (const c of cs as Piece[]) {
+        if (c.mask) { c.mask.destroy(); c.mask = null; }
+        maskedNow.delete(c);
+      }
+      hooks.onDrop?.(cs);
+    },
+  });
+  if (!lazyDraw) lazy.buildAll();
+  let list: Piece[] = [];
+  const refresh = () => { list = (lazy.chunks as Piece[]).slice().sort((a, b) => a.g.zIndex - b.g.zIndex); };
+  refresh();
   const inside = (pts: number[], px: number, py: number) => {
     let c = false;
     for (let i = 0, j = pts.length - 2; i < pts.length; j = i, i += 2) {
@@ -272,14 +310,16 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
   };
   // The pieces on stage, refreshed on each cull, so the hole checks skip the rest of the map.
   let live: Piece[] = [], liveCut: Piece[] = [];
-  const maskedNow = new Set<Piece>();
   return {
     masks,
-    chunks: list,
-    cull(view) {
+    get chunks() { return list; },
+    cull(view, budget) {
+      const waiting = lazy.update(view, budget);
+      refresh();
       cullSorted(list, view, objects);
       live = list.filter((p) => p.g.parent);
-      liveCut = cuttable.filter((p) => p.g.parent);
+      liveCut = [...live, ...alsoCut().filter((c) => c.g.parent).map(wrap)];
+      return waiting;
     },
     hides(points, depth) {
       for (const p of live) {
@@ -293,6 +333,8 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
     },
     cut(hole, depth) {
       for (const p of new Set([...liveCut, ...maskedNow])) {
+        // A dropped boulder piece (its region went far away) takes its hole with it.
+        if (p.g.destroyed) { p.mask?.destroy(); p.mask = null; maskedNow.delete(p); continue; }
         const want = hole !== null && p.g.zIndex > depth && p.g.parent !== null
           && hole.x + hole.r >= p.minX && hole.x - hole.r <= p.maxX && hole.y + hole.r >= p.minY && hole.y - hole.r <= p.maxY;
         if (want && hole) {

@@ -1,6 +1,7 @@
 // The minimap: the whole map in a corner of the screen, turned the same way as the main view (a
 // diamond in iso, flat top-down), with the track, every train, the rider and the part of the
-// world on screen. M toggles it.
+// world on screen. M toggles it. On an open line, far longer than it is wide, it shows a window
+// of the line around the rider instead, with a bar under it for where that is along the map.
 import { Container, Graphics, Matrix, Sprite, Texture } from 'pixi.js';
 import { decodeZones, type MapDef, type SceneryDef } from '@train-robber/config';
 import type { CarPose } from '@train-robber/sim';
@@ -13,7 +14,10 @@ const MARGIN = 8, TOP = 84, PAD = 6;
 
 const COLOURS: Record<string, string> = { open: '#8fa865', slow: '#9c7d48', blocked: '#7a756c', water: '#6fa6dc', deep: '#2a5a9c' };
 const FOREST = '#3f5a2e', BRIDGE = '#8b6a45', TRACK = '#2a1a10';
-const TRAIN = 0xffffff, COMMITTED = 0xffb020, RIDER = 0x6bd3ff;
+const TRAIN = 0xffffff, COMMITTED = 0xffb020, RIDER = 0x6bd3ff, TOWN = 0xe8d9a8;
+/** On a map more than this many times longer than wide, the minimap shows a window `rows x WINDOW_ASPECT` tiles long. */
+const WINDOW_ASPECT = 1.5;
+const BAR_H = 6;
 
 export type MinimapMode = 'iso' | 'topdown';
 
@@ -79,37 +83,68 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap 
   const ground = new Sprite(texture);
   const marks = new Graphics();
   const frame = new Container();
+  // Long maps show a window that follows the rider, clipped to its edges.
+  const span = cols > rows * WINDOW_ASPECT * 2 ? Math.round(rows * WINDOW_ASPECT) : cols;
+  const windowed = span < cols;
+  const clip = new Graphics();
   frame.addChild(ground, marks);
-  root.addChild(panel, frame);
+  if (windowed) { frame.addChild(clip); frame.mask = clip; }
+  const bar = new Graphics();
+  root.addChild(panel, frame, bar);
 
   // World tiles to minimap pixels, for both orientations. Iso is the main view's projection
-  // scaled down, shifted so the map's left corner (0, rows) sits at x = 0.
-  const isoK = MINIMAP_W / ((cols + rows) * (TILE_W / 2));
-  const topK = MINIMAP_W / cols;
-  const size = (mode: MinimapMode) => mode === 'iso' ? { w: MINIMAP_W, h: (cols + rows) * (TILE_H / 2) * isoK } : { w: MINIMAP_W, h: rows * topK };
+  // scaled down, shifted so the window's left corner (x0, rows) sits at x = 0.
+  const isoK = MINIMAP_W / ((span + rows) * (TILE_W / 2));
+  const topK = MINIMAP_W / span;
+  const size = (mode: MinimapMode) => mode === 'iso' ? { w: MINIMAP_W, h: (span + rows) * (TILE_H / 2) * isoK } : { w: MINIMAP_W, h: rows * topK };
+  let x0 = 0;
   const toMap = (mode: MinimapMode, x: number, y: number): [number, number] => mode === 'iso'
-    ? [(x - y + rows) * (TILE_W / 2) * isoK, (x + y) * (TILE_H / 2) * isoK]
-    : [x * topK, y * topK];
-  let shown: MinimapMode | null = null, shownWidth = -1;
+    ? [(x - x0 - y + rows) * (TILE_W / 2) * isoK, (x - x0 + y) * (TILE_H / 2) * isoK]
+    : [(x - x0) * topK, y * topK];
+  let shown: MinimapMode | null = null, shownWidth = -1, shownX0 = -1;
 
   return {
     root,
     update(input) {
       const { mode } = input;
       const { w, h } = size(mode);
-      if (mode !== shown || input.screenWidth !== shownWidth) {
-        shown = mode; shownWidth = input.screenWidth;
+      if (windowed) {
+        // Keep the window on the rider, or the middle of the screen, in steps of a tenth of it.
+        const at = input.rider?.x ?? (input.view.length ? input.view.reduce((a, p) => a + p.x, 0) / input.view.length : 0);
+        const step = Math.max(1, Math.round(span / 10));
+        x0 = Math.max(0, Math.min(cols - span, Math.round((at - span / 2) / step) * step));
+      }
+      if (mode !== shown || input.screenWidth !== shownWidth || x0 !== shownX0) {
+        const resized = mode !== shown || input.screenWidth !== shownWidth;
+        shown = mode; shownWidth = input.screenWidth; shownX0 = x0;
         // The sprite is one pixel per tile; its matrix is the same linear map as toMap.
         const [ox, oy] = toMap(mode, 0, 0), [ax, ay] = toMap(mode, 1, 0), [bx, by] = toMap(mode, 0, 1);
         ground.setFromMatrix(new Matrix(ax - ox, ay - oy, bx - ox, by - oy, ox, oy));
-        root.position.set(input.screenWidth - w - MARGIN - PAD, TOP + PAD);
-        panel.clear().roundRect(-PAD, -PAD, w + PAD * 2, h + PAD * 2, 6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
+        if (windowed) clip.clear().poly([[x0, 0], [x0 + span, 0], [x0 + span, rows], [x0, rows]].flatMap(([x, y]) => toMap(mode, x!, y!))).fill(0xffffff);
+        if (resized) {
+          root.position.set(input.screenWidth - w - MARGIN - PAD, TOP + PAD);
+          const extra = windowed ? BAR_H + PAD : 0;
+          panel.clear().roundRect(-PAD, -PAD, w + PAD * 2, h + PAD * 2 + extra, 6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
+        }
+        if (windowed) {
+          // Where the window is along the whole line, with the towns on it.
+          const by0 = h + PAD;
+          bar.clear().rect(0, by0, w, BAR_H).fill({ color: 0xffffff, alpha: 0.15 });
+          for (const t of map.towns ?? []) bar.rect((t.x / cols) * w - 1, by0, 2, BAR_H).fill(TOWN);
+          bar.rect((x0 / cols) * w, by0, Math.max(2, (span / cols) * w), BAR_H).stroke({ width: 1, color: 0xffffff, alpha: 0.8 });
+        }
       }
 
       marks.clear();
       // What is on screen.
       if (input.view.length) {
         marks.poly(input.view.flatMap((p) => toMap(mode, p.x, p.y))).stroke({ width: 1, color: 0xffffff, alpha: 0.8 });
+      }
+      // Town spots: a ring round each clearing.
+      for (const t of map.towns ?? []) {
+        if (windowed && (t.x < x0 - t.radiusTiles || t.x > x0 + span + t.radiusTiles)) continue;
+        const [x, y] = toMap(mode, t.x, t.y);
+        marks.circle(x, y, 5).fill({ color: TOWN, alpha: 0.9 }).stroke({ width: 1.5, color: 0x000000 });
       }
       // Trains: each car a short stroke along its axis.
       for (const committed of [false, true]) {

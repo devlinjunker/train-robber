@@ -75,8 +75,9 @@ function rle(values: ArrayLike<number>): [number, number][] {
 
 /** The loop's settings without the open line's, so adding line settings leaves loop hashes alone. */
 function loopSettings(given: MapGenSettings): Omit<MapGenSettings, 'line'> {
-  const { line: _line, ...rest } = given;
-  return rest;
+  const rest: Partial<MapGenSettings> = { ...given };
+  delete rest.line;
+  return rest as Omit<MapGenSettings, 'line'>;
 }
 
 /** A closed loop map (`?map=gen`). */

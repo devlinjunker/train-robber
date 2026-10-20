@@ -2,7 +2,7 @@
 // on an open line, trains enter and leave and a whole run plays through.
 // Shared by the hand-made maps test and the generated maps test.
 import type { MapDef } from '@train-robber/config';
-import { boardingCheck, carCatalog, routeOf, Terrain, terrainAt, trackAt, carTemplate, cellOpen, commitTarget, createSim, distanceToTrain, meterResult, nearestLoot, parseCarFrame, type Command, type GameState, type Sim, type SimConfig } from '@train-robber/sim';
+import { boardingCheck, carCatalog, routeOf, Terrain, terrainAt, trackAt, carTemplate, cellOpen, commitTarget, mountCheck, createSim, distanceToTrain, meterResult, parseCarFrame, type Command, type GameState, type Sim, type SimConfig } from '@train-robber/sim';
 import { loadConfig } from '../content';
 import { checkInvariants } from '../bots';
 import { riderCommands } from '../golden';
@@ -77,47 +77,61 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
 
 /**
  * A whole run on an open line, scripted like the golden run: line up behind the nearest train
- * (quick retry), ride up, commit, jump on a tick a throwaway copy of the sim says lands, walk to the
- * nearest loot and search it, then stay aboard until the run ends (the clock, or the end of the
- * line). The default preset with every train a mail train and guards that only raise heat, so the
- * script is not thrown off; the bot sweep's invariants hold on every tick.
+ * (quick retry), ride up, commit, jump on a tick the meter lands, walk to the nearest loot and
+ * search it, whistle, walk to a door on the horse's side and mount: the run ends extracted. The default preset with every train a mail train and guards that only raise heat, so the
+ * script is not thrown off; the bot sweep's invariants hold on every tick. A run that ends any
+ * other way (the script crashed into the train, or lost the horse) is retried, up to `maxRuns`.
  */
-export function lineRunProblems(map: MapDef, seed: string, seconds = 330, log?: (line: string) => void): string[] {
+export function lineRunProblems(map: MapDef, seed: string, seconds = 600, log?: (line: string) => void, maxRuns = 3): string[] {
   const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map', guardCatch: 'heat-only' } });
   const sim = createSim({ config, map, seed, playerIds: [1] });
   const s = sim.state as GameState;
   const h = s.world.horses[0]!;
   const seen = new Set<string>();
-  let lootId = -1, walkStuck = 0, sidestep = 0, sideDir = 127, prev = { x: 0, y: 0 };
+  // Loot given up on: a guard who only raises heat can stand in the one way to it for good.
+  const skipped = new Set<number>();
+  let runs = 0, retry = false;
+  let whistledAt = -1, lootId = -1, walkStuck = 0, sidestep = 0, sidesteps = 0, sideDir = 127, prev = { x: 0, y: 0 };
   let guards = 0, last = { x: 0, y: 0 }, stuckFor = 0, eligibleFor = 0, side: 'left' | 'right' = 'left', target: string | null = null;
   for (let t = 0, n = seconds * config.values.sim.tickRateHz; t < n; t++) {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
+    // A guard or a corner can block a step, so a walk that stalls sidesteps for a moment.
+    const trackStall = (pl: { x: number; y: number }) => {
+      const walking = last.x !== 0 || last.y !== 0;
+      walkStuck = walking && sidestep === 0 && Math.hypot(pl.x - prev.x, pl.y - prev.y) < 0.005 ? walkStuck + 1 : 0;
+      prev = { x: pl.x, y: pl.y };
+      if (walkStuck > 10) { sidestep = 20; walkStuck = 0; sideDir = -sideDir; sidesteps++; }
+    };
+    // Walk cell by cell along a shortest path through the car (in its frame, x is mirrored on the stick).
+    const walkTo = (pl: { frame: string; x: number; y: number }, to: { x: number; y: number }) => {
+      const step = nextCell(sim, config, pl, to);
+      const sx = step.x - pl.x, sy = step.y - pl.y;
+      const mx = Math.abs(sx) > 0.1 ? (sx > 0 ? -127 : 127) : 0, my = Math.abs(sy) > 0.1 ? (sy > 0 ? 127 : -127) : 0;
+      if (sidestep > 0) { sidestep--; move(mx ? 0 : sideDir, mx ? sideDir : 0); } else move(mx, my);
+    };
     const p = s.players[0]!;
-    if (seen.has('ended')) break;
-    if (t === 0 || (!s.run && stuckFor > 240)) {
-      commands.push({ type: 'quickRetry' }); stuckFor = 0; target = null;
+    if (seen.has('extracted') || runs >= maxRuns) break;
+    if (t === 0 || retry || (!s.run && stuckFor > 240)) {
+      commands.push({ type: 'quickRetry' }); stuckFor = 0; target = null; retry = false;
+      whistledAt = -1; lootId = -1; skipped.clear();
     } else if (s.run?.phase === 'aboard') {
       const rp = s.run.players[1]!;
       // Keep to one piece of loot until it is taken, and stand still while searching it.
       const f = parseCarFrame(p.placement.frame);
       let l = rp.carried.length ? null : s.run.loot.find((q) => q.id === lootId && !q.taken && q.car === f?.car) ?? null;
-      if (!l && !rp.carried.length) { l = nearestLoot(s, p, 99); lootId = l?.id ?? -1; }
+      if (l && sidesteps > 4) { skipped.add(l.id); l = null; }
+      if (!l && !rp.carried.length) {
+        l = s.run.loot.filter((q) => !q.taken && q.car === f?.car && !skipped.has(q.id))
+          .sort((a, b) => Math.hypot(a.x - p.placement.x, a.y - p.placement.y) - Math.hypot(b.x - p.placement.x, b.y - p.placement.y))[0] ?? null;
+        if (l?.id !== lootId) sidesteps = 0;
+        lootId = l?.id ?? -1;
+      }
       const pl = p.placement;
-      // Walk cell by cell along a shortest path through the car to the loot; a guard can still
-      // block a step, so a stalled walk sidesteps for a moment.
-      const walking = last.x !== 0 || last.y !== 0;
-      walkStuck = walking && Math.hypot(pl.x - prev.x, pl.y - prev.y) < 0.005 ? walkStuck + 1 : 0;
-      prev = { x: pl.x, y: pl.y };
-      if (walkStuck > 10) { sidestep = 30; walkStuck = 0; sideDir = -sideDir; }
+      trackStall(pl);
       if (l) {
-        const dx = l.x - pl.x, dy = l.y - pl.y;
-        const step = nextCell(sim, config, pl, l);
-        const sx = step.x - pl.x, sy = step.y - pl.y;
-        const mx = Math.abs(sx) > 0.1 ? (sx > 0 ? -127 : 127) : 0, my = Math.abs(sy) > 0.1 ? (sy > 0 ? 127 : -127) : 0;
         if (rp.search) move(0, 0);
-        else if (sidestep > 0) { sidestep--; move(mx ? 0 : sideDir, mx ? sideDir : 0); }
-        else if (Math.hypot(dx, dy) > Math.min(0.8, config.values.verbs.search.reachTiles - 0.05)) move(mx, my);
+        else if (Math.hypot(l.x - pl.x, l.y - pl.y) > Math.min(0.8, config.values.verbs.search.reachTiles - 0.05)) walkTo(pl, l);
         else { move(0, 0); if (!p.interactHeld) commands.push({ type: 'interact', held: true }); }
         // A hidden stash is revealed by one search and taken by the next: let go, then hold again.
         if (p.interactHeld && !rp.search && rp.searchLatched) commands.push({ type: 'interact', held: false });
@@ -125,7 +139,37 @@ export function lineRunProblems(map: MapDef, seed: string, seconds = 330, log?: 
         // Nothing left in this car: walk through the train one way, then the other, to find more.
         move((Math.floor(t / 300) % 2 ? 127 : -127), sidestep-- > 0 ? sideDir : 0);
         if (p.interactHeld) commands.push({ type: 'interact', held: false });
-      } else { move(0, 0); if (p.interactHeld) commands.push({ type: 'interact', held: false }); }
+      } else {
+        // Loot in hand: let go of E and whistle for the horse.
+        move(0, 0);
+        if (p.interactHeld) commands.push({ type: 'interact', held: false });
+        else if (whistledAt < 0 || t - whistledAt > 600) { commands.push({ type: 'whistle' }); whistledAt = t; }
+      }
+    } else if (s.run?.phase === 'extracting') {
+      // Walk to the nearest door on the horse's side (through the train if this car has none) and
+      // jump on a tick the mount meter lands; whistle again if the horse leaves.
+      const pl = p.placement, f = parseCarFrame(pl.frame);
+      const train = f && s.world.trains.find((q) => q.id === f.trainId);
+      const doors = f && train ? carTemplate(carCatalog(config), train.cars[f.car]!).sideEntries.filter((e) => e.side === s.run!.horse.side) : [];
+      const door = doors.map((e) => ({ x: e.cell[0] + 0.5, y: e.cell[1] + 0.5 })).sort((a, b) => Math.hypot(a.x - pl.x, a.y - pl.y) - Math.hypot(b.x - pl.x, b.y - pl.y))[0];
+      trackStall(pl);
+      if (door && Math.hypot(door.x - pl.x, door.y - pl.y) > 0.6) walkTo(pl, door);
+      else if (!door && f && train) {
+        // No door on that side here: walk through the train toward the nearest car with one (lower car numbers are toward the front, lower x).
+        const sideOf = (c: number) => carTemplate(carCatalog(config), train.cars[c]!).sideEntries.some((e) => e.side === s.run!.horse.side);
+        const cars = train.cars.map((_, c) => c).filter(sideOf).sort((a, b) => Math.abs(a - f.car) - Math.abs(b - f.car));
+        const end = carTemplate(carCatalog(config), train.cars[f.car]!).entryPoints.find((e) => e.side === (cars[0] !== undefined && cars[0] > f.car ? 'rear' : 'front'));
+        // Head for that end door by the shortest walk, then on through it.
+        if (end) {
+          const at = { x: end.cell[0] + 0.5, y: end.cell[1] + 0.5 };
+          if (Math.hypot(at.x - pl.x, at.y - pl.y) > 0.6) walkTo(pl, at);
+          else move(end.side === 'rear' ? -127 : 127, 0);
+        }
+      }
+      else move(0, 0);
+      const rp = s.run.players[1]!;
+      if (mountCheck(s, sim.map, config, p).state === 'eligible' && meterResult(rp.meter, config.values.extraction.meter.zoneWidths).result !== 'fail') commands.push({ type: 'jump' });
+      if (s.run.horse.state === 'away' && t - whistledAt > 600) { commands.push({ type: 'whistle' }); whistledAt = t; }
     } else if (s.run?.phase !== 'boarding') {
       target ??= s.run?.trainId ?? nearestTrain(sim, config);
       if (!s.world.trains.some((q) => q.id === target)) target = nearestTrain(sim, config);
@@ -144,15 +188,16 @@ export function lineRunProblems(map: MapDef, seed: string, seconds = 330, log?: 
       if (log && e.type !== 'HeatChanged') log(JSON.stringify(e));
       seen.add(e.type);
       if (e.type === 'BoardingAttempt' && e.result !== 'fail') seen.add('boarded');
-      // A cancel (stuck on the approach) lines up again; any other end finishes the run.
-      if (e.type === 'RunEnded' && e.outcome !== 'cancelled') seen.add('ended');
+      // A cancel (stuck on the approach) lines up again; any other end counts as a run, and all but extracted try again.
+      if (e.type === 'RunEnded' && e.outcome !== 'cancelled') { runs++; retry = true; }
+      if (e.type === 'RunEnded' && e.outcome === 'extracted') seen.add('extracted');
     }
     guards = Math.max(guards, s.run?.guards.length ?? 0);
     const broken = checkInvariants(sim, config);
     if (broken) return [`tick ${t}: ${broken}`];
   }
   const out: string[] = [];
-  for (const want of ['RunStarted', 'boarded', 'LootPickedUp', 'ended']) if (!seen.has(want)) out.push(`no ${want} in ${seconds} s`);
+  for (const want of ['RunStarted', 'boarded', 'LootPickedUp', 'HorseWhistled', 'extracted']) if (!seen.has(want)) out.push(`no ${want} in ${runs} run(s), ${seconds} s`);
   if (!guards) out.push('no guards aboard');
   return out;
 }
@@ -181,6 +226,12 @@ function nextCell(sim: Sim, config: SimConfig, from: { frame: string; x: number;
   const tpl = carTemplate(carCatalog(config), train.cars[f.car]!);
   const { cols, rows } = tpl.size;
   const goal = Math.floor(to.y) * cols + Math.floor(to.x), start = Math.floor(from.y) * cols + Math.floor(from.x);
+  // Go round the cells guards in this car stand in when there is a way round; else straight on.
+  const guarded = new Set((sim.state.run?.guards ?? []).filter((g) => g.car === f.car).map((g) => Math.floor(g.y) * cols + Math.floor(g.x)));
+  return pathStep(tpl, cols, rows, start, goal, guarded) ?? pathStep(tpl, cols, rows, start, goal, new Set()) ?? to;
+}
+
+function pathStep(tpl: ReturnType<typeof carTemplate>, cols: number, rows: number, start: number, goal: number, avoid: Set<number>): { x: number; y: number } | null {
   const back = new Int32Array(cols * rows).fill(-1);
   back[goal] = goal;
   const queue = [goal];
@@ -190,12 +241,13 @@ function nextCell(sim: Sim, config: SimConfig, from: { frame: string; x: number;
     for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
       if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
       const j = ny * cols + nx;
-      if (back[j] !== -1 || (!cellOpen(tpl, nx, ny) && j !== start)) continue;
+      if (back[j] !== -1 || ((!cellOpen(tpl, nx, ny) || avoid.has(j)) && j !== start)) continue;
       back[j] = i; queue.push(j);
     }
   }
   const next = back[start]!;
-  if (next < 0 || next === goal) return to;
+  // No way through, or already next to the goal (the caller then heads straight for it).
+  if (next < 0 || next === goal) return null;
   return { x: (next % cols) + 0.5, y: Math.floor(next / cols) + 0.5 };
 }
 

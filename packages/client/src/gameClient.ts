@@ -169,7 +169,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const isoWorld = createWorldScene(map, sceneContent, scenery, groundSeed);
   // Top-down debug view.
   const topdown = new Container();
-  const topdownOverlay = drawMapOverlay(map, scenery);
+  // Drawn the first time the top-down view shows: on a long map it is hundreds of thousands of shapes.
+  const topdownOverlay = new Container();
+  let topdownDrawn = false;
   const topdownView = createWorldView(sceneContent);
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
@@ -431,6 +433,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
+      if (!iso && !topdownDrawn) { topdownOverlay.addChild(drawMapOverlay(map, scenery)); topdownDrawn = true; }
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
       // The ground under the screen's corners, for culling scenery and the minimap's view box.
@@ -656,7 +659,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
-          `map ${map.id} ${map.size.cols}x${map.size.rows}${map.source.file.startsWith('gen:') ? `  (${map.source.file})` : ''}  route ${routeText}`,
+          `map ${map.id} ${map.size.cols}x${map.size.rows}${/^(gen|line):/.test(map.source.file) ? `  (${map.source.file})` : ''}  route ${routeText}`,
           `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseState.boostTicks > 0 ? ' BOOST' : ''}${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
           `run: ${phase.toUpperCase()}  wanted ${s.persistent.wantedLevel}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,

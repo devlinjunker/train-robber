@@ -12,6 +12,8 @@ import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel,
 export const METER_W = 588, METER_H = 38;
 const METER_ABOVE = 96;
 const EDGE_MARGIN = 36;
+/** Edge arrows for at most this many trains besides the committed one and the switch candidate: as many as a hand-made map runs. */
+const MAX_ARROWS = 4;
 
 export interface MeterView {
   position: number;
@@ -187,9 +189,11 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       arrows.clear();
       let used = 0;
       const cx = input.width / 2, cy = input.height / 2;
-      for (const t of input.trains) {
-        const inside = t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height;
-        if (inside) continue;
+      // At most MAX_ARROWS (an open line runs many trains), nearest first; the committed train and the switch candidate always get one.
+      const off = input.trains.filter((t) => !(t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height));
+      const nearest = off.filter((t) => !t.committed && !t.candidate).sort((a, b) => a.distanceTiles - b.distanceTiles).slice(0, MAX_ARROWS);
+      for (const t of off) {
+        if (!t.committed && !t.candidate && !nearest.includes(t)) continue;
         const dx = t.sx - cx, dy = t.sy - cy;
         const k = Math.min((cx - EDGE_MARGIN) / Math.abs(dx || 1e-9), (cy - EDGE_MARGIN) / Math.abs(dy || 1e-9));
         const ax = cx + dx * k, ay = cy + dy * k;

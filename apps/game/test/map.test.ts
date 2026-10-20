@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_MAP, GENERATED_MAP_ID, loadMap, loadScenery, mapIdFromUrl, sessionMap } from '../src/map';
+import { DEFAULT_MAP, GENERATED_MAP_ID, LINE_MAP_ID, loadMap, loadScenery, mapIdFromUrl, sessionMap } from '../src/map';
 import { setupFromUrl } from '../src/setup';
 
 describe('map loading', () => {
@@ -53,6 +53,18 @@ describe('map loading', () => {
     expect(a.scenery).toEqual(b.scenery);
     expect(c.map.zones).not.toEqual(a.map.zones);
     expect((await sessionMap(GENERATED_MAP_ID, 'abc', config, '?scenery=off')).scenery).toBeNull();
+  });
+
+  it('?map=line generates the open line from the run seed, with towns, the same every time', async () => {
+    const { config } = setupFromUrl('?map=line&seed=abc&set=mapGen.line.lengthTiles=1200');
+    const a = await sessionMap(LINE_MAP_ID, 'abc', config, '');
+    const b = await sessionMap(LINE_MAP_ID, 'abc', config, '');
+    expect(a.map.id).toBe('line');
+    expect(a.map.size.cols).toBe(1200);
+    expect(a.map.source.file).toMatch(/^line:abc (balanced|forest|rocks|mesas|water|mud) [+-]\d/);
+    expect(a.map.openLine).toBeTruthy();
+    expect(a.map.routes.every((r) => !r.closed)).toBe(true);
+    expect(a.map).toEqual(b.map);
   });
 
   it('?set=mapGen.<path>= changes the generator settings and a bad one names the path', async () => {
