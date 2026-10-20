@@ -1,4 +1,4 @@
 {
   "name": "@train-robber/tools", "version": "0.0.0", "private": true, "type": "module",
-  "dependencies": { "@train-robber/sim": "*", "@train-robber/config": "*" }
+  "dependencies": { "@train-robber/sim": "*", "@train-robber/config": "*", "@train-robber/mapgen": "*" }
 }

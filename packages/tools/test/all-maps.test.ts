@@ -4,36 +4,15 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { decodeZones, ZONES } from '@train-robber/config';
-import { createSim } from '@train-robber/sim';
 import { buildMapFile, stringifyMap } from '../src/maps/build';
+import { corridorProblems, reachProblems, routeProblems } from '../src/maps/checks';
+import { lapProblems, trainGapProblems } from '../src/maps/simChecks';
 import { MAPS_OUT, MAPS_SRC, SCENERY_OUT } from '../src/maps/cli';
-import { loadConfig } from '../src/content';
-
-/** No rock or water (shallow or deep) this close to the centre line: the cars are 6 tiles wide. */
-const CAR_CLEAR_TILES = 3.5;
-/**
- * Distances from the centre line where a rider lines up with a door (boarding range is 2 tiles).
- * Mud and rocks may fill this lane on one side, never on both at once. Across a bridge the river
- * may fill both: bridges are only wide enough for the train, so the rider wades or waits.
- */
-const LANE_TILES = [3.5, 4, 4.5, 5, 5.5];
-/** Tightest baked curve allowed; rigid 16-tile cars cut visibly inside anything tighter. */
-const MIN_RADIUS_TILES = 17;
-
-/** The slowest train speed in tiles per tick, so a lap at it covers every train's route. */
-const slowest = (config: ReturnType<typeof loadConfig>) => Math.min(...Object.values(config.values.trains).map((t) => t.speedTilesPerTick));
 
 const ids = readdirSync(MAPS_SRC).filter((f) => f.endsWith('.tmj')).map((f) => f.replace(/\.tmj$/, '')).sort();
 
 describe.each(ids)('map %s', (id) => {
   const { map, scenery, minRadiusTiles } = buildMapFile(join(MAPS_SRC, `${id}.tmj`));
-  const { cols, rows } = map.size;
-  const grid = decodeZones(map);
-  const zone = (x: number, y: number) => ZONES[grid[y * cols + x]!]!;
-  const rideable = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && (zone(x, y) === 'open' || zone(x, y) === 'slow' || zone(x, y) === 'water');
-  const main = map.routes.find((r) => r.id === 'main');
-
   it('matches the checked-in build', () => {
     expect(stringifyMap(map)).toBe(readFileSync(join(MAPS_OUT, `${id}.json`), 'utf8'));
     const sceneryFile = join(SCENERY_OUT, `${id}.json`);
@@ -41,74 +20,22 @@ describe.each(ids)('map %s', (id) => {
   });
 
   it('has closed routes for its trains, with no curve tighter than the cars allow', () => {
-    // Without a train list the mail train runs on main; with one, every train names a route.
-    if (!map.trains) expect(main?.closed).toBe(true);
-    for (const t of map.trains ?? []) expect(map.routes.some((r) => r.id === t.route)).toBe(true);
-    for (const r of map.routes) expect(r.closed, r.id).toBe(true);
-    expect(minRadiusTiles).toBeGreaterThanOrEqual(MIN_RADIUS_TILES);
+    expect(routeProblems(map, minRadiusTiles)).toEqual([]);
   });
 
   it('keeps rock and water off the cars and leaves one side of every track open to ride beside', () => {
-    for (const route of map.routes) {
-      const { x: xs, y: ys, tx, ty } = route.samples;
-      const at = (i: number, side: number, d: number) => zone(Math.floor(xs[i]! - ty[i]! * d * side), Math.floor(ys[i]! + tx[i]! * d * side));
-      const onBridge = (i: number) => (scenery?.bridges ?? []).some((b) => xs[i]! >= b.x - 1 && xs[i]! <= b.x + b.w + 1 && ys[i]! >= b.y - 1 && ys[i]! <= b.y + b.h + 1);
-      for (let i = 0; i < xs.length; i++) {
-        for (let d = 0; d <= CAR_CLEAR_TILES; d += 0.25) {
-          for (const side of [-1, 1]) expect(['open', 'slow'], `${id} ${route.id}: ${at(i, side, d)} ${d} tiles beside sample ${i}`).toContain(at(i, side, d));
-        }
-        const open = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open');
-        const wet = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open' || at(i, side, d) === 'water');
-        if (onBridge(i)) expect(wet(-1) || wet(1), `${id} ${route.id}: no lane beside bridge sample ${i}`).toBe(true);
-        else expect(open(-1) || open(1), `${id} ${route.id}: no open lane beside sample ${i}`).toBe(true);
-      }
-    }
+    expect(corridorProblems(map, scenery)).toEqual([]);
   });
 
   it('lets the rider reach the track from the spawn', () => {
-    const start = map.markers.playerSpawn;
-    const seen = new Uint8Array(cols * rows);
-    const queue = [Math.floor(start.y) * cols + Math.floor(start.x)];
-    seen[queue[0]!] = 1;
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q]!, x = i % cols, y = (i - x) / cols;
-      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
-        if (rideable(nx, ny) && !seen[ny * cols + nx]) { seen[ny * cols + nx] = 1; queue.push(ny * cols + nx); }
-      }
-    }
-    for (const route of map.routes) {
-      const { x: xs, y: ys } = route.samples;
-      for (let i = 0; i < xs.length; i += 50) expect(seen[Math.floor(ys[i]!) * cols + Math.floor(xs[i]!)], `${id} ${route.id}: sample ${i}`).toBe(1);
-    }
+    expect(reachProblems(map)).toEqual([]);
   });
 
   it('starts its trains and runs the sim for a full lap of the longest route', () => {
-    // The map's own trains (trainMix `map`), not the default mixed trains.
-    const config = loadConfig({ preset: 'map-trains' });
-    const sim = createSim({ config, map, seed: id, playerIds: [1] });
-    expect(sim.state.world.horses[0]).toMatchObject({ x: map.markers.playerSpawn.x, y: map.markers.playerSpawn.y, speed: 0 });
-    const trains = map.trains?.length ?? 1;
-    expect(sim.state.world.trains).toHaveLength(trains);
-    const longest = Math.max(...map.routes.map((r) => r.length));
-    const lapTicks = Math.ceil(longest / slowest(config));
-    for (let t = 0; t < lapTicks; t++) sim.step([{ player: 1, commands: [] }]);
-    // Engine, its cars and the caboose, if any, for each train.
-    const carsOf = (type: string) => { const d = config.values.trains[type]!; return 1 + d.carCount + (d.caboose ? 1 : 0); };
-    expect(sim.cars()).toHaveLength(sim.state.world.trains.reduce((n, t) => n + carsOf(t.type), 0));
+    expect(lapProblems(map, id)).toEqual([]);
   });
 
   it('keeps every train clear of every other train', () => {
-    // The map's own trains (trainMix `map`), not the default mixed trains.
-    const config = loadConfig({ preset: 'map-trains' });
-    const sim = createSim({ config, map, seed: id, playerIds: [1] });
-    const longest = Math.max(...map.routes.map((r) => r.length));
-    const lapTicks = Math.ceil(longest / slowest(config));
-    for (let t = 0; t < lapTicks; t += 30) {
-      const cars = sim.cars();
-      for (const a of cars) for (const b of cars) {
-        if (a.trainId < b.trainId) expect(Math.hypot(a.x - b.x, a.y - b.y), `${a.trainId} and ${b.trainId} at tick ${t}`).toBeGreaterThan(12);
-      }
-      for (let k = 0; k < 30; k++) sim.step([{ player: 1, commands: [] }]);
-    }
+    expect(trainGapProblems(map, id)).toEqual([]);
   });
 });

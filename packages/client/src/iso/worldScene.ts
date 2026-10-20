@@ -240,12 +240,12 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   land.label = 'iso-land';
   land.sortableChildren = true;
   land.enableRenderGroup();
-  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land) : null;
+  const field = createHeightField(map);
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land, field.raised ? field.surfaceZ : undefined) : null;
   const cover = groundCover === null ? null : createGroundCover(map, groundCover);
   const ground = new Container();
   if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
   if (sceneryLayers) ground.addChild(sceneryLayers.ground);
-  const field = createHeightField(map);
   // Raised tiles get their spots and puddles from the height layer, on the slope.
   const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0));
   const shadows = new Graphics();
@@ -256,9 +256,10 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   zoneOverlay.visible = false;
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
-  const heights = createHeightLayer(map, field, land);
-  // Forest tiles are blocked too, but draw as trees, not boulders.
-  const rocks = createRocks(map, land, field, scenery ? forestTiles(map, scenery) : undefined);
+  // Forest tiles are blocked too, but draw as trees on forest floor, not boulders.
+  const forest = scenery ? forestTiles(map, scenery) : undefined;
+  const heights = createHeightLayer(map, field, land, forest);
+  const rocks = createRocks(map, land, field, forest);
   const mesas = createMesas(map, field, land, rocks.chunks, objects);
   const mud = createMud();
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, land, objects, zoneOverlay, markers, mesas.masks);
