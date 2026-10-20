@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.3-procedural-maps",
+  "version": "0.2.3",
   "private": true,
   "type": "module",
   "scripts": {
