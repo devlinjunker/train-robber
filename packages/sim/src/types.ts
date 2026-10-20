@@ -436,7 +436,7 @@ export interface SimConfig {
       speedToleranceTilesPerSec: number;
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
-      landing: { stumbleTicks: number; stumbleSpeedScale: number };
+      landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
     };
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
@@ -543,6 +543,7 @@ export interface SimConfig {
       couplingGapTiles: number;
       gangwayWidthTiles: number;
       ledgeWidthTiles: number;
+      seeThroughDoorways: boolean;
       platformSpeedTilesPerTick: number;
       ledgeSpeedTilesPerTick: number;
       platformNoise: number;
@@ -581,7 +582,7 @@ export interface TrainDef {
   verbs: readonly string[];
 }
 
-export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; colour: string }
+export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; opensOnInteract?: boolean; colour: string }
 export interface ItemDef { name: string; value: number; weight: number; category: string; slotTags: readonly string[]; searchTimeTicks?: number }
 export interface LootTableDef {
   items: readonly { item: string; weight: number }[];

@@ -6,7 +6,7 @@
 // runs the sim.
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { ResolvedConfig } from '@train-robber/config';
-import { carCatalog, cellOpen, carToWorld, trainCellWalkable, WALKER_RADIUS, type CarPose, type PreparedCar } from '@train-robber/sim';
+import { carCatalog, cellOpen, carToWorld, trainWalkerFits, WALKER_RADIUS, type CarPose, type PreparedCar } from '@train-robber/sim';
 import { drawInterior, colourOf } from './iso/interior';
 import { drawCarOutside } from './iso/outside';
 import { boxCorners, drawBox, isoPoly } from './iso/draw';
@@ -146,11 +146,7 @@ export function createCarScene(app: Application, config: ResolvedConfig, carId: 
   const start = t.entryPoints[0]?.cell ?? [Math.floor(cols / 2), Math.floor(rows / 2)];
   const walker = { x: start[0] + 0.5, y: start[1] + 0.5 };
   const body = objects.addChild(new Graphics());
-  const clear = (x: number, y: number) => {
-    const open = (px: number, py: number) => trainCellWalkable(config, [carId], 0, px, py);
-    return open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
-      && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
-  };
+  const clear = (x: number, y: number) => trainWalkerFits(config, [carId], 0, x, y);
 
   const info = new Text({ text: '', style: { fill: '#e8e8e8', fontSize: 12, fontFamily: 'monospace', lineHeight: 16 } });
   info.position.set(8, 8);

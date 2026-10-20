@@ -57,8 +57,11 @@ export const GameSchema = z.object({
       /** The horse's speed is scaled by this when a jump fails, and held there during the stun. */
       horseSpeedScale: fraction,
     }).strict(),
-    /** A good landing stumbles: walk speed is scaled for a moment after boarding. */
-    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction }).strict(),
+    /**
+     * A good landing stumbles: walk speed is scaled for a moment after boarding, and the player
+     * staggers `goodStumbleInTiles` in from the door, out in the open. A perfect landing stays in the doorway.
+     */
+    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
   }).strict(),
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
@@ -308,7 +311,8 @@ export const GameSchema = z.object({
   }).strict(),
   /**
    * Outside the cars (sneaking PR 2): end platforms, the coupling between them and side ledges.
-   * Sizes are whole tiles, since cars are grids of one-tile cells.
+   * Platform and gap sizes are whole tiles, since cars are grids of one-tile cells; the ledge can
+   * be a fraction of a tile (it is walked on one row of cells, narrowed to its width).
    */
   outside: z.object({
     /** Side ledges are walkable (off: they are still drawn, but blocked). */
@@ -319,8 +323,10 @@ export const GameSchema = z.object({
     couplingGapTiles: z.number().int().min(0),
     /** Width of the coupling plate across the gap, centred on the car (end doors are rows 2-4 of 7). */
     gangwayWidthTiles: z.number().int().min(0),
-    /** Width of the ledge outside each long wall. */
-    ledgeWidthTiles: z.number().int().min(0),
+    /** Width of the ledge outside each long wall. Under 0.3 (a walker's radius) nobody fits on it. */
+    ledgeWidthTiles: z.number().min(0).max(4),
+    /** Open doorways (end and side doors) do not block sight, so a guard sees out onto a platform or the ledge by a door, and through the end doors along the train. */
+    seeThroughDoorways: z.boolean(),
     /** Top speed on a platform or the coupling plate (inside: 4 walking, 8 running). */
     platformSpeedTilesPerSec: positive,
     /** Top speed shimmying along a ledge. */

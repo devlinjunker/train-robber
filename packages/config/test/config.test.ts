@@ -11,7 +11,7 @@ const base = {
     rangeTiles: 2, speedToleranceTilesPerSec: 1.5,
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
     failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
-    landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5 },
+    landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
   },
   health: { max: 100 },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
@@ -32,7 +32,7 @@ const base = {
   },
   world: { mode: 'separate' },
   outside: {
-    ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 1,
+    ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true,
     platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },

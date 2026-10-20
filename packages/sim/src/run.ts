@@ -6,14 +6,14 @@ import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSe
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
-import { Space } from './world/guards';
+import { Space, toTrain, trainGrid } from './world/guards';
 import { isSolid, Terrain, terrainAt } from './world/map';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
 import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
-import { WORLD_FRAME, parseCarFrame, playerSpace, type WorldModel } from './world/separate';
+import { WORLD_FRAME, parseCarFrame, playerSpace, trainCars, walkerFits, type WorldModel } from './world/separate';
 import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
@@ -393,6 +393,8 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   if (result !== 'fail') {
     ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry });
     rp.stumbleTicks = result === 'good' ? b.landing.stumbleTicks : 0;
+    // A perfect landing stays in the doorway; a good one staggers in, into the open.
+    if (result === 'good') stumbleIn(state, config, p, b.landing.goodStumbleInTiles);
     rp.crouched = false;
     // The riderless horse runs off for `horse.runOffSec`, then leaves the world (U4).
     run.horse = { ...freshHorseCall(), state: 'leaving', ticks: config.values.horse.runOffTicks };
@@ -409,6 +411,23 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'boarding' });
+  }
+}
+
+/** Steps a player who just landed at a side door up to `tiles` in toward the car's middle row, stopping short of anything in the way. */
+function stumbleIn(state: GameState, config: SimConfig, p: PlayerState, tiles: number): void {
+  const f = parseCarFrame(p.placement.frame);
+  if (!f || tiles <= 0) return;
+  const cars = trainCars(state, f.trainId);
+  const grid = trainGrid(config, cars);
+  const rows = carTemplate(carCatalog(config), cars[f.car]!).size.rows;
+  const pl = p.placement, lx = toTrain(grid, f.car, pl.x);
+  const dir = Math.sign(rows / 2 - pl.y);
+  const STEP = 0.1;
+  for (let moved = STEP; moved <= tiles + 1e-9 && dir !== 0; moved += STEP) {
+    const y = pl.y + dir * STEP;
+    if (!walkerFits(grid, lx, y)) break;
+    pl.y = y;
   }
 }
 

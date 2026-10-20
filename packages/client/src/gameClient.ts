@@ -626,8 +626,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
-                  : outsideSpace === Space.Ledge ? 'On the ledge: slow and quiet, but guards see you through the windows. Watch for trackside rocks'
-                  : outsideSpace === Space.Platform || outsideSpace === Space.Coupling ? 'On the platform: walk only. Through the end door, across the coupling, or round the corner onto a ledge'
+                  : outsideSpace === Space.Ledge ? 'On the ledge: slow and quiet, but guards see you through the windows and doors. Watch for trackside rocks'
+                  : outsideSpace === Space.Platform || outsideSpace === Space.Coupling ? 'On the platform: walk only, and guards see you through the end door. Through it, across the coupling, or round the corner onto a ledge'
                   : crouched ? `Crouched: creeping quietly, hidden behind crates, barrels and benches. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
                     : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, C crouch, hold E on loot, F whistle for your horse` : '';
       const carried = run?.carried ?? [];

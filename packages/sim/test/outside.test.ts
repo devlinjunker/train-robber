@@ -2,7 +2,7 @@
 // following you outside, and trackside rocks scraping or knocking you off a ledge.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, carFrame, createSim, fromTrain, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
+  canSee, carFrame, createSim, fromTrain, gridCellOpen, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent, type SimMap,
 } from '../src';
 import { asciiCar, OUTSIDE, stadium, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap, type Paint } from './fixtures';
@@ -26,7 +26,7 @@ function outsideConfig(more: { ai?: Partial<Values['ai']>; outside?: Partial<Val
   });
 }
 
-/** The test stadium with its top straight at y = 30.6, so the left ledge (y 26.6 to 27.6) straddles two tile rows. */
+/** The test stadium with its top straight at y = 30.6, so the left ledge (y 27.1 to 27.6, its cell row 26.6 to 27.6) straddles two tile rows. */
 function offsetMap(paint: Paint = () => 'open'): SimMap {
   return { ...testMap(paint, SPAWN), routes: [stadium(40, 160, 50.6)] };
 }
@@ -79,6 +79,17 @@ describe('the train grid outside the cars', () => {
     expect(fromTrain(g, toTrain(g, 1, -1))).toEqual({ car: 1, x: -1 });
   });
 
+  it('narrows a ledge under a tile wide to its width out from the wall, while still a whole row of cells', () => {
+    const lx = toTrain(g, 1, 5.5);
+    expect([-0.95, -0.7, -0.5, -0.3].map((y) => gridWalkable(g, lx, y))).toEqual([false, false, true, true]);
+    expect([6.3, 6.45, 6.6].map((y) => gridWalkable(g, lx, y))).toEqual([true, true, false]);
+    expect(gridCellOpen(g, lx, -0.95)).toBe(true);
+    // Wider than a tile takes two rows.
+    const wide = trainGrid(outsideConfig({ outside: { ledgeWidthTiles: 1.5 } }), ['engine', 'ledge-car']);
+    expect(wide.rowOffset).toBe(2);
+    expect([-1.6, -1.4].map((y) => gridWalkable(wide, toTrain(wide, 1, 5.5), y))).toEqual([false, true]);
+  });
+
   it('blocks the ledges with outside.ledges off, leaving the platforms', () => {
     const off = trainGrid(outsideConfig({ outside: { ledges: false } }), ['engine', 'ledge-car']);
     expect(gridWalkable(off, toTrain(off, 1, 5.5), -0.5)).toBe(false);
@@ -114,8 +125,9 @@ describe('walking outside', () => {
   it('steps out of a side door onto the ledge and shimmies along it at the ledge speed, walking or running', () => {
     const sim = standing(outsideConfig({ guards: 0 }), 7.5, 0.5);
     steps(sim, 90, { type: 'move', x: 0, y: -127 });
-    expect(player(sim).placement.y).toBeLessThan(-0.68);
-    expect(player(sim).placement.y).toBeGreaterThanOrEqual(-0.7);
+    // The half-tile ledge: the walker's middle stays within 0.5 of the wall, its edge 0.3 off it.
+    expect(player(sim).placement.y).toBeLessThan(-0.45);
+    expect(player(sim).placement.y).toBeGreaterThanOrEqual(-0.5);
     const x0 = player(sim).placement.x;
     steps(sim, 60, { type: 'move', x: 127, y: 0 });
     // A second at 1.2 tiles/s toward the front (x falls), even though that is a run.
@@ -151,6 +163,19 @@ describe('guards and the outside', () => {
     // Guard at row 1 looking out at the left wall; you on the ledge just outside.
     expect(canSee(g, ai, toTrain(g, 1, 4.5), 1.5, 0, -1, toTrain(g, 1, 4.5), -0.5)).toBe(true);
     expect(canSee(g, ai, toTrain(g, 1, 11.5), 1.5, 0, -1, toTrain(g, 1, 11.5), -0.5)).toBe(false);
+  });
+
+  it('see you through an open doorway: on the platform through the end door, on the ledge by a side door', () => {
+    // Facing the rear end door (row 2) from inside; you on the rear platform.
+    expect(canSee(g, ai, toTrain(g, 1, 12.5), 2.5, 1, 0, toTrain(g, 1, 16.5), 2.5)).toBe(true);
+    // Facing the left side door (cols 7-8); you on the ledge just outside it.
+    expect(canSee(g, ai, toTrain(g, 1, 8), 2.5, 0, -1, toTrain(g, 1, 7.5), -0.4)).toBe(true);
+    // Along the ledge past the door, the wall hides you.
+    expect(canSee(g, ai, toTrain(g, 1, 8), 2.5, 0, -1, toTrain(g, 1, 11.5), -0.4)).toBe(false);
+    // With seeThroughDoorways off, doors block sight as before.
+    const shut = trainGrid(outsideConfig({ outside: { seeThroughDoorways: false } }), ['engine', 'ledge-car']);
+    expect(canSee(shut, ai, toTrain(shut, 1, 12.5), 2.5, 1, 0, toTrain(shut, 1, 16.5), 2.5)).toBe(false);
+    expect(canSee(shut, ai, toTrain(shut, 1, 8), 2.5, 0, -1, toTrain(shut, 1, 7.5), -0.4)).toBe(false);
   });
 
   it('a chasing guard follows you out of the door onto the ledge, at the ledge speed, and throws you off there', () => {

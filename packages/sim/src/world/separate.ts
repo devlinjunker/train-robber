@@ -3,7 +3,7 @@
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
-import { gridCell, gridWalkable, fromTrain, Space, toTrain, trainGrid } from './guards';
+import { gridCell, gridCellOpen, gridWalkable, fromTrain, Space, toTrain, trainGrid, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
@@ -47,6 +47,22 @@ export function carToWorld(car: CarPose, x: number, y: number, out: Vec2 = { x: 
 export function trainCellWalkable(config: SimConfig, cars: readonly string[], car: number, x: number, y: number): boolean {
   const g = trainGrid(config, cars);
   return gridWalkable(g, toTrain(g, car, x), y);
+}
+
+/**
+ * True when a walker (WALKER_RADIUS round) fits at train point (lx, y): its edges on open cells
+ * and its middle where one can stand, so on a ledge narrower than a tile it hugs the wall.
+ */
+export function walkerFits(g: TrainGrid, lx: number, y: number): boolean {
+  const r = WALKER_RADIUS;
+  return gridWalkable(g, lx, y) && gridCellOpen(g, lx - r, y - r) && gridCellOpen(g, lx + r, y - r)
+    && gridCellOpen(g, lx - r, y + r) && gridCellOpen(g, lx + r, y + r);
+}
+
+/** `walkerFits` in car `car`'s frame of a train made of `cars`. */
+export function trainWalkerFits(config: SimConfig, cars: readonly string[], car: number, x: number, y: number): boolean {
+  const g = trainGrid(config, cars);
+  return walkerFits(g, toTrain(g, car, x), y);
 }
 
 /** The car templates of a train in state; throws when it is gone. */
@@ -170,10 +186,7 @@ export function walkAboard(state: GameState, config: SimConfig): void {
       const cap = grid.speedCap[here]!, m = Math.sqrt(mx * mx + my * my);
       if (speed * m > cap) speed = cap / m;
     }
-    const open = (x: number, y: number) => gridWalkable(grid, off + x, y);
-    const clear = (x: number, y: number) =>
-      open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
-      && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
+    const clear = (x: number, y: number) => walkerFits(grid, off + x, y);
     // Guards stand in the way: a step may not end closer to one than GUARD_BLOCK, unless it moves away.
     const guards = (state.run?.trainId === f.trainId ? state.run.guards : [])
       .map((g) => ({ x: g.car === f.car ? g.x : toTrain(grid, g.car, g.x) - off, y: g.y }))

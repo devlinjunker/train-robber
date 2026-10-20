@@ -313,6 +313,18 @@ describe('landings', () => {
     expect(p.y - y).toBeCloseTo(8 / 60, 12);
   });
 
+  it('good with landing.goodStumbleInTiles: staggers that far in from the door, into the open; perfect stays in the doorway', () => {
+    const b = config.values.boarding;
+    const cfg = testConfig({}, 'stumb001', { boarding: { ...b, landing: { ...b.landing, goodStumbleInTiles: 2 } } });
+    const good = approach(cfg);
+    jump(good, 'good');
+    expect(S(good).players[0]!.placement).toMatchObject({ x: 8.5 });
+    expect(S(good).players[0]!.placement.y).toBeCloseTo(2.5, 9);
+    const perfect = approach(cfg);
+    jump(perfect, 'perfect');
+    expect(S(perfect).players[0]!.placement).toMatchObject({ x: 8.5, y: 0.5 });
+  });
+
   it('fail: thrown clear, horse stunned at half speed, damage dealt, then approach again', () => {
     const sim = approach();
     const ev = jump(sim, 'fail');
