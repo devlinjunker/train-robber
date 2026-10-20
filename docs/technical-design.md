@@ -1167,6 +1167,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Car size (Devlin, 2026-10-17) | 28 × 7 mail and blank cars, a 16 × 7 engine and 12 × 7 caboose; the `small-cars` preset keeps the 16 × 6 set | layouts in `cars-src/`, `small-*` ids |
 | Crouch speed (Claude's pick, sneaking PR 1) | a quarter of full speed (2 tiles/s, half a walk), however hard you push | `player.crouch.speedScale` |
 | Crouch noise (Devlin, 2026-10-20: guards hear you sneak right behind them) | 1 tile, times the cell's noise | `ai.noise.crouchRadiusTiles` |
+| Searching loot noise (Devlin, 2026-10-20: guards further away may hear you rummaging) | 3 tiles, crouched or not (between walking 1.5 and running 5) | `ai.noise.searchRadiusTiles` |
 | Cover that hides a crouched player (design doc) | a cell with cover 0.25 or more on the sight line (crates 0.5, barrels 0.4, benches 0.25; Devlin, 2026-10-20) | `ai.sight.crouchCoverMin` |
 | Chase give-up (design doc) | 3 s without sight or sound: the guard stays alert, walks at patrol speed to where it last knew you were and looks one way and the other, catching no one | `ai.loseSightSec` |
 

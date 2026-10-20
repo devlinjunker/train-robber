@@ -189,16 +189,18 @@ const RUN_AXIS = 0.75;
 /**
  * How far the player's footsteps carry this tick: `ai.noise.walkRadiusTiles` walking,
  * `runRadiusTiles` running or `crouchRadiusTiles` crouched, times the `noise` of the cell they
- * stand on; 0 standing still.
+ * stand on; 0 standing still. Searching loot (`searching`) makes `searchRadiusTiles` of noise,
+ * crouched or not, or the footsteps if they carry further (Devlin, 2026-10-20).
  */
-export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number, crouched = false): number {
+export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number, crouched = false, searching = false): number {
+  const cfg = config.values.ai.noise;
+  const search = searching ? cfg.searchRadiusTiles : 0;
   const mx = p.move.x / 127, my = p.move.y / 127;
   const n = Math.sqrt(mx * mx + my * my);
-  if (n === 0) return 0;
-  const cfg = config.values.ai.noise;
+  if (n === 0) return search;
   const i = gridCell(g, lx, p.placement.y);
   const r = crouched ? cfg.crouchRadiusTiles : n > RUN_AXIS ? cfg.runRadiusTiles : cfg.walkRadiusTiles;
-  return r * (i >= 0 ? g.noise[i]! : 1);
+  return Math.max(search, r * (i >= 0 ? g.noise[i]! : 1));
 }
 
 /** Whether an alert guard has given up the chase (`ai.loseSightTicks` without sight or sound of the player) and is searching. */
@@ -353,8 +355,8 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== train.id || !run.players[p.id]) continue;
       const lx = toTrain(grid, f.car, p.placement.x);
-      const crouched = run.players[p.id]!.crouched;
-      target = { p, lx, y: p.placement.y, noise: noiseRadius(config, grid, p, lx, crouched), crouched };
+      const rp = run.players[p.id]!;
+      target = { p, lx, y: p.placement.y, noise: noiseRadius(config, grid, p, lx, rp.crouched, rp.search !== null), crouched: rp.crouched };
       break;
     }
   }

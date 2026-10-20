@@ -23,7 +23,7 @@ const base = {
   },
   ai: {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
-    sight: { rangeTiles: 7, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3 },
+    sight: { rangeTiles: 7, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3 },
     alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
   },
   extraction: {

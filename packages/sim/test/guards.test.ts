@@ -354,6 +354,17 @@ describe('crouching and cover', () => {
     expect(ofType(step(sim, { type: 'crouch', on: false }), 'PlayerSpotted')).toHaveLength(1);
   });
 
+  it('searching loot carries searchRadiusTiles, crouched or still, between walking and running', () => {
+    const sim = aboardAt(cfg, 6.5, 2.5);
+    const p = S(sim).players[0]!;
+    const { noise } = cfg.values.ai;
+    expect(noise.searchRadiusTiles).toBeGreaterThan(noise.walkRadiusTiles);
+    expect(noise.searchRadiusTiles).toBeLessThan(noise.runRadiusTiles);
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), false, true)).toBe(noise.searchRadiusTiles);
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), true, true)).toBe(noise.searchRadiusTiles);
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), false, false)).toBe(0);
+  });
+
   it('crouched footsteps behind a guard go unheard where running ones are heard', () => {
     const watch = guardConfig({ train: { layouts: ['watch-car'] } });
     const sim = aboardAt(watch, 14.5, 2.5);

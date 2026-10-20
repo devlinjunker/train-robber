@@ -515,7 +515,8 @@ export interface SimConfig {
       turnRateCosPerTick: number;
       turnRateSinPerTick: number;
       sight: { rangeTiles: number; coneCos: number; crouchCoverMin: number };
-      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number };
+      /** `searchRadiusTiles`: how far searching loot (holding E on a slot, hidden or not) carries, crouched or not. */
+      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number };
       alertAfterTicks: number;
       calmTicks: number;
       alertCalmTicks: number;

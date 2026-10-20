@@ -458,7 +458,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       let noise: { x: number; y: number; r: number; running: boolean } | null = null;
       if (noiseRingOn && runTrain && frame && aboardAt && s.run!.guards.length > 0 && phase === 'aboard') {
         const grid = trainGrid(config, runTrain.cars);
-        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x), crouched);
+        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x), crouched, (s.run?.players[player.id]?.search ?? null) !== null);
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > config.values.ai.noise.walkRadiusTiles * 1.01 };
       }
       // Trains a cash-out shut: their doors are drawn closed, and a notice says when they reopen.
