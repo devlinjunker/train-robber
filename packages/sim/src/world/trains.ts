@@ -8,7 +8,7 @@ import { carCatalog, placeCars, trainLength, type CarPose } from './cars';
 import { pickTrainCars, trainCarsSeed } from './generate';
 import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
-import { wrapDistance } from './track';
+import { wrapDistance, type TrackRoute } from './track';
 
 /** A train's config and route: the route the map placed it on, else the one its type names. */
 export function routeOf(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route'>) {
@@ -109,6 +109,23 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
   }
   if (before && map.network) junctionSystem(state, map.routes, map.network, config, before);
   if (map.openLine) lineTraffic(state, map, config);
+}
+
+/** How far inside the map an open line's track must be for the horse to be put beside it. */
+const ON_MAP_MARGIN_TILES = 12;
+
+/**
+ * The first and last distance along an open route where the track is well inside the map: a quick
+ * retry or a whistled horse is put beside the track no further out than these. A closed route is all on the map.
+ */
+export function onMapRange(map: Pick<WorldMap, 'cols' | 'rows'>, route: TrackRoute): { from: number; to: number } {
+  const { x, y, s } = route.samples;
+  const inside = (i: number) => x[i]! >= ON_MAP_MARGIN_TILES && y[i]! >= ON_MAP_MARGIN_TILES && x[i]! < map.cols - ON_MAP_MARGIN_TILES && y[i]! < map.rows - ON_MAP_MARGIN_TILES;
+  if (route.closed) return { from: -Infinity, to: Infinity };
+  let a = 0, b = s.length - 1;
+  while (a < b && !inside(a)) a++;
+  while (b > a && !inside(b)) b--;
+  return { from: s[a]!, to: s[b]! };
 }
 
 /** Tiles past the end of an open line a train's last car gets before the train is removed. */

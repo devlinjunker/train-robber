@@ -36,7 +36,7 @@ export class ReportBuilder {
     switch (e.type) {
       case 'RunStarted': r.runs++; this.startedAt.set(e.player, e.tick); break;
       case 'RunPhaseChanged':
-        if (e.to === 'aboard') {
+        if (e.to === 'aboard' && e.from !== 'extracting') {
           r.boarded++;
           const at = this.startedAt.get(e.player);
           if (at !== undefined) r.commitToAboardSec.push((e.tick - at) / this.tickRateHz);

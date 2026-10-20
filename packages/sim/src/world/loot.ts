@@ -85,7 +85,7 @@ function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): v
   const { state, config } = ctx;
   const run = state.run!;
   const f = parseCarFrame(p.placement.frame);
-  if (!f || run.phase !== 'aboard') { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'not aboard' }); return; }
+  if (!f || (run.phase !== 'aboard' && run.phase !== 'extracting')) { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'not aboard' }); return; }
   if (!Number.isInteger(slot) || slot < 0 || slot >= rp.carried.length) { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'nothing to drop' }); return; }
   cancelSearch(ctx, p, rp, 'released');
   const [item] = rp.carried.splice(slot, 1) as [string];
@@ -115,7 +115,7 @@ export function lootSystem(ctx: LootCtx, drops: ReadonlyMap<PlayerId, readonly n
     }
     for (const slot of drops.get(p.id) ?? []) drop(ctx, p, rp, slot);
     const f = parseCarFrame(p.placement.frame);
-    if (!f || run.phase !== 'aboard') { rp.search = null; continue; }
+    if (!f || (run.phase !== 'aboard' && run.phase !== 'extracting')) { rp.search = null; continue; }
     if (!p.interactHeld) { cancelSearch(ctx, p, rp, 'released'); rp.searchLatched = false; continue; }
     if (rp.searchLatched) continue;
     const s = config.values.verbs.search;

@@ -1,19 +1,20 @@
-// The run lifecycle (idle, approach, boarding, aboard, ended) and tick system 4, boarding.
+// The run lifecycle (idle, approach, boarding, aboard, extracting, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, SimConfig, SimEvent } from './types';
-import { advanceMeter, boardingCheck, commitCheck, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
+import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
+import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
+import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
-import { atLineEnd, carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
+import { atLineEnd, carPosesOf, onMapRange, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
-import { trackAt, type SimRoute } from './world/track';
+import { trackAt } from './world/track';
 
 export interface RunCtx {
   state: GameState;
@@ -33,11 +34,11 @@ export function horseOf(state: GameState, p: PlayerState): HorseState {
   return h;
 }
 
-function reject(ctx: RunCtx, player: PlayerId, command: Command['type'], reason: RejectReason): void {
+export function reject(ctx: RunCtx, player: PlayerId, command: Command['type'], reason: RejectReason): void {
   ctx.emit({ type: 'CommandRejected', tick: ctx.state.tick, player, command, reason });
 }
 
-function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
+export function setPhase(ctx: RunCtx, player: PlayerId, to: RunPhase): void {
   const from = runPhase(ctx.state);
   if (from === to) return;
   if (ctx.state.run && to !== 'idle') ctx.state.run.phase = to;
@@ -83,6 +84,11 @@ export function autoCommitSystem(ctx: RunCtx): void {
   }
 }
 
+/** The run's horse before boarding: ridden, so no call state yet. */
+export function freshHorseCall(): RunState['horse'] {
+  return { state: 'away', side: 'left', ticks: 0, cooldownTicks: 0, whistles: 0, whistleTick: 0, delaySec: 0, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0, mountAttempts: 0 };
+}
+
 /** `startRun` and `interact` while idle: validate the commit, pin the train and enter `approach`. */
 export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefined, command: Command['type']): void {
   const { state, map, config } = ctx;
@@ -111,7 +117,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards,
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
   const resume = p.resumeRuns.find((r) => r.trainId === id);
@@ -139,7 +145,7 @@ export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undef
   if (!run) return reject(ctx, p.id, 'switchTrain', 'no run');
   const h = horseOf(state, p);
   const id = trainId ?? switchTarget(state, map, config, h);
-  if (!id) return reject(ctx, p.id, 'switchTrain', run.phase === 'aboard' || run.phase === 'ended' ? 'aboard' : 'no train in range');
+  if (!id) return reject(ctx, p.id, 'switchTrain', run.phase === 'aboard' || run.phase === 'extracting' || run.phase === 'ended' ? 'aboard' : 'no train in range');
   const why = switchCheck(state, map, config, h, id);
   if (why) return reject(ctx, p.id, 'switchTrain', why);
   const from = run.trainId;
@@ -179,7 +185,7 @@ export function autoSwitchSystem(ctx: RunCtx): void {
 }
 
 /** Put the player back on the horse in the world frame, stopped, at (x, y) facing (hx, hy). */
-function remount(state: GameState, p: PlayerState, x: number, y: number, hx: number, hy: number): void {
+export function remount(state: GameState, p: PlayerState, x: number, y: number, hx: number, hy: number): void {
   const h = horseOf(state, p);
   Object.assign(h, { x, y, hx, hy, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' as const });
   p.placement = { frame: WORLD_FRAME, x, y, layer: 'ground' };
@@ -191,20 +197,25 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
   remount(ctx.state, p, s.x, s.y, 0, -1);
 }
 
-/** End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`. */
-function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, endOfLine = false): void {
+/**
+ * End the run: `ended`, apply the outcome to persistent state, unpin the train, then `idle`.
+ * `cashOut` is the loot value the run would bank (an extraction: the carried value after any spill);
+ * it goes into the bank and lifetime earned when the outcome's policy has `bankRunLoot`.
+ */
+export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0, endOfLine = false): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
   setPhase(ctx, p.id, 'ended');
+  const banked = ctx.config.values.outcomePolicy[outcome].bankRunLoot ? cashOut : 0;
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: banked,
     ...(endOfLine ? { endOfLine: true as const } : {}),
   });
   const before = state.persistent;
-  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy);
+  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, banked);
   if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {
     state.persistent = after;
     ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
@@ -229,7 +240,7 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   if (phase === 'idle' || phase === 'ended') return reject(ctx, p.id, 'cancelRun', 'no run');
   const run = ctx.state.run!;
   const left = run.trainId;
-  const inPlace = phase !== 'aboard' && ctx.config.values.commit.cancelInPlace;
+  const inPlace = phase !== 'aboard' && phase !== 'extracting' && ctx.config.values.commit.cancelInPlace;
   const rp = run.players[p.id];
   const resume: ResumeRun | null = inPlace && rp ? {
     trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
@@ -243,6 +254,32 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
     p.commitTimer = null;
     p.resumeRuns = [...saved.filter((r) => r.trainId !== left), ...(resume ? [resume] : [])];
   } else resetToSpawn(ctx, p);
+}
+
+/**
+ * F, on the horse during a run (Devlin, 2026-10-19): get away with what you carry. The run ends
+ * `cashedOut`, banking the carried value, and the rider keeps riding where they are. With
+ * `cashOut.closeDoors` the train shuts its doors: no commit or switch to it for
+ * `cashOut.doorsReopenSec` (0: for the rest of the session).
+ */
+export function cashOut(ctx: RunCtx, p: PlayerState): void {
+  const { state, config } = ctx;
+  const cfg = config.values.cashOut;
+  if (!cfg.enabled) return reject(ctx, p.id, 'cashOut', 'disabled');
+  const run = state.run;
+  const rp = run?.players[p.id];
+  if (!run || !rp || run.phase === 'ended') return reject(ctx, p.id, 'cashOut', 'no run');
+  if (p.placement.frame !== WORLD_FRAME) return reject(ctx, p.id, 'cashOut', 'not mounted');
+  if (rp.carried.length === 0) return reject(ctx, p.id, 'cashOut', 'nothing to cash out');
+  const train = state.world.trains.find((t) => t.id === run.trainId);
+  endRun(ctx, p, 'cashedOut', false, carriedValue(config, rp.carried));
+  if (train && cfg.closeDoors) shutDoors(ctx, train);
+}
+
+/** Shut a train's doors for `cashOut.doorsReopenSec` (0: for good); a later shut restarts the wait. */
+function shutDoors(ctx: RunCtx, train: TrainState): void {
+  const ticks = ctx.config.values.cashOut.doorsReopenTicks;
+  train.doorsClosed = { untilTick: ticks > 0 ? ctx.state.tick + ticks : null };
 }
 
 /** The train a quick retry lines up behind: the run's, else the nearest. */
@@ -270,21 +307,6 @@ function retrySide(ctx: RunCtx, p: PlayerState, h: HorseState, trainId: string):
   return side;
 }
 
-/** How far inside the map an open line's track must be for a quick retry to wait beside it. */
-const RETRY_EDGE_TILES = 12;
-const insideMap = (map: WorldMap, x: number, y: number) => x >= RETRY_EDGE_TILES && y >= RETRY_EDGE_TILES && x < map.cols - RETRY_EDGE_TILES && y < map.rows - RETRY_EDGE_TILES;
-/** The first and last distance along an open route where the track is well inside the map. */
-function onMapFrom(map: WorldMap, route: SimRoute): number {
-  const { x, y, s } = route.samples;
-  for (let i = 0; i < s.length; i++) if (insideMap(map, x[i]!, y[i]!)) return s[i]!;
-  return 0;
-}
-function onMapTo(map: WorldMap, route: SimRoute): number {
-  const { x, y, s } = route.samples;
-  for (let i = s.length - 1; i >= 0; i--) if (insideMap(map, x[i]!, y[i]!)) return s[i]!;
-  return route.length;
-}
-
 /** Track centre to the waiting horse beyond the car's side, so it lines up inside boarding range of the doors. */
 const RETRY_SIDE_GAP = 1.5;
 
@@ -308,7 +330,7 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   const { route } = routeOf(map, config, train);
   let d = train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles;
   // An open line runs off the map at both ends: wait where the track is still on it.
-  if (!route.closed) d = Math.max(onMapFrom(map, route), Math.min(d, onMapTo(map, route)));
+  if (!route.closed) { const r = onMapRange(map, route); d = Math.max(r.from, Math.min(d, r.to)); }
   const at = trackAt(route, d);
   const last = carTemplate(carCatalog(config), train.cars[train.cars.length - 1]!);
   // Left of travel is (ty, -tx).
@@ -333,8 +355,16 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
       if (h.stunTicks === 0) setPhase(ctx, p.id, 'approach');
       continue;
     }
+    // Aboard, Space is the mount jump, which the extraction system samples.
+    if (run.phase === 'aboard' || run.phase === 'extracting') continue;
     if (run.phase !== 'approach') { if (jumped) reject(ctx, p.id, 'jump', 'aboard'); continue; }
 
+    // A shut train (thrown off with `cashOut.closeDoorsOnThrownOff`) cannot be boarded: the meter parks.
+    if (doorsClosed(state, state.world.trains.find((t) => t.id === run.trainId)!)) {
+      if (jumped) reject(ctx, p.id, 'jump', 'doors closed');
+      advanceMeter(rp.meter, 'too far', b.meter);
+      continue;
+    }
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
       // In range is enough to try; a speed mismatch only means the faster meter.
@@ -365,6 +395,10 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   if (result !== 'fail') {
     ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry });
     rp.stumbleTicks = result === 'good' ? b.landing.stumbleTicks : 0;
+    // The riderless horse runs off for `horse.runOffSec`, then leaves the world (U4).
+    run.horse = { ...freshHorseCall(), state: 'leaving', ticks: config.values.horse.runOffTicks };
+    // The mount meter starts parked with fresh zones at its own widths.
+    rollMeterZones(state, rp.meter, config.values.extraction.meter.zoneWidths);
     setPhase(ctx, p.id, 'aboard');
     return;
   }
@@ -394,7 +428,7 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   const run = state.run;
   const rp = run?.players[p.id];
   const f = parseCarFrame(p.placement.frame);
-  if (!run || !rp || !f || run.phase !== 'aboard') return;
+  if (!run || !rp || !f || (run.phase !== 'aboard' && run.phase !== 'extracting')) return;
   const car = carPosesOf(state, map, config, f.trainId)[f.car]!;
   const rows = car.halfWidth * 2, cols = car.halfLength * 2;
   const left = p.placement.y < rows / 2;
@@ -403,6 +437,9 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   const at = carToWorld(car, x, left ? -THROWN_SIDE_GAP : rows + THROWN_SIDE_GAP);
   const train = state.world.trains.find((t) => t.id === f.trainId)!;
   const b = config.values.boarding;
+  // You land back on your horse beside the train (G5): wherever it was (running off, or coming
+  // after a whistle), it is placed under you, and any call is over.
+  run.horse = freshHorseCall();
   remount(state, p, at.x, at.y, car.ux, car.uy);
   const h = horseOf(state, p);
   h.speed = trainSpeed(config, train.type) * b.failure.horseSpeedScale;
@@ -419,6 +456,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
     ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
   }
   setPhase(ctx, p.id, 'boarding');
+  // The train shuts its doors behind you: cash out (F) or switch to another train.
+  if (config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);
@@ -529,7 +568,7 @@ export function runEndSystem(ctx: RunCtx): void {
   if (train && atLineEnd(ctx.map, ctx.config, train)) {
     for (const p of ctx.state.players) {
       if (!run.players[p.id]) continue;
-      endRun(ctx, p, 'expired', false, true);
+      endRun(ctx, p, 'expired', false, 0, true);
       resetToSpawn(ctx, p);
       return;
     }

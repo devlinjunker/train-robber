@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "share",
+  "group": "mountSpill",
+  "label": "Good mount spills: A share of carried value",
+  "question": "What should a good (amber) mount cost?",
+  "patch": { "extraction": { "mountSpill": "share" } }
+}

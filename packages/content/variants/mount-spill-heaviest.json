@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "heaviest",
+  "group": "mountSpill",
+  "label": "Good mount spills: Your heaviest item",
+  "question": "What should a good (amber) mount cost?",
+  "patch": { "extraction": { "mountSpill": "heaviest" } }
+}

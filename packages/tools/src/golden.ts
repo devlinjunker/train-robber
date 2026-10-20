@@ -9,7 +9,7 @@ import { DEFAULT_MAP, loadConfig, loadMapDef } from './content';
 /** Pinned so a version bump at each milestone does not re-record the fixture. */
 export const GOLDEN_GAME_VERSION = '0.0.0';
 
-const TICKS = 2400;
+const TICKS = 3000;
 
 const q = (v: number) => Math.max(-127, Math.min(127, Math.round(v)));
 
@@ -87,7 +87,8 @@ export function recordGolden(): string {
   let prevX = 0, prevY = 0, stuckFor = 0, sidestep = 0;
   // Ride, boost, steer and brake a little from the spawn, try to commit out of range, cancel nothing,
   // then quick retry behind the train, catch it, commit, fail two jumps and land the third as
-  // good; raise heat with the debug key, walk to the nearest loot, search it, then cancel.
+  // good; raise heat with the debug key, walk to the nearest loot, search it, whistle for the
+  // horse and watch it ride up, then cancel.
   for (let t = 0; t < TICKS; t++) {
     const commands: Command[] = [];
     const move = (x: number, y: number) => { if (x !== last.x || y !== last.y) { commands.push({ type: 'move', x, y }); last = { x, y }; } };
@@ -101,7 +102,7 @@ export function recordGolden(): string {
       if (!s.run && aboardFor === 0) {
         if (commitTarget(s, sim.map, config, h)) commands.push({ type: 'interact', held: true });
       }
-      if (s.run?.phase === 'aboard' || aboardFor > 0) {
+      if (s.run?.phase === 'aboard' || s.run?.phase === 'extracting' || aboardFor > 0) {
         aboardFor++;
         const p = s.players[0]!;
         const rp = s.run?.players[1];
@@ -123,7 +124,8 @@ export function recordGolden(): string {
             else if (Math.hypot(dx, dy) > 0.8) move(Math.abs(dx) > 0.15 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.15 ? (dy > 0 ? 127 : -127) : 0);
             else { move(0, 0); if (!p.interactHeld) commands.push({ type: 'interact', held: true }); }
           }
-        } else if (aboardFor === (doneAt || 900) + 20) { move(0, 0); commands.push({ type: 'cancelRun' }); }
+        } else if (looted && aboardFor === doneAt + 10) { move(0, 0); commands.push({ type: 'whistle' }); }
+        else if (aboardFor === (doneAt ? doneAt + 900 : 920)) { move(0, 0); commands.push({ type: 'cancelRun' }); }
       } else if (s.run?.phase !== 'boarding') {
         if (t === 121) side = boardingCheck(s, sim.map, config, trainId, h).side;
         // Like a person, the bot adjusts the keys a few times a second, not every tick.
