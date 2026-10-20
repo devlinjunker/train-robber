@@ -31,6 +31,10 @@ const base = {
     doorReachTiles: 1.5, meter: { sweepPeriodSec: 1.85, zoneWidths: [0.03, 0.15] }, mountSpill: 'random', spillShare: 0.3, pathCellTiles: 3, stuckSec: 3, passThroughBeyondTiles: 30, goodMountStunSec: 1,
   },
   world: { mode: 'separate' },
+  outside: {
+    ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 1,
+    platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true },
+  },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
   loot: { densityScale: 1 },

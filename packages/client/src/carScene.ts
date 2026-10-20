@@ -1,5 +1,6 @@
 // The `?car=<id>` debug scene: one car template on its own, drawn as in the game, with a walker
-// you move with WASD or the arrows (blocked as aboard, so end doors lead nowhere) and overlays
+// you move with WASD or the arrows (blocked as aboard: out through the doors onto its platforms
+// and ledges, but no further) and overlays
 // for checking a layout made in Tiled: 1 cell types, 2 cover, 3 noise, 4 reachable area per entry
 // (press again to step through the entries), 5 loot slots, guard spawns and patrols. Nothing here
 // runs the sim.
@@ -7,6 +8,7 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { ResolvedConfig } from '@train-robber/config';
 import { carCatalog, cellOpen, carToWorld, trainCellWalkable, WALKER_RADIUS, type CarPose, type PreparedCar } from '@train-robber/sim';
 import { drawInterior, colourOf } from './iso/interior';
+import { drawCarOutside } from './iso/outside';
 import { boxCorners, drawBox, isoPoly } from './iso/draw';
 import { clampZoom, depthOf, isoX, isoY, keyDirToWorld, stepZoom } from './projection';
 
@@ -60,6 +62,7 @@ export function createCarScene(app: Application, config: ResolvedConfig, carId: 
   const labels = new Container();
   root.addChild(floor, overlay, objects, labels);
   app.stage.addChild(root);
+  drawCarOutside(floor, car, config.values.outside, false);
   drawInterior(floor, () => objects.addChild(new Graphics()), { car, template: t, cellTypes, loot: [], items: {}, searching: null, inReach: null, timeSec: 0 });
 
   // Entry points as arrows on the car's outside, pointing in.
@@ -144,7 +147,7 @@ export function createCarScene(app: Application, config: ResolvedConfig, carId: 
   const walker = { x: start[0] + 0.5, y: start[1] + 0.5 };
   const body = objects.addChild(new Graphics());
   const clear = (x: number, y: number) => {
-    const open = (px: number, py: number) => trainCellWalkable(catalog, [carId], 0, px, py);
+    const open = (px: number, py: number) => trainCellWalkable(config, [carId], 0, px, py);
     return open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
       && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
   };
@@ -155,7 +158,8 @@ export function createCarScene(app: Application, config: ResolvedConfig, carId: 
   const MODE_NAMES = ['off', 'cell types', 'cover', 'noise', 'reachable', 'slots and spawns'];
   const updateInfo = () => {
     const c = Math.floor(walker.x), r = Math.floor(walker.y);
-    const here = cellTypes[t.cells[r * cols + c]!]!;
+    const inside = c >= 0 && r >= 0 && c < cols && r < rows;
+    const here = inside ? cellTypes[t.cells[r * cols + c]!]! : { id: r < 0 || r >= rows ? 'ledge' : 'platform', cover: 0, noise: undefined };
     const entry = mode === 4 ? (entryIndex < 0 ? ' (every entry)' : ` (from ${t.entryPoints[entryIndex]!.id})`) : '';
     info.text = [
       `car ${carId}  ·  type ${t.carType}  ·  ${cols}×${rows}  ·  from ${def.source.file}`,

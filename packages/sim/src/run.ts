@@ -5,13 +5,15 @@ import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
-import type { Impact } from './world/riding';
+import { HORSE_RADIUS, type Impact } from './world/riding';
+import { Space } from './world/guards';
+import { isSolid, Terrain, terrainAt } from './world/map';
 import { carCatalog, carTemplate, type Side } from './world/cars';
 import { generateLoot, repickFreeTrains } from './world/generate';
 import { generateGuards } from './world/guards';
 import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
-import { WORLD_FRAME, parseCarFrame, type WorldModel } from './world/separate';
+import { WORLD_FRAME, parseCarFrame, playerSpace, type WorldModel } from './world/separate';
 import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
@@ -413,14 +415,22 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
 /** How far beyond the car's side wall a thrown-off rider lands, in tiles (clear of the car, inside boarding range of its doors). */
 const THROWN_SIDE_GAP = 1.5;
 
+/** True when a horse at (x, y) would stand clear of blocked ground. */
+function clearOfRocks(map: WorldMap, x: number, y: number): boolean {
+  const r = HORSE_RADIUS;
+  return [[-r, -r], [r, -r], [-r, r], [r, r], [0, 0]].every(([dx, dy]) => !isSolid(terrainAt(map, x + dx!, y + dy!)));
+}
+
 /**
  * guardCatch `thrown-off`: an alert guard caught the player, who is thrown off the train like a
  * failed boarding (G4, G5). They land back on the horse beside their car on the side they were
  * nearest, facing along the track at `boarding.failure.horseSpeedScale` of the train's speed, stunned
  * for `boarding.failure.stunSec` and losing `damageFraction` of max health. The run goes back to
- * `boarding` (the failed jump's stun), then `approach`; the loot carried stays with them.
+ * `boarding` (the failed jump's stun), then `approach`; `ai.thrownOffLootShare` of the loot carried
+ * goes over the side. With `guard` null it is a fall (a rock knocked them off a ledge, O4): the
+ * same landing, with `FellOff` instead of `ThrownOff`, and the horse is put down clear of the rocks.
  */
-export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
+export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null): void {
   const { state, map, config } = ctx;
   const run = state.run;
   const rp = run?.players[p.id];
@@ -431,7 +441,16 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   const left = p.placement.y < rows / 2;
   // Away from the car's ends, so the next car on a bend cannot overlap the landing spot.
   const x = Math.max(2, Math.min(cols - 2, p.placement.x));
-  const at = carToWorld(car, x, left ? -THROWN_SIDE_GAP : rows + THROWN_SIDE_GAP);
+  let at = carToWorld(car, x, left ? -THROWN_SIDE_GAP : rows + THROWN_SIDE_GAP);
+  if (!clearOfRocks(map, at.x, at.y)) {
+    // Toward the car's front first: the rock has already passed there. Then further out.
+    search: for (const out of [THROWN_SIDE_GAP, THROWN_SIDE_GAP + 1.5, THROWN_SIDE_GAP + 3]) {
+      for (const back of [0, -2, -4, -6, 2, 4]) {
+        const q = carToWorld(car, Math.max(2, Math.min(cols - 2, x + back)), left ? -out : rows + out);
+        if (clearOfRocks(map, q.x, q.y)) { at = q; break search; }
+      }
+    }
+  }
   const train = state.world.trains.find((t) => t.id === f.trainId)!;
   const b = config.values.boarding;
   // You land back on your horse beside the train (G5): wherever it was (running off, or coming
@@ -445,13 +464,15 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   rp.search = null;
   rp.stumbleTicks = 0;
   rp.crouched = false;
-  ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+  if (guard === null) ctx.emit({ type: 'FellOff', tick: state.tick, player: p.id, car: f.car, cause: 'rock' });
+  else ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+  const cause = guard === null ? 'fell' as const : 'thrownOff' as const;
   // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
   const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
   for (let k = 0; k < lose; k++) {
     const [item] = rp.carried.splice(nextInt(state.rng, 'ai', rp.carried.length), 1) as [string];
     const def = config.values.items[item]!;
-    ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause: 'thrownOff' });
+    ctx.emit({ type: 'LootLost', tick: state.tick, player: p.id, item, value: def.value, weight: def.weight, cause });
   }
   setPhase(ctx, p.id, 'boarding');
   // The train shuts its doors behind you: cash out (F) or switch to another train.
@@ -459,8 +480,46 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number): void {
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);
-    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'thrownOff' });
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause });
   }
+}
+
+/**
+ * Tick system 5b, after walking aboard: trackside rocks against a player on a ledge (O4). Blocked
+ * ground `outside.scrape.glanceTiles` outward of them scrapes them for the collision scrape damage
+ * (once per `collision.cooldownSec`, shared with riding hits); blocked ground right under them knocks
+ * them off with `scrape.knockOff` on (else it scrapes too), a fall that lands them on the horse like
+ * being thrown off.
+ * Returns the player to knock off, or null.
+ */
+export function ledgeRockSystem(ctx: RunCtx): PlayerState | null {
+  const { state, map, config } = ctx;
+  const run = state.run;
+  if (!run || (run.phase !== 'aboard' && run.phase !== 'extracting')) return null;
+  const o = config.values.outside;
+  for (const p of state.players) {
+    const rp = run.players[p.id];
+    const f = parseCarFrame(p.placement.frame);
+    if (!rp || !f || f.trainId !== run.trainId || playerSpace(state, config, p) !== Space.Ledge) continue;
+    const car = carPosesOf(state, map, config, f.trainId)[f.car];
+    if (!car) continue;
+    const { x, y } = p.placement;
+    const out = y < 0 ? -1 : 1;
+    const under = carToWorld(car, x, y);
+    const struck = terrainAt(map, under.x, under.y) === Terrain.Blocked;
+    if (struck && o.scrape.knockOff) return p;
+    const edge = carToWorld(car, x, y + out * o.scrape.glanceTiles);
+    // A glancing hit, or a solid one with knock-off turned off, only scrapes.
+    if (!struck && terrainAt(map, edge.x, edge.y) !== Terrain.Blocked) continue;
+    const c = config.values.collision;
+    const amount = c.scrapeDamageFraction > 0 ? Math.max(1, Math.round(config.values.health.max * c.scrapeDamageFraction)) : 0;
+    if (amount <= 0 || rp.hitCooldownTicks > 0) continue;
+    rp.health = Math.max(0, rp.health - amount);
+    rp.hitCooldownTicks = c.cooldownTicks;
+    rp.lastHitDamage = amount;
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'collision', against: 'obstacle', kind: 'scrape', impact: 0 });
+  }
+  return null;
 }
 
 /** C aboard: crouch or stand up. Refused unless the player is walking the committed train. */

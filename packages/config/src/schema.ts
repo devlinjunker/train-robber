@@ -306,6 +306,31 @@ export const GameSchema = z.object({
       accelTilesPerSec2: positive,
     }).strict(),
   }).strict(),
+  /**
+   * Outside the cars (sneaking PR 2): end platforms, the coupling between them and side ledges.
+   * Sizes are whole tiles, since cars are grids of one-tile cells.
+   */
+  outside: z.object({
+    /** Side ledges are walkable (off: they are still drawn, but blocked). */
+    ledges: z.boolean(),
+    /** Depth of the platform at each end of every car; with the coupling gap this spaces the cars apart. */
+    platformDepthTiles: z.number().int().min(0),
+    /** Open gap between two cars' platforms, crossed on the coupling plate. */
+    couplingGapTiles: z.number().int().min(0),
+    /** Width of the coupling plate across the gap, centred on the car (end doors are rows 2-4 of 7). */
+    gangwayWidthTiles: z.number().int().min(0),
+    /** Width of the ledge outside each long wall. */
+    ledgeWidthTiles: z.number().int().min(0),
+    /** Top speed on a platform or the coupling plate (inside: 4 walking, 8 running). */
+    platformSpeedTilesPerSec: positive,
+    /** Top speed shimmying along a ledge. */
+    ledgeSpeedTilesPerSec: positive,
+    /** How far footsteps carry on a platform and on a ledge, as a multiple (floor is 1). */
+    platformNoise: z.number().min(0),
+    ledgeNoise: z.number().min(0),
+    /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on. */
+    scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean() }).strict(),
+  }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({
     /** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off the train. */

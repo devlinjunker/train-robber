@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, parseCarFrame, runPhase, terrainAt, Terrain, toTrain, trainGrid,
+  trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -153,7 +153,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
   const items = config.values.items;
   const boostDustParam = Number(params.get('boostDust') ?? 1);
-  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, outside: config.values.outside, boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
   const search = config.values.verbs.search;
   // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
   const namesParam = params.get('trainNames');
@@ -319,7 +319,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
     else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') heardAt.set(e.guard, performance.now());
     else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
-    else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`A guard threw you off: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
+    else if (e.type === 'FellOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A rock knocked you off the ledge!', 'bad', 2500); }
+    else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`${e.cause === 'fell' ? 'You fell' : 'A guard threw you off'}: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
@@ -466,6 +467,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       for (const id of lastClosed) if (!closedTrains.has(id)) show(`${trainName(id) ?? 'The train you robbed'} has opened its doors again`, 'info', 3500);
       lastClosed = closedTrains;
       const inOpenCar = (car: number) => aboardCar !== null && runTrain !== null && aboardCar.trainId === runTrain.id && aboardCar.index === car;
+      // Guards out on a platform, the coupling or a ledge are in the open, so they show from anywhere.
+      const runGrid = runTrain ? trainGrid(config, runTrain.cars) : null;
+      const outsideIds = new Set(runGrid ? guardPoses.filter((g) => spaceAt(runGrid, toTrain(runGrid, g.car, g.x), g.y) !== Space.Inside).map((g) => g.id) : []);
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -474,8 +478,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt } : null, focus,
           horseSpeed: horseState.speed, inMud,
-          guards: guardViews.filter((v) => inOpenCar(v.car)),
-          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car)), cars, runTrain!.id, faintCones) : null, noise,
+          guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
+          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise,
           boosting: horseState.boostTicks > 0,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
           view: {
@@ -613,6 +617,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           target ? 'ride away to just look' : 'ride away to stay on yours',
         ].join('  ·  '),
       } : null;
+      const outsideSpace = aboardPhase ? playerSpace(s, config, player) : null;
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
         : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
@@ -621,6 +626,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
+                  : outsideSpace === Space.Ledge ? 'On the ledge: slow and quiet, but guards see you through the windows. Watch for trackside rocks'
+                  : outsideSpace === Space.Platform || outsideSpace === Space.Coupling ? 'On the platform: walk only. Through the end door, across the coupling, or round the corner onto a ledge'
                   : crouched ? `Crouched: creeping quietly, hidden behind crates, barrels and benches. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
                     : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, C crouch, hold E on loot, F whistle for your horse` : '';
       const carried = run?.carried ?? [];

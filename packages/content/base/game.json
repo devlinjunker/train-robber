@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
-  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "HorseBoosted"] },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "FellOff", "HorseBoosted"] },
   "player": { "speedTilesPerSec": 8, "crouch": { "speedScale": 0.25 } },
   "world": { "mode": "separate" },
   "horse": {
@@ -17,6 +17,11 @@
     "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
     "thrownOffLootShare": 0.5
+  },
+  "outside": {
+    "ledges": true, "platformDepthTiles": 1, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 1,
+    "platformSpeedTilesPerSec": 4, "ledgeSpeedTilesPerSec": 1.2, "platformNoise": 1, "ledgeNoise": 0,
+    "scrape": { "glanceTiles": 0.3, "knockOff": true }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
   "boarding": {

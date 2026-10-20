@@ -53,10 +53,26 @@ export function wantedGuardBonus(config: SimConfig, trainType: string, wantedLev
 
 const FACING: Record<string, readonly [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
 
-/** The whole train as one grid of cells, cars end to end; what perception and pathing read. */
+/** What a train grid cell is: off the train, inside a car, or one of the outside spaces (sneaking PR 2). */
+export const Space = { None: 0, Inside: 1, Platform: 2, Ledge: 3, Coupling: 4 } as const;
+export type Space = (typeof Space)[keyof typeof Space];
+
+/**
+ * The whole train as one grid of cells, cars in order with their outside spaces round them: an
+ * end platform `outside.platformDepthTiles` deep at each end, a ledge `ledgeWidthTiles` wide along
+ * each long side (round the platform corners too), and after each car but the last the coupling
+ * gap, crossed on the coupling plate. What perception, pathing and walking aboard read.
+ *
+ * Train coordinates: `lx` is the grid column (a car's x plus its offset) and y is the car-frame
+ * row, so a car's row 0 is grid row `rowOffset` and the left ledge has negative y.
+ */
 export interface TrainGrid {
-  /** Column where each car starts. */
+  /** Grid column of each car's x = 0 (its front wall). */
   offsets: readonly number[];
+  /** Grid column where each car's own stretch starts: its front platform. The gap behind a car belongs to it. */
+  starts: readonly number[];
+  /** Grid row of car-frame y = 0: the ledge width. */
+  rowOffset: number;
   cols: number;
   rows: number;
   /** Per cell, row-major over the whole train: 1 where it blocks movement / sight; noise multiplier; cover. */
@@ -64,44 +80,80 @@ export interface TrainGrid {
   blocksSight: Uint8Array;
   noise: Float64Array;
   cover: Float64Array;
+  /** The kind of space, a `Space` value. */
+  space: Uint8Array;
+  /** Top walking speed in tiles per tick (Infinity inside: the walk rules decide). */
+  speedCap: Float64Array;
 }
 
 const grids = new WeakMap<object, Map<string, TrainGrid>>();
 
-/** The grid of a train's cars, built once per config and car list. Cells outside a car block both. */
+/** The grid of a train's cars, built once per config and car list. Cells off the train block both. */
 export function trainGrid(config: SimConfig, cars: readonly string[], catalog: CarCatalog = carCatalog(config)): TrainGrid {
   let byCars = grids.get(config.values);
   if (!byCars) { byCars = new Map(); grids.set(config.values, byCars); }
   const key = cars.join(',');
   const hit = byCars.get(key);
   if (hit) return hit;
+  const o = config.values.outside;
+  const P = o.platformDepthTiles, G = o.couplingGapTiles, L = o.ledgeWidthTiles;
   const templates = cars.map((id) => carTemplate(catalog, id));
-  const offsets: number[] = [];
-  let cols = 0, rows = 0;
-  for (const t of templates) { offsets.push(cols); cols += t.size.cols; rows = Math.max(rows, t.size.rows); }
+  const offsets: number[] = [], starts: number[] = [];
+  let cols = 0, inner = 0;
+  templates.forEach((t, k) => {
+    starts.push(cols);
+    offsets.push(cols + P);
+    cols += P + t.size.cols + P + (k < templates.length - 1 ? G : 0);
+    inner = Math.max(inner, t.size.rows);
+  });
+  const rows = inner + 2 * L;
   const n = cols * rows;
   const blocksMove = new Uint8Array(n).fill(1), blocksSight = new Uint8Array(n).fill(1), noise = new Float64Array(n).fill(1), cover = new Float64Array(n).fill(1);
+  const space = new Uint8Array(n), speedCap = new Float64Array(n).fill(Infinity);
   const types = config.values.cellTypes;
+  const air = (i: number) => { blocksSight[i] = 0; cover[i] = 0; };
+  const outside = (i: number, kind: Space, walkable: boolean) => {
+    air(i);
+    space[i] = kind;
+    blocksMove[i] = walkable ? 0 : 1;
+    noise[i] = kind === Space.Ledge ? o.ledgeNoise : o.platformNoise;
+    speedCap[i] = kind === Space.Ledge ? o.ledgeSpeedTilesPerTick : o.platformSpeedTilesPerTick;
+  };
   templates.forEach((t, k) => {
-    for (let r = 0; r < t.size.rows; r++) {
-      for (let c = 0; c < t.size.cols; c++) {
-        const type = types[t.cells[r * t.size.cols + c]!]!;
-        const i = r * cols + offsets[k]! + c;
-        blocksMove[i] = type.blocksMove ? 1 : 0;
-        blocksSight[i] = type.blocksSight ? 1 : 0;
-        noise[i] = type.noise ?? 1;
-        cover[i] = type.cover;
+    const c = t.size.cols, r = t.size.rows, off = offsets[k]!;
+    const end = k < templates.length - 1 ? starts[k + 1]! : cols;
+    for (let gr = 0; gr < rows; gr++) {
+      const y = gr - L;
+      if (y >= r + L) continue;
+      for (let gc = starts[k]!; gc < end; gc++) {
+        const x = gc - off, i = gr * cols + gc;
+        if (x >= 0 && x < c && y >= 0 && y < r) {
+          const type = types[t.cells[y * c + x]!]!;
+          blocksMove[i] = type.blocksMove ? 1 : 0;
+          blocksSight[i] = type.blocksSight ? 1 : 0;
+          noise[i] = type.noise ?? 1;
+          cover[i] = type.cover;
+          space[i] = Space.Inside;
+        } else if (x < c + P) {
+          // Round the car: platforms across its ends, ledges along its sides and round the corners.
+          if (y >= 0 && y < r) outside(i, Space.Platform, true);
+          else outside(i, Space.Ledge, o.ledges);
+        } else {
+          // The coupling gap: open air, crossed on the plate in the middle.
+          air(i);
+          if (y >= 0 && y < r && Math.abs(y + 0.5 - r / 2) < o.gangwayWidthTiles / 2) outside(i, Space.Coupling, true);
+        }
       }
     }
   });
-  const grid: TrainGrid = { offsets, cols, rows, blocksMove, blocksSight, noise, cover };
+  const grid: TrainGrid = { offsets, starts, rowOffset: L, cols, rows, blocksMove, blocksSight, noise, cover, space, speedCap };
   byCars.set(key, grid);
   return grid;
 }
 
-/** The cell index of a train point, or -1 outside the train. */
+/** The cell index of a train point, or -1 off the grid. */
 export function gridCell(g: TrainGrid, lx: number, y: number): number {
-  const c = Math.floor(lx), r = Math.floor(y);
+  const c = Math.floor(lx), r = Math.floor(y) + g.rowOffset;
   return c < 0 || r < 0 || c >= g.cols || r >= g.rows ? -1 : r * g.cols + c;
 }
 
@@ -111,15 +163,21 @@ export function gridWalkable(g: TrainGrid, lx: number, y: number): boolean {
   return i >= 0 && g.blocksMove[i] === 0;
 }
 
+/** The space a train point is in (`Space.None` off the train). */
+export function spaceAt(g: TrainGrid, lx: number, y: number): Space {
+  const i = gridCell(g, lx, y);
+  return (i < 0 ? Space.None : g.space[i]!) as Space;
+}
+
 /** A car-frame point in train coordinates. */
 export function toTrain(g: TrainGrid, car: number, x: number): number {
   return (g.offsets[car] ?? 0) + x;
 }
 
-/** A train point back in a car's frame: the car whose columns hold it (the last car past the end). */
+/** A train point back in a car's frame: the car whose stretch holds it (the first before the front, the last past the end). */
 export function fromTrain(g: TrainGrid, lx: number): { car: number; x: number } {
   let car = 0;
-  while (car + 1 < g.offsets.length && lx >= g.offsets[car + 1]!) car++;
+  while (car + 1 < g.starts.length && lx >= g.starts[car + 1]!) car++;
   return { car, x: lx - g.offsets[car]! };
 }
 
@@ -260,21 +318,25 @@ export function turnToward(g: { fx: number; fy: number }, tx: number, ty: number
 // Breadth-first search buffers, grown as needed and reused every tick.
 let dist = new Int32Array(0), queue = new Int32Array(0);
 
-/** Steps from every cell to `target` over cells that do not block movement (4-connected); -1 unreachable. */
-function distancesTo(g: TrainGrid, target: number): Int32Array {
+/**
+ * Steps from every cell to `target` over cells that do not block movement (4-connected); -1
+ * unreachable. `insideOnly` keeps to the inside of the cars, for guards that are not after the player.
+ */
+function distancesTo(g: TrainGrid, target: number, insideOnly = false): Int32Array {
   const n = g.cols * g.rows;
   if (dist.length < n) { dist = new Int32Array(n); queue = new Int32Array(n); }
   dist.fill(-1, 0, n);
-  if (target < 0 || g.blocksMove[target] === 1) return dist;
+  const ok = (i: number) => g.blocksMove[i] === 0 && (!insideOnly || g.space[i] === Space.Inside);
+  if (target < 0 || !ok(target)) return dist;
   let head = 0, tail = 0;
   dist[target] = 0;
   queue[tail++] = target;
   while (head < tail) {
     const i = queue[head++]!, c = i % g.cols, d = dist[i]! + 1;
-    if (c > 0 && dist[i - 1] === -1 && g.blocksMove[i - 1] === 0) { dist[i - 1] = d; queue[tail++] = i - 1; }
-    if (c < g.cols - 1 && dist[i + 1] === -1 && g.blocksMove[i + 1] === 0) { dist[i + 1] = d; queue[tail++] = i + 1; }
-    if (i >= g.cols && dist[i - g.cols] === -1 && g.blocksMove[i - g.cols] === 0) { dist[i - g.cols] = d; queue[tail++] = i - g.cols; }
-    if (i + g.cols < n && dist[i + g.cols] === -1 && g.blocksMove[i + g.cols] === 0) { dist[i + g.cols] = d; queue[tail++] = i + g.cols; }
+    if (c > 0 && dist[i - 1] === -1 && ok(i - 1)) { dist[i - 1] = d; queue[tail++] = i - 1; }
+    if (c < g.cols - 1 && dist[i + 1] === -1 && ok(i + 1)) { dist[i + 1] = d; queue[tail++] = i + 1; }
+    if (i >= g.cols && dist[i - g.cols] === -1 && ok(i - g.cols)) { dist[i - g.cols] = d; queue[tail++] = i - g.cols; }
+    if (i + g.cols < n && dist[i + g.cols] === -1 && ok(i + g.cols)) { dist[i + g.cols] = d; queue[tail++] = i + g.cols; }
   }
   return dist;
 }
@@ -283,18 +345,22 @@ function distancesTo(g: TrainGrid, target: number): Int32Array {
 interface Walker { lx: number; y: number; fx: number; fy: number }
 
 /**
- * Move up to `speed` tiles toward a train point over walkable cells, facing the way it goes. In
- * the target's cell or the one next to it, it goes straight there (two neighbouring cells make a
- * rectangle, so the straight line never leaves them); otherwise it heads for the centre of the
- * neighbouring cell nearest the target by a breadth-first search. Returns true on arrival.
+ * Move up to `speed` tiles toward a train point over walkable cells, facing the way it goes, no
+ * faster than the cell it is on allows (the outside speeds). In the target's cell or the one next
+ * to it, it goes straight there (two neighbouring cells make a rectangle, so the straight line
+ * never leaves them); otherwise it heads for the centre of the neighbouring cell nearest the target
+ * by a breadth-first search, kept inside the cars with `insideOnly` while the guard is inside.
+ * Returns true on arrival.
  */
-function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: number, turn: (w: Walker, x: number, y: number) => void): boolean {
+function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: number, turn: (w: Walker, x: number, y: number) => void, insideOnly = false): boolean {
   const from = gridCell(g, w.lx, w.y), to = gridCell(g, tx, ty);
+  if (from >= 0) speed = Math.min(speed, g.speedCap[from]!);
   let ax = tx, ay = ty;
   const adjacent = from === to || (to >= 0 && g.blocksMove[to] === 0
     && (Math.abs(from - to) === g.cols || (Math.abs(from - to) === 1 && Math.floor(from / g.cols) === Math.floor(to / g.cols))));
   if (!adjacent) {
-    const d = distancesTo(g, to);
+    // A guard already outside finds its way back in by any route.
+    const d = distancesTo(g, to, insideOnly && from >= 0 && g.space[from] === Space.Inside);
     const c = from % g.cols;
     let best = -1, bestD = d[from]! >= 0 ? d[from]! : Infinity;
     // Neighbours in a fixed order, so ties always break the same way.
@@ -304,7 +370,7 @@ function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: numb
       if (d[k]! >= 0 && d[k]! < bestD) { bestD = d[k]!; best = k; }
     }
     if (best < 0) return false;
-    ax = (best % g.cols) + 0.5; ay = Math.floor(best / g.cols) + 0.5;
+    ax = (best % g.cols) + 0.5; ay = Math.floor(best / g.cols) - g.rowOffset + 0.5;
   }
   const dx = ax - w.lx, dy = ay - w.y;
   const n = Math.sqrt(dx * dx + dy * dy);
@@ -443,7 +509,7 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
   const off = grid.offsets[g.post.car] ?? 0;
   if (!route || route.length === 0) {
     const px = off + g.post.x;
-    if (Math.abs(w.lx - px) > 1e-6 || Math.abs(w.y - g.post.y) > 1e-6) walkToward(grid, w, px, g.post.y, ai.patrolSpeedTilesPerTick, turn);
+    if (Math.abs(w.lx - px) > 1e-6 || Math.abs(w.y - g.post.y) > 1e-6) walkToward(grid, w, px, g.post.y, ai.patrolSpeedTilesPerTick, turn, true);
     else turn(w, g.post.fx, g.post.fy);
     return;
   }
@@ -456,7 +522,7 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
     return;
   }
   const [c, r] = cell(g.waypoint);
-  if (!walkToward(grid, w, off + c + 0.5, r + 0.5, ai.patrolSpeedTilesPerTick, turn)) return;
+  if (!walkToward(grid, w, off + c + 0.5, r + 0.5, ai.patrolSpeedTilesPerTick, turn, true)) return;
   if (route.length === 1) return;
   let next = g.waypoint + g.dir;
   if (isLoop(route)) next = (next + route.length) % route.length;
