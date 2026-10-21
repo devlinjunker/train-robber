@@ -311,19 +311,19 @@ export const GameSchema = z.object({
   }).strict(),
   /**
    * Outside the cars (sneaking PR 2): end platforms, the coupling between them and side ledges.
-   * Platform and gap sizes are whole tiles, since cars are grids of one-tile cells; the ledge can
-   * be a fraction of a tile (it is walked on one row of cells, narrowed to its width).
+   * Sizes may be fractions of a tile: the grid gives each a whole number of cells and cuts the
+   * outermost short, so the train's spacing in the world is exact.
    */
   outside: z.object({
     /** Side ledges are walkable (off: they are still drawn, but blocked). */
     ledges: z.boolean(),
     /** Depth of the platform at each end of every car; with the coupling gap this spaces the cars apart. */
-    platformDepthTiles: z.number().int().min(0),
+    platformDepthTiles: z.number().min(0).max(8),
     /** Open gap between two cars' platforms, crossed on the coupling plate. */
-    couplingGapTiles: z.number().int().min(0),
+    couplingGapTiles: z.number().min(0).max(8),
     /** Width of the coupling plate across the gap, centred on the car (end doors are rows 2-4 of 7). */
     gangwayWidthTiles: z.number().int().min(0),
-    /** Width of the ledge outside each long wall. Under 0.3 (a walker's radius) nobody fits on it. */
+    /** Width of the ledge outside each long wall (any width over 0: on a ledge you press flat against the wall). */
     ledgeWidthTiles: z.number().min(0).max(4),
     /** Open doorways (end and side doors) do not block sight, so a guard sees out onto a platform or the ledge by a door, and through the end doors along the train. */
     seeThroughDoorways: z.boolean(),
@@ -334,8 +334,8 @@ export const GameSchema = z.object({
     /** How far footsteps carry on a platform and on a ledge, as a multiple (floor is 1). */
     platformNoise: z.number().min(0),
     ledgeNoise: z.number().min(0),
-    /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on. */
-    scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean() }).strict(),
+    /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
+    scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({

@@ -19,9 +19,9 @@
     "thrownOffLootShare": 0.5
   },
   "outside": {
-    "ledges": true, "platformDepthTiles": 1, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.5, "seeThroughDoorways": true,
+    "ledges": true, "platformDepthTiles": 1, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.33, "seeThroughDoorways": true,
     "platformSpeedTilesPerSec": 4, "ledgeSpeedTilesPerSec": 1.2, "platformNoise": 1, "ledgeNoise": 0,
-    "scrape": { "glanceTiles": 0.3, "knockOff": true }
+    "scrape": { "glanceTiles": 0.3, "knockOff": true, "closeDoors": false }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
   "boarding": {

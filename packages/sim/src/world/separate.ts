@@ -51,12 +51,16 @@ export function trainCellWalkable(config: SimConfig, cars: readonly string[], ca
 
 /**
  * True when a walker (WALKER_RADIUS round) fits at train point (lx, y): its edges on open cells
- * and its middle where one can stand, so on a ledge narrower than a tile it hugs the wall.
+ * and its middle where one can stand. On a ledge the walker presses flat against the wall: across
+ * the car it takes at most half the ledge's width, so a ledge of any width can be walked.
  */
 export function walkerFits(g: TrainGrid, lx: number, y: number): boolean {
+  const i = gridCell(g, lx, y);
+  if (i < 0 || g.blocksMove[i] !== 0 || y < g.yMin[i]! || y >= g.yMax[i]!) return false;
   const r = WALKER_RADIUS;
-  return gridWalkable(g, lx, y) && gridCellOpen(g, lx - r, y - r) && gridCellOpen(g, lx + r, y - r)
-    && gridCellOpen(g, lx - r, y + r) && gridCellOpen(g, lx + r, y + r);
+  const ry = g.space[i] === Space.Ledge ? Math.min(r, g.ledgeWidth / 2) : r;
+  return gridCellOpen(g, lx - r, y - ry) && gridCellOpen(g, lx + r, y - ry)
+    && gridCellOpen(g, lx - r, y + ry) && gridCellOpen(g, lx + r, y + ry);
 }
 
 /** `walkerFits` in car `car`'s frame of a train made of `cars`. */

@@ -549,7 +549,7 @@ export interface SimConfig {
       ledgeSpeedTilesPerTick: number;
       platformNoise: number;
       ledgeNoise: number;
-      scrape: { glanceTiles: number; knockOff: boolean };
+      scrape: { glanceTiles: number; knockOff: boolean; closeDoors: boolean };
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };

@@ -80,7 +80,7 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 /** Outside values that leave the cars end to end with no ledges (the layout before sneaking PR 2). */
 export const NO_OUTSIDE: Values['outside'] = {
   ledges: false, platformDepthTiles: 0, couplingGapTiles: 0, gangwayWidthTiles: 0, ledgeWidthTiles: 0, seeThroughDoorways: false,
-  platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true },
+  platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
 };
 /** The shipped outside values: one-tile platforms and gap, a three-tile coupling plate, half-tile ledges and open doorways. */
 export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true };

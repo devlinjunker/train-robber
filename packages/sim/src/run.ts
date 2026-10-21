@@ -495,7 +495,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null): voi
   }
   setPhase(ctx, p.id, 'boarding');
   // The train shuts its doors behind you: cash out (F) or switch to another train.
-  if (config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
+  // A fall off a ledge leaves them open unless `outside.scrape.closeDoors` (Devlin, 2026-10-21).
+  if (guard === null ? config.values.outside.scrape.closeDoors : config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
     rp.health = Math.max(0, rp.health - amount);

@@ -2,7 +2,7 @@
 // following you outside, and trackside rocks scraping or knocking you off a ledge.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, carFrame, createSim, fromTrain, gridCellOpen, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
+  canSee, carFrame, createSim, doorsClosed, fromTrain, gridCellOpen, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent, type SimMap,
 } from '../src';
 import { asciiCar, OUTSIDE, stadium, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap, type Paint } from './fixtures';
@@ -106,6 +106,40 @@ describe('the train grid outside the cars', () => {
   });
 });
 
+describe('fractional platforms and gaps', () => {
+  const cfg = outsideConfig({ outside: { platformDepthTiles: 0.5, couplingGapTiles: 0.5 } });
+  const g = trainGrid(cfg, ['engine', 'ledge-car']);
+
+  it('cuts the outer column short, so the grid spaces the cars as the world does', () => {
+    expect({ offsets: g.offsets, starts: g.starts, cols: g.cols, unitCols: g.unitCols }).toEqual({ offsets: [0.5, 18], starts: [0, 17.5], cols: 37, unitCols: false });
+    expect(spaceAt(g, toTrain(g, 0, 16.4), 2.5)).toBe(Space.Platform);
+    expect(spaceAt(g, toTrain(g, 0, 16.7), 2.5)).toBe(Space.Coupling);
+    expect(spaceAt(g, toTrain(g, 1, -0.2), 2.5)).toBe(Space.Platform);
+    expect(spaceAt(g, toTrain(g, 1, 0.2), 2.5)).toBe(Space.Inside);
+    expect(spaceAt(g, toTrain(g, 1, 16.4), 2.5)).toBe(Space.Platform);
+    expect(spaceAt(g, toTrain(g, 1, 16.6), 2.5)).toBe(Space.None);
+    const cars = placeCars('t', ['engine', 'ledge-car'], stadium(), 100, carCatalog(cfg), [], 1.5);
+    expect((cars[0]!.x - cars[0]!.halfLength) - (cars[1]!.x + cars[1]!.halfLength)).toBe(1.5);
+  });
+
+  it('walks out of the front door, over the coupling and onto the next platform without a jump in the world', () => {
+    const sim = standing(cfg, 0.6, 2.9);
+    const trainId = S(sim).world.trains[0]!.id;
+    let prev = sim.world.toWorld(S(sim), player(sim).placement), worst = 0;
+    for (let t = 0; t < 120; t++) {
+      step(sim, { type: 'move', x: 127, y: 0 });
+      // In the train's own frame: what the train moved this tick is taken out.
+      const at = sim.world.toWorld(S(sim), player(sim).placement);
+      const dTrain = 9 / 60;
+      worst = Math.max(worst, Math.abs(Math.hypot(at.x - prev.x, at.y - prev.y) - dTrain));
+      prev = at;
+    }
+    expect(player(sim).placement.frame).toBe(carFrame(trainId, 0));
+    expect(player(sim).placement.x).toBeGreaterThan(16);
+    expect(worst).toBeLessThan(8 / 60 + 1e-6);
+  });
+});
+
 describe('cars spaced apart', () => {
   it('places each car body platform + gap + platform behind the one in front', () => {
     const cfg = outsideConfig();
@@ -131,6 +165,16 @@ describe('walking outside', () => {
     const x0 = player(sim).placement.x;
     steps(sim, 60, { type: 'move', x: 127, y: 0 });
     // A second at 1.2 tiles/s toward the front (x falls), even though that is a run.
+    expect(x0 - player(sim).placement.x).toBeCloseTo(1.2, 6);
+  });
+
+  it('lets you onto a ledge of any width, pressed flat against the wall', () => {
+    const sim = standing(outsideConfig({ guards: 0, outside: { ledgeWidthTiles: 0.1 } }), 7.5, 0.5);
+    steps(sim, 90, { type: 'move', x: 0, y: -127 });
+    expect(player(sim).placement.y).toBeLessThan(-0.04);
+    expect(player(sim).placement.y).toBeGreaterThanOrEqual(-0.1);
+    const x0 = player(sim).placement.x;
+    steps(sim, 60, { type: 'move', x: 127, y: 0 });
     expect(x0 - player(sim).placement.x).toBeCloseTo(1.2, 6);
   });
 
@@ -248,8 +292,17 @@ describe('trackside rocks', () => {
     expect(player(sim).placement.frame).not.toBe('world');
   });
 
+  it('leaves the train\'s doors open after a fall, unless scrape.closeDoors', () => {
+    const open = standing(outsideConfig({ guards: 0 }), 5.5, -0.5, offsetMap(rocks(27)));
+    expect(ofType(steps(open, 60), 'FellOff')).toHaveLength(1);
+    expect(doorsClosed(S(open), S(open).world.trains[0]!)).toBe(false);
+    const shut = standing(outsideConfig({ guards: 0, outside: { scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: true } } }), 5.5, -0.5, offsetMap(rocks(27)));
+    expect(ofType(steps(shut, 60), 'FellOff')).toHaveLength(1);
+    expect(doorsClosed(S(shut), S(shut).world.trains[0]!)).toBe(true);
+  });
+
   it('with scrape.knockOff off, a rock under you scrapes instead', () => {
-    const sim = standing(outsideConfig({ guards: 0, outside: { scrape: { glanceTiles: 0.3, knockOff: false } } }), 5.5, -0.5, offsetMap(rocks(27)));
+    const sim = standing(outsideConfig({ guards: 0, outside: { scrape: { glanceTiles: 0.3, knockOff: false, closeDoors: false } } }), 5.5, -0.5, offsetMap(rocks(27)));
     const ev = steps(sim, 60);
     expect(ofType(ev, 'FellOff')).toEqual([]);
     expect(ofType(ev, 'DamageDealt').map((e) => e.cause)).toEqual(['collision']);

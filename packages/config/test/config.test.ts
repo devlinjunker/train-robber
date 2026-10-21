@@ -32,8 +32,8 @@ const base = {
   },
   world: { mode: 'separate' },
   outside: {
-    ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true,
-    platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true },
+    ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
+    platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
