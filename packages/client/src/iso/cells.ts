@@ -85,3 +85,103 @@ export function cullSorted(chunks: readonly Chunk[], view: TileBox, container: C
     else if (!on && c.g.parent) container.removeChild(c.g);
   }
 }
+
+/**
+ * Maps with more tiles than this build their static drawing in regions as they come into view and
+ * drop them once far away (G3: a 4,000-tile open line built whole took about 5 GB). Smaller maps,
+ * every hand-made one included, build everything at load in one region, as before.
+ */
+export const LAZY_AREA_TILES = 800 * 400;
+/** Side of a lazily built region, in tiles: a multiple of the 24-tile cells and 2-tile boulder cells. */
+export const REGION_TILES = 48;
+
+/** The edge of a region in tiles for a map this size: REGION_TILES on a big map, else the whole map. */
+export function regionSize(map: { size: { cols: number; rows: number } }): number {
+  const { cols, rows } = map.size;
+  return cols * rows > LAZY_AREA_TILES ? REGION_TILES : Math.max(cols, rows);
+}
+
+/** A piece of a layer that is built when it comes near the view: `box` is the tiles its drawing can reach. */
+export interface LazyUnit { box: TileBox; build(): Chunk[] }
+
+/** A deadline (performance.now() ms) shared by every layer's building in one frame. */
+export interface BuildBudget { until: number }
+
+const overlaps = (a: TileBox, b: TileBox) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
+const grow = (b: TileBox, m: number): TileBox => ({ x0: b.x0 - m, y0: b.y0 - m, x1: b.x1 + m, y1: b.y1 + m });
+
+/**
+ * Units of drawing built on demand: those overlapping the view are built at once, those within
+ * `prefetch` tiles of it while the frame's budget lasts (nearest first), and built ones further
+ * than `drop` tiles away are destroyed. `onBuild` and `onDrop` hear about chunks coming and going.
+ */
+export class LazyChunks {
+  private readonly built = new Map<LazyUnit, Chunk[]>();
+  private list: Chunk[] = [];
+  constructor(
+    private readonly units: readonly LazyUnit[],
+    private readonly hooks: { onBuild?(chunks: Chunk[]): void; onDrop?(chunks: Chunk[]): void } = {},
+    private readonly prefetch = 24,
+    private readonly drop = 72,
+  ) {}
+
+  /** Every chunk built so far. */
+  get chunks(): readonly Chunk[] { return this.list; }
+
+  /** Build every unit now (small maps, and tests). */
+  buildAll(): this {
+    for (const u of this.units) if (!this.built.has(u)) this.add(u);
+    return this;
+  }
+
+  /** Build and drop for this view; true while units near it are still waiting for budget. */
+  update(view: TileBox, budget: BuildBudget = { until: Infinity }): boolean {
+    let changed = false;
+    for (const [u, chunks] of this.built) {
+      if (overlaps(u.box, grow(view, this.drop))) continue;
+      this.built.delete(u);
+      this.hooks.onDrop?.(chunks);
+      for (const c of chunks) { c.g.parent?.removeChild(c.g); c.g.destroy({ context: true }); }
+      changed = true;
+    }
+    const near = grow(view, this.prefetch), cx = (view.x0 + view.x1) / 2, cy = (view.y0 + view.y1) / 2;
+    const todo = this.units.filter((u) => !this.built.has(u) && overlaps(u.box, near));
+    const dist = (u: LazyUnit) => Math.max(0, u.box.x0 - cx, cx - u.box.x1) + Math.max(0, u.box.y0 - cy, cy - u.box.y1);
+    todo.sort((a, b) => dist(a) - dist(b));
+    let waiting = false;
+    for (const u of todo) {
+      if (!overlaps(u.box, view) && performance.now() > budget.until) { waiting = true; continue; }
+      this.add(u, false);
+      changed = true;
+    }
+    if (changed) this.list = [...this.built.values()].flat();
+    return waiting;
+  }
+
+  private add(u: LazyUnit, refresh = true): void {
+    const chunks = u.build();
+    this.built.set(u, chunks);
+    this.hooks.onBuild?.(chunks);
+    if (refresh) this.list = [...this.built.values()].flat();
+  }
+}
+
+/** One unit per region of `size` tiles over the map, each reaching `reach` tiles past its region. */
+export function regionUnits(map: { size: { cols: number; rows: number } }, size: number, reach: number, build: (region: TileBox, index: number) => Chunk[]): LazyUnit[] {
+  const { cols, rows } = map.size, out: LazyUnit[] = [];
+  for (let y0 = 0, i = 0; y0 < rows; y0 += size) {
+    for (let x0 = 0; x0 < cols; x0 += size, i++) {
+      const region = { x0, y0, x1: Math.min(cols, x0 + size), y1: Math.min(rows, y0 + size) }, index = i;
+      out.push({ box: grow(region, reach), build: () => build(region, index) });
+    }
+  }
+  return out;
+}
+
+/** Whether world point (x, y) is in a region (half-open, so each point has one region). */
+export const inRegion = (r: TileBox, x: number, y: number) => x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
+
+/** Add the chunks' Graphics to a container (Pixi's addChild with no arguments throws). */
+export function addChunks(into: Container, chunks: readonly Chunk[]): void {
+  if (chunks.length) into.addChild(...chunks.map((c) => c.g));
+}

@@ -9,7 +9,7 @@ import type { Container } from 'pixi.js';
 import { decodeElevation, decodeZones, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
 import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
-import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { FOREST_FLOOR } from './scenery';
 import { isoX, isoY } from '../projection';
 
@@ -47,24 +47,29 @@ const SIDES4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 /** Corner heights of every tile, each the average of the tiles round the corner that `joins` the tile. */
 function cornerHeights(cols: number, rows: number, level: ArrayLike<number>, joins: (i: number, j: number) => boolean): Float32Array {
   const corner = new Float32Array(cols * rows * 4);
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const i = y * cols + x;
-      // Corners in order TL, TR, BR, BL; each is shared by the 2 × 2 tiles around it.
-      [[0, 0], [1, 0], [1, 1], [0, 1]].forEach(([cx, cy], k) => {
-        let sum = 0, n = 0;
-        for (const [dx, dy] of [[-1, -1], [0, -1], [-1, 0], [0, 0]] as const) {
-          const nx = x + cx! + dx, ny = y + cy! + dy;
-          if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-          const j = ny * cols + nx;
-          if (j !== i && !joins(i, j)) continue;
-          sum += level[j]!; n++;
-        }
-        corner[i * 4 + k] = (sum / n) * LEVEL_TILES;
-      });
-    }
-  }
+  for (let i = 0; i < cols * rows; i++) tileCorners(cols, rows, level, joins, i, corner, i * 4);
   return corner;
+}
+
+const CORNERS = [[0, 0], [1, 0], [1, 1], [0, 1]] as const;
+const AROUND = [[-1, -1], [0, -1], [-1, 0], [0, 0]] as const;
+
+/** One tile's corner heights into `out` at `o`: each corner is the average of the tiles round it that `joins` the tile. */
+function tileCorners(cols: number, rows: number, level: ArrayLike<number>, joins: (i: number, j: number) => boolean, i: number, out: Float32Array, o: number): void {
+  const x = i % cols, y = (i - x) / cols;
+  // Corners in order TL, TR, BR, BL; each is shared by the 2 x 2 tiles around it.
+  for (let k = 0; k < 4; k++) {
+    const [cx, cy] = CORNERS[k]!;
+    let sum = 0, n = 0;
+    for (const [dx, dy] of AROUND) {
+      const nx = x + cx + dx, ny = y + cy + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      const j = ny * cols + nx;
+      if (j !== i && !joins(i, j)) continue;
+      sum += level[j]!; n++;
+    }
+    out[o + k] = (sum / n) * LEVEL_TILES;
+  }
 }
 
 const bilinear = (c: ArrayLike<number>, o: number, fx: number, fy: number) =>
@@ -145,9 +150,10 @@ export function createHeightField(map: Pick<MapDef, 'size' | 'elevation'>): Heig
     smoothCorners(cols, rows, ground, corner);
     for (const { tiles } of found) {
       const k = plateaus.length;
-      const own = cornerHeights(cols, rows, level, (i, j) => owner[i] === k && owner[j] === k && Math.abs(level[j]! - level[i]!) <= 1);
+      // Only this plateau's own tiles: a whole-map pass per plateau grew with the square of the map's area.
+      const joins = (i: number, j: number) => owner[i] === k && owner[j] === k && Math.abs(level[j]! - level[i]!) <= 1;
       const top = new Float32Array(tiles.length * 4), index = new Map<number, number>();
-      tiles.forEach((i, n) => { index.set(i, n); top.set(own.subarray(i * 4, i * 4 + 4), n * 4); });
+      tiles.forEach((i, n) => { index.set(i, n); tileCorners(cols, rows, level, joins, i, top, n * 4); });
       plateaus.push({
         tiles,
         topZ(x, y) {
@@ -242,10 +248,10 @@ function smoothCorners(cols: number, rows: number, level: ArrayLike<number>, cor
 }
 
 export interface HeightLayer {
-  /** The sortable pieces. */
-  chunks: Chunk[];
-  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
-  cull(view: TileBox): void;
+  /** The sortable pieces built so far. */
+  readonly chunks: readonly Chunk[];
+  /** Build what has come near a box of world tiles, and put the pieces that overlap it into the sorted container; true while some still wait for budget. */
+  cull(view: TileBox, budget?: BuildBudget): boolean;
 }
 
 /**
@@ -253,73 +259,84 @@ export interface HeightLayer {
  * cliff faces toward the viewer where the next tile's edge is lower. A tile sorts by its back
  * corner (x + y), so it covers what stands behind it and is covered by what stands on or in front of it.
  * Pieces go into `objects` (the depth-sorted container) only while on screen. `forest` tiles
- * (scenery.ts forestTiles) take the forest floor colour, as they do on flat ground.
+ * (scenery.ts forestTiles) take the forest floor colour, as they do on flat ground. Built per
+ * region of `region` tiles as they come near the view (all at once with one region).
  */
-export function createHeightLayer(map: MapDef, field: HeightField, objects: Container, forest: ReadonlySet<number> = new Set()): HeightLayer {
-  if (!field.raised) return { chunks: [], cull() {} };
+export function createHeightLayer(map: MapDef, field: HeightField, objects: Container, forest: ReadonlySet<number> = new Set(), region = Math.max(map.size.cols, map.size.rows), hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}): HeightLayer {
+  if (!field.raised) return { chunks: [], cull: () => false };
   const { cols, rows } = map.size;
   const zones = decodeZones(map);
-  const cells = new SortedCells('ground', 32);
   // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot.
-  const scree = new Float32Array(cols * rows);
-  for (let i = 0; i < cols * rows; i++) {
-    const x = i % cols, y = (i - x) / cols;
-    if (field.plateauOf(x, y) >= 0) { scree[i] = 1; continue; }
+  const scree = (x: number, y: number) => {
+    if (field.plateauOf(x, y) >= 0) return 1;
     let d = Infinity;
     for (let dy = -SCREE_TILES; dy <= SCREE_TILES; dy++) for (let dx = -SCREE_TILES; dx <= SCREE_TILES; dx++) {
       if (field.plateauOf(x + dx, y + dy) >= 0) d = Math.min(d, Math.hypot(dx, dy));
     }
-    scree[i] = Math.max(0, 1 - (d - 1) / SCREE_TILES);
-  }
+    return Math.max(0, 1 - (d - 1) / SCREE_TILES);
+  };
   const hidden = (x: number, y: number) => {
     const k = field.plateauOf(x, y);
     if (k < 0) return false;
     for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (field.plateauOf(x + dx, y + dy) !== k) return false;
     return true;
   };
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      const [tl, tr, br, bl] = field.corners(x, y);
-      if (tl + tr + br + bl === 0 || hidden(x, y)) continue;
-      const g = cells.at(x + y - 0.01, x + 0.5, y + 0.5, Math.max(tl, tr, br, bl));
-      const zone = map.zoneLegend[zones[y * cols + x]!]!;
-      const t = scree[y * cols + x]! * (0.75 + 0.25 * hash(x * 3, y * 5));
-      const woods = forest.has(y * cols + x);
-      const base = woods ? FOREST_FLOOR : mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
-      // Slopes rising toward +x or +y face the light (from up the screen) and are brighter.
-      const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
-      const wet = zone === 'water' || zone === 'deep';
-      const k = wet ? 1 : Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
-      g.poly([...isoPoly([[x, y]], tl), ...isoPoly([[x + 1, y]], tr), ...isoPoly([[x + 1, y + 1]], br), ...isoPoly([[x, y + 1]], bl)]).fill(shade(base, k));
-      // Sand spots and mud puddles, as on flat ground, at the height of the slope under them.
-      const spot = zone === 'open' ? sandSpot(x, y) : null;
-      if (spot) g.poly(spotPoly(spot, field.groundZ(spot.x, spot.y))).fill(mix(SPOT_COLOURS[spot.k]!, SCREE_COLOUR, t * 0.6));
-      const puddle = zone === 'slow' ? mudPuddle(x, y) : null;
-      if (puddle) {
-        const z = field.groundZ(puddle.x, puddle.y);
-        g.poly(spotPoly({ x: puddle.x, y: puddle.y, r: puddle.s * 1.4 }, z)).fill(shade(MUD_COLOUR, 0.8 * k));
-        if (puddle.glint) oval(g, isoX(puddle.x, puddle.y) - puddle.s * 8, isoY(puddle.x, puddle.y, z) - puddle.s * 3, puddle.s * 9, puddle.s * 2.5).fill({ color: 0xffffff, alpha: 0.18 });
-      }
-      // Cliff faces on the +x edge (TR to BR) and the +y edge (BR to BL), down to the neighbour's edge.
-      const faces: [number, number, number, number, number, number, number, number, number, number][] = [];
-      const [ntl, , , nbl] = field.corners(x + 1, y);
-      faces.push([x + 1, y, x + 1, y + 1, tr, br, x + 1 < cols ? ntl : 0, x + 1 < cols ? nbl : 0, 1, 0]);
-      const [ntl2, ntr2] = field.corners(x, y + 1);
-      faces.push([x + 1, y + 1, x, y + 1, br, bl, y + 1 < rows ? ntr2 : 0, y + 1 < rows ? ntl2 : 0, 0, 1]);
-      for (const [ax, ay, ex, ey, za, ze, la, le, nx, ny] of faces) {
-        if (za - la < 0.05 && ze - le < 0.05) continue;
-        if (!facesViewer(nx, ny)) continue;
-        const kf = 0.72 + 0.16 * (ny - nx);
-        g.poly([...isoPoly([[ax, ay]], la), ...isoPoly([[ex, ey]], le), ...isoPoly([[ex, ey]], ze), ...isoPoly([[ax, ay]], za)]).fill(shade(CLIFF_COLOUR, kf));
-        // Strata: a darker line across the face every level.
-        for (let z = LEVEL_TILES; z < Math.max(za, ze) - 0.05; z += LEVEL_TILES) {
-          if (z <= Math.min(la, le)) continue;
-          g.moveTo(...(isoPoly([[ax, ay]], Math.min(z, za)) as [number, number])).lineTo(...(isoPoly([[ex, ey]], Math.min(z, ze)) as [number, number]));
+  const build = (r: TileBox): Chunk[] => {
+    const cells = new SortedCells('ground', 32);
+    for (let y = r.y0; y < r.y1; y++) {
+      for (let x = r.x0; x < r.x1; x++) {
+        const [tl, tr, br, bl] = field.corners(x, y);
+        if (tl + tr + br + bl === 0 || hidden(x, y)) continue;
+        const g = cells.at(x + y - 0.01, x + 0.5, y + 0.5, Math.max(tl, tr, br, bl));
+        const zone = map.zoneLegend[zones[y * cols + x]!]!;
+        const t = scree(x, y) * (0.75 + 0.25 * hash(x * 3, y * 5));
+        const woods = forest.has(y * cols + x);
+        const base = woods ? FOREST_FLOOR : mix(SURFACE[zone] ?? GROUND, SCREE_COLOUR, zone === 'open' || zone === 'blocked' ? t : 0);
+        // Slopes rising toward +x or +y face the light (from up the screen) and are brighter.
+        const sx = (tr + br - tl - bl) / 2, sy = (bl + br - tl - tr) / 2;
+        const wet = zone === 'water' || zone === 'deep';
+        const k = wet ? 1 : Math.min(1.3, Math.max(0.65, 1 + 0.6 * (sx + sy))) * (1 + 0.025 * Math.max(tl, tr, br, bl));
+        g.poly([...isoPoly([[x, y]], tl), ...isoPoly([[x + 1, y]], tr), ...isoPoly([[x + 1, y + 1]], br), ...isoPoly([[x, y + 1]], bl)]).fill(shade(base, k));
+        // Sand spots and mud puddles, as on flat ground, at the height of the slope under them.
+        const spot = zone === 'open' ? sandSpot(x, y) : null;
+        if (spot) g.poly(spotPoly(spot, field.groundZ(spot.x, spot.y))).fill(mix(SPOT_COLOURS[spot.k]!, SCREE_COLOUR, t * 0.6));
+        const puddle = zone === 'slow' ? mudPuddle(x, y) : null;
+        if (puddle) {
+          const z = field.groundZ(puddle.x, puddle.y);
+          g.poly(spotPoly({ x: puddle.x, y: puddle.y, r: puddle.s * 1.4 }, z)).fill(shade(MUD_COLOUR, 0.8 * k));
+          if (puddle.glint) oval(g, isoX(puddle.x, puddle.y) - puddle.s * 8, isoY(puddle.x, puddle.y, z) - puddle.s * 3, puddle.s * 9, puddle.s * 2.5).fill({ color: 0xffffff, alpha: 0.18 });
         }
-        g.stroke({ width: 1.5, color: shade(CLIFF_COLOUR, kf * 0.75) });
+        // Cliff faces on the +x edge (TR to BR) and the +y edge (BR to BL), down to the neighbour's edge.
+        const faces: [number, number, number, number, number, number, number, number, number, number][] = [];
+        const [ntl, , , nbl] = field.corners(x + 1, y);
+        faces.push([x + 1, y, x + 1, y + 1, tr, br, x + 1 < cols ? ntl : 0, x + 1 < cols ? nbl : 0, 1, 0]);
+        const [ntl2, ntr2] = field.corners(x, y + 1);
+        faces.push([x + 1, y + 1, x, y + 1, br, bl, y + 1 < rows ? ntr2 : 0, y + 1 < rows ? ntl2 : 0, 0, 1]);
+        for (const [ax, ay, ex, ey, za, ze, la, le, nx, ny] of faces) {
+          if (za - la < 0.05 && ze - le < 0.05) continue;
+          if (!facesViewer(nx, ny)) continue;
+          const kf = 0.72 + 0.16 * (ny - nx);
+          g.poly([...isoPoly([[ax, ay]], la), ...isoPoly([[ex, ey]], le), ...isoPoly([[ex, ey]], ze), ...isoPoly([[ax, ay]], za)]).fill(shade(CLIFF_COLOUR, kf));
+          // Strata: a darker line across the face every level.
+          for (let z = LEVEL_TILES; z < Math.max(za, ze) - 0.05; z += LEVEL_TILES) {
+            if (z <= Math.min(la, le)) continue;
+            g.moveTo(...(isoPoly([[ax, ay]], Math.min(z, za)) as [number, number])).lineTo(...(isoPoly([[ex, ey]], Math.min(z, ze)) as [number, number]));
+          }
+          g.stroke({ width: 1.5, color: shade(CLIFF_COLOUR, kf * 0.75) });
+        }
       }
     }
-  }
-  const chunks = cells.chunks();
-  return { chunks, cull: (view) => cullSorted(chunks, view, objects) };
+    return cells.chunks();
+  };
+  // Raised ground stands at most a few levels high, which reaches that far up the screen.
+  const lazy = new LazyChunks(regionUnits(map, region, 12, build), hooks);
+  if (region >= Math.max(cols, rows)) lazy.buildAll();
+  return {
+    get chunks() { return lazy.chunks; },
+    cull(view, budget) {
+      const waiting = lazy.update(view, budget);
+      cullSorted(lazy.chunks, view, objects);
+      return waiting;
+    },
+  };
 }

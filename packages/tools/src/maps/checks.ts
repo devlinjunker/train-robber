@@ -1,5 +1,5 @@
-// Rules every playable map keeps, hand-made or generated: closed routes with no curve tighter
-// than the cars allow, rock and water off the cars, one side of every track open to ride beside,
+// Rules every playable map keeps, hand-made or generated: closed routes (or, on an open line,
+// open ones that run off the map at both ends) with no curve tighter than the cars allow, rock and water off the cars, one side of every track open to ride beside,
 // and a track the rider can reach from the spawn. Each check returns its problems (empty is a pass),
 // so the hand-made maps test and the generated maps test share them.
 import { decodeZones, ZONES, type MapDef, type SceneryDef } from '@train-robber/config';
@@ -30,14 +30,26 @@ export function minRadius(map: MapDef): number {
   return min;
 }
 
-/** Closed routes for every train, and no curve tighter than MIN_RADIUS_TILES. */
+/** True when (x, y) is on the map. */
+const onMap = (map: MapDef, x: number, y: number) => x >= 0 && y >= 0 && x < map.size.cols && y < map.size.rows;
+
+/**
+ * Closed routes for every train (open ones that start and end off the map on an open line), and
+ * no curve tighter than MIN_RADIUS_TILES.
+ */
 export function routeProblems(map: MapDef, minRadiusTiles = minRadius(map)): string[] {
   const out: string[] = [];
   const main = map.routes.find((r) => r.id === 'main');
+  const open = !!map.openLine;
   // Without a train list the mail train runs on main; with one, every train names a route.
-  if (!map.trains && !main?.closed) out.push('no closed main route');
+  if (!map.trains && (!main || main.closed === open)) out.push(`no ${open ? 'open' : 'closed'} main route`);
   for (const t of map.trains ?? []) if (!map.routes.some((r) => r.id === t.route)) out.push(`train ${t.type} names missing route ${t.route}`);
-  for (const r of map.routes) if (!r.closed) out.push(`route ${r.id} is not closed`);
+  for (const r of map.routes) {
+    if (r.closed === open) out.push(`route ${r.id} is ${open ? 'closed on an open line' : 'not closed'}`);
+    const { x, y } = r.samples, n = x.length;
+    // An open line's trains enter and leave off the map, so both ends lie beyond its edges.
+    if (open && (onMap(map, x[0]!, y[0]!) || onMap(map, x[n - 1]!, y[n - 1]!))) out.push(`route ${r.id} starts or ends on the map`);
+  }
   if (!(minRadiusTiles >= MIN_RADIUS_TILES)) out.push(`tightest curve ${minRadiusTiles.toFixed(1)} tiles, under ${MIN_RADIUS_TILES}`);
   return out;
 }
@@ -48,11 +60,14 @@ export function corridorProblems(map: MapDef, scenery: SceneryDef | null, limit 
   const { cols } = map.size;
   const grid = decodeZones(map);
   const zone = (x: number, y: number) => ZONES[grid[y * cols + x]!]!;
+  /** An open line's ends run off the map; only samples with their whole lane on it are checked. */
+  const inside = (x: number, y: number) => x >= 7 && y >= 7 && x < cols - 7 && y < map.size.rows - 7;
   for (const route of map.routes) {
     const { x: xs, y: ys, tx, ty } = route.samples;
     const at = (i: number, side: number, d: number) => zone(Math.floor(xs[i]! - ty[i]! * d * side), Math.floor(ys[i]! + tx[i]! * d * side));
     const onBridge = (i: number) => (scenery?.bridges ?? []).some((b) => xs[i]! >= b.x - 1 && xs[i]! <= b.x + b.w + 1 && ys[i]! >= b.y - 1 && ys[i]! <= b.y + b.h + 1);
     for (let i = 0; i < xs.length && out.length < limit; i++) {
+      if (!route.closed && !inside(xs[i]!, ys[i]!)) continue;
       for (let d = 0; d <= CAR_CLEAR_TILES; d += 0.25) {
         for (const side of [-1, 1]) {
           const z = at(i, side, d);
@@ -89,7 +104,7 @@ export function reachProblems(map: MapDef): string[] {
   const out: string[] = [];
   for (const route of map.routes) {
     const { x: xs, y: ys } = route.samples;
-    for (let i = 0; i < xs.length; i += 50) if (!seen[Math.floor(ys[i]!) * cols + Math.floor(xs[i]!)]) out.push(`${route.id}: sample ${i} unreachable from the spawn`);
+    for (let i = 0; i < xs.length; i += 50) if (onMap(map, xs[i]!, ys[i]!) && !seen[Math.floor(ys[i]!) * cols + Math.floor(xs[i]!)]) out.push(`${route.id}: sample ${i} unreachable from the spawn`);
   }
   return out;
 }

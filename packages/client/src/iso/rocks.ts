@@ -4,7 +4,7 @@
 // against the horse and cars. A strip runs along x + y = const, a horizontal band on screen, so
 // strips off the top or bottom of the screen are hidden each frame.
 import type { Container, Graphics } from 'pixi.js';
-import { cullSorted, SortedCells, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import { facesViewer, isoPoly, shade } from './draw';
 import { depthOf } from '../projection';
@@ -86,23 +86,44 @@ export function drawBoulder(g: Graphics, b: Boulder, z0 = 0): void {
 }
 
 export interface RockLayer {
-  /** The sortable pieces, for the see-through hole (iso/mesa.ts). */
-  chunks: Chunk[];
-  /** Put the pieces that overlap a box of world tiles into the sorted container, and take the rest out. */
-  cull(view: TileBox): void;
+  /** The sortable pieces built so far, for the see-through hole (iso/mesa.ts). */
+  readonly chunks: readonly Chunk[];
+  /** Build what has come near a box of world tiles, and put the pieces that overlap it into the sorted container; true while some still wait for budget. */
+  cull(view: TileBox, budget?: BuildBudget): boolean;
 }
 
-/** Boulders in pieces by depth and stretch across the screen; pieces go into `objects` only while on screen. */
-export function createRocks(map: MapDef, objects: Container, field?: HeightField, skip?: ReadonlySet<number>): RockLayer {
-  const cells = new SortedCells('rocks', 32, 2);
+/**
+ * Boulders in pieces by depth and stretch across the screen; pieces go into `objects` only while
+ * on screen. Built per region of `region` tiles as they come near the view (all at once with one
+ * region); `hooks` hear about pieces being built and dropped.
+ */
+export function createRocks(map: MapDef, objects: Container, field?: HeightField, skip?: ReadonlySet<number>, region = Math.max(map.size.cols, map.size.rows), hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}): RockLayer {
   const placed = placeBoulders(map, skip, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined);
   // Back to front, then left to right along a depth; neighbours share a depth, so their order barely shows.
   placed.sort((a, c) => Math.floor(depthOf(a.x, a.y)) - Math.floor(depthOf(c.x, c.y)) || a.x - a.y - (c.x - c.y));
+  // Each boulder by the region its centre is in, keeping the back-to-front order.
+  const across = Math.ceil(map.size.cols / region), down = Math.ceil(map.size.rows / region), byRegion = new Map<number, Boulder[]>();
   for (const b of placed) {
-    const z = field?.surfaceZ(b.x, b.y) ?? 0;
-    // A boulder covers the strip below its centre's floor depth up to its radius, so sort it by its centre.
-    drawBoulder(cells.at(Math.floor(depthOf(b.x, b.y)) + 0.5, b.x, b.y, z + b.h), b, z);
+    const k = Math.min(down - 1, Math.max(0, Math.floor(b.y / region))) * across + Math.min(across - 1, Math.max(0, Math.floor(b.x / region)));
+    const list = byRegion.get(k);
+    if (list) list.push(b); else byRegion.set(k, [b]);
   }
-  const chunks = cells.chunks();
-  return { chunks, cull: (view) => cullSorted(chunks, view, objects) };
+  const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, (_r, index) => {
+    const cells = new SortedCells('rocks', 32, 2);
+    for (const b of byRegion.get(index) ?? []) {
+      const z = field?.surfaceZ(b.x, b.y) ?? 0;
+      // A boulder covers the strip below its centre's floor depth up to its radius, so sort it by its centre.
+      drawBoulder(cells.at(Math.floor(depthOf(b.x, b.y)) + 0.5, b.x, b.y, z + b.h), b, z);
+    }
+    return cells.chunks();
+  }), hooks);
+  if (region >= Math.max(map.size.cols, map.size.rows)) lazy.buildAll();
+  return {
+    get chunks() { return lazy.chunks; },
+    cull(view, budget) {
+      const waiting = lazy.update(view, budget);
+      cullSorted(lazy.chunks, view, objects);
+      return waiting;
+    },
+  };
 }

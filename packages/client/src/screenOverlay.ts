@@ -1,5 +1,5 @@
 // Screen-space cues drawn over the world at a fixed size, whatever the zoom: the boarding meter
-// and speed readout above the horse, and edge arrows with distances to trains off screen.
+// and speed readout above the horse, and edge arrows with distances to trains and the next town.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
 import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
@@ -12,6 +12,18 @@ import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel,
 export const METER_W = 588, METER_H = 38;
 const METER_ABOVE = 96;
 const EDGE_MARGIN = 36;
+/** Edge arrows for at most this many trains besides the committed one and the switch candidate: as many as a hand-made map runs. */
+const MAX_ARROWS = 4;
+/** The town arrow's colour, the same sand as the town rings. */
+const TOWN_COLOUR = 0xe8d9a8;
+
+/** The next town along an open line: its screen position (the middle of its clearing) and how far it is. */
+export interface TownPointer {
+  name: string;
+  sx: number;
+  sy: number;
+  distanceTiles: number;
+}
 
 export interface MeterView {
   position: number;
@@ -55,6 +67,10 @@ export interface ScreenOverlayInput {
   toleranceTilesPerSec: number;
   showSpeed: boolean;
   trains: readonly TrainPointer[];
+  /** Edge arrows for at most this many trains besides the committed one and the switch candidate (default MAX_ARROWS). */
+  maxTrainArrows?: number;
+  /** The next town, pointed at off screen and labelled on screen, or null. */
+  town?: TownPointer | null;
   /** The player's screen position aboard (their head), or null while mounted. */
   player: { x: number; y: number } | null;
   /** The last landing and how long ago it was; the banner shows for LANDING_CUE_SEC. */
@@ -187,38 +203,64 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
       arrows.clear();
       let used = 0;
       const cx = input.width / 2, cy = input.height / 2;
-      for (const t of input.trains) {
-        const inside = t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height;
-        if (inside) continue;
-        const dx = t.sx - cx, dy = t.sy - cy;
+      // At most MAX_ARROWS (an open line runs many trains), nearest first; the committed train and the switch candidate always get one.
+      const off = input.trains.filter((t) => !(t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height));
+      const nearest = off.filter((t) => !t.committed && !t.candidate).sort((a, b) => a.distanceTiles - b.distanceTiles).slice(0, input.maxTrainArrows ?? MAX_ARROWS);
+      const label = (): Text => {
+        let l = labels[used];
+        if (!l) { l = new Text({ text: '', style: style(14) }); l.anchor.set(0.5); labels.push(l); root.addChild(l); }
+        l.visible = true;
+        l.style.fontSize = 14;
+        used++;
+        return l;
+      };
+      // An arrow on the screen edge toward (sx, sy), with its label just inside it.
+      const edgeArrow = (sx: number, sy: number, colour: number, text: string, textColour = colour, size = 1): void => {
+        const dx = sx - cx, dy = sy - cy;
         const k = Math.min((cx - EDGE_MARGIN) / Math.abs(dx || 1e-9), (cy - EDGE_MARGIN) / Math.abs(dy || 1e-9));
         const ax = cx + dx * k, ay = cy + dy * k;
-        const n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n;
-        const colour = t.committed ? COMMITTED_COLOUR : t.candidate ? SWITCH_CANDIDATE_COLOUR : 0xffffff;
+        const n = Math.hypot(dx, dy) || 1, ux = dx / n * size, uy = dy / n * size;
         arrows.poly([ax + ux * 18, ay + uy * 18, ax - uy * 12 - ux * 6, ay + ux * 12 - uy * 6, ax + uy * 12 - ux * 6, ay - ux * 12 - uy * 6])
           .fill(colour).stroke({ width: 2, color: 0x000000 });
-        let label = labels[used];
-        if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
-        label.visible = true;
-        label.text = `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t${t.shut ? `\n${t.shut.text}` : ''}`;
-        label.style.fill = t.shut ? SHUT_COLOUR : colour;
-        label.position.set(ax - ux * 34, ay - uy * 26);
-        keepOnScreen(label, input.width, input.height);
-        used++;
+        const l = label();
+        l.text = text;
+        l.style.fill = textColour;
+        l.style.fontSize = size > 1 ? 18 : 14;
+        l.position.set(ax - ux * 34, ay - uy * 26);
+        keepOnScreen(l, input.width, input.height);
+      };
+      for (const t of off) {
+        if (!t.committed && !t.candidate && !nearest.includes(t)) continue;
+        const colour = t.committed ? COMMITTED_COLOUR : t.candidate ? SWITCH_CANDIDATE_COLOUR : 0xffffff;
+        edgeArrow(t.sx, t.sy, colour, `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t${t.shut ? `\n${t.shut.text}` : ''}`, t.shut ? SHUT_COLOUR : colour);
+      }
+      // The next town: a bigger arrow off screen, a label over its clearing on screen. Its distance
+      // counts down as you ride toward it.
+      const town = input.town;
+      if (town) {
+        const text = `${town.name} ${town.distanceTiles.toFixed(0)}t`;
+        const inside = town.sx >= 0 && town.sx <= input.width && town.sy >= 0 && town.sy <= input.height;
+        if (inside) {
+          const l = label();
+          l.text = text;
+          l.style.fill = TOWN_COLOUR;
+          l.style.fontSize = 18;
+          l.position.set(town.sx, town.sy - 40);
+          keepOnScreen(l, input.width, input.height);
+        } else {
+          edgeArrow(town.sx, town.sy, TOWN_COLOUR, text, TOWN_COLOUR, 1.4);
+        }
       }
       // Above a shut train on screen: how long until its doors reopen.
       for (const t of input.trains) {
         if (!t.shut) continue;
         const inside = t.sx >= 0 && t.sx <= input.width && t.sy >= 0 && t.sy <= input.height;
         if (!inside) continue;
-        let label = labels[used];
-        if (!label) { label = new Text({ text: '', style: style(14) }); label.anchor.set(0.5); labels.push(label); root.addChild(label); }
-        label.visible = true;
-        label.text = t.shut.text;
-        label.style.fill = SHUT_COLOUR;
-        label.position.set(t.shut.x, t.shut.y);
-        keepOnScreen(label, input.width, input.height);
-        used++;
+        const l = label();
+        l.text = t.shut.text;
+        l.style.fill = SHUT_COLOUR;
+        l.position.set(t.shut.x, t.shut.y);
+        keepOnScreen(l, input.width, input.height);
       }
       for (let i = used; i < labels.length; i++) labels[i]!.visible = false;
     },

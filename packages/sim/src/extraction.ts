@@ -10,7 +10,7 @@ import { terrainAt, type WorldMap } from './world/map';
 import { laneTarget, mountCheck, playerSide } from './world/mount';
 import { avoids, cellCentre, cellOf, findPath, lineClear, pathGrid } from './world/path';
 import type { HorseIntent } from './world/riding';
-import { carPosesOf, routeOf, trainLengthOf, trainSpeed } from './world/trains';
+import { carPosesOf, onMapRange, routeOf, trainLengthOf, trainSpeed } from './world/trains';
 import { carSpacing } from './world/cars';
 import { trackAt } from './world/track';
 import { endRun, horseOf, reject, setPhase, type RunCtx } from './run';
@@ -67,7 +67,8 @@ export function horseStart(ctx: RunCtx, p: PlayerState, trainId: string, side: T
   for (const car of cars) { if (f && car.index < f.car) ahead += car.halfLength * 2 + carSpacing(config); }
   const playerD = train.d - ahead - (f ? p.placement.x : 0);
   const rearD = train.d - trainLengthOf(config, train);
-  const startD = Math.min(playerD - delaySec * closing, rearD - MIN_BEHIND_TILES);
+  // On an open line the horse never starts off the map, even when the train has only just come on.
+  const startD = Math.max(onMapRange(map, route).from, Math.min(playerD - delaySec * closing, rearD - MIN_BEHIND_TILES));
   const at = trackAt(route, startD);
   const last = cars[cars.length - 1]!;
   const off = (last.halfWidth + config.values.extraction.laneOffsetTiles) * (side === 'left' ? 1 : -1);

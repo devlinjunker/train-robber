@@ -52,10 +52,11 @@ describe('trackAt', () => {
     expect(pick(trackAt(rounded, 4)).ty).toBe(1);
   });
 
-  it('clamps an open route to its ends', () => {
+  it('carries an open route on straight past its ends', () => {
     const open: TrackRoute = { ...r, closed: false, length: 15 };
-    expect(pick(trackAt(open, -3))).toEqual({ x: 0, y: 0, tx: 1, ty: 0 });
-    expect(pick(trackAt(open, 99))).toEqual({ x: 0, y: 1, tx: 0, ty: -1 });
+    expect(pick(trackAt(open, -3))).toEqual({ x: -3, y: 0, tx: 1, ty: 0 });
+    expect(pick(trackAt(open, 99))).toEqual({ x: 0, y: -83, tx: 0, ty: -1 });
+    expect(trackAt(open, 99).d).toBe(15);
   });
 
   it('reuses the out object', () => {

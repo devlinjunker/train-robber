@@ -45,7 +45,11 @@ export function wrapDistance(route: Pick<TrackRoute, 'closed' | 'length'>, d: nu
   return w < 0 ? w + route.length : w + 0;
 }
 
-/** Position and unit tangent at distance `d` along the route. Writes into `out` when given. */
+/**
+ * Position and unit tangent at distance `d` along the route. Writes into `out` when given. On an
+ * open route a distance before 0 or past the end is extended straight along the end's tangent
+ * (`out.d` stays clamped).
+ */
 export function trackAt(route: TrackRoute, d: number, out: TrackPoint = { d: 0, x: 0, y: 0, tx: 1, ty: 0 }): TrackPoint {
   const { x, y, s, tx, ty } = route.samples;
   const n = s.length;
@@ -66,6 +70,12 @@ export function trackAt(route: TrackRoute, d: number, out: TrackPoint = { d: 0, 
   out.d = dist;
   out.x = x[i]! + (x[j]! - x[i]!) * u;
   out.y = y[i]! + (y[j]! - y[i]!) * u;
+  // An open line carries on straight past either end, so a train can enter from beyond its start
+  // and leave past its end with every car on a straight line.
+  if (!route.closed && d !== dist) {
+    out.x += tx[i]! * (d - dist);
+    out.y += ty[i]! * (d - dist);
+  }
   // An open route's last sample stores the tangent of the segment into it, so this holds there too.
   out.tx = tx[i]!;
   out.ty = ty[i]!;

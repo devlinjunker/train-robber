@@ -3,7 +3,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type SceneryKind } from '@train-robber/config';
 import { drawBox, groundEllipse, isoPoly, shade, oval } from './draw';
-import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
+import { addChunks, Cells, inRegion, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 
 /** Height of the ground under a world point, in tiles of z (iso/height.ts); flat maps use 0. */
@@ -66,17 +66,17 @@ export function forestTiles(map: MapDef, scenery: SceneryDef): Set<number> {
 }
 
 /**
- * The flat scenery: forest floor and bridge decks, drawn under the track. In cells and one piece
- * per bridge, so pieces off screen cull; the forest floor is one strip per run of forest tiles.
+ * The flat scenery in a region: forest floor and bridge decks, drawn under the track. In cells and
+ * one piece per bridge, so pieces off screen cull; the forest floor is one strip per run of forest tiles.
  */
-export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Chunk[] {
-  const { cols, rows } = map.size;
-  const forest = forestTiles(map, scenery), floor = new Cells(FLAT_CELL);
-  for (let y = 0; y < rows; y++) {
-    let x = 0;
-    while (x < cols) {
+function drawSceneryFlat(map: MapDef, scenery: SceneryDef, forest: ReadonlySet<number>, r: TileBox): Chunk[] {
+  const { cols } = map.size;
+  const floor = new Cells(FLAT_CELL);
+  for (let y = r.y0; y < r.y1; y++) {
+    let x = r.x0;
+    while (x < r.x1) {
       if (!forest.has(y * cols + x)) { x++; continue; }
-      const stop = Math.min(cols, (Math.floor(x / FLAT_CELL) + 1) * FLAT_CELL);
+      const stop = Math.min(r.x1, (Math.floor(x / FLAT_CELL) + 1) * FLAT_CELL);
       let end = x + 1;
       while (end < stop && forest.has(y * cols + end)) end++;
       floor.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
@@ -88,6 +88,7 @@ export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Chunk[] {
 
   // Bridges: a deck with planks across the way you cross, and a dark edge on the two sides.
   for (const b of scenery.bridges) {
+    if (!inRegion(r, b.x, b.y)) continue;
     const g = new Graphics();
     g.label = 'iso-bridge';
     const corners: [number, number][] = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
@@ -111,13 +112,11 @@ export function drawSceneryFlat(map: MapDef, scenery: SceneryDef): Chunk[] {
 }
 
 /**
- * Ground cover on flat ground: bushes are low mounds, flowers a few dots. In cells, so off-screen
- * cells cull. Cover on raised ground is drawn with the trees, at its height (drawTrees).
+ * Ground cover on flat ground (the `cover` items): bushes are low mounds, flowers a few dots. In
+ * cells, so off-screen cells cull. Cover on raised ground is drawn with the trees, at its height.
  */
-export function drawSceneryCover(scenery: SceneryDef, groundAt: GroundAt = flat): Chunk[] {
+function drawSceneryCover(scenery: SceneryDef, cover: readonly number[]): Chunk[] {
   const { kind, x, y, size } = scenery.items;
-  const cover: number[] = [];
-  for (let i = 0; i < kind.length; i++) if (!SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!) && groundAt(x[i]!, y[i]!) < RAISED_Z) cover.push(i);
   const cells = group(cover, x, y, (i) => Math.floor(y[i]! / COVER_CELL) * 100000 + Math.floor(x[i]! / COVER_CELL));
   return [...cells.values()].map(({ items, ...box }) => {
     const g = new Graphics();
@@ -163,36 +162,19 @@ function drawTree(g: Graphics, k: SceneryKind, x: number, y: number, s: number, 
 }
 
 /**
- * Trees grouped by diagonal band and by stretch across it, each group one Graphics with its zIndex
- * at the band's depth, to add to the depth-sorted objects container: the horse and the cars draw in
- * front of trees behind them and behind trees in front of them. Each stands on the ground under it,
- * so trees on a hill stand on its slope; bushes and flowers on a hill join them, since the hill
- * sorts with these pieces and would cover anything drawn under it.
+ * The `trees` items (trees, and cover on raised ground) grouped by diagonal band and by stretch
+ * across it, each group one Graphics with its zIndex at the band's depth, to add to the
+ * depth-sorted objects container: the horse and the cars draw in front of trees behind them and
+ * behind trees in front of them. Each stands on the ground under it, so trees on a hill stand on
+ * its slope. `lone` says which trees stand alone and are drawn bigger.
  */
-export function drawTrees(scenery: SceneryDef, groundAt: GroundAt = flat): Chunk[] {
+function drawTrees(scenery: SceneryDef, items: readonly number[], groundAt: GroundAt, lone: (i: number) => boolean): Chunk[] {
   const { kind, x, y, size } = scenery.items;
-  const trees: number[] = [];
   const solid = (i: number) => SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!);
-  for (let i = 0; i < kind.length; i++) if (solid(i) || groundAt(x[i]!, y[i]!) >= RAISED_Z) trees.push(i);
   // Back to front, so trees in one group overlap correctly.
-  trees.sort((a, b) => depthOf(x[a]!, y[a]!) - depthOf(x[b]!, y[b]!));
+  const trees = [...items].sort((a, b) => depthOf(x[a]!, y[a]!) - depthOf(x[b]!, y[b]!));
   const band = (i: number) => Math.floor(depthOf(x[i]!, y[i]!) / BAND_TILES);
   const groups = group(trees, x, y, (i) => band(i) * 100000 + Math.floor((x[i]! - y[i]! + 100000) / ACROSS_TILES));
-  // A tree with no other within LONE_TILES stands alone in open country: drawn bigger, so it reads
-  // as an obstacle before you hit it (Devlin, 2026-10-13: single trees were hard to see).
-  const near = new Map<number, number>();
-  const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
-  for (const i of trees) {
-    if (!solid(i)) continue;
-    const k = cellKey(Math.floor(x[i]! / LONE_TILES), Math.floor(y[i]! / LONE_TILES));
-    near.set(k, (near.get(k) ?? 0) + 1);
-  }
-  const lone = (i: number) => {
-    const cx = Math.floor(x[i]! / LONE_TILES), cy = Math.floor(y[i]! / LONE_TILES);
-    let n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += near.get(cellKey(cx + dx, cy + dy)) ?? 0;
-    return n === 1;
-  };
   return [...groups.values()].map(({ items, ...box }) => {
     const g = new Graphics();
     g.zIndex = (band(items[0]!) + 0.5) * BAND_TILES;
@@ -213,13 +195,14 @@ export function drawTrees(scenery: SceneryDef, groundAt: GroundAt = flat): Chunk
 export interface SceneryLayers {
   /** Forest floor and bridges, then bushes and flowers: goes under the track. */
   ground: Container;
-  /** The tree groups, sorted pieces for `objects`. */
-  trees: Graphics[];
+  /** The tree groups built so far, sorted pieces for `objects`. */
+  readonly trees: readonly Graphics[];
   /**
-   * Hide what is outside a box of world tiles. Tree groups on screen join the depth-sorted
-   * `objects` container and leave it when they go off screen, so it only sorts what is drawn.
+   * Build what has come near a box of world tiles and hide what is outside it. Tree groups on
+   * screen join the depth-sorted `objects` container and leave it when they go off screen, so it
+   * only sorts what is drawn. True while some near the view still wait for the frame's budget.
    */
-  cull(view: TileBox): void;
+  cull(view: TileBox, budget?: BuildBudget): boolean;
   /**
    * Fade the tree groups in front of a point (the horse, or the player aboard), at world (x, y)
    * and screen height z tiles, that cover it on screen; `dt` in seconds. Null fades nothing.
@@ -227,16 +210,64 @@ export interface SceneryLayers {
   fade(at: { x: number; y: number; z: number } | null, dt: number): void;
 }
 
-/** `groundAt`: the ground height under a point (HeightField.groundZ), so scenery on hills stands on them. */
-export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container, groundAt: GroundAt = flat): SceneryLayers {
+/**
+ * `groundAt`: the ground height under a point (HeightField.groundZ), so scenery on hills stands on
+ * them. Built per region of `region` tiles as it comes near the view (all at once with one region);
+ * `onTrees` hears about tree groups being built and dropped.
+ */
+export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container, groundAt: GroundAt = flat, region = Math.max(map.size.cols, map.size.rows), onTrees: { onBuild?(gs: Graphics[]): void; onDrop?(gs: Graphics[]): void } = {}): SceneryLayers {
   const ground = new Container();
   ground.label = 'iso-scenery-ground';
-  const cover = [...drawSceneryFlat(map, scenery), ...drawSceneryCover(scenery, groundAt)];
-  ground.addChild(...cover.map((c) => c.g));
-  const trees = drawTrees(scenery, groundAt).map((t) => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
+  const flatLayer = new Container(), coverLayer = new Container();
+  ground.addChild(flatLayer, coverLayer);
+  const { kind, x, y } = scenery.items;
+  const forest = forestTiles(map, scenery);
+  const solid = (i: number) => SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!);
+  // Each item, by region: low cover on flat ground, or with the trees.
+  const { cols, rows } = map.size;
+  const across = Math.ceil(cols / region), regionOf = (i: number) => Math.min(Math.ceil(rows / region) - 1, Math.max(0, Math.floor(y[i]! / region))) * across + Math.min(across - 1, Math.max(0, Math.floor(x[i]! / region)));
+  const coverIn = new Map<number, number[]>(), treesIn = new Map<number, number[]>();
+  for (let i = 0; i < kind.length; i++) {
+    const into = solid(i) || groundAt(x[i]!, y[i]!) >= RAISED_Z ? treesIn : coverIn, k = regionOf(i);
+    const list = into.get(k);
+    if (list) list.push(i); else into.set(k, [i]);
+  }
+  // A tree with no other within LONE_TILES stands alone in open country: drawn bigger, so it reads
+  // as an obstacle before you hit it (Devlin, 2026-10-13: single trees were hard to see).
+  const near = new Map<number, number>();
+  const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
+  for (let i = 0; i < kind.length; i++) {
+    if (!solid(i)) continue;
+    const k = cellKey(Math.floor(x[i]! / LONE_TILES), Math.floor(y[i]! / LONE_TILES));
+    near.set(k, (near.get(k) ?? 0) + 1);
+  }
+  const lone = (i: number) => {
+    const cx = Math.floor(x[i]! / LONE_TILES), cy = Math.floor(y[i]! / LONE_TILES);
+    let n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += near.get(cellKey(cx + dx, cy + dy)) ?? 0;
+    return n === 1;
+  };
+  type Tree = Chunk & { bounds: { x: number; y: number; width: number; height: number } };
+  let trees: Tree[] = [];
+  const isTree = new WeakSet<Chunk>();
+  const lazy = new LazyChunks(regionUnits(map, region, 12, (r, index) => {
+    const flatChunks = drawSceneryFlat(map, scenery, forest, r);
+    const coverChunks = drawSceneryCover(scenery, coverIn.get(index) ?? []);
+    addChunks(flatLayer, flatChunks);
+    addChunks(coverLayer, coverChunks);
+    const treeChunks = drawTrees(scenery, treesIn.get(index) ?? [], groundAt, lone).map((t): Tree => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
+    for (const t of treeChunks) isTree.add(t);
+    return [...flatChunks, ...coverChunks, ...treeChunks];
+  }), {
+    onBuild: (cs) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onBuild?.(t.map((c) => c.g)); },
+    onDrop: (cs) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onDrop?.(t.map((c) => c.g)); },
+  });
+  const refresh = () => { trees = lazy.chunks.filter((c): c is Tree => isTree.has(c)); };
+  if (region >= Math.max(cols, rows)) lazy.buildAll();
+  refresh();
   return {
     ground,
-    trees: trees.map((t) => t.g),
+    get trees() { return trees.map((t) => t.g); },
     fade(at, dt) {
       const px = at && isoX(at.x, at.y), py = at && isoY(at.x, at.y, at.z), depth = at && depthOf(at.x, at.y);
       const k = 1 - Math.exp(-FADE_RATE * dt);
@@ -249,13 +280,16 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
         if (t.g.alpha !== target) t.g.alpha = Math.abs(t.g.alpha - target) < 0.01 ? target : t.g.alpha + (target - t.g.alpha) * k;
       }
     },
-    cull(view) {
-      cullChunks(cover, view);
-      for (const t of trees) {
-        const on = t.x1 >= view.x0 && t.x0 <= view.x1 && t.y1 >= view.y0 && t.y0 <= view.y1;
-        if (on && !t.g.parent) objects.addChild(t.g);
-        else if (!on && t.g.parent) objects.removeChild(t.g);
+    cull(view, budget) {
+      const waiting = lazy.update(view, budget);
+      refresh();
+      for (const c of lazy.chunks) {
+        const on = c.x1 >= view.x0 && c.x0 <= view.x1 && c.y1 >= view.y0 && c.y0 <= view.y1;
+        if (!isTree.has(c)) { c.g.visible = on; continue; }
+        if (on && !c.g.parent) objects.addChild(c.g);
+        else if (!on && c.g.parent) objects.removeChild(c.g);
       }
+      return waiting;
     },
   };
 }

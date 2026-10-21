@@ -7,7 +7,8 @@ import { clockStep, clockText, drainText, HEAT_BANDS, heatBand } from './clock';
 export type NoticeKind = 'bad' | 'good' | 'warn' | 'info';
 
 /** The run's clock: seconds left of the whole countdown, and how fast it drains now. */
-export interface ClockView { sec: number; total: number; rate: number }
+/** `to`: on an open line, the town the clock counts down to; it shows in place of the drain rate. */
+export interface ClockView { sec: number; total: number; rate: number; to?: string }
 
 export interface HudState {
   phase: string;
@@ -109,6 +110,7 @@ const CSS = `
 .tr-hud .clock-rate { font-size: 18px; font-weight: 800; min-width: 52px; color: #bbb; }
 .tr-hud .clock-rate.fast { color: #ffb02e; }
 .tr-hud .clock-rate.faster { color: #ff6b5e; }
+.tr-hud .clock-rate.town { color: #e8d9a8; font-size: 15px; white-space: nowrap; }
 .tr-hud .heat-row { display: flex; gap: 8px; align-items: center; font-size: 12px; }
 .tr-hud .heat-bar { position: relative; width: 240px; height: 10px; border: 1px solid #fff6; border-radius: 3px; overflow: hidden;
   background: linear-gradient(90deg, #2c3a2c 0 33.3%, #4a3a1c 33.3% 66.6%, #4a1f1c 66.6% 100%); }
@@ -209,8 +211,8 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         setClass(clock, `clock ${clockStep(share)}`);
         clockFill.style.width = `${share * 100}%`;
         set(clockTime, clockText(s.clock.sec));
-        set(clockRate, drainText(s.clock.rate));
-        setClass(clockRate, `clock-rate${s.clock.rate >= 1.5 ? ' faster' : s.clock.rate > 1.001 ? ' fast' : ''}`);
+        set(clockRate, s.clock.to ? `to ${s.clock.to}` : drainText(s.clock.rate));
+        setClass(clockRate, `clock-rate${s.clock.to ? ' town' : s.clock.rate >= 1.5 ? ' faster' : s.clock.rate > 1.001 ? ' fast' : ''}`);
         clockFill.style.setProperty('--tr-stripe-sec', `${(1 / s.clock.rate).toFixed(3)}s`);
       }
       heatRow.style.display = s.heat ? '' : 'none';
