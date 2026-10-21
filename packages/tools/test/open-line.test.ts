@@ -6,7 +6,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { resolveMapGen } from '@train-robber/config';
 import { generateLine, generateLineTrack, growLine, LINE_MAP_ID } from '@train-robber/mapgen';
-import { CONTENT_DIR, readJson } from '../src/content';
+import { countdownSystem, createSim, lineClock, LINE_CLOCK_MIN_SEC, routeOf, trainSpeed, type RunState } from '@train-robber/sim';
+import { CONTENT_DIR, loadConfig, readJson } from '../src/content';
 import { mapProblems, minRadius } from '../src/maps/checks';
 import { lineRunProblems, lineTrafficProblems } from '../src/maps/simChecks';
 
@@ -121,3 +122,41 @@ describe('open lines are deterministic', () => {
 });
 
 const PINNED = { map: 'd03c568032ad2abe', scenery: '6890c5bf797b9430' };
+
+describe('the line clock', () => {
+  const { map } = generateLine('line-clock', settings);
+  const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map' } });
+
+  it('counts down to the next town at least LINE_CLOCK_MIN_SEC ahead of the train, or the end of the line', () => {
+    const sim = createSim({ config, map, seed: 'line-clock', playerIds: [1] });
+    expect(sim.map.towns.length).toBeGreaterThan(0);
+    for (const train of sim.state.world.trains) {
+      const c = lineClock(sim.map, config, train)!;
+      const { route } = routeOf(sim.map, config, train);
+      const d = c.to === 'end' ? route.length : sim.map.towns.find((t) => t.id === c.to)!.d;
+      expect(c.sec).toBeCloseTo((d - train.d) / trainSpeed(config, train.type), 6);
+      if (c.to !== 'end') expect(c.sec).toBeGreaterThanOrEqual(LINE_CLOCK_MIN_SEC);
+      // No town between the train and the one it counts to, other than ones too close to count.
+      for (const t of sim.map.towns) if (t.d < d && t.d > train.d) expect((t.d - train.d) / trainSpeed(config, train.type)).toBeLessThan(LINE_CLOCK_MIN_SEC);
+    }
+  });
+
+  it('is off with countdown.lineClock fixed, and on loops', () => {
+    const fixed = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map' }, overrides: { countdown: { lineClock: 'fixed' } } });
+    const sim = createSim({ config: fixed, map, seed: 'line-clock', playerIds: [1] });
+    expect(lineClock(sim.map, fixed, sim.state.world.trains[0]!)).toBeNull();
+    const on = createSim({ config, map, seed: 'line-clock', playerIds: [1] });
+    expect(lineClock({ ...on.map, openLine: null }, config, on.state.world.trains[0]!)).toBeNull();
+  });
+
+  it('drains at one second a second whatever the heat', () => {
+    const run = { phase: 'aboard', clockRunning: true, countdownSec: 100, heat: 100, pendingHeat: 0, clockTo: 'town1' } as unknown as RunState;
+    const state = { run, tick: 0 } as never;
+    const tickRate = config.values.sim.tickRateHz;
+    for (let i = 0; i < tickRate; i++) countdownSystem({ state, config, emit: () => {} });
+    expect(run.countdownSec).toBeCloseTo(99, 6);
+    const hot = { ...run, countdownSec: 100, clockTo: undefined } as RunState;
+    for (let i = 0; i < tickRate; i++) countdownSystem({ state: { run: hot, tick: 0 } as never, config, emit: () => {} });
+    expect(hot.countdownSec).toBeLessThan(99);
+  });
+});

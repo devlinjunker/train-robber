@@ -138,6 +138,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // ?edgeArrows=town (default there), trains (every nearby train, the loop default) or both.
   const arrowsParam = params.get('edgeArrows');
   const towns = [...(opts.map.towns ?? [])].sort((a, b) => a.x - b.x);
+  /** A town's name on screen, numbered west to east; `end` is the end of the line. */
+  const placeName = (id: string) => id === 'end' ? 'END OF LINE' : `TOWN ${towns.findIndex((t) => t.id === id) + 1}`;
+  // What the line clock counted down to, kept past the run's end for the expiry message.
+  let lastClockTo: string | undefined;
   const edgeArrows: 'town' | 'trains' | 'both' = arrowsParam === 'town' || arrowsParam === 'trains' || arrowsParam === 'both' ? arrowsParam : towns.length ? 'town' : 'trains';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
@@ -294,7 +298,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm', audioCfg.volume); } else audio.play('heat', audioCfg.volume);
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
-      show(`${e.endOfLine ? 'The train reached the end of the line' : "Time's up"}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
+      const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
+      show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
       const c = config.values.cashOut;
@@ -579,7 +584,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const bucket = clockOn ? tickBucket(rs.countdownSec, audioCfg) : null;
       if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick', audioCfg.volume * audioCfg.tickVolume);
       lastTick = bucket;
-      const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
+      // The line clock (countdown.lineClock) runs to a town and heat does not speed it up.
+      const rate = rs && rs.clockTo === undefined ? drainRate(rs.heat, config.values.heat) : 1;
+      if (rs) lastClockTo = rs.clockTo;
       heatNotices = heatNotices.filter((n) => n.until > now);
 
       // Hoofbeats while the riderless horse is near and moving, louder as it closes; quieter
@@ -675,7 +682,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
-        clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate } : null,
+        clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,

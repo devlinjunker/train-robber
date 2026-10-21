@@ -263,6 +263,11 @@ export interface RunState {
   countdownTotalSec: number;
   /** False until the clock starts: at commit, or on boarding with `countdown.startsAt: boarding`. */
   clockRunning: boolean;
+  /**
+   * On an open line with `countdown.lineClock: town`: the town id (or `end`) the clock counts down
+   * to. The clock is then the train's time to reach it and heat does not speed it up.
+   */
+  clockTo?: string;
   /** Ticks expiry has waited in the grace window so far (U3), up to `countdown.graceTicks`. */
   graceTicks: number;
   /** 0 to `heat.maxHeat`; only raiseHeat changes it. */
@@ -324,6 +329,7 @@ export interface ResumeRun {
   countdownSec: number;
   countdownTotalSec: number;
   clockRunning: boolean;
+  clockTo?: string;
   graceTicks: number;
   heat: number;
   pendingHeat: number;
@@ -467,7 +473,7 @@ export interface SimConfig {
       /** How long a good mount stuns the horse. */
       goodMountStunTicks: number;
     };
-    countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number };
+    countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; lineClock?: 'town' | 'fixed' };
     heat: {
       maxHeat: number;
       heatDrainFactor: number;

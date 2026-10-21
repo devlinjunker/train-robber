@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
-import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
+import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import type { Impact } from './world/riding';
@@ -109,14 +109,16 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
   const train = state.world.trains.find((t) => t.id === id)!;
   const cd = config.values.countdown;
-  const countdownSec = runCountdownSec(config, train.type);
+  // On an open line the clock runs to the next town instead (countdown.lineClock).
+  const towards = lineClock(map, config, train);
+  const countdownSec = towards ? towards.sec : runCountdownSec(config, train.type);
   // Run generation: the train's layouts were picked for this run number; fill its loot slots,
   // then place its guards on the layouts' guard spawns.
   const loot = generateLoot(state, config, train);
   const guards = generateGuards(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
-    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
+    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0,
     heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
@@ -125,6 +127,8 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
     p.resumeRuns = p.resumeRuns.filter((r) => r !== resume);
     const { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat } = resume;
     Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat });
+    // The train kept going while you were off it: the line clock is where it is now.
+    if (resume.clockTo !== undefined) Object.assign(state.run, { clockTo: resume.clockTo, countdownSec: lineClockSec(map, config, train, resume.clockTo) });
     Object.assign(rp, { health: resume.health, meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
   }
   ctx.emit({
@@ -244,7 +248,7 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const rp = run.players[p.id];
   const resume: ResumeRun | null = inPlace && rp ? {
     trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
-    clockRunning: run.clockRunning, graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
+    clockRunning: run.clockRunning, ...(run.clockTo !== undefined ? { clockTo: run.clockTo } : {}), graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
     health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;
