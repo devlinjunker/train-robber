@@ -3,7 +3,7 @@
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
+import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
 import { Space, toTrain, trainGrid } from './world/guards';
@@ -17,6 +17,7 @@ import { WORLD_FRAME, parseCarFrame, playerSpace, trainCars, walkerFits, type Wo
 import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
+import { freshRoofState } from './world/roof';
 
 export interface RunCtx {
   state: GameState;
@@ -105,7 +106,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = {
     health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0,
-    carried: [], search: null, searchLatched: false, crouched: false,
+    carried: [], search: null, searchLatched: false, crouched: false, ...freshRoofState(),
   };
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
@@ -396,6 +397,7 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
     // A perfect landing stays in the doorway; a good one staggers in, into the open.
     if (result === 'good') stumbleIn(state, config, p, b.landing.goodStumbleInTiles);
     rp.crouched = false;
+    Object.assign(rp, freshRoofState());
     // The riderless horse runs off for `horse.runOffSec`, then leaves the world (U4).
     run.horse = { ...freshHorseCall(), state: 'leaving', ticks: config.values.horse.runOffTicks };
     // The mount meter starts parked with fresh zones at its own widths.
@@ -446,10 +448,11 @@ function clearOfRocks(map: WorldMap, x: number, y: number): boolean {
  * nearest, facing along the track at `boarding.failure.horseSpeedScale` of the train's speed, stunned
  * for `boarding.failure.stunSec` and losing `damageFraction` of max health. The run goes back to
  * `boarding` (the failed jump's stun), then `approach`; `ai.thrownOffLootShare` of the loot carried
- * goes over the side. With `guard` null it is a fall (a rock knocked them off a ledge, O4): the
- * same landing, with `FellOff` instead of `ThrownOff`, and the horse is put down clear of the rocks.
+ * goes over the side. With `guard` null it is a fall (`cause`: a rock knocked them off a ledge, O4, or
+ * a bad roof jump or a slip on a curve, sneaking PR 3): the same landing, with `FellOff` instead of
+ * `ThrownOff`, and the horse is put down clear of the rocks.
  */
-export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null): void {
+export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall: FallCause = 'rock'): void {
   const { state, map, config } = ctx;
   const run = state.run;
   const rp = run?.players[p.id];
@@ -483,7 +486,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null): voi
   rp.search = null;
   rp.stumbleTicks = 0;
   rp.crouched = false;
-  if (guard === null) ctx.emit({ type: 'FellOff', tick: state.tick, player: p.id, car: f.car, cause: 'rock' });
+  Object.assign(rp, freshRoofState());
+  if (guard === null) ctx.emit({ type: 'FellOff', tick: state.tick, player: p.id, car: f.car, cause: fall });
   else ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
   const cause = guard === null ? 'fell' as const : 'thrownOff' as const;
   // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).

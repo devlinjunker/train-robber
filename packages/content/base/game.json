@@ -21,7 +21,22 @@
   "outside": {
     "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,
     "platformSpeedTilesPerSec": 4, "ledgeSpeedTilesPerSec": 1.2, "platformNoise": 1, "ledgeNoiseRadiusTiles": 1.5,
-    "scrape": { "glanceTiles": 0.3, "knockOff": true, "closeDoors": false }
+    "scrape": { "glanceTiles": 0.3, "knockOff": true, "closeDoors": false },
+    "roof": {
+      "enabled": true,
+      "ladderEnds": "both",
+      "ladderRow": 1,
+      "ladderReachTiles": 1,
+      "climbSec": 1,
+      "speedTilesPerSec": 5,
+      "noise": { "walkRadiusTiles": 3, "runRadiusTiles": 6, "crouchRadiusTiles": 1.5, "landRadiusTiles": 6, "landSec": 0.25 },
+      "edgeSeenTiles": 1.5,
+      "crouchEdgeSeenTiles": 0.5,
+      "guardsClimb": true,
+      "dropStumbleSec": 0.6,
+      "jump": { "airSec": 0.5, "pushTiles": 0.75 },
+      "slip": { "enabled": true, "thresholdTilesPerSec2": 1.2, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1 }
+    }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
   "boarding": {

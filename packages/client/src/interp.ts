@@ -10,7 +10,8 @@ const CAR_FIELDS = 4; // x, y, ux, uy
 export interface ActorPose { x: number; y: number; hx: number; hy: number }
 
 /** A guard in its car's frame, as the view draws it. */
-export interface GuardPose { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness }
+/** `roof`: up on its car's roof; `climb`: how far up a ladder it is (0 at the foot, 1 at the top) while climbing, else null. */
+export interface GuardPose { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness; roof: boolean; climb: number | null }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -32,7 +33,7 @@ export class Interpolator {
   private pushes = 0;
 
   /** Record the state after a tick. Call once per tick, after `sim.step`. */
-  push(state: Readonly<GameState>, cars: readonly CarPose[]): void {
+  push(state: Readonly<GameState>, cars: readonly CarPose[], climbTicks = 60): void {
     [this.prevCars, this.currCars] = [this.currCars, this.prevCars];
     if (this.currCars.length !== cars.length * CAR_FIELDS) this.currCars = new Float64Array(cars.length * CAR_FIELDS);
     this.carsChanged = this.prevCars.length !== this.currCars.length
@@ -55,7 +56,12 @@ export class Interpolator {
 
     [this.prevGuards, this.currGuards] = [this.currGuards, this.prevGuards];
     this.currGuards.clear();
-    for (const g of state.run?.guards ?? []) this.currGuards.set(g.id, { id: g.id, car: g.car, x: g.x, y: g.y, fx: g.fx, fy: g.fy, state: g.state });
+    for (const g of state.run?.guards ?? []) {
+      // Up a ladder: the share of the climb done, counted from the foot.
+      const left = g.climb ? g.climb.ticks / Math.max(1, climbTicks) : 0;
+      const climb = g.climb ? (g.roof ? left : 1 - left) : null;
+      this.currGuards.set(g.id, { id: g.id, car: g.car, x: g.x, y: g.y, fx: g.fx, fy: g.fy, state: g.state, roof: g.roof, climb });
+    }
     this.pushes++;
   }
 
@@ -64,7 +70,7 @@ export class Interpolator {
     const out: GuardPose[] = [];
     for (const c of this.currGuards.values()) {
       const p = this.prevGuards.get(c.id);
-      if (!p || p.car !== c.car) { out.push(c); continue; }
+      if (!p || p.car !== c.car || p.roof !== c.roof) { out.push(c); continue; }
       let fx = lerp(p.fx, c.fx, t), fy = lerp(p.fy, c.fy, t);
       const n = Math.hypot(fx, fy);
       if (n > 1e-6) { fx /= n; fy /= n; } else { fx = c.fx; fy = c.fy; }

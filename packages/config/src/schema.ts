@@ -337,6 +337,39 @@ export const GameSchema = z.object({
     ledgeNoiseRadiusTiles: z.number().min(0),
     /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
     scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
+    /** Walking on the roofs (sneaking PR 3). */
+    roof: z.object({
+      /** Ladders and roofs are there to use (off: no ladders, so no one gets up). */
+      enabled: z.boolean(),
+      /** Which end platforms of every car have a ladder up. */
+      ladderEnds: z.enum(['both', 'front', 'rear']),
+      /** The row across the car the ladder stands at (0 is the left side; end doors are rows 2-4 of 7). */
+      ladderRow: z.number().int().min(0),
+      /** E climbs within this distance of a ladder's foot (on the platform) or its top (on the roof). */
+      ladderReachTiles: positive,
+      /** How long a climb up or down takes, for the player and for guards. */
+      climbSec: z.number().min(0),
+      /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
+      speedTilesPerSec: positive,
+      /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */
+      noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), landRadiusTiles: z.number().min(0), landSec: z.number().min(0) }).strict(),
+      /** A guard out on a platform, the coupling or a ledge sees you on a roof within this far of the edge over them (inside, never). */
+      edgeSeenTiles: z.number().min(0),
+      /** The same, crouched. */
+      crouchEdgeSeenTiles: z.number().min(0),
+      /** Guards who heard or saw you up there climb up after you (off: they stand below and look up). */
+      guardsClimb: z.boolean(),
+      /** A drop off a roof onto the platform or coupling (a short jump, or walking off the end) staggers you this long; it is loud, like the landing stumble. */
+      dropStumbleSec: z.number().min(0),
+      /** Space on a roof: you fly airSec at your speed, plus pushTiles; a running jump clears a gap only from near the edge. */
+      jump: z.object({ airSec: positive, pushTiles: z.number().min(0) }).strict(),
+      /**
+       * Slipping on curves: the curve's pull (train speed² x curvature) times your share of top roof
+       * speed at thresholdTilesPerSec2 or more starts a slip; you slide outward at slideTilesPerSec
+       * until you push the other way for leanSec; then no slip for cooldownSec.
+       */
+      slip: z.object({ enabled: z.boolean(), thresholdTilesPerSec2: z.number().min(0), slideTilesPerSec: z.number().min(0), leanSec: z.number().min(0), cooldownSec: z.number().min(0) }).strict(),
+    }).strict(),
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({

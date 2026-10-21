@@ -49,6 +49,8 @@ export interface ViewInput {
   playerFlash?: number | null;
   /** Crouching aboard: the player dot is drawn smaller. */
   crouched?: boolean;
+  /** Up on a roof: the player dot is drawn bigger, nearer the camera. */
+  onRoof?: boolean;
   /** Outlines on the committed train and the one Tab would switch to. */
   focus?: TrainFocus;
   /** The run's guards in the world, and their sight cones (debug), if shown. */
@@ -172,7 +174,7 @@ export function createWorldView(content: SceneContent): WorldView {
         horse.rotation = Math.atan2(input.horse.hy, input.horse.hx);
       }
       player.visible = input.aboard !== null;
-      if (input.aboard) { player.position.set(input.aboard.x, input.aboard.y); player.scale.set(input.crouched ? 0.7 : 1); }
+      if (input.aboard) { player.position.set(input.aboard.x, input.aboard.y); player.scale.set((input.crouched ? 0.7 : 1) * (input.onRoof ? 1.35 : 1)); }
     },
   };
 }

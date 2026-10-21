@@ -2,7 +2,7 @@
 // against the horse (cars in two-tile slices, boulders in strips), the mud cue, entry markers and
 // the debug overlays.
 import { Container, Graphics } from 'pixi.js';
-import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef } from '@train-robber/sim';
+import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef, type SimConfig } from '@train-robber/sim';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
@@ -20,7 +20,7 @@ import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { drawInterior, type InteriorLoot } from './interior';
-import { drawCarOutside, type OutsideDims } from './outside';
+import { drawCarOutside, drawLadder, type OutsideDims } from './outside';
 import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 
 const PERFECT_RING_SEC = 0.8;
@@ -43,7 +43,7 @@ const SHUT_DOOR_SHADE = 0.62, DOOR_BAR_COLOUR = 0x2a1d12;
 /** Slice length along a car, in tiles; each slice sorts on its own. */
 export const SLICE_TILES = 2;
 /** Car height in tiles, visual only: about 5 (Devlin, 2026-10-20), `?carHeight=` to try others. */
-const CAR_HEIGHT = urlNumber('carHeight', 5, 1);
+export const CAR_HEIGHT = urlNumber('carHeight', 5, 1);
 /** Side doors stay person-sized however tall the car is. */
 const DOOR_TOP = Math.min(CAR_HEIGHT - 0.4, 2.6);
 const PLAYER_COLOUR = 0x6bd3ff;
@@ -92,8 +92,16 @@ export interface WorldSceneInput {
   trainId: string | null;
   rangeTiles: number;
   timeSec: number;
-  /** The car the player is aboard, drawn open, and the player's world position in it. */
-  aboard: { trainId: string; index: number; x: number; y: number } | null;
+  /**
+   * The car the player is aboard, drawn open, and the player's world position in it. Up on its roof
+   * (`roof`) or on a ladder (`climb`, 0 at the foot to 1 at the top) the car stays closed and the
+   * player is drawn on it (sneaking PR 3).
+   */
+  aboard: { trainId: string; index: number; x: number; y: number; roof?: boolean; climb?: number | null } | null;
+  /** Slipping on a roof: the player leans and flashes. */
+  slipping?: boolean;
+  /** Running on a roof: where a jump now would come down (`roof` on a roof, `drop` short onto the platform or coupling, `fall` off the train). */
+  jumpCue?: { x: number; y: number; z: number; kind: 'roof' | 'drop' | 'fall' } | null;
   /** Roof outlines on the committed train and the one Tab would switch to. */
   focus: TrainFocus;
   /** The horse's speed in tiles per second, and whether it is in mud, for the mud cue. */
@@ -101,8 +109,8 @@ export interface WorldSceneInput {
   inMud: boolean;
   /** The horse is boosting: dust flies up behind it. */
   boosting?: boolean;
-  /** How far the player's footsteps carry aboard (a ring on the floor), or null when silent. */
-  noise?: { x: number; y: number; r: number; running: boolean } | null;
+  /** How far the player's footsteps carry aboard (a ring on the floor, or on the roof with `roof`), or null when silent. */
+  noise?: { x: number; y: number; r: number; running: boolean; roof?: boolean } | null;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
@@ -131,6 +139,8 @@ export interface SceneContent {
   boostDust?: number;
   /** Platforms, coupling and ledges round each car (outside.*); none when absent. */
   outside?: OutsideDims;
+  /** Ladders up to the roofs (outside.roof.*); none when absent or off. */
+  roof?: Pick<SimConfig['values']['outside']['roof'], 'enabled' | 'ladderEnds' | 'ladderRow'>;
 }
 
 export interface WorldScene {
@@ -211,10 +221,18 @@ export function doorSpans(content: SceneContent, template: string): { side: 'lef
 /** Standing height of the player, and crouched (about crate height, so cover reads). */
 const PLAYER_HEIGHT = 1.7, CROUCH_HEIGHT = 0.95;
 
-function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR, crouched = false): void {
+function drawPlayer(g: Graphics, p: { x: number; y: number }, colour = PLAYER_COLOUR, crouched = false, z = 0): void {
   const r = crouched ? WALKER_RADIUS * 1.15 : WALKER_RADIUS;
-  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: r, halfWidth: r, z0: 0, z1: crouched ? CROUCH_HEIGHT : PLAYER_HEIGHT }, colour);
+  drawBox(g, { x: p.x, y: p.y, ux: 1, uy: 0, halfLength: r, halfWidth: r, z0: z, z1: z + (crouched ? CROUCH_HEIGHT : PLAYER_HEIGHT) }, colour);
 }
+
+/**
+ * Up on a roof (or a ladder's top half), a figure sorts after every slice of the car under it: well
+ * past the car's own depth, so the roof never paints over its feet.
+ */
+const ROOF_DEPTH_BIAS = 40;
+/** Height of a figure's feet: on a roof, or a share of the way up a ladder. */
+const figureZ = (roof: boolean | undefined, climb: number | null | undefined) => (climb != null ? climb * CAR_HEIGHT : roof ? CAR_HEIGHT : 0);
 
 /** A question mark in a round badge, in screen pixels centred on (x, y): an alert guard lost you and is searching. */
 export function drawQuestion(g: Graphics, x: number, y: number, colour: number, s = 1): void {
@@ -240,9 +258,10 @@ export function drawEar(g: Graphics, x: number, y: number, colour: number, s = 1
 
 /** A guard: a dark uniform turned the way it faces, a hat with a brim toward its face, and its shadow. */
 function drawGuard(g: Graphics, v: GuardView): void {
-  groundEllipse(g, v.x, v.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
-  drawBox(g, { x: v.x, y: v.y, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS * 0.9, z0: 0, z1: 1.6 }, GUARD_COLOUR);
-  drawBox(g, { x: v.x + v.fx * 0.12, y: v.y + v.fy * 0.12, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS + 0.06, halfWidth: WALKER_RADIUS * 0.85, z0: 1.6, z1: 1.75 }, GUARD_HAT_COLOUR);
+  const z = figureZ(v.roof, v.climb);
+  if (v.climb == null) groundEllipse(g, v.x, v.y, WALKER_RADIUS, z).fill({ color: 0x000000, alpha: 0.3 });
+  drawBox(g, { x: v.x, y: v.y, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS, halfWidth: WALKER_RADIUS * 0.9, z0: z, z1: z + 1.6 }, GUARD_COLOUR);
+  drawBox(g, { x: v.x + v.fx * 0.12, y: v.y + v.fy * 0.12, ux: v.fx, uy: v.fy, halfLength: WALKER_RADIUS + 0.06, halfWidth: WALKER_RADIUS * 0.85, z0: z + 1.6, z1: z + 1.75 }, GUARD_HAT_COLOUR);
 }
 
 /** The horse: a body box along its heading, a head, legs, and the rider on top. */
@@ -373,12 +392,17 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       }
       // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
       // behind them can still cover the ground around them, so the hole is cut through all of them.
-      const hidden = keep.some(([x, y]) => input.cars.some((car) => carHides(car, CAR_HEIGHT, x, y, HIDDEN_HEIGHTS)));
+      // Up on a roof or a ladder, the heights to keep in sight are lifted with the player.
+      const playerZ = input.aboard ? figureZ(input.aboard.roof, input.aboard.climb) : 0;
+      const keepHeights = playerZ > 0 ? HIDDEN_HEIGHTS.map((h) => h + playerZ) : HIDDEN_HEIGHTS;
+      // On a roof, your own train's cars are no taller than you stand, so only other trains can hide you.
+      const roofTrain = input.aboard?.roof ? input.aboard.trainId : null;
+      const hidden = keep.some(([x, y]) => input.cars.some((car) => car.trainId !== roofTrain && carHides(car, CAR_HEIGHT, x, y, keepHeights)));
       // Behind a mesa, the same round hole goes through the mesa (Devlin, PR #25 playtest).
-      const actorZ = input.aboard ? 0 : horseZ;
+      const actorZ = input.aboard ? playerZ : horseZ;
       const behindMesa = actor !== null && mesas.hides(keep.flatMap(([x, y]) => HIDDEN_HEIGHTS.map((z) => [isoX(x, y), isoY(x, y, actorZ + z)] as const)), depthOf(actor.x, actor.y));
       mesas.cut(behindMesa && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, actorZ + 1), r: CUTOUT_RADIUS * TILE_H } : null, actor ? depthOf(actor.x, actor.y) : 0);
-      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1), to: null } : null;
+      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1 + (input.aboard ? playerZ : 0)), to: null } : null;
       // On the far side of the run's train, the hole reaches the car so the ground between shows.
       const gap = input.horse && !input.aboard ? input.gap ?? null : null;
       const gapCar = gap ? input.cars.find((c) => c.trainId === gap.trainId && c.index === gap.index) : undefined;
@@ -402,8 +426,20 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
         // Platforms, ledges and the coupling to the next car of the same train.
         if (content.outside) drawCarOutside(floors, car, content.outside, input.cars[i + 1]?.trainId === car.trainId);
+        // Ladders up each end (sneaking PR 3), each sorting on its own so the car hides the far one.
+        const rc = content.roof;
+        if (rc?.enabled && (content.outside?.platformDepthTiles ?? 0) > 0) {
+          for (const end of ['front', 'rear'] as const) {
+            if (rc.ladderEnds !== 'both' && rc.ladderEnds !== end) continue;
+            const g = piece();
+            drawLadder(g, car, end, rc.ladderRow, CAR_HEIGHT);
+            const a = end === 'front' ? car.halfLength + 0.1 : -car.halfLength - 0.1;
+            g.zIndex = depthOf(car.x + car.ux * a, car.y + car.uy * a);
+          }
+        }
         // The car you are in is drawn open: no roof, its cells as low boxes and its loot, so you show inside it.
-        if (input.aboard?.trainId === car.trainId && input.aboard.index === car.index) {
+        // Up on its roof or on its ladder, it stays closed and you are drawn on it.
+        if (input.aboard?.trainId === car.trainId && input.aboard.index === car.index && !input.aboard.roof && input.aboard.climb == null) {
           drawInterior(floors, () => piece(), {
             car, template: carTemplate(content.catalog, car.template), cellTypes: content.cellTypes, items: content.items,
             loot: input.loot, searching: input.searching, inReach: input.inReach, timeSec: input.timeSec,
@@ -457,33 +493,36 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       playerG.visible = input.aboard !== null;
       if (input.aboard) {
         const p = input.aboard;
-        groundEllipse(playerG, p.x, p.y, WALKER_RADIUS).fill({ color: 0x000000, alpha: 0.3 });
+        if (input.aboard.climb == null) groundEllipse(playerG, p.x, p.y, WALKER_RADIUS, playerZ).fill({ color: 0x000000, alpha: 0.3 });
         if (input.perfectAge !== null && input.perfectAge < PERFECT_RING_SEC) {
           // A green ring bursting out from the feet.
           const t = input.perfectAge / PERFECT_RING_SEC;
           groundEllipse(playerG, p.x, p.y, 0.4 + t * 2.2, 0.05).stroke({ width: 4, color: PERFECT_COLOUR, alpha: 1 - t });
         }
-        // Stumbling: wobble side to side and flash amber.
-        const wobble = input.stumbling ? Math.sin(input.timeSec * 22) * 0.12 : 0;
-        const colour = input.stumbling && flashOn(input.timeSec) ? GOOD_COLOUR : PLAYER_COLOUR;
-        drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour, input.crouched ?? false);
-        playerG.zIndex = depthOf(p.x, p.y);
+        // Stumbling: wobble side to side and flash amber; slipping on a roof, wobble harder and flash red.
+        const shaky = input.stumbling || !!input.slipping;
+        const wobble = shaky ? Math.sin(input.timeSec * (input.slipping ? 30 : 22)) * (input.slipping ? 0.2 : 0.12) : 0;
+        const colour = input.slipping && flashOn(input.timeSec) ? HIT_COLOUR : input.stumbling && flashOn(input.timeSec) ? GOOD_COLOUR : PLAYER_COLOUR;
+        drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour, input.crouched ?? false, playerZ);
+        playerG.zIndex = depthOf(p.x, p.y) + (playerZ > CAR_HEIGHT / 2 ? ROOF_DEPTH_BIAS : 0);
       }
 
       // Guards in the open car, and their sight cones on the floor: faint so you can read where they look, stronger for debug.
-      for (const cone of input.cones ?? []) {
+      // Cones below on the floor; a roof guard's cone lies on the roofs, drawn over the cars further down.
+      const drawCone = (g: Graphics, cone: ConeView) => {
         const col = GUARD_STATE_COLOURS[cone.state];
         const fill = (cone.state === 'unaware' ? 0.14 : 0.26) * (cone.faint ? 0.5 : 1);
-        floors.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
-      }
-      // How far your footsteps carry: a guard inside the ring hears you.
+        g.poly(isoPoly(cone.points, cone.roof ? CAR_HEIGHT + 0.06 : 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
+      };
+      for (const cone of input.cones ?? []) if (!cone.roof) drawCone(floors, cone);
+      // How far your footsteps carry: a guard inside the ring hears you (on the roof, drawn on it further down).
       const n = input.noise;
-      if (n) groundEllipse(floors, n.x, n.y, n.r, 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
+      if (n && !n.roof) groundEllipse(floors, n.x, n.y, n.r, 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
       const guardsShown = input.guards ?? [];
       for (const v of guardsShown) {
         const g = piece();
         drawGuard(g, v);
-        g.zIndex = depthOf(v.x, v.y);
+        g.zIndex = depthOf(v.x, v.y) + (figureZ(v.roof, v.climb) > CAR_HEIGHT / 2 ? ROOF_DEPTH_BIAS : 0);
       }
 
       // The horse: a body box along its heading, a head, and the rider on top.
@@ -542,6 +581,15 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
+      // Up on the roofs: roof guards' cones, your footstep ring, and where a jump would come down.
+      for (const cone of input.cones ?? []) if (cone.roof) drawCone(markers, cone);
+      if (n?.roof) groundEllipse(markers, n.x, n.y, n.r, CAR_HEIGHT + 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
+      const jc = input.jumpCue;
+      if (jc) {
+        const col = jc.kind === 'roof' ? PERFECT_COLOUR : jc.kind === 'drop' ? GOOD_COLOUR : HIT_COLOUR;
+        groundEllipse(markers, jc.x, jc.y, 0.35, jc.z + 0.05).fill({ color: col, alpha: 0.35 }).stroke({ width: 2, color: col, alpha: 0.9 });
+      }
+
       // Guards you see through the doorways of a closed car: cone and figure over its roof.
       for (const cone of input.throughCones ?? []) {
         const col = GUARD_STATE_COLOURS[cone.state];
@@ -554,7 +602,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       for (const v of [...guardsShown, ...(input.throughGuards ?? [])]) {
         if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
-        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);
+        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3 + figureZ(v.roof, v.climb));
         if (v.heard && v.state !== 'alert') drawEar(markers, x, y, GUARD_STATE_COLOURS.suspicious);
         else if (v.searching) drawQuestion(markers, x, y, col);
         else if (v.state === 'alert') {
