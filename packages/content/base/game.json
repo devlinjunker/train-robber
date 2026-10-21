@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "sim": { "tickRateHz": 60 },
-  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "HorseBoosted"] },
+  "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "FellOff", "HorseBoosted"] },
   "player": { "speedTilesPerSec": 8, "crouch": { "speedScale": 0.25 } },
   "world": { "mode": "separate" },
   "horse": {
@@ -13,10 +13,15 @@
   "ai": {
     "guardCatch": "heat-only",
     "patrolSpeedTilesPerSec": 1.5, "patrolPauseSec": 1.5, "chaseSpeedTilesPerSec": 4, "turnRateDegPerSec": 240,
-    "sight": { "rangeTiles": 10, "coneHalfAngleDeg": 40, "crouchCoverMin": 0.25 },
-    "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3 },
+    "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 40, "crouchCoverMin": 0.25 },
+    "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3, "stumbleRadiusTiles": 5 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
-    "thrownOffLootShare": 0.5
+    "thrownOffLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
+  },
+  "outside": {
+    "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,
+    "platformSpeedTilesPerSec": 4, "ledgeSpeedTilesPerSec": 1.2, "platformNoise": 1, "ledgeNoiseRadiusTiles": 1.5,
+    "scrape": { "glanceTiles": 0.3, "knockOff": true, "closeDoors": false }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
   "boarding": {
@@ -24,7 +29,7 @@
     "speedToleranceTilesPerSec": 2,
     "meter": { "sweepPeriodSec": 1.3, "matchedSweepPeriodSec": 1.85, "zoneWidths": [0.03, 0.15] },
     "failure": { "stunSec": 1.5, "damageFraction": 0.15, "horseSpeedScale": 0.5 },
-    "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33 }
+    "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33, "goodStumbleInTiles": 2 }
   },
   "health": { "max": 100 },
   "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "cooldownSec": 1 },

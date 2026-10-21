@@ -33,7 +33,7 @@ describe('riding on alpha-flats', () => {
     expect(cars).toHaveLength(5);
     expect(cars[0]).toBe('engine');
     expect(cars[4]).toBe('caboose');
-    for (const id of cars.slice(1, 4)) expect(id).toMatch(/^mail-car-[abc]$/);
+    for (const id of cars.slice(1, 4)) expect(id).toMatch(/^mail-car-[a-e]$/);
     const lapTicks = map.routes[0]!.length / config.values.trains['mail-express']!.speedTilesPerTick;
     expect(lapTicks / 60).toBeCloseTo(81.2, 1);
   });

@@ -57,8 +57,11 @@ export const GameSchema = z.object({
       /** The horse's speed is scaled by this when a jump fails, and held there during the stun. */
       horseSpeedScale: fraction,
     }).strict(),
-    /** A good landing stumbles: walk speed is scaled for a moment after boarding. */
-    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction }).strict(),
+    /**
+     * A good landing stumbles: walk speed is scaled for a moment after boarding, and the player
+     * staggers `goodStumbleInTiles` in from the door, out in the open. A perfect landing stays in the doorway.
+     */
+    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
   }).strict(),
   health: z.object({ max: positive }).strict(),
   /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
@@ -306,6 +309,35 @@ export const GameSchema = z.object({
       accelTilesPerSec2: positive,
     }).strict(),
   }).strict(),
+  /**
+   * Outside the cars (sneaking PR 2): end platforms, the coupling between them and side ledges.
+   * Sizes may be fractions of a tile: the grid gives each a whole number of cells and cuts the
+   * outermost short, so the train's spacing in the world is exact.
+   */
+  outside: z.object({
+    /** Side ledges are walkable (off: they are still drawn, but blocked). */
+    ledges: z.boolean(),
+    /** Depth of the platform at each end of every car; with the coupling gap this spaces the cars apart. */
+    platformDepthTiles: z.number().min(0).max(8),
+    /** Open gap between two cars' platforms, crossed on the coupling plate. */
+    couplingGapTiles: z.number().min(0).max(8),
+    /** Width of the coupling plate across the gap, centred on the car (end doors are rows 2-4 of 7). */
+    gangwayWidthTiles: z.number().int().min(0),
+    /** Width of the ledge outside each long wall (any width over 0: on a ledge you press flat against the wall). */
+    ledgeWidthTiles: z.number().min(0).max(4),
+    /** Open doorways (end and side doors) do not block sight, so a guard sees out onto a platform or the ledge by a door, and through the end doors along the train. */
+    seeThroughDoorways: z.boolean(),
+    /** Top speed on a platform or the coupling plate (inside: 4 walking, 8 running). */
+    platformSpeedTilesPerSec: positive,
+    /** Top speed shimmying along a ledge. */
+    ledgeSpeedTilesPerSec: positive,
+    /** How far footsteps carry on a platform and on a ledge, as a multiple (floor is 1). */
+    platformNoise: z.number().min(0),
+    /** Moving on a ledge, at any pace: how far it carries, through the wall (Devlin, 2026-10-21: a guard just the other side hears you). */
+    ledgeNoiseRadiusTiles: z.number().min(0),
+    /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
+    scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
+  }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({
     /** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off the train. */
@@ -320,9 +352,9 @@ export const GameSchema = z.object({
     turnRateDegPerSec: positive,
     /** The sight cone: range, and half its angle (turned into a cosine threshold); cells with blocksSight stop it. */
     /** `crouchCoverMin`: a cell with at least this `cover` between a guard and a crouched player blocks the guard's sight of them (crates 0.5, barrels 0.4). */
-    sight: z.object({ rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
+    sight: z.object({ rangeTiles: positive, ledgeRangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
     /** Footsteps carry this far walking, running and crouching, times the noise of the cell the player is on. */
-    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), searchRadiusTiles: z.number().min(0) }).strict(),
+    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), searchRadiusTiles: z.number().min(0), stumbleRadiusTiles: z.number().min(0) }).strict(),
     /** A suspicious guard that keeps seeing the player this long goes alert and raises the alarm. */
     alertAfterSec: z.number().min(0),
     /** A suspicious guard with no sight or sound of the player this long goes back to unaware. */
@@ -335,6 +367,10 @@ export const GameSchema = z.object({
     catchRangeTiles: positive,
     /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
     thrownOffLootShare: z.number().min(0).max(1),
+    /** A suspicious guard whose sighting or sound was outside the car (platform, coupling, ledge) walks out to look there. */
+    suspiciousStepOutside: z.boolean(),
+    /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
+    suspiciousApproach: z.boolean(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

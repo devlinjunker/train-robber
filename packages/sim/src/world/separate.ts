@@ -2,7 +2,8 @@
 // into a car frame, and the horse stays physical, riderless, until it leaves (phase 2, U4).
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
-import { carCatalog, carEntryPoints, carTemplate, cellOpen, type CarCatalog, type CarPose, type Side } from './cars';
+import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
+import { gridCell, gridWalkable, fromTrain, Space, toTrain, trainGrid, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
@@ -40,28 +41,39 @@ export function carToWorld(car: CarPose, x: number, y: number, out: Vec2 = { x: 
 }
 
 /**
- * Where a car-frame point lands in a train: a point past a car's front (x < 0) or rear (x at or
- * past its length) moves into the neighbouring car's frame, so the cars join end to end and an
- * end door leads into the next car. Null past the train's own ends.
+ * True when (x, y) in car `car`'s frame of a train lies on a cell that does not block movement,
+ * past the car's walls included: its platforms, ledges and coupling, and on into the next car.
  */
-export function trainPoint(catalog: CarCatalog, cars: readonly string[], car: number, x: number): { car: number; x: number } | null {
-  while (x < 0) {
-    if (car === 0) return null;
-    car -= 1;
-    x += carTemplate(catalog, cars[car]!).size.cols;
-  }
-  while (x >= carTemplate(catalog, cars[car]!).size.cols) {
-    if (car === cars.length - 1) return null;
-    x -= carTemplate(catalog, cars[car]!).size.cols;
-    car += 1;
-  }
-  return { car, x };
+export function trainCellWalkable(config: SimConfig, cars: readonly string[], car: number, x: number, y: number): boolean {
+  const g = trainGrid(config, cars);
+  return gridWalkable(g, toTrain(g, car, x), y);
 }
 
-/** True when (x, y) in car `car`'s frame of a train lies on a cell that does not block movement, past the car's ends included. */
-export function trainCellWalkable(catalog: CarCatalog, cars: readonly string[], car: number, x: number, y: number): boolean {
-  const at = trainPoint(catalog, cars, car, x);
-  return at !== null && cellOpen(carTemplate(catalog, cars[at.car]!), Math.floor(at.x), Math.floor(y));
+/**
+ * True when a walker (WALKER_RADIUS round) fits at train point (lx, y): its edges on open cells
+ * and its middle where one can stand. On a ledge the walker presses flat against the wall: across
+ * the car it takes at most half the ledge's width, so a ledge of any width can be walked.
+ */
+export function walkerFits(g: TrainGrid, lx: number, y: number): boolean {
+  const i = gridCell(g, lx, y);
+  if (i < 0 || g.blocksMove[i] !== 0 || y < g.yMin[i]! || y >= g.yMax[i]!) return false;
+  // The centre must stand on something; the body only bumps into the car itself (walls, props),
+  // never open air, so a platform or ledge of any depth or width can be walked.
+  const r = WALKER_RADIUS;
+  const ry = g.space[i] === Space.Ledge ? Math.min(r, g.ledgeWidth / 2) : r;
+  return !solid(g, lx - r, y - ry) && !solid(g, lx + r, y - ry) && !solid(g, lx - r, y + ry) && !solid(g, lx + r, y + ry);
+}
+
+/** True when the train point is in a car cell that blocks walking. */
+function solid(g: TrainGrid, lx: number, y: number): boolean {
+  const i = gridCell(g, lx, y);
+  return i >= 0 && g.space[i] === Space.Inside && g.blocksMove[i] !== 0;
+}
+
+/** `walkerFits` in car `car`'s frame of a train made of `cars`. */
+export function trainWalkerFits(config: SimConfig, cars: readonly string[], car: number, x: number, y: number): boolean {
+  const g = trainGrid(config, cars);
+  return walkerFits(g, toTrain(g, car, x), y);
 }
 
 /** The car templates of a train in state; throws when it is gone. */
@@ -106,7 +118,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     walkable(state, p) {
       const f = parseCarFrame(p.frame);
       if (!f) return !isSolid(terrainAt(map, p.x, p.y));
-      return trainCellWalkable(catalog, trainCars(state, f.trainId), f.car, p.x, p.y);
+      return trainCellWalkable(config, trainCars(state, f.trainId), f.car, p.x, p.y);
     },
     enterTrain(state, player, entry) {
       const ep = carTemplate(catalog, templateOf(state, entry.trainId, entry.car)).entryPoints.find((e) => e.id === entry.entry);
@@ -146,15 +158,16 @@ const axis = (v: number) => (v < -127 ? -127 : v > 127 ? 127 : v | 0) / 127;
  * Tick system 5: players aboard walk the train at up to `player.speedTilesPerSec`, scaled by the
  * length of the `move` axes (the client walks at half and runs at full), by the weight they carry
  * (`carry.slowdownEnabled`), by `verbs.search.walkSpeedScale` while searching, and crouching walks at
- * `player.crouch.speedScale` of full speed whatever the axes say. Aboard, `move`
- * is in the car's frame, not the screen's: +x walks toward the front (lower cell x), +y toward the
- * right side (higher cell y). The client turns its screen keys into that frame, so the sim never
- * sees the screen. Each axis moves on its own so a wall stops one and the player slides along it.
- * Walking through an end door carries the player into the next car's frame, so the whole train
- * is one interior.
+ * `player.crouch.speedScale` of full speed whatever the axes say. Outside the walls no one goes
+ * faster than the space allows (`outside.platformSpeedTilesPerSec` on a platform or the coupling,
+ * `ledgeSpeedTilesPerSec` on a ledge). Aboard, `move` is in the car's frame, not the screen's: +x
+ * walks toward the front (lower cell x), +y toward the right side (higher cell y). The client turns
+ * its screen keys into that frame, so the sim never sees the screen. Each axis moves on its own so
+ * a wall stops one and the player slides along it. Crossing to another car's stretch (through the
+ * end doors and over the coupling) carries the player into that car's frame, so the whole train,
+ * outside included, is one space.
  */
 export function walkAboard(state: GameState, config: SimConfig): void {
-  const catalog = carCatalog(config);
   for (const p of state.players) {
     const f = parseCarFrame(p.placement.frame);
     if (!f) continue;
@@ -175,13 +188,20 @@ export function walkAboard(state: GameState, config: SimConfig): void {
     // Crouched, any move is the same slow creep, so Shift does not make it faster.
     if (run?.crouched) { const m = Math.sqrt(mx * mx + my * my); mx /= m; my /= m; speed *= config.values.player.crouch.speedScale; }
     const pl = p.placement;
-    const cars = trainCars(state, f.trainId);
-    const open = (x: number, y: number) => trainCellWalkable(catalog, cars, f.car, x, y);
-    const clear = (x: number, y: number) =>
-      open(x - WALKER_RADIUS, y - WALKER_RADIUS) && open(x + WALKER_RADIUS, y - WALKER_RADIUS)
-      && open(x - WALKER_RADIUS, y + WALKER_RADIUS) && open(x + WALKER_RADIUS, y + WALKER_RADIUS);
-    // Guards in this car stand in the way: a step may not end closer to one than GUARD_BLOCK, unless it moves away.
-    const guards = state.run?.guards.filter((g) => g.car === f.car) ?? [];
+    const grid = trainGrid(config, trainCars(state, f.trainId));
+    // Car-frame x is kept as it is and only offset for the grid, so a walk inside one car moves exactly as before.
+    const off = toTrain(grid, f.car, 0);
+    const here = gridCell(grid, off + pl.x, pl.y);
+    if (here >= 0) {
+      // Past the axes' share of full speed, the cap trims the step, so walking and running are the same on a ledge.
+      const cap = grid.speedCap[here]!, m = Math.sqrt(mx * mx + my * my);
+      if (speed * m > cap) speed = cap / m;
+    }
+    const clear = (x: number, y: number) => walkerFits(grid, off + x, y);
+    // Guards stand in the way: a step may not end closer to one than GUARD_BLOCK, unless it moves away.
+    const guards = (state.run?.trainId === f.trainId ? state.run.guards : [])
+      .map((g) => ({ x: g.car === f.car ? g.x : toTrain(grid, g.car, g.x) - off, y: g.y }))
+      .filter((g) => Math.abs(g.x - pl.x) < 2 && Math.abs(g.y - pl.y) < 2);
     const free = (x: number, y: number) => guards.every((g) => {
       const d2 = (g.x - x) ** 2 + (g.y - y) ** 2;
       return d2 >= GUARD_BLOCK * GUARD_BLOCK || d2 >= (g.x - pl.x) ** 2 + (g.y - pl.y) ** 2;
@@ -190,11 +210,22 @@ export function walkAboard(state: GameState, config: SimConfig): void {
     if (clear(nx, pl.y) && free(nx, pl.y)) pl.x = nx;
     const ny = pl.y + my * speed;
     if (clear(pl.x, ny) && free(pl.x, ny)) pl.y = ny;
-    // Through an end door: carry on in the neighbouring car's frame.
-    const at = trainPoint(catalog, cars, f.car, pl.x);
-    if (at && at.car !== f.car) {
+    // Into another car's stretch: carry on in that car's frame.
+    const at = fromTrain(grid, off + pl.x);
+    if (at.car !== f.car) {
       pl.frame = carFrame(f.trainId, at.car);
-      pl.x = at.x;
+      pl.x = pl.x + off - toTrain(grid, at.car, 0);
     }
   }
+}
+
+/** The outside space a player aboard stands in, or `Space.Inside`; null when not aboard. */
+export function playerSpace(state: GameState, config: SimConfig, p: PlayerState): Space | null {
+  const f = parseCarFrame(p.placement.frame);
+  if (!f) return null;
+  const t = state.world.trains.find((q) => q.id === f.trainId);
+  if (!t) return null;
+  const grid = trainGrid(config, t.cars);
+  const i = gridCell(grid, toTrain(grid, f.car, p.placement.x), p.placement.y);
+  return (i < 0 ? Space.None : grid.space[i]!) as Space;
 }

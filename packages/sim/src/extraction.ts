@@ -11,6 +11,7 @@ import { laneTarget, mountCheck, playerSide } from './world/mount';
 import { avoids, cellCentre, cellOf, findPath, lineClear, pathGrid } from './world/path';
 import type { HorseIntent } from './world/riding';
 import { carPosesOf, routeOf, trainLengthOf, trainSpeed } from './world/trains';
+import { carSpacing } from './world/cars';
 import { trackAt } from './world/track';
 import { endRun, horseOf, reject, setPhase, type RunCtx } from './run';
 import { WORLD_FRAME, parseCarFrame } from './world/frames';
@@ -63,7 +64,7 @@ export function horseStart(ctx: RunCtx, p: PlayerState, trainId: string, side: T
   const cars = carPosesOf(state, map, config, trainId);
   const f = parseCarFrame(p.placement.frame);
   let ahead = 0;
-  for (const car of cars) { if (f && car.index < f.car) ahead += car.halfLength * 2; }
+  for (const car of cars) { if (f && car.index < f.car) ahead += car.halfLength * 2 + carSpacing(config); }
   const playerD = train.d - ahead - (f ? p.placement.x : 0);
   const rearD = train.d - trainLengthOf(config, train);
   const startD = Math.min(playerD - delaySec * closing, rearD - MIN_BEHIND_TILES);
@@ -188,7 +189,7 @@ function steerFor(
   if (near.index > lane.car.index) {
     const out = (config.values.extraction.laneOffsetTiles) * (call.side === 'left' ? 1 : -1);
     let car = near, a = (h.x - near.x) * near.ux + (h.y - near.y) * near.uy + LEAD_TILES;
-    if (a > car.halfLength && car.index > 0) { const ahead = cars[car.index - 1]!; a = -ahead.halfLength + (a - car.halfLength); car = ahead; }
+    if (a > car.halfLength && car.index > 0) { const ahead = cars[car.index - 1]!; a = -ahead.halfLength + Math.max(0, a - car.halfLength - carSpacing(config)); car = ahead; }
     a = Math.max(-car.halfLength, Math.min(car.halfLength, a));
     const o = out + car.halfWidth * (call.side === 'left' ? 1 : -1);
     return { tx: car.x + car.ux * a + car.uy * o, ty: car.y + car.uy * a - car.ux * o, speed: max };

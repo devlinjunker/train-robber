@@ -6,7 +6,7 @@
 // another train where that branch rejoins shared track.
 import { nextInt } from '../rng';
 import type { GameState, SimConfig, TrainState } from '../types';
-import { carCatalog, trainLength } from './cars';
+import { carCatalog, carSpacing, trainLength } from './cars';
 import { wrapDistance, type RouteLeg, type SimRoute } from './track';
 
 /** A train picks its branch this far before the junction, with every car still on the shared segment. */
@@ -91,7 +91,7 @@ interface Option { route: SimRoute; d: number; clearance: number }
  */
 export function junctionSystem(state: GameState, routes: ReadonlyMap<string, SimRoute>, net: Network, config: SimConfig, prevD: ReadonlyMap<string, number>): void {
   const map = { routes };
-  const lengthOf = (t: TrainState) => trainLength(t.cars, carCatalog(config));
+  const lengthOf = (t: TrainState) => trainLength(t.cars, carCatalog(config), carSpacing(config), config.values.outside.platformDepthTiles);
   const speedOf = (t: TrainState) => config.values.trains[t.type]!.speedTilesPerTick;
   // A train on its type's own route leaves `route` unset.
   const routeId = (t: TrainState) => t.route ?? config.values.trains[t.type]!.route;

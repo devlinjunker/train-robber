@@ -20,6 +20,7 @@ import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { drawInterior, type InteriorLoot } from './interior';
+import { drawCarOutside, type OutsideDims } from './outside';
 import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 
 const PERFECT_RING_SEC = 0.8;
@@ -116,6 +117,9 @@ export interface WorldSceneInput {
   guards?: readonly GuardView[];
   /** Sight cones to draw on the floor (faint by default, full with the debug overlay or ?cones=on), or null. */
   cones?: readonly ConeView[] | null;
+  /** Guards in a closed car you can see through its doorways, and their cones: drawn over the roof. */
+  throughGuards?: readonly GuardView[];
+  throughCones?: readonly ConeView[] | null;
 }
 
 /** What the scene needs from the config once: car layouts, the cell catalog and items. */
@@ -125,6 +129,8 @@ export interface SceneContent {
   items: Readonly<Record<string, { weight: number; category: string }>>;
   /** Boost dust opacity scale (?boostDust=), 1 by default. */
   boostDust?: number;
+  /** Platforms, coupling and ledges round each car (outside.*); none when absent. */
+  outside?: OutsideDims;
 }
 
 export interface WorldScene {
@@ -384,23 +390,25 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
       if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
       const v = input.view, margin = (car: CarPose) => car.halfLength + CAR_HEIGHT + 2;
-      for (const car of input.cars) {
+      input.cars.forEach((car, i) => {
         // Cars off screen are not drawn at all: big-country has several trains.
         const m = margin(car);
-        if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
+        if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) return;
         const colour = CAR_COLOURS[carTemplate(content.catalog, car.template).carType] ?? 0x777777;
         const doors = spansOf(car.template);
         const shut = input.closedTrains?.has(car.trainId) ?? false;
         // A soft shadow under the car, offset down-right like the light.
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
+        // Platforms, ledges and the coupling to the next car of the same train.
+        if (content.outside) drawCarOutside(floors, car, content.outside, input.cars[i + 1]?.trainId === car.trainId);
         // The car you are in is drawn open: no roof, its cells as low boxes and its loot, so you show inside it.
         if (input.aboard?.trainId === car.trainId && input.aboard.index === car.index) {
           drawInterior(floors, () => piece(), {
             car, template: carTemplate(content.catalog, car.template), cellTypes: content.cellTypes, items: content.items,
             loot: input.loot, searching: input.searching, inReach: input.inReach, timeSec: input.timeSec,
           });
-          continue;
+          return;
         }
         for (const s of carSlices(car)) {
           // Only slices that reach the hole get it: each masked slice is an extra stencil pass.
@@ -441,7 +449,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
           }
           g.zIndex = depthOf(s.box.x, s.box.y);
         }
-      }
+      });
       for (let i = used; i < slicePool.length; i++) slicePool[i]!.visible = false;
 
       // The player aboard, walking in the open car.
@@ -534,8 +542,16 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
+      // Guards you see through the doorways of a closed car: cone and figure over its roof.
+      for (const cone of input.throughCones ?? []) {
+        const col = GUARD_STATE_COLOURS[cone.state];
+        const fill = (cone.state === 'unaware' ? 0.14 : 0.26) * (cone.faint ? 0.5 : 1);
+        markers.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
+      }
+      for (const v of input.throughGuards ?? []) drawGuard(markers, v);
+
       // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert, a red ? when it lost you.
-      for (const v of guardsShown) {
+      for (const v of [...guardsShown, ...(input.throughGuards ?? [])]) {
         if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
         const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);

@@ -106,11 +106,21 @@ const front: TrackPoint = { d: 0, x: 0, y: 0, tx: 1, ty: 0 };
 const rear: TrackPoint = { d: 0, x: 0, y: 0, tx: 1, ty: 0 };
 
 /**
- * Place a train's cars end to end behind the engine's front at distance `d`. Each car is
- * rigid: its front and rear sit on the track and its body is the chord between them, so
- * on a bend the middle of a car cuts inside the curve, as a real one does.
+ * Track distance between one car body's rear and the next one's front: a platform at each end
+ * and the coupling gap between them (sneaking PR 2). 0 puts the cars end to end, as before.
  */
-export function placeCars(trainId: string, templates: readonly string[], route: TrackRoute, d: number, catalog: CarCatalog, out: CarPose[] = []): CarPose[] {
+export function carSpacing(config: SimConfig): number {
+  const o = config.values.outside;
+  return 2 * o.platformDepthTiles + o.couplingGapTiles;
+}
+
+/**
+ * Place a train's cars behind the engine's front at distance `d`, `spacing` tiles of track apart
+ * (the platforms and coupling, see carSpacing). Each car body is rigid: its front and rear sit on
+ * the track and its body is the chord between them, so on a bend the middle of a car cuts inside
+ * the curve, as a real one does. Its platforms stick out along the same axis.
+ */
+export function placeCars(trainId: string, templates: readonly string[], route: TrackRoute, d: number, catalog: CarCatalog, out: CarPose[] = [], spacing = 0): CarPose[] {
   out.length = 0;
   let offset = 0;
   for (let i = 0; i < templates.length; i++) {
@@ -118,7 +128,7 @@ export function placeCars(trainId: string, templates: readonly string[], route: 
     const len = t.size.cols;
     trackAt(route, d - offset, front);
     trackAt(route, d - offset - len, rear);
-    offset += len;
+    offset += len + spacing;
     let ux = front.x - rear.x, uy = front.y - rear.y;
     const n = Math.sqrt(ux * ux + uy * uy);
     if (n > 1e-9) { ux /= n; uy /= n; } else { ux = front.tx; uy = front.ty; }
@@ -131,9 +141,13 @@ export function placeCars(trainId: string, templates: readonly string[], route: 
   return out;
 }
 
-/** Total length of a train in tiles. */
-export function trainLength(templates: readonly string[], catalog: CarCatalog): number {
-  return templates.reduce((n, id) => n + (catalog.get(id)?.size.cols ?? 0), 0);
+/**
+ * Total length of a train in tiles, from the engine's front to the back of the last car's rear
+ * platform: the car bodies, `spacing` between each pair, and `rearPlatform` at the end.
+ */
+export function trainLength(templates: readonly string[], catalog: CarCatalog, spacing = 0, rearPlatform = 0): number {
+  const bodies = templates.reduce((n, id) => n + (catalog.get(id)?.size.cols ?? 0), 0);
+  return templates.length === 0 ? 0 : bodies + spacing * (templates.length - 1) + rearPlatform;
 }
 
 /**
