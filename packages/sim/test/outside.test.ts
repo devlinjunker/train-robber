@@ -2,8 +2,8 @@
 // following you outside, and trackside rocks scraping or knocking you off a ledge.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, carFrame, createSim, doorsClosed, fromTrain, gridCellOpen, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
-  type Command, type GameState, type Sim, type SimConfig, type SimEvent, type SimMap,
+  canSee, carFrame, createSim, doorsClosed, noiseRadius, fromTrain, gridCellOpen, gridWalkable, placeCars, carCatalog, Space, spaceAt, toTrain, trainGrid,
+  type Command, type GameState, type PlayerState, type Sim, type SimConfig, type SimEvent, type SimMap,
 } from '../src';
 import { asciiCar, OUTSIDE, stadium, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap, type Paint } from './fixtures';
 
@@ -101,7 +101,6 @@ describe('the train grid outside the cars', () => {
     expect(g.speedCap[at(5.5, -0.5)]).toBeCloseTo(1.2 / 60, 12);
     expect(g.speedCap[at(-0.5, 2.5)]).toBeCloseTo(4 / 60, 12);
     expect(g.speedCap[at(5.5, 2.5)]).toBe(Infinity);
-    expect(g.noise[at(5.5, -0.5)]).toBe(0);
     expect(g.noise[at(-0.5, 2.5)]).toBe(1);
   });
 });
@@ -242,6 +241,35 @@ describe('guards and the outside', () => {
     expect(outside).toBeGreaterThan(0);
     expect(fastest).toBeLessThanOrEqual(1.2 / 60 + 1e-9);
     expect(ofType(ev, 'ThrownOff')).toHaveLength(1);
+  });
+
+  it('hears you moving on a ledge only from just the other side of the wall, at any pace', () => {
+    const p = { move: { x: 127, y: 0 }, placement: { frame: 'x', x: 5.5, y: -0.3, layer: 'interior' } } as unknown as PlayerState;
+    const lx = toTrain(g, 1, 5.5);
+    expect(noiseRadius(cfg, g, p, lx)).toBe(1.5);
+    expect(noiseRadius(cfg, g, p, lx, true)).toBe(1.5);
+    expect(noiseRadius(cfg, g, { ...p, move: { x: 0, y: 0 } } as PlayerState, lx)).toBe(0);
+  });
+
+  it('a suspicious guard steps outside to look where it saw or heard you (ai.suspiciousStepOutside)', () => {
+    const run = (stepOut: boolean) => {
+      const c = outsideConfig({ ai: { suspiciousStepOutside: stepOut } });
+      const sim = standing(c, 3.5, 2.5);
+      const trainId = S(sim).world.trains[0]!.id;
+      // You are away in the engine's front platform; the guard heard you on the ledge by the left door.
+      S(sim).players[0]!.placement = { frame: carFrame(trainId, 0), x: -0.5, y: 2.5, layer: 'interior' };
+      Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 8, y: 2.5, fx: 0, fy: -1, state: 'suspicious', lastKnown: { car: 1, x: 7.5, y: -0.2 } });
+      const grid = trainGrid(c, S(sim).world.trains[0]!.cars);
+      let outside = false;
+      for (let t = 0; t < 200; t++) {
+        step(sim);
+        const q = S(sim).run!.guards[0]!;
+        if (spaceAt(grid, toTrain(grid, q.car, q.x), q.y) === Space.Ledge) outside = true;
+      }
+      return outside;
+    };
+    expect(run(true)).toBe(true);
+    expect(run(false)).toBe(false);
   });
 
   it('an unaware guard out on the coupling goes back in to its post and stays inside', () => {

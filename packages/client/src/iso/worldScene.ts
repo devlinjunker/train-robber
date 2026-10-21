@@ -117,6 +117,9 @@ export interface WorldSceneInput {
   guards?: readonly GuardView[];
   /** Sight cones to draw on the floor (faint by default, full with the debug overlay or ?cones=on), or null. */
   cones?: readonly ConeView[] | null;
+  /** Guards in a closed car you can see through its doorways, and their cones: drawn over the roof. */
+  throughGuards?: readonly GuardView[];
+  throughCones?: readonly ConeView[] | null;
 }
 
 /** What the scene needs from the config once: car layouts, the cell catalog and items. */
@@ -539,8 +542,16 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         else if (car.trainId === f.candidate) markers.poly(roof()).stroke({ width: 3, color: SWITCH_CANDIDATE_COLOUR, alpha: 0.8 });
       }
 
+      // Guards you see through the doorways of a closed car: cone and figure over its roof.
+      for (const cone of input.throughCones ?? []) {
+        const col = GUARD_STATE_COLOURS[cone.state];
+        const fill = (cone.state === 'unaware' ? 0.14 : 0.26) * (cone.faint ? 0.5 : 1);
+        markers.poly(isoPoly(cone.points, 0.06)).fill({ color: col, alpha: fill }).stroke({ width: 1, color: col, alpha: cone.faint ? 0.25 : 0.5 });
+      }
+      for (const v of input.throughGuards ?? []) drawGuard(markers, v);
+
       // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert, a red ? when it lost you.
-      for (const v of guardsShown) {
+      for (const v of [...guardsShown, ...(input.throughGuards ?? [])]) {
         if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
         const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3);

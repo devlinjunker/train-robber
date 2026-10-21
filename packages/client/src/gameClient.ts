@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -470,6 +470,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // Guards out on a platform, the coupling or a ledge are in the open, so they show from anywhere.
       const runGrid = runTrain ? trainGrid(config, runTrain.cars) : null;
       const outsideIds = new Set(runGrid ? guardPoses.filter((g) => spaceAt(runGrid, toTrain(runGrid, g.car, g.x), g.y) !== Space.Inside).map((g) => g.id) : []);
+      // Guards in another car you can see through the open doorways (within sight range, nothing in
+      // between): drawn through its roof, with their cones, so you see them coming (Devlin, 2026-10-21).
+      const seenIds = new Set<number>();
+      if (runGrid && frame && runTrain && frame.trainId === runTrain.id) {
+        const plx = toTrain(runGrid, frame.car, placement.x), ply = placement.y;
+        for (const g of guardPoses) {
+          if (inOpenCar(g.car) || outsideIds.has(g.id)) continue;
+          const glx = toTrain(runGrid, g.car, g.x);
+          if (Math.hypot(glx - plx, g.y - ply) <= config.values.ai.sight.rangeTiles && lineOfSight(runGrid, plx, ply, glx, g.y)) seenIds.add(g.id);
+        }
+      }
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -480,6 +491,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
           cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise,
+          throughGuards: guardViews.filter((v) => seenIds.has(v.id)),
+          throughCones: showCones && seenIds.size > 0 ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => seenIds.has(g.id)), cars, runTrain!.id, faintCones) : null,
           boosting: horseState.boostTicks > 0,
           gap: gap && distanceCueMode === 'world' ? { trainId: gap.car.trainId, index: gap.car.index, x: gap.x, y: gap.y, distance: gap.distance } : null,
           view: {

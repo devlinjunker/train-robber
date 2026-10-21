@@ -80,10 +80,10 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 /** Outside values that leave the cars end to end with no ledges (the layout before sneaking PR 2). */
 export const NO_OUTSIDE: Values['outside'] = {
   ledges: false, platformDepthTiles: 0, couplingGapTiles: 0, gangwayWidthTiles: 0, ledgeWidthTiles: 0, seeThroughDoorways: false,
-  platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+  platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoiseRadiusTiles: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
 };
 /** The shipped outside values: one-tile platforms and gap, a three-tile coupling plate, half-tile ledges and open doorways. */
-export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true };
+export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true, ledgeNoiseRadiusTiles: 1.5 };
 
 export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
   const rad = (120 * Math.PI) / 180 / 60, guardRad = (240 * Math.PI) / 180 / 60;
@@ -128,7 +128,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: false,
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.
       outside: NO_OUTSIDE,

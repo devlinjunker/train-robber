@@ -146,7 +146,7 @@ export function trainGrid(config: SimConfig, cars: readonly string[], catalog: C
     air(i);
     space[i] = kind;
     blocksMove[i] = walkable ? 0 : 1;
-    noise[i] = kind === Space.Ledge ? o.ledgeNoise : o.platformNoise;
+    noise[i] = kind === Space.Ledge ? 1 : o.platformNoise;
     speedCap[i] = kind === Space.Ledge ? o.ledgeSpeedTilesPerTick : o.platformSpeedTilesPerTick;
   };
   colOf.forEach(({ k, part, x }, gc) => {
@@ -317,6 +317,8 @@ export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx:
   const n = Math.sqrt(mx * mx + my * my);
   if (n === 0) return search;
   const i = gridCell(g, lx, p.placement.y);
+  // On a ledge you shuffle along at one pace, crouched or not: a fixed, short reach through the wall.
+  if (i >= 0 && g.space[i] === Space.Ledge) return Math.max(search, config.values.outside.ledgeNoiseRadiusTiles);
   const r = crouched ? cfg.crouchRadiusTiles : n > RUN_AXIS ? cfg.runRadiusTiles : cfg.walkRadiusTiles;
   return Math.max(search, r * (i >= 0 ? g.noise[i]! : 1));
 }
@@ -542,6 +544,9 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       if (sees && target) walkToward(grid, w, target.lx, target.y, ai.chaseSpeedTilesPerTick, turn);
       else walkToward(grid, w, known.lx, known.y, ai.chaseSpeedTilesPerTick, turn);
       if (sees && target) turn(w, target.lx - w.lx, target.y - w.y);
+    } else if (g.state === 'suspicious' && known && ai.suspiciousStepOutside && spaceAt(grid, known.lx, known.y) !== Space.Inside) {
+      // Saw or heard something outside: step out and look there (Devlin, 2026-10-21).
+      if (walkToward(grid, w, known.lx, known.y, ai.patrolSpeedTilesPerTick, turn)) turn(w, known.lx - w.lx, known.y - w.y);
     } else if (g.state !== 'unaware' && known) {
       // Stand and look toward the player, or where they were.
       turn(w, known.lx - w.lx, known.y - w.y);

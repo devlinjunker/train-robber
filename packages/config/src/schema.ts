@@ -333,7 +333,8 @@ export const GameSchema = z.object({
     ledgeSpeedTilesPerSec: positive,
     /** How far footsteps carry on a platform and on a ledge, as a multiple (floor is 1). */
     platformNoise: z.number().min(0),
-    ledgeNoise: z.number().min(0),
+    /** Moving on a ledge, at any pace: how far it carries, through the wall (Devlin, 2026-10-21: a guard just the other side hears you). */
+    ledgeNoiseRadiusTiles: z.number().min(0),
     /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
     scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
   }).strict(),
@@ -366,6 +367,8 @@ export const GameSchema = z.object({
     catchRangeTiles: positive,
     /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
     thrownOffLootShare: z.number().min(0).max(1),
+    /** A suspicious guard whose sighting or sound was outside the car (platform, coupling, ledge) walks out to look there. */
+    suspiciousStepOutside: z.boolean(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

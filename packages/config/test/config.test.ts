@@ -24,7 +24,7 @@ const base = {
   ai: {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
     sight: { rangeTiles: 7, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: true,
   },
   extraction: {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
@@ -33,7 +33,7 @@ const base = {
   world: { mode: 'separate' },
   outside: {
     ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
-    platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoise: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+    platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoiseRadiusTiles: 1.5, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },

@@ -528,13 +528,14 @@ export interface SimConfig {
       loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
+      suspiciousStepOutside: boolean;
     };
     /**
      * Outside the cars (sneaking PR 2): an end platform `platformDepthTiles` deep at each end of every
      * car, a `couplingGapTiles` gap between platforms crossed on a `gangwayWidthTiles` coupling plate,
      * and side ledges `ledgeWidthTiles` wide along both long sides (walkable while `ledges` is on).
      * Platforms and the gangway cap walking at `platformSpeedTilesPerTick`, ledges at
-     * `ledgeSpeedTilesPerTick`; footsteps there carry `platformNoise` / `ledgeNoise` times as far.
+     * `ledgeSpeedTilesPerTick`; footsteps on a platform carry `platformNoise` times as far; moving on a ledge carries `ledgeNoiseRadiusTiles`, at any pace.
      * On a ledge, blocked ground (rocks) within `scrape.glanceTiles` outward of the player scrapes
      * them; blocked ground under them knocks them off (`scrape.knockOff`), a fall like thrown-off.
      */
@@ -548,7 +549,7 @@ export interface SimConfig {
       platformSpeedTilesPerTick: number;
       ledgeSpeedTilesPerTick: number;
       platformNoise: number;
-      ledgeNoise: number;
+      ledgeNoiseRadiusTiles: number;
       scrape: { glanceTiles: number; knockOff: boolean; closeDoors: boolean };
     };
     trains: Readonly<Record<string, TrainDef>>;
