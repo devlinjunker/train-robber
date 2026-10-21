@@ -3,7 +3,7 @@
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
-import { gridCell, gridCellOpen, gridWalkable, fromTrain, Space, toTrain, trainGrid, type TrainGrid } from './guards';
+import { gridCell, gridWalkable, fromTrain, Space, toTrain, trainGrid, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
@@ -57,10 +57,17 @@ export function trainCellWalkable(config: SimConfig, cars: readonly string[], ca
 export function walkerFits(g: TrainGrid, lx: number, y: number): boolean {
   const i = gridCell(g, lx, y);
   if (i < 0 || g.blocksMove[i] !== 0 || y < g.yMin[i]! || y >= g.yMax[i]!) return false;
+  // The centre must stand on something; the body only bumps into the car itself (walls, props),
+  // never open air, so a platform or ledge of any depth or width can be walked.
   const r = WALKER_RADIUS;
   const ry = g.space[i] === Space.Ledge ? Math.min(r, g.ledgeWidth / 2) : r;
-  return gridCellOpen(g, lx - r, y - ry) && gridCellOpen(g, lx + r, y - ry)
-    && gridCellOpen(g, lx - r, y + ry) && gridCellOpen(g, lx + r, y + ry);
+  return !solid(g, lx - r, y - ry) && !solid(g, lx + r, y - ry) && !solid(g, lx - r, y + ry) && !solid(g, lx + r, y + ry);
+}
+
+/** True when the train point is in a car cell that blocks walking. */
+function solid(g: TrainGrid, lx: number, y: number): boolean {
+  const i = gridCell(g, lx, y);
+  return i >= 0 && g.space[i] === Space.Inside && g.blocksMove[i] !== 0;
 }
 
 /** `walkerFits` in car `car`'s frame of a train made of `cars`. */

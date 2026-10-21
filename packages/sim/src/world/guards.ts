@@ -544,9 +544,10 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       if (sees && target) walkToward(grid, w, target.lx, target.y, ai.chaseSpeedTilesPerTick, turn);
       else walkToward(grid, w, known.lx, known.y, ai.chaseSpeedTilesPerTick, turn);
       if (sees && target) turn(w, target.lx - w.lx, target.y - w.y);
-    } else if (g.state === 'suspicious' && known && ai.suspiciousStepOutside && spaceAt(grid, known.lx, known.y) !== Space.Inside) {
-      // Saw or heard something outside: step out and look there (Devlin, 2026-10-21).
-      if (walkToward(grid, w, known.lx, known.y, ai.patrolSpeedTilesPerTick, turn)) turn(w, known.lx - w.lx, known.y - w.y);
+    } else if (g.state === 'suspicious' && known && (spaceAt(grid, known.lx, known.y) === Space.Inside ? ai.suspiciousApproach : ai.suspiciousStepOutside)) {
+      // Saw or heard something: walk over to look, out by a door if it was outside, say through a
+      // window (Devlin, 2026-10-21), facing it while it is still in view.
+      if (walkToward(grid, w, known.lx, known.y, ai.patrolSpeedTilesPerTick, turn) || sees) turn(w, known.lx - w.lx, known.y - w.y);
     } else if (g.state !== 'unaware' && known) {
       // Stand and look toward the player, or where they were.
       turn(w, known.lx - w.lx, known.y - w.y);

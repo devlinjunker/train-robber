@@ -16,10 +16,10 @@
     "sight": { "rangeTiles": 10, "coneHalfAngleDeg": 40, "crouchCoverMin": 0.25 },
     "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3, "stumbleRadiusTiles": 5 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
-    "thrownOffLootShare": 0.5, "suspiciousStepOutside": true
+    "thrownOffLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
   },
   "outside": {
-    "ledges": true, "platformDepthTiles": 1, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.33, "seeThroughDoorways": true,
+    "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,
     "platformSpeedTilesPerSec": 4, "ledgeSpeedTilesPerSec": 1.2, "platformNoise": 1, "ledgeNoiseRadiusTiles": 1.5,
     "scrape": { "glanceTiles": 0.3, "knockOff": true, "closeDoors": false }
   },

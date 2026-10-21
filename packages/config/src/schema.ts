@@ -369,6 +369,8 @@ export const GameSchema = z.object({
     thrownOffLootShare: z.number().min(0).max(1),
     /** A suspicious guard whose sighting or sound was outside the car (platform, coupling, ledge) walks out to look there. */
     suspiciousStepOutside: z.boolean(),
+    /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
+    suspiciousApproach: z.boolean(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

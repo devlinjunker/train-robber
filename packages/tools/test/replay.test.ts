@@ -27,7 +27,7 @@ describe('golden replay', () => {
   it('the golden run boosts, commits, fails two jumps, lands the third as good, picks up loot, creeps crouched, is spotted until a guard raises the alarm, and cancels aboard', () => {
     const log = parseLog<CommandLogLine>(readFileSync(GOLDEN, 'utf8'));
     const h = log.header;
-    const sim = createSim({ config: loadConfig({ preset: h.preset, variants: h.variants }), map: loadMapDef(h.mapId), seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
+    const sim = createSim({ config: loadConfig({ preset: h.preset, variants: h.variants, overrides: h.overrides }), map: loadMapDef(h.mapId), seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
     const byTick = new Map<number, InputFrame['commands']>();
     for (const l of log.lines) if (l.k === 'cmd') byTick.set(l.t, l.c);
     const seen: string[] = [];

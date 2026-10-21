@@ -529,6 +529,7 @@ export interface SimConfig {
       catchRangeTiles: number;
       thrownOffLootShare: number;
       suspiciousStepOutside: boolean;
+      suspiciousApproach: boolean;
     };
     /**
      * Outside the cars (sneaking PR 2): an end platform `platformDepthTiles` deep at each end of every

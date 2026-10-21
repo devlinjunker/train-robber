@@ -272,6 +272,39 @@ describe('guards and the outside', () => {
     expect(run(false)).toBe(false);
   });
 
+  it('a suspicious guard walks over to where it heard you inside the car (ai.suspiciousApproach)', () => {
+    const run = (approach: boolean) => {
+      const c = outsideConfig({ ai: { suspiciousApproach: approach } });
+      const sim = standing(c, 3.5, 2.5);
+      const trainId = S(sim).world.trains[0]!.id;
+      S(sim).players[0]!.placement = { frame: carFrame(trainId, 0), x: -0.5, y: 2.5, layer: 'interior' };
+      Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 12, y: 2.5, fx: -1, fy: 0, state: 'suspicious', lastKnown: { car: 1, x: 3.5, y: 3.5 } });
+      // Closest it gets before calming down (4 s) and going back to its post.
+      let closest = Infinity;
+      for (let t = 0; t < 230; t++) {
+        step(sim);
+        const q = S(sim).run!.guards[0]!;
+        closest = Math.min(closest, Math.hypot(q.x - 3.5, q.y - 3.5));
+      }
+      return closest;
+    };
+    expect(run(true)).toBeLessThan(4);
+    expect(run(false)).toBeGreaterThan(8);
+  });
+
+  it('a chasing guard that loses you searches, calms down and walks back to its post', () => {
+    const c = outsideConfig({ ai: { guardCatch: 'thrown-off', suspiciousApproach: true, suspiciousStepOutside: true } });
+    const sim = standing(c, 3.5, 2.5);
+    const trainId = S(sim).world.trains[0]!.id;
+    S(sim).players[0]!.placement = { frame: carFrame(trainId, 0), x: -0.5, y: 2.5, layer: 'interior' };
+    // Lost you out on the left ledge.
+    Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 8, y: 2.5, fx: 0, fy: -1, state: 'alert', spotted: true, lastKnown: { car: 1, x: 4.5, y: -0.2 } });
+    const ev = steps(sim, 60 * 25);
+    const q = S(sim).run!.guards[0]!;
+    expect(ofType(ev, 'GuardStateChanged').map((e) => e.to)).toEqual(['suspicious', 'unaware']);
+    expect({ car: q.car, x: q.x, y: q.y }).toEqual({ car: 1, x: 12.5, y: 2.5 });
+  });
+
   it('an unaware guard out on the coupling goes back in to its post and stays inside', () => {
     const sim = standing(outsideConfig(), 3.5, 2.5);
     const trainId = S(sim).world.trains[0]!.id;
