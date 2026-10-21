@@ -16,7 +16,7 @@ export interface SimMap {
   trains?: readonly MapTrain[];
   markers: { playerSpawn: { x: number; y: number } };
   /** Open line maps: trains enter at the start of the line once the last one is headwayTiles in, and leave past its end. */
-  openLine?: { headwayTiles: number };
+  openLine?: { headwayTiles: number; headwaySpreadTiles?: number };
   /** Town spots along an open line: where on which route (MapDef.towns). */
   towns?: readonly MapTown[];
 }
@@ -49,7 +49,7 @@ export interface WorldMap {
   network: Network | null;
   playerSpawn: { x: number; y: number };
   /** Set on open line maps (see SimMap.openLine). */
-  openLine: { headwayTiles: number } | null;
+  openLine: { headwayTiles: number; headwaySpreadTiles?: number } | null;
   /** Town spots, sorted by distance along their route; empty on maps without towns. */
   towns: readonly MapTown[];
 }

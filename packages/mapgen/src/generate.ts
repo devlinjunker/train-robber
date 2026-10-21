@@ -8,11 +8,11 @@
 // block, so it is deterministic too) -> player spawn -> scenery.
 import {
   ELEVATION_MAX, MapDefSchema, type MapTheme, SCENERY_KINDS, SceneryDefSchema, ZONES,
-  type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone,
+  type MapDef, type MapGenSettings, type Route, type SceneryDef, type SceneryKind, type Zone,
 } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import { generateLineTrack } from './line';
-import { generateTrack, type Track, type Vec } from './track';
+import { generateTrack, r6, type Track, type Vec } from './track';
 
 /** Bump when a change makes the same seed and settings give a different map. */
 export const GENERATOR_VERSION = 4;
@@ -21,7 +21,7 @@ export const GENERATED_MAP_ID = 'gen';
 /** The map id of a generated open line (`?map=line`). */
 export const LINE_MAP_ID = 'line';
 /** Bump when a change makes the same seed and settings give a different open line. */
-export const LINE_GENERATOR_VERSION = 1;
+export const LINE_GENERATOR_VERSION = 2;
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
 const CLIFF_LEVELS = 2;
 
@@ -127,19 +127,51 @@ export function generateLine(seed: string, given: MapGenSettings): GeneratedMap 
     rivers: { ...m.rivers, count: scaleRange(m.rivers.count, trackScale) },
     mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
   };
-  const w = buildWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns });
+  const built = buildWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns });
+  // `west`: the same line mirrored, so trains run right to left.
+  const west = l.direction === 'west';
+  const w = west ? mirrorWorld(built, cols, rows) : built;
+  const route = west ? mirrorRoute(track.route, cols) : track.route;
   const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}/${seed}/${JSON.stringify(lineSettings(given))}`).toString(16).padStart(8, '0') };
   const markers: Record<string, Vec> = { playerSpawn: w.playerSpawn };
   for (const t of w.towns) markers[t.id] = { x: t.x, y: t.y };
   const map = MapDefSchema.parse({
     schemaVersion: 1, id: LINE_MAP_ID, source, size: { cols, rows },
     zoneLegend: [...ZONES], zones: rle(w.zones), elevation: rle(w.heights),
-    routes: [track.route], speedZones: [], openLine: { headwayTiles: l.trainHeadwayTiles }, towns: w.towns, markers,
+    routes: [route], speedZones: [], towns: w.towns, markers,
+    openLine: { headwayTiles: l.trainHeadwayTiles, ...(l.trainHeadwaySpreadTiles > 0 ? { headwaySpreadTiles: Math.min(l.trainHeadwaySpreadTiles, l.trainHeadwayTiles * 0.9) } : {}) },
   });
   const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items: w.items, bridges: w.bridges });
   return {
     map, scenery, minRadiusTiles: track.minRadiusTiles,
     info: { controlPoints: track.route.points.length, trackAttempts: 1, rivers: w.bridges.length, trackLength: track.route.length, theme, busyness, pieces: track.pieces, towns: w.towns.length },
+  };
+}
+
+/** x to cols - x across the map: zones, heights, scenery, towns and spawn (a town's side flips with the mirror). */
+function mirrorWorld(w: World, cols: number, rows: number): World {
+  const flip = (a: Uint8Array) => {
+    const out = new Uint8Array(a.length);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) out[y * cols + x] = a[y * cols + cols - 1 - x]!;
+    return out;
+  };
+  const mx = (x: number) => r4(cols - x);
+  return {
+    zones: flip(w.zones), heights: flip(w.heights),
+    items: { ...w.items, x: w.items.x.map(mx) },
+    bridges: w.bridges.map((b) => ({ ...b, x: r4(cols - b.x - b.w) })),
+    playerSpawn: { x: mx(w.playerSpawn.x), y: w.playerSpawn.y },
+    towns: w.towns.map((t) => ({ ...t, x: mx(t.x), side: (t.side === 1 ? -1 : 1) as 1 | -1 })),
+  };
+}
+
+/** The route mirrored the same way; it keeps its direction of travel, so it now runs west. */
+function mirrorRoute(r: Route, cols: number): Route {
+  const mx = (x: number) => r4(cols - x);
+  return {
+    ...r,
+    points: r.points.map((p) => ({ x: mx(p.x), y: p.y })),
+    samples: { ...r.samples, x: r.samples.x.map(mx), tx: r.samples.tx.map((t) => r6(-t) + 0) },
   };
 }
 

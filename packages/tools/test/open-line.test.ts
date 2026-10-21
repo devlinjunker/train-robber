@@ -16,22 +16,32 @@ const settings = resolveMapGen(defaults);
 const sha = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0, 16);
 
 describe('the open line grows piece by piece', () => {
-  it('always heads east within maxHeadingDeg, so it never crosses itself', () => {
-    const maxH = (settings.line.maxHeadingDeg * Math.PI) / 180;
-    for (let k = 0; k < 20; k++) {
-      let prev: { x: number; y: number } | null = null, n = 0;
-      for (const piece of growLine(`grow-${k}`, settings.line, settings.line.widthTiles)) {
+  it('heads within maxHeadingDeg of east and never comes back within selfGapTiles of itself', () => {
+    const l = settings.line;
+    const maxH = (l.maxHeadingDeg * Math.PI) / 180;
+    // Points this many steps apart are far enough along the line that they must keep selfGapTiles apart.
+    const apart = Math.ceil((2 * l.selfGapTiles) / l.stepTiles) + 2 + Math.ceil((3 * l.selfGapTiles) / l.stepTiles);
+    let back = 0, closest = Infinity;
+    for (let k = 0; k < 40; k++) {
+      const pts: { x: number; y: number }[] = [];
+      let n = 0;
+      for (const piece of growLine(`grow-${k}`, l, l.widthTiles)) {
         for (const p of piece.points) {
+          const prev = pts[pts.length - 1];
           if (prev) {
-            expect(p.x).toBeGreaterThan(prev.x);
             expect(Math.abs(Math.atan2(p.y - prev.y, p.x - prev.x))).toBeLessThanOrEqual(maxH + 1e-9);
+            if (p.x < prev.x) back++;
           }
-          prev = p;
+          for (let i = 0; i < pts.length - apart; i++) closest = Math.min(closest, Math.hypot(pts[i]!.x - p.x, pts[i]!.y - p.y));
+          pts.push(p);
         }
         // Far longer than any map: the generator has no end.
-        if (++n > 80) break;
+        if (++n > 40) break;
       }
     }
+    expect(closest).toBeGreaterThan(l.selfGapTiles);
+    // Past 90 degrees it does run north or south and a little back west at times.
+    expect(back).toBeGreaterThan(0);
   });
 
   it('a longer line starts with exactly the samples of a shorter one', () => {
@@ -59,6 +69,7 @@ describe('open line maps', () => {
     expect(r.samples.x[0]).toBeLessThan(0);
     expect(r.samples.x.at(-1)).toBeGreaterThan(map.size.cols);
     expect(map.openLine?.headwayTiles).toBe(settings.line.trainHeadwayTiles);
+    expect(map.openLine?.headwaySpreadTiles).toBe(settings.line.trainHeadwaySpreadTiles);
     expect(map.towns!.length).toBeGreaterThanOrEqual(1);
     expect(map.towns!.length).toBeLessThanOrEqual(2);
     expect(info.towns).toBe(map.towns!.length);
@@ -70,6 +81,7 @@ describe('open line maps', () => {
       { line: { lengthTiles: 1200 } }, { line: { lengthTiles: 8000 } }, { line: { widthTiles: 300 } },
       { line: { curviness: 0 } }, { line: { maxHeadingDeg: 75 } }, { line: { pieceTiles: [100, 120] } },
       { line: { towns: { count: [2, 2], minGapTiles: 600 } } }, { line: { swingChance: 1 } },
+      { line: { maxHeadingDeg: 120 } }, { line: { direction: 'west' } }, { line: { trainHeadwaySpreadTiles: 0 } },
       ...['forest', 'rocks', 'mesas', 'water', 'mud'].map((t) => ({ mix: { themes: [t], busyness: [0.06, 0.06] } })),
     ];
     const bad: string[] = [];
@@ -82,6 +94,20 @@ describe('open line maps', () => {
     }
     expect(bad.slice(0, 10)).toEqual([]);
   }, 180_000);
+
+  it('run west with direction west: the same line mirrored, trains running right to left', () => {
+    const east = generateLine('west-1', settings);
+    const west = generateLine('west-1', resolveMapGen(defaults, { line: { direction: 'west' } }));
+    const cols = west.map.size.cols;
+    const r = west.map.routes[0]!, e = east.map.routes[0]!;
+    expect(r.samples.x[0]).toBeGreaterThan(cols);
+    expect(r.samples.x.at(-1)).toBeLessThan(0);
+    expect(r.samples.x.slice(0, 50)).toEqual(e.samples.x.slice(0, 50).map((x) => Math.round((cols - x) * 1e4) / 1e4));
+    expect(r.samples.tx[10]).toBeCloseTo(-e.samples.tx[10]!, 6);
+    expect(west.map.towns!.map((t) => [t.d, t.x])).toEqual(east.map.towns!.map((t) => [t.d, Math.round((cols - t.x) * 1e4) / 1e4]));
+    expect(lineTrafficProblems(west.map, 'west-1')).toEqual([]);
+    expect(lineRunProblems(west.map, 'west-1')).toEqual([]);
+  }, 120_000);
 
   it('the checks catch a line whose ends are on the map', () => {
     const { map, scenery } = generateLine('line-0', settings);
@@ -121,7 +147,7 @@ describe('open lines are deterministic', () => {
   });
 });
 
-const PINNED = { map: 'd03c568032ad2abe', scenery: '6890c5bf797b9430' };
+const PINNED = { map: 'ee5d93c19922b25a', scenery: '50cb77e6f09cbb17' };
 
 describe('the line clock', () => {
   const { map } = generateLine('line-clock', settings);

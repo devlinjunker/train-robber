@@ -20,10 +20,10 @@
   "ground": { "bushesPerTile": 0.05, "flowersPerTile": 0.05, "scaleTiles": 18 },
   "spawnDistanceTiles": 14,
   "line": {
-    "lengthTiles": 4000, "widthTiles": 480, "leadInTiles": 24,
-    "pieceTiles": [160, 240], "stepTiles": 16, "maxHeadingDeg": 60, "curviness": 1, "swingChance": 0.5, "swingDeg": 30, "bendShare": [0.25, 0.8],
+    "lengthTiles": 4000, "widthTiles": 800, "leadInTiles": 24,
+    "pieceTiles": [160, 240], "stepTiles": 16, "maxHeadingDeg": 100, "selfGapTiles": 40, "direction": "east", "curviness": 1, "swingChance": 0.5, "swingDeg": 30, "bendShare": [0.25, 0.8],
     "centrePull": 0.5, "marginTiles": 70, "minRadiusTiles": 19, "featureTilesPerLoop": 850,
-    "trainHeadwayTiles": 600, "spawnAlong": [0.1, 0.25],
+    "trainHeadwayTiles": 600, "trainHeadwaySpreadTiles": 200, "spawnAlong": [0.1, 0.25],
     "towns": { "count": [1, 2], "along": [0.3, 0.9], "minGapTiles": 1200, "clearingRadiusTiles": 18, "gapTiles": 8 }
   }
 }

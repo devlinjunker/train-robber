@@ -1,7 +1,8 @@
 // The open line (G3): one railway running east, built piece by piece. Each piece is about 200
-// tiles long and picks a heading within maxHeadingDeg of east, so the line always moves east and can
-// never cross itself. A piece depends only on the seed, its index and where the piece before it
-// ended, so `growLine` can go on forever; `bakeOpen` turns any prefix of it into the same samples
+// tiles long and picks a heading within maxHeadingDeg of east. Past 90 degrees the line runs back a
+// little while it heads north or south, so it steers east early whenever its way ahead would come
+// within selfGapTiles of track it already laid, and never crosses itself. A piece depends only on
+// the seed, its index and the line so far, so `growLine` can go on forever; `bakeOpen` turns any prefix of it into the same samples
 // the sim reads, and a longer line starts with exactly the samples of a shorter one.
 // Deterministic maths only (see dmath.ts).
 import type { MapGenSettings, Route } from '@train-robber/config';
@@ -15,7 +16,7 @@ export interface LinePiece { index: number; points: Vec[]; heading: number; end:
 
 const DEG = PI / 180;
 /** Turns per control point are held this far under stepTiles / minRadiusTiles: where a turn starts or stops at a control point, the smoothed curve bends about twice as tight there (measured over 200 seeds). */
-const TURN_MARGIN = 2.4;
+const TURN_MARGIN = 2.8;
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 const smooth = (u: number) => u * u * (3 - 2 * u);
 
@@ -33,6 +34,27 @@ export function* growLine(seed: string, s: LineSettings, rows: number): Generato
   const maxTurn = s.stepTiles / (TURN_MARGIN * s.minRadiusTiles);
   let heading = start.range(-0.5, 0.5) * maxH * s.curviness;
   let p: Vec = { x: -s.leadInTiles - s.stepTiles, y: mid + start.range(-0.25, 0.25) * span };
+  // Every control point so far, for keeping clear of the line's own track.
+  const laid: Vec[] = [{ ...p }];
+  // Points this recent are the track just behind, always close by; older ones must stay selfGapTiles away.
+  const recent = Math.ceil((2 * s.selfGapTiles) / s.stepTiles) + 2;
+  const ahead = Math.ceil((3 * s.selfGapTiles) / s.stepTiles);
+  const gap2 = s.selfGapTiles * s.selfGapTiles;
+  /** True when running straight on along `h` from `from` would come within selfGapTiles of older track. */
+  const blocked = (from: Vec, h: number): boolean => {
+    const old = laid.length - recent;
+    if (old <= 0) return false;
+    const cx = dcos(h), sy = dsin(h);
+    for (let k = 1; k <= ahead; k++) {
+      const x = from.x + cx * s.stepTiles * k, y = from.y + sy * s.stepTiles * k;
+      for (let i = 0; i < old; i++) {
+        const q = laid[i]!;
+        const dx = q.x - x, dy = q.y - y;
+        if (dx * dx + dy * dy < gap2) return true;
+      }
+    }
+    return false;
+  };
   // The first point is a phantom before the start, so the first stretch of curve has a lead-in.
   yield { index: -1, points: [{ ...p }], heading, end: { ...p } };
   for (let index = 0; ; index++) {
@@ -53,9 +75,12 @@ export function* growLine(seed: string, s: LineSettings, rows: number): Generato
       // it must point back in. The bounds move smoothly with y, so the turns do too.
       const top = clamp((lo + 40 - p.y) / 60, 0, 1), bottom = clamp((p.y - (hi - 40)) / 60, 0, 1);
       want = clamp(want, -maxH + top * 1.5 * maxH, maxH - bottom * 1.5 * maxH);
+      // Heading back toward older track: turn east (only lines past 90 degrees can).
+      if (maxH > PI / 2 && blocked(p, heading)) want = 0;
       heading += clamp(want - heading, -maxTurn, maxTurn);
       p = { x: p.x + s.stepTiles * dcos(heading), y: p.y + s.stepTiles * dsin(heading) };
       points.push({ ...p });
+      laid.push({ ...p });
     }
     yield { index, points, heading, end: { ...p } };
   }

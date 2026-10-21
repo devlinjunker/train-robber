@@ -46,7 +46,8 @@ export function trainGapProblems(map: MapDef, seed: string, config = mapTrainsCo
 
 /**
  * An open line's traffic over the time a train takes to run the whole line: trains enter at the
- * start a headway apart and leave past the end, the number running stays steady, and no two touch.
+ * start about a headway apart and leave past the end, the number running stays within what the
+ * headway and its spread allow, and no two touch.
  */
 export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrainsConfig()): string[] {
   const out: string[] = [];
@@ -54,6 +55,10 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
   const sim = createSim({ config, map, seed, playerIds: [1] });
   const start = sim.state.world.trains.length;
   if (start < 2) out.push(`${start} trains at the start`);
+  // With a headway spread the number running drifts between the counts at the widest and narrowest gaps.
+  const { headwayTiles: h, headwaySpreadTiles: spread = 0 } = map.openLine;
+  const L = map.routes[0]!.length;
+  const fewest = Math.min(start, Math.floor(L / (h + spread))) - 1, most = Math.max(start, Math.ceil(L / (h - spread))) + 1;
   const seen = new Set(sim.state.world.trains.map((t) => t.id));
   let left = 0;
   for (let t = 0, n = lapTicks(map, config); t < n && out.length < 10; t++) {
@@ -62,7 +67,7 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
     const now = sim.state.world.trains;
     for (const id of before) if (!now.some((q) => q.id === id)) left++;
     for (const q of now) seen.add(q.id);
-    if (Math.abs(now.length - start) > 1) out.push(`${now.length} trains at tick ${t}, started with ${start}`);
+    if (now.length < fewest || now.length > most) out.push(`${now.length} trains at tick ${t}, expected ${fewest} to ${most}`);
     if (t % 30 === 0) {
       const cars = sim.cars();
       for (const a of cars) for (const b of cars) {
@@ -71,7 +76,7 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
     }
   }
   if (left < start - 1) out.push(`only ${left} trains left the line`);
-  if (seen.size < start * 2 - 1) out.push(`only ${seen.size - start} trains entered`);
+  if (seen.size - start < fewest) out.push(`only ${seen.size - start} trains entered`);
   return out;
 }
 

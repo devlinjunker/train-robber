@@ -137,8 +137,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // as you ride, and only at the committed train and the switch candidate (Devlin, PR #34):
   // ?edgeArrows=town (default there), trains (every nearby train, the loop default) or both.
   const arrowsParam = params.get('edgeArrows');
-  const towns = [...(opts.map.towns ?? [])].sort((a, b) => a.x - b.x);
-  /** A town's name on screen, numbered west to east; `end` is the end of the line. */
+  // Towns in the order the line reaches them; a line can run west (mapGen.line.direction).
+  const towns = [...(opts.map.towns ?? [])].sort((a, b) => a.d - b.d);
+  /** How far along the line (route `main`) the point nearest (x, y) is. */
+  const lineRoute = opts.map.openLine ? opts.map.routes[0] : undefined;
+  const alongLine = (x: number, y: number): number => {
+    const { x: xs, y: ys, s: ds } = lineRoute!.samples;
+    let best = Infinity, d = 0;
+    for (let i = 0; i < xs.length; i += 2) {
+      const e = (xs[i]! - x) ** 2 + (ys[i]! - y) ** 2;
+      if (e < best) { best = e; d = ds[i]!; }
+    }
+    return d;
+  };
+  /** A town's name on screen, numbered along the line; `end` is the end of the line. */
   const placeName = (id: string) => id === 'end' ? 'END OF LINE' : `TOWN ${towns.findIndex((t) => t.id === id) + 1}`;
   // What the line clock counted down to, kept past the run's end for the expiry message.
   let lastClockTo: string | undefined;
@@ -532,10 +544,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
-      // The next town east of the rider: the first whose clearing is not yet behind them.
+      // The next town ahead of the rider along the line: the first whose clearing is not yet behind them.
       let town: TownPointer | null = null;
       if (ridden && edgeArrows !== 'trains') {
-        const i = towns.findIndex((t) => t.x + t.radiusTiles > ridden.x);
+        const at = lineRoute ? alongLine(ridden.x, ridden.y) : 0;
+        const i = towns.findIndex((t) => t.d + t.radiusTiles > at);
         const t = towns[i];
         if (t) {
           const p = project(t.x, t.y, iso ? isoWorld.groundZ(t.x, t.y) : 0);

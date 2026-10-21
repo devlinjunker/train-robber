@@ -119,8 +119,15 @@ export const MapGenSchema = z.object({
     pieceTiles: range(z.number().min(40)),
     /** Control points this far apart along a piece. */
     stepTiles: z.number().min(4).max(60),
-    /** The heading never strays further than this from east, so the line can never cross itself. */
-    maxHeadingDeg: z.number().min(0).max(75),
+    /**
+     * The heading never strays further than this from east. Past 90 the line can run north or
+     * south and a little back west, steering east before it comes within selfGapTiles of itself.
+     */
+    maxHeadingDeg: z.number().min(0).max(120),
+    /** Track laid earlier stays at least about this far from the line ahead (only matters past 90 degrees). */
+    selfGapTiles: z.number().min(10),
+    /** `east` runs the line west to east; `west` mirrors the whole map, so trains run right to left. */
+    direction: z.enum(['east', 'west']),
     /** 0 is a straight line; 1 lets each piece pick any heading up to maxHeadingDeg. */
     curviness: unit,
     /** Share of pieces that swing out and back (an S-bend) on top of their turn, and how far. */
@@ -139,8 +146,10 @@ export const MapGenSchema = z.object({
      * this many tiles of track. Free-standing ridges and noise scale with the map's area instead.
      */
     featureTilesPerLoop: positive,
-    /** A new train enters at the start of the line once the last one is this far in. */
+    /** A new train enters at the start of the line once the last one is about this far in. */
     trainHeadwayTiles: z.number().min(100),
+    /** Each gap between trains is trainHeadwayTiles plus or minus up to this much, seeded per train. */
+    trainHeadwaySpreadTiles: z.number().min(0),
     /** The player starts beside the track between these fractions of the way along it. */
     spawnAlong: range(unit),
     /** Town spots: a marker and a flat clearing beside the track (towns themselves come in G6). */

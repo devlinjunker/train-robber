@@ -17,7 +17,8 @@ const FOREST = '#3f5a2e', BRIDGE = '#8b6a45', TRACK = '#2a1a10';
 const TRAIN = 0xffffff, COMMITTED = 0xffb020, RIDER = 0x6bd3ff, TOWN = 0xe8d9a8;
 /** On a map more than this many times longer than wide, the minimap shows a window `rows x WINDOW_ASPECT` tiles long. */
 const WINDOW_ASPECT = 1.5;
-const BAR_H = 6;
+/** The bar under a windowed minimap: the whole line, with towns, the window and the rider on it (taller after Devlin missed it, PR #34). */
+const BAR_H = 12;
 
 export type MinimapMode = 'iso' | 'topdown';
 
@@ -90,7 +91,8 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap 
   frame.addChild(ground, marks);
   if (windowed) { frame.addChild(clip); frame.mask = clip; }
   const bar = new Graphics();
-  root.addChild(panel, frame, bar);
+  const barRider = new Graphics();
+  root.addChild(panel, frame, bar, barRider);
 
   // World tiles to minimap pixels, for both orientations. Iso is the main view's projection
   // scaled down, shifted so the window's left corner (x0, rows) sits at x = 0.
@@ -123,19 +125,26 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap 
         if (windowed) clip.clear().poly([[x0, 0], [x0 + span, 0], [x0 + span, rows], [x0, rows]].flatMap(([x, y]) => toMap(mode, x!, y!))).fill(0xffffff);
         if (resized) {
           root.position.set(input.screenWidth - w - MARGIN - PAD, TOP + PAD);
-          const extra = windowed ? BAR_H + PAD : 0;
+          const extra = windowed ? BAR_H + PAD + 3 : 0;
           panel.clear().roundRect(-PAD, -PAD, w + PAD * 2, h + PAD * 2 + extra, 6).fill({ color: 0x000000, alpha: 0.55 }).stroke({ width: 1, color: 0xffffff, alpha: 0.35 });
         }
         if (windowed) {
           // Where the window is along the whole line, with the towns on it.
           const by0 = h + PAD;
-          bar.clear().rect(0, by0, w, BAR_H).fill({ color: 0xffffff, alpha: 0.15 });
-          for (const t of map.towns ?? []) bar.rect((t.x / cols) * w - 1, by0, 2, BAR_H).fill(TOWN);
-          bar.rect((x0 / cols) * w, by0, Math.max(2, (span / cols) * w), BAR_H).stroke({ width: 1, color: 0xffffff, alpha: 0.8 });
+          bar.clear().roundRect(0, by0, w, BAR_H, 3).fill({ color: 0x000000, alpha: 0.5 }).stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
+          // The window shaded, then each town a tall sand post.
+          bar.rect((x0 / cols) * w, by0, Math.max(2, (span / cols) * w), BAR_H).fill({ color: 0xffffff, alpha: 0.25 }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
+          for (const t of map.towns ?? []) bar.rect((t.x / cols) * w - 2, by0 - 3, 4, BAR_H + 6).fill(TOWN).stroke({ width: 1, color: 0x000000 });
         }
       }
 
       marks.clear();
+      // The rider on the bar: a dot that moves along the whole line.
+      barRider.clear();
+      if (windowed && input.rider) {
+        const bx = Math.max(0, Math.min(w, (input.rider.x / cols) * w)), by = h + PAD + BAR_H / 2;
+        barRider.circle(bx, by, 5).fill(RIDER).stroke({ width: 1.5, color: 0x000000 });
+      }
       // What is on screen.
       if (input.view.length) {
         marks.poly(input.view.flatMap((p) => toMap(mode, p.x, p.y))).stroke({ width: 1, color: 0xffffff, alpha: 0.8 });

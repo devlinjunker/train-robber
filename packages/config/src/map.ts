@@ -64,11 +64,15 @@ export const MapDefSchema = z.object({
    * Maps whose routes are open lines (`?map=line`): trains run one way, enter off the start of the
    * line and are removed past its end, a new one entering once the last is `headwayTiles` in.
    */
-  openLine: z.object({ headwayTiles: z.number().positive() }).strict().optional(),
+  openLine: z.object({
+    headwayTiles: z.number().positive(),
+    /** Each gap is headwayTiles plus or minus up to this, seeded per train; below headwayTiles. */
+    headwaySpreadTiles: z.number().min(0).optional(),
+  }).strict().optional(),
   /**
    * Town spots along the line: `d` is the distance along route `route`, (x, y) the middle of a flat
-   * clearing of `radiusTiles` beside the track on `side` (+1 right of travel). The sim does not
-   * read them yet; towns and timetables come in G6.
+   * clearing of `radiusTiles` beside the track on `side` (+1 right of travel). The sim reads
+   * `route` and `d` for the line clock; towns and timetables come in G6.
    */
   towns: z.array(z.object({ id: z.string(), route: z.string(), d: z.number().min(0), x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().positive() }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
