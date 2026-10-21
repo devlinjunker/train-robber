@@ -19,6 +19,14 @@ function drawCar(content: SceneContent, template: string): Graphics {
     g.rect(hl - col - 1, -hw + row, 1, 1).fill(colourOf(content.cellTypes[cell]!.colour));
   });
   g.rect(-hl, -hw, hl * 2, hw * 2).stroke({ width: 0.15, color: 0x111111 });
+  // Platforms at both ends, ledges along both sides, and the coupling plate behind (outside.*).
+  const o = content.outside;
+  if (o) {
+    const P = o.platformDepthTiles, L = o.ledgeWidthTiles, G = o.couplingGapTiles, w = Math.min(hw * 2, o.gangwayWidthTiles);
+    if (P > 0) g.rect(hl, -hw, P, hw * 2).rect(-hl - P, -hw, P, hw * 2).fill(0x5e4330);
+    if (L > 0) g.rect(-hl - P, -hw - L, hl * 2 + 2 * P, L).rect(-hl - P, hw, hl * 2 + 2 * P, L).fill(o.ledges ? 0x6e5038 : 0x42302a);
+    if (G > 0) g.rect(-hl - P - G, -w / 2, G, w).fill({ color: 0x3c3c44, alpha: 0.8 });
+  }
   // A notch at the front so the direction of travel reads at a glance.
   g.poly([hl - 1.5, -1, hl - 0.3, 0, hl - 1.5, 1]).fill({ color: 0xffffff, alpha: 0.6 });
   return g;

@@ -363,6 +363,9 @@ describe('crouching and cover', () => {
     expect(noiseRadius(cfg, grid, p, at(p.placement.x), false, true)).toBe(noise.searchRadiusTiles);
     expect(noiseRadius(cfg, grid, p, at(p.placement.x), true, true)).toBe(noise.searchRadiusTiles);
     expect(noiseRadius(cfg, grid, p, at(p.placement.x), false, false)).toBe(0);
+    // Stumbling after a good landing is as loud as running, standing still or not.
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), false, false, true)).toBe(noise.stumbleRadiusTiles);
+    expect(noiseRadius(cfg, grid, p, at(p.placement.x), true, false, true)).toBe(noise.stumbleRadiusTiles);
   });
 
   it('crouched footsteps behind a guard go unheard where running ones are heard', () => {

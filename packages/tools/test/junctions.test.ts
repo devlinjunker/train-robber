@@ -100,9 +100,13 @@ describe('segments and services in build-maps', () => {
   });
 });
 
-/** Every car's distance to the nearest car of another train, and how far any car moved in one tick. */
+/**
+ * Every car's distance to the nearest car of another train, and how far any car moved in one tick.
+ * Two mail cars, not three: with platforms between the cars (sneaking PR 2) a three-car mail train
+ * is longer than this map's 120-tile shared segment, so it could never pick a branch.
+ */
 function watch(map: MapDef, seed: string, ticks: number) {
-  const config = loadConfig();
+  const config = loadConfig({ preset: 'alpha-default', overrides: { trains: { 'mail-express': { carCount: 2 } } } });
   const sim = createSim({ config, map, seed, playerIds: [1] });
   let closest = Infinity, jump = 0;
   const switches: string[] = [];

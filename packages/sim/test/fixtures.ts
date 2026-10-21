@@ -8,13 +8,14 @@ type Values = SimConfig['values'];
 export const TEST_CELL_TYPES: Values['cellTypes'] = [
   { id: 'floor', blocksMove: false, blocksSight: false, cover: 0, noise: 1, colour: '#8a6a4a' },
   { id: 'wall', blocksMove: true, blocksSight: true, cover: 1, colour: '#4a3022' },
-  { id: 'door', blocksMove: false, blocksSight: true, cover: 0, noise: 1.5, colour: '#e8c872' },
+  { id: 'door', blocksMove: false, blocksSight: true, cover: 0, noise: 1.5, opensOnInteract: true, colour: '#e8c872' },
   { id: 'crate-stack', blocksMove: true, blocksSight: false, cover: 0.5, colour: '#b08850' },
+  { id: 'window', blocksMove: true, blocksSight: false, cover: 0, colour: '#9fd3e8' },
 ];
-const CHAR: Record<string, string> = { '#': 'wall', '.': 'floor', D: 'door', C: 'crate-stack' };
+const CHAR: Record<string, string> = { '#': 'wall', '.': 'floor', D: 'door', C: 'crate-stack', W: 'window' };
 
 /**
- * A car template from rows of characters (# wall, . floor, D door, C crate), as build-cars would
+ * A car template from rows of characters (# wall, . floor, D door, C crate, W window), as build-cars would
  * write it: cells run-length encoded against a legend.
  */
 export function asciiCar(carType: string, rows: string[], extra: Partial<Pick<CarTemplateDef, 'entryPoints' | 'lootSlots' | 'guardSpawns' | 'patrols'>> = {}): CarTemplateDef {
@@ -76,6 +77,14 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 };
 
 /** Like the real base config at 60 Hz; `more` replaces whole sections. */
+/** Outside values that leave the cars end to end with no ledges (the layout before sneaking PR 2). */
+export const NO_OUTSIDE: Values['outside'] = {
+  ledges: false, platformDepthTiles: 0, couplingGapTiles: 0, gangwayWidthTiles: 0, ledgeWidthTiles: 0, seeThroughDoorways: false,
+  platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoiseRadiusTiles: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+};
+/** The shipped outside values: one-tile platforms and gap, a three-tile coupling plate, half-tile ledges and open doorways. */
+export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true, ledgeNoiseRadiusTiles: 1.5 };
+
 export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
   const rad = (120 * Math.PI) / 180 / 60, guardRad = (240 * Math.PI) / 180 / 60;
   return {
@@ -89,7 +98,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         rangeTiles: 2, speedToleranceTilesPerSec: 2,
         meter: { sweepPeriodTicks: 72, matchedSweepPeriodTicks: 108, zoneWidths: [0.1, 0.25] },
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
-        landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5 },
+        landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
       },
       health: { max: 100 },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownTicks: 60 },
@@ -118,9 +127,11 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       ai: {
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
-        sight: { rangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5,
+        sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
       },
+      // Cars end to end with no ledges, as before platforms; outside tests set their own.
+      outside: NO_OUTSIDE,
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
       trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
       carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },

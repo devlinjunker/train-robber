@@ -5,7 +5,7 @@
 import { hashState } from '../hash';
 import { nextInt } from '../rng';
 import type { GameState, PlayerId, SimConfig, TrainState } from '../types';
-import { carCatalog, placeCars, trainLength, type CarPose } from './cars';
+import { carCatalog, carSpacing, placeCars, trainLength, type CarPose } from './cars';
 import { pickTrainCars, trainCarsSeed } from './generate';
 import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
@@ -185,7 +185,7 @@ export function allCarPoses(state: GameState, map: WorldMap, config: SimConfig):
   const catalog = carCatalog(config);
   for (const t of state.world.trains) {
     const { route } = routeOf(map, config, t);
-    for (const car of placeCars(t.id, t.cars, route, t.d, catalog, scratch)) out.push(car);
+    for (const car of placeCars(t.id, t.cars, route, t.d, catalog, scratch, carSpacing(config))) out.push(car);
   }
   return out;
 }
@@ -195,12 +195,12 @@ export function carPosesOf(state: GameState, map: WorldMap, config: SimConfig, t
   const t = state.world.trains.find((q) => q.id === trainId);
   if (!t) return [];
   const { route } = routeOf(map, config, t);
-  return placeCars(t.id, t.cars, route, t.d, carCatalog(config));
+  return placeCars(t.id, t.cars, route, t.d, carCatalog(config), [], carSpacing(config));
 }
 
-/** A train's length in tiles. */
+/** A train's length in tiles, platforms and couplings included. */
 export function trainLengthOf(config: SimConfig, train: Pick<TrainState, 'cars'>): number {
-  return trainLength(train.cars, carCatalog(config));
+  return trainLength(train.cars, carCatalog(config), carSpacing(config), config.values.outside.platformDepthTiles);
 }
 
 /** A train's speed along its route in tiles per second. */

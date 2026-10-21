@@ -112,6 +112,8 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' | 'mount' }
   /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
+  /** A trackside rock knocked the player off a ledge: the same failed-boarding damage as being thrown off. */
+  | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'fell' }
   /** Running into or scraping a train, or running into blocked ground; `impact` is the speed the horse lost, tiles/s. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
@@ -148,8 +150,8 @@ export type SimEvent =
   /** A search finished but taking the item would break a carry cap, so it stays. */
   | { type: 'LootRefused'; tick: number; player: PlayerId; item: string; reason: LootRefusal; loot: number }
   | { type: 'LootRevealed'; tick: number; player: PlayerId; item: string; car: number; loot: number }
-  /** Carried items lost off the train (thrown off by a guard): gone, not left in the car. */
-  | { type: 'LootLost'; tick: number; player: PlayerId; item: string; value: number; weight: number; cause: 'thrownOff' }
+  /** Carried items lost off the train (thrown off by a guard, or a fall): gone, not left in the car. */
+  | { type: 'LootLost'; tick: number; player: PlayerId; item: string; value: number; weight: number; cause: 'thrownOff' | 'fell' }
   | { type: 'LootDropped'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** Releasing E or moving off the slot loses the search's progress (`progress` 0 to 1). */
   | { type: 'SearchCancelled'; tick: number; player: PlayerId; loot: number; reason: 'released' | 'moved away'; progress: number }
@@ -161,6 +163,8 @@ export type SimEvent =
   | { type: 'PlayerSpotted'; tick: number; player: PlayerId; guard: number; car: number }
   /** An alert guard caught the player and threw them off the train (guardCatch `thrown-off`). */
   | { type: 'ThrownOff'; tick: number; player: PlayerId; guard: number; car: number }
+  /** A trackside rock knocked the player off a ledge of car `car`: they land on the horse as if thrown off. */
+  | { type: 'FellOff'; tick: number; player: PlayerId; car: number; cause: 'rock' }
   | { type: 'HorseBoosted'; tick: number; player: PlayerId };
 
 export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
@@ -439,7 +443,7 @@ export interface SimConfig {
       speedToleranceTilesPerSec: number;
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
-      landing: { stumbleTicks: number; stumbleSpeedScale: number };
+      landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
     };
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
@@ -521,15 +525,40 @@ export interface SimConfig {
       chaseSpeedTilesPerTick: number;
       turnRateCosPerTick: number;
       turnRateSinPerTick: number;
-      sight: { rangeTiles: number; coneCos: number; crouchCoverMin: number };
+      sight: { rangeTiles: number; ledgeRangeTiles: number; coneCos: number; crouchCoverMin: number };
       /** `searchRadiusTiles`: how far searching loot (holding E on a slot, hidden or not) carries, crouched or not. */
-      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number };
+      /** `stumbleRadiusTiles`: how far the stumble after a good landing carries, moving or not (Devlin, 2026-10-20: loud, like running). */
+      noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; searchRadiusTiles: number; stumbleRadiusTiles: number };
       alertAfterTicks: number;
       calmTicks: number;
       alertCalmTicks: number;
       loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
+      suspiciousStepOutside: boolean;
+      suspiciousApproach: boolean;
+    };
+    /**
+     * Outside the cars (sneaking PR 2): an end platform `platformDepthTiles` deep at each end of every
+     * car, a `couplingGapTiles` gap between platforms crossed on a `gangwayWidthTiles` coupling plate,
+     * and side ledges `ledgeWidthTiles` wide along both long sides (walkable while `ledges` is on).
+     * Platforms and the gangway cap walking at `platformSpeedTilesPerTick`, ledges at
+     * `ledgeSpeedTilesPerTick`; footsteps on a platform carry `platformNoise` times as far; moving on a ledge carries `ledgeNoiseRadiusTiles`, at any pace.
+     * On a ledge, blocked ground (rocks) within `scrape.glanceTiles` outward of the player scrapes
+     * them; blocked ground under them knocks them off (`scrape.knockOff`), a fall like thrown-off.
+     */
+    outside: {
+      ledges: boolean;
+      platformDepthTiles: number;
+      couplingGapTiles: number;
+      gangwayWidthTiles: number;
+      ledgeWidthTiles: number;
+      seeThroughDoorways: boolean;
+      platformSpeedTilesPerTick: number;
+      ledgeSpeedTilesPerTick: number;
+      platformNoise: number;
+      ledgeNoiseRadiusTiles: number;
+      scrape: { glanceTiles: number; knockOff: boolean; closeDoors: boolean };
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
@@ -563,7 +592,7 @@ export interface TrainDef {
   verbs: readonly string[];
 }
 
-export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; colour: string }
+export interface CellTypeDef { id: string; blocksMove: boolean; blocksSight: boolean; cover: number; noise?: number; opensOnInteract?: boolean; colour: string }
 export interface ItemDef { name: string; value: number; weight: number; category: string; slotTags: readonly string[]; searchTimeTicks?: number }
 export interface LootTableDef {
   items: readonly { item: string; weight: number }[];

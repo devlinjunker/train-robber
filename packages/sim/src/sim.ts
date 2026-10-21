@@ -7,7 +7,7 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
 import { guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
@@ -130,7 +130,11 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       advanceTrains(state, map, config);
       const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
       // A horse whose rider is aboard is riderless, steered by the extraction AI.
-      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, allCarPoses(state, map, config), speedOf, horseIntent(ctx)));
+      // The horse runs into a car's end platforms as well as its body.
+      const platform = config.values.outside.platformDepthTiles;
+      const bodies = allCarPoses(state, map, config);
+      const solid = platform > 0 ? bodies.map((c) => ({ ...c, halfLength: c.halfLength + platform })) : bodies;
+      collisionSystem(ctx, ride(state.players, state.world.horses, map, config, solid, speedOf, horseIntent(ctx)));
       // 3b. The commit prompt's timer and close range commit an idle rider with no key; with
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.
       autoCommitSystem(ctx);
@@ -143,6 +147,9 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const mountJumps = aboardPhase ? jumps : new Set<PlayerId>();
       boardingSystem(ctx, aboardPhase ? new Set<PlayerId>() : jumps);
       walkAboard(state, config);
+      // 5b. Trackside rocks scrape a player on a ledge, or knock them off.
+      const fell = ledgeRockSystem(ctx);
+      if (fell) throwOff(ctx, fell, null);
       const caught = guardSystem(ctx);
       if (caught) throwOff(ctx, caught.player, caught.guard.id);
       extractionSystem(ctx, whistles, mountJumps);

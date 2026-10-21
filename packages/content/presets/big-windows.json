@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "big-windows",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "trains": {
+      "mail-express": {
+        "layouts": [
+          "mail-car-d", "mail-car-e"
+        ]
+      }
+    }
+  }
+}
