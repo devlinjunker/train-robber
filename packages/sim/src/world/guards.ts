@@ -279,14 +279,22 @@ export function sightReach(g: TrainGrid, ax: number, ay: number, dx: number, dy:
 }
 
 /**
- * The sight rule: within `ai.sight.rangeTiles`, inside the cone (the precomputed `coneCos` against
+ * How far a guard at (gx, gy) sees: `ai.sight.rangeTiles`, or `ledgeRangeTiles` out on a ledge,
+ * where nothing is in the way along the car's side (Devlin, 2026-10-21).
+ */
+export function sightRange(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number): number {
+  return spaceAt(g, gx, gy) === Space.Ledge ? cfg.sight.ledgeRangeTiles : cfg.sight.rangeTiles;
+}
+
+/**
+ * The sight rule: within `sightRange`, inside the cone (the precomputed `coneCos` against
  * a dot product, so no trig), and with a clear line between them. A crouched player also hides
  * behind any cell with at least `ai.sight.crouchCoverMin` cover on that line.
  */
 export function canSee(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, fx: number, fy: number, px: number, py: number, crouched = false): boolean {
   const dx = px - gx, dy = py - gy;
   const d2 = dx * dx + dy * dy;
-  const r = cfg.sight.rangeTiles;
+  const r = sightRange(g, cfg, gx, gy);
   if (d2 > r * r) return false;
   const d = Math.sqrt(d2);
   if (d > 1e-9 && fx * dx + fy * dy < cfg.sight.coneCos * d) return false;

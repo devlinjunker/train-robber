@@ -352,7 +352,7 @@ export const GameSchema = z.object({
     turnRateDegPerSec: positive,
     /** The sight cone: range, and half its angle (turned into a cosine threshold); cells with blocksSight stop it. */
     /** `crouchCoverMin`: a cell with at least this `cover` between a guard and a crouched player blocks the guard's sight of them (crates 0.5, barrels 0.4). */
-    sight: z.object({ rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
+    sight: z.object({ rangeTiles: positive, ledgeRangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
     /** Footsteps carry this far walking, running and crouching, times the noise of the cell the player is on. */
     noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), searchRadiusTiles: z.number().min(0), stumbleRadiusTiles: z.number().min(0) }).strict(),
     /** A suspicious guard that keeps seeing the player this long goes alert and raises the alarm. */

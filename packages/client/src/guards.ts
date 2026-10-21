@@ -1,7 +1,7 @@
 // Guards for the views: where each one stands in the world, which way it looks, and its sight
 // cone clipped by cells that block sight (faint by default; full with the debug overlay or ?cones=on). The sim decides what a
 // guard sees; the cone is only a picture of the same rule.
-import { carToWorld, fromTrain, sightReach, toTrain, trainGrid, type CarPose, type GuardAwareness, type SimConfig } from '@train-robber/sim';
+import { carToWorld, fromTrain, sightRange, sightReach, toTrain, trainGrid, type CarPose, type GuardAwareness, type SimConfig } from '@train-robber/sim';
 import type { GuardPose } from './interp';
 
 /** A guard placed in the world: position, unit facing and awareness. */
@@ -58,7 +58,7 @@ export function sightCones(config: SimConfig, templates: readonly string[], guar
     for (let i = 0; i <= CONE_RAYS; i++) {
       const a = base - half + (2 * half * i) / CONE_RAYS;
       const dx = Math.cos(a), dy = Math.sin(a);
-      const r = sightReach(grid, lx, g.y, dx, dy, ai.sight.rangeTiles);
+      const r = sightReach(grid, lx, g.y, dx, dy, sightRange(grid, ai, lx, g.y));
       const p = world(lx + dx * r, g.y + dy * r);
       if (p) points.push(p);
     }

@@ -127,7 +127,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       ai: {
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
-        sight: { rangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
+        sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
         alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.

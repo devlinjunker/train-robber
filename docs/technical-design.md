@@ -1161,6 +1161,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Debug heat step (H) | 10; 0 turns the key off | `playtest.debugHeatStep` |
 | Guards on the mail train | About 2 for every 3 cars with guard spawns at wanted level 0 (Devlin, 2026-10-17), plus the wanted-level bonus from M5 | `trains.<id>.guards.perCar` (0.67), `trains.<id>.guards.base` (0) |
 | Guard sight (M3; 10 tiles since Devlin's sneaking PR 1 playtest, 2026-10-20) | 10 tiles, 40° half-angle (an 80° cone) | `ai.sight.rangeTiles`, `ai.sight.coneHalfAngleDeg` |
+| Guard sight along a ledge (Devlin, 2026-10-21) | 30 tiles for a guard standing on a ledge, so he sees the whole length of a 28-tile car; inside, the normal range | `ai.sight.ledgeRangeTiles` |
 | Guard hearing (Claude's pick in M3) | 1.5 tiles walking, 5 running, times the cell's noise | `ai.noise.walkRadiusTiles`, `ai.noise.runRadiusTiles` |
 | Guard awareness (Claude's pick in M3) | alert after 1 s in view; suspicious calms after 4 s, alert after 6 s | `ai.alertAfterSec`, `ai.calmSec`, `ai.alertCalmSec` |
 | Guard movement (Claude's pick in M3) | patrol 1.5 tiles/s with 1.5 s pauses, chase 4 tiles/s (Devlin, M3 playtest 2026-10-18), turn 240°/s, catch within 0.8 tiles | `ai.patrolSpeedTilesPerSec`, `ai.patrolPauseSec`, `ai.chaseSpeedTilesPerSec`, `ai.turnRateDegPerSec`, `ai.catchRangeTiles` |

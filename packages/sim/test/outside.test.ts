@@ -243,6 +243,15 @@ describe('guards and the outside', () => {
     expect(ofType(ev, 'ThrownOff')).toHaveLength(1);
   });
 
+  it('a guard out on a ledge sees the whole way along it (ai.sight.ledgeRangeTiles)', () => {
+    const gx = toTrain(g, 1, 0.5), px = toTrain(g, 1, 14.5);
+    const ai = (ledgeRangeTiles: number) => ({ ...cfg.values.ai, sight: { ...cfg.values.ai.sight, ledgeRangeTiles } });
+    expect(canSee(g, ai(30), gx, -0.05, 1, 0, px, -0.05)).toBe(true);
+    expect(canSee(g, ai(7), gx, -0.05, 1, 0, px, -0.05)).toBe(false);
+    // Inside, the normal range still applies.
+    expect(canSee(g, ai(30), gx, 2.5, 1, 0, px, 2.5)).toBe(false);
+  });
+
   it('hears you moving on a ledge only from just the other side of the wall, at any pace', () => {
     const p = { move: { x: 127, y: 0 }, placement: { frame: 'x', x: 5.5, y: -0.3, layer: 'interior' } } as unknown as PlayerState;
     const lx = toTrain(g, 1, 5.5);
