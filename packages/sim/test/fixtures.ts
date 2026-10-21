@@ -76,11 +76,23 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
   requireSideDoors: 'both', countdown: { baseSec: 150 }, loot: { table: 'mail', density: 0.6 }, verbs: ['search'],
 };
 
+/** The shipped roof values at 60 Hz (sneaking PR 3), switched on. */
+export const ROOF: Values['outside']['roof'] = {
+  enabled: true, ladderEnds: 'both', ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
+  noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
+  edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardsClimb: true, dropStumbleTicks: 36,
+  jump: { airTicks: 30, pushTiles: 0.75 },
+  slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60 },
+};
+/** The roof switched off, as before sneaking PR 3. */
+export const ROOF_OFF: Values['outside']['roof'] = { ...ROOF, enabled: false };
+
 /** Like the real base config at 60 Hz; `more` replaces whole sections. */
 /** Outside values that leave the cars end to end with no ledges (the layout before sneaking PR 2). */
 export const NO_OUTSIDE: Values['outside'] = {
   ledges: false, platformDepthTiles: 0, couplingGapTiles: 0, gangwayWidthTiles: 0, ledgeWidthTiles: 0, seeThroughDoorways: false,
   platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoiseRadiusTiles: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+  roof: ROOF_OFF,
 };
 /** The shipped outside values: one-tile platforms and gap, a three-tile coupling plate, half-tile ledges and open doorways. */
 export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true, ledgeNoiseRadiusTiles: 1.5 };

@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, gridWalkable, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
+  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, gridWalkable, onRoof, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -70,7 +70,8 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     } else {
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== run?.trainId || (run.phase !== 'aboard' && run.phase !== 'extracting')) return `player ${p.id} in ${p.placement.frame} in phase ${run?.phase ?? 'idle'}`;
-      if (!sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
+      // Mid-jump you are over open air between roofs: only the landing has to be somewhere.
+      if (!rp?.air && !sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
       // Aboard, the horse is in the world only while it runs off or comes when whistled (U4).
       if (h.mode === 'physical' && run.horse.state === 'away') return `player ${p.id} aboard with the horse physical but not called`;
       if (h.mode !== 'physical' && run.horse.state !== 'away') return `player ${p.id} aboard with the horse ${run.horse.state} but ${h.mode}`;
@@ -82,6 +83,7 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
         if (w > v.carry.maxWeight + EPS) return `player ${p.id} carries ${w} over the weight limit`;
         if (rp.carried.length > v.carry.maxItems) return `player ${p.id} carries ${rp.carried.length} items, over the limit`;
       }
+      if ((rp.air || rp.slip) && p.placement.layer !== 'roof') return `player ${p.id} ${rp.air ? 'in the air' : 'slipping'} off the roof`;
       if (rp.search) {
         const l = run!.loot.find((q) => q.id === rp.search!.loot);
         if (!l || l.taken) return `player ${p.id} searching loot ${rp.search.loot}, which is gone`;
@@ -101,7 +103,7 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     for (const g of run.guards) {
       if (g.car < 0 || g.car >= train.cars.length) return `guard ${g.id} in car ${g.car} of a ${train.cars.length}-car train`;
       for (const k of ['x', 'y', 'fx', 'fy'] as const) if (!Number.isFinite(g[k])) return `guard ${g.id} ${k} is ${g[k]}`;
-      if (!gridWalkable(grid, toTrain(grid, g.car, g.x), g.y)) return `guard ${g.id} on an unwalkable cell (${g.x}, ${g.y}) of car ${g.car}`;
+      if (g.roof ? !onRoof(grid, g.car, g.x, g.y) : !gridWalkable(grid, toTrain(grid, g.car, g.x), g.y)) return `guard ${g.id} on an unwalkable ${g.roof ? 'roof spot' : 'cell'} (${g.x}, ${g.y}) of car ${g.car}`;
       if (Math.abs(Math.hypot(g.fx, g.fy) - 1) > 1e-3) return `guard ${g.id} facing length ${Math.hypot(g.fx, g.fy)}`;
     }
   }
@@ -130,6 +132,8 @@ function randomBot(rng: RngState): Brain {
     // Heat from the debug keys, so the heat range and the faster drain see play.
     else if (roll < 30) c.push(roll < 29 ? { type: 'debugHeat' } : { type: 'debugHeat', source: 'alarmRaised' });
     else if (roll < 34) c.push({ type: 'boost' });
+    // Ladders: refused unless at one, so the roofs get climbed now and then.
+    else if (roll < 44) c.push({ type: 'climb' });
     // Keep it in sight of the track: the stadium sits between y 30 and 170 on alpha-flats.
     const h = (sim.state as GameState).world.horses[0]!;
     if (h.y > sim.map.rows - 20 || h.y < 20 || h.x < 20 || h.x > sim.map.cols - 20) c.push({ type: 'quickRetry' });
@@ -139,6 +143,9 @@ function randomBot(rng: RngState): Brain {
 
 function chaserBot(rng: RngState, config: SimConfig): Brain {
   let eligibleFor = 0, waitTicks = 0, aboardFor = 0;
+  // Some boardings go up on the roofs instead of looting: out of the front door to the ladder, up,
+  // then run about jumping now and then, and climb down at a ladder if one comes up.
+  let roofer = false, roofFor = 0;
   let last = { x: 0, y: 0 };
   return (sim, t) => {
     const s = sim.state as GameState;
@@ -150,6 +157,24 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
       aboardFor++;
       const p = s.players[0]!;
       const rp = s.run.players[1]!;
+      if (aboardFor === 1) { roofer = config.values.outside.roof.enabled && nextInt(rng, 'misc', 3) === 0; roofFor = 0; }
+      if (roofer && aboardFor < 60 * 12) {
+        const pl = p.placement;
+        if (pl.layer === 'roof') {
+          roofFor++;
+          if (roofFor % 30 === 1) move(axis(rng), axis(rng));
+          if (nextInt(rng, 'misc', 90) === 0) c.push({ type: 'jump' });
+          if (roofFor > 60 * 4 && nextInt(rng, 'misc', 20) === 0) c.push({ type: 'climb' });
+        } else if (!rp.climb) {
+          // Waypoints in the car's frame: the front end door's row, out onto the platform, then the ladder's row.
+          const wp = pl.x > 0.6 ? { x: 0.5, y: 2.9 } : pl.x > -0.2 ? { x: -0.3, y: 2.9 } : { x: -0.35, y: 1.5 };
+          const dx = wp.x - pl.x, dy = wp.y - pl.y;
+          if (pl.x <= -0.2 && Math.abs(dy) < 0.1) { move(0, 0); c.push({ type: 'climb' }); }
+          else if (aboardFor % 60 < 10) { if (aboardFor % 10 === 1) move(axis(rng), axis(rng)); }
+          else move(Math.abs(dx) > 0.05 ? (dx > 0 ? -127 : 127) : 0, Math.abs(dy) > 0.05 ? (dy > 0 ? 64 : -64) : 0);
+        }
+        return c;
+      }
       // Walk to the nearest loot in this car (+x is toward the front, lower cell x) and hold E on it.
       const l = nearestLoot(s, p, 99);
       if (l && aboardFor < 60 * 12) {

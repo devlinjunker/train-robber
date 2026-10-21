@@ -34,6 +34,12 @@ const base = {
   outside: {
     ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
     platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoiseRadiusTiles: 1.5, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+    roof: {
+      enabled: true, ladderEnds: 'both', ladderRow: 1, ladderReachTiles: 1, climbSec: 1, speedTilesPerSec: 5,
+      noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landSec: 0.25 },
+      edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardsClimb: true, dropStumbleSec: 0.6,
+      jump: { airSec: 0.5, pushTiles: 0.75 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1 },
+    },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },

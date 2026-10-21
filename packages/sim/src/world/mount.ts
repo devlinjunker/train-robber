@@ -40,7 +40,8 @@ export interface MountDoor { car: number; entry: string; reach: number; x: numbe
 export function mountDoor(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState, side: TrainSide): MountDoor | null {
   const f = parseCarFrame(p.placement.frame);
   const train = f && state.world.trains.find((t) => t.id === f.trainId);
-  if (!f || !train) return null;
+  // Doors are below: none in reach from a roof.
+  if (!f || !train || p.placement.layer === 'roof') return null;
   const t = carTemplate(carCatalog(config), train.cars[f.car]!);
   let best: MountDoor | null = null;
   for (const ep of t.sideEntries) {
