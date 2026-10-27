@@ -125,7 +125,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 
 The game logic must run independently of the renderer, so a server can host it for multiplayer and the renderer can move from 2D to 3D without a rewrite.
 
-- **Multiplayer architecture (required in the plan).** Online play with a gang of friends comes right after Phase 3 (military payroll and combat), before the passenger and bank trains (decided 2026-10-27). Until then, the simulation is a standalone module with no rendering or browser dependencies. It uses a fixed timestep, takes player input as commands, and keeps its state serializable so a server can later run it as the authority.
+- **Multiplayer architecture (required in the plan).** A network test comes right after Phase 3 (military payroll and combat) and is kept working as later trains are added; full online play with a gang of friends comes after the prototype (decided 2026-10-27). Until then, the simulation is a standalone module with no rendering or browser dependencies. It uses a fixed timestep, takes player input as commands, and keeps its state serializable so a server can later run it as the authority.
 - **Rendering.** 2D isometric first, with 3D as the eventual preferred way to play. The alpha camera has a fixed angle with zoom levels, and rotation comes with 3D.
 - **Art.** Placeholder shapes first. Pixel art or low-poly 3D comes later.
 - **Input.** Desktop keyboard and mouse first, with gamepad support after the alpha. Touch controls are a possible later addition.
@@ -140,10 +140,10 @@ The prototype includes four trains (bank, passenger, military payroll and mail/e
 1. **Riding and boarding.** One map, one blank train, the horse, the timing-meter jump and the failure rules. Gate: riding and boarding is fun before any loot exists.
 2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: compare the short and medium run configurations and pick a target length.
 3. **Military payroll.** Combat, health bar and the downed-state variant. Gate: combat feels good and the health variants are compared.
-   - **Then multiplayer.** Online play for a gang of friends on one train, built once combat exists so it is tested over the network before Phases 4 and 5 build on it (decided 2026-10-27). It starts with its own plan.
+   - **Then a network test.** Two players on one train through a simple server, with no lobby, built once combat exists so it is tested over the network early. Phases 4 and 5 keep it working, so each new train is checked over the network as it is built (decided 2026-10-27).
 4. **Passenger hold-up.** Visual cues, inspect action and armed passengers. Gate: judging passengers is a decision, not a chore.
 5. **Bank.** Vault cracking with guard interruptions. Gate: the minigame holds up under time pressure, and each train clearly favors a different playstyle while other approaches still work.
-6. **After the prototype.** Cargo and tycoon trains, then the later trains, progression and 3D rendering.
+6. **After the prototype.** Cargo and tycoon trains, then the later trains, progression, 3D rendering and full online multiplayer.
 
 ## Prototype requirements and test plan
 
@@ -165,7 +165,7 @@ The alpha prototype is single-player on one map with placeholder art, and trains
 - Timetables and their loot cost, which may be added later.
 - Cargo and tycoon trains, and throwing crates from the train.
 - Progression: horse upgrades, gear, hideout and reputation.
-- Gamepad support, 3D rendering, multiplayer (it comes right after Phase 3) and mobile.
+- Gamepad support, 3D rendering, multiplayer (a network test comes right after Phase 3) and mobile.
 
 **Variants to test**
 

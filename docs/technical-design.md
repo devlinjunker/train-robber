@@ -969,7 +969,7 @@ The build follows the requirements' five phases, preceded by a foundation phase 
 
 **Phase 2 progress.** M1 (countdown, heat and run end), M2 (mail train and loot), M3 (light guards and the horse boost) and M4 (extraction) are built; see the Phase 2 checklist at the end of this document for what each milestone actually built.
 
-Online multiplayer comes right after Phase 3, before the passenger and bank trains (decided 2026-10-27). After the prototype come the cargo and tycoon trains, the later trains, progression and 3D, in that order. The reference machine is a 2019 MacBook Pro (6-core Intel i7, integrated Intel UHD 630 graphics, 16 GB RAM). Record a baseline in both Chrome and Safari before phase 2, because the 30 fps floor needs one. Integrated graphics make overdraw and fill rate the main rendering risk, so the performance budget should be set on this machine first.
+A multiplayer network test (two players on one train over a simple server) comes right after Phase 3 and is kept working through Phases 4 and 5 (decided 2026-10-27). After the prototype come the cargo and tycoon trains, the later trains, progression, 3D and full online multiplayer, in that order. The reference machine is a 2019 MacBook Pro (6-core Intel i7, integrated Intel UHD 630 graphics, 16 GB RAM). Record a baseline in both Chrome and Safari before phase 2, because the 30 fps floor needs one. Integrated graphics make overdraw and fill rate the main rendering risk, so the performance budget should be set on this machine first.
 
 ### Testing
 
