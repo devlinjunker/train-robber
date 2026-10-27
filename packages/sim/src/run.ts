@@ -456,7 +456,7 @@ function clearOfRocks(map: WorldMap, x: number, y: number): boolean {
  * nearest, facing along the track at `boarding.failure.horseSpeedScale` of the train's speed, stunned
  * for `boarding.failure.stunSec` and losing `damageFraction` of max health. The run goes back to
  * `boarding` (the failed jump's stun), then `approach`; `ai.thrownOffLootShare` of the loot carried
- * goes over the side. With `guard` null it is a fall (`cause`: a rock knocked them off a ledge, O4, or
+ * goes over the side (all of it by default, Devlin's PR #36 playtest; `ai.fellLootShare` in a fall). With `guard` null it is a fall (`cause`: a rock knocked them off a ledge, O4, or
  * a bad roof jump or a slip on a curve, sneaking PR 3): the same landing, with `FellOff` instead of
  * `ThrownOff`, and the horse is put down clear of the rocks.
  */
@@ -499,7 +499,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
   else ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
   const cause = guard === null ? 'fell' as const : 'thrownOff' as const;
   // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
-  const lose = Math.ceil(rp.carried.length * config.values.ai.thrownOffLootShare - 1e-9);
+  const share = guard === null ? config.values.ai.fellLootShare : config.values.ai.thrownOffLootShare;
+  const lose = Math.ceil(rp.carried.length * share - 1e-9);
   for (let k = 0; k < lose; k++) {
     const [item] = rp.carried.splice(nextInt(state.rng, 'ai', rp.carried.length), 1) as [string];
     const def = config.values.items[item]!;

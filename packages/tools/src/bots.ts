@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, distanceToTrain, gridWalkable, onRoof, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, WORLD_FRAME,
+  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, distanceToTrain, gridWalkable, onRoof, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, trainLadders, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -157,7 +157,13 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
       aboardFor++;
       const p = s.players[0]!;
       const rp = s.run.players[1]!;
-      if (aboardFor === 1) { roofer = config.values.outside.roof.enabled && nextInt(rng, 'misc', 3) === 0; roofFor = 0; }
+      if (aboardFor === 1) {
+        // Only from a car with a ladder at its front end (outside.roof.ladderCarShare leaves some without).
+        const f = parseCarFrame(p.placement.frame);
+        const train = f && s.world.trains.find((tr) => tr.id === f.trainId);
+        const ladder = !!f && !!train && trainLadders(config, train.cars).some((q) => q.car === f.car && q.end === 'front');
+        roofer = config.values.outside.roof.enabled && ladder && nextInt(rng, 'misc', 3) === 0; roofFor = 0;
+      }
       if (roofer && aboardFor < 60 * 12) {
         const pl = p.placement;
         if (pl.layer === 'roof') {

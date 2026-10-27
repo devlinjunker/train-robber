@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  ladderInReach, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -180,7 +180,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
   const items = config.values.items;
   const boostDustParam = Number(params.get('boostDust') ?? 1);
-  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, outside: config.values.outside, roof: config.values.outside.roof, boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, outside: config.values.outside,
+    roof: { ...config.values.outside.roof, hasLadder: (trainId: string, index: number, end: 'front' | 'rear') => {
+      const t = sim.state.world.trains.find((q) => q.id === trainId);
+      return !!t && trainLadders(config, t.cars).some((l) => l.car === index && l.end === end);
+    } },
+    boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
   const search = config.values.verbs.search;
   // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
   const namesParam = params.get('trainNames');
@@ -298,9 +303,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // When each guard last heard the player (performance.now ms): an ear shows over its head for a moment.
   const heardAt = new Map<number, number>();
   // Items lost to the last throw off, for its notice.
-  let lostOnThrow: string[] = [];
+  let lostOnThrow: string[] = [], lostValue = 0;
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
-  let spilled: { detail: string; at: number } | null = null;
+  let spilled: { detail: string; at: number; title?: string } | null = null;
+  // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
+  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
+  const lootTotalSec = config.values.hud.lootTotalSec;
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -323,8 +331,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       audio.play('expired', audioCfg.volume);
       const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
       show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
-    } else if (e.type === 'RunEnded' && e.outcome === 'extracted') show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
+    } else if (e.type === 'RunEnded' && e.outcome === 'extracted') {
+      show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
+      if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `extracted with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
+    }
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
+      if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `got away with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
       const c = config.values.cashOut;
       show(`Got away: $${e.cashOut} banked${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
     }
@@ -361,7 +373,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'ThrownOff') { hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = []; show('A guard threw you off the train!', 'bad', 2500); }
     else if (e.type === 'FellOff') {
       hitAt = performance.now(); hitFlashSec = HIT_FLASH_SEC; lostOnThrow = [];
-      show(e.cause === 'jump' ? 'Bad jump: you fell off the train!' : e.cause === 'slip' ? 'You slipped off the roof!' : 'A rock knocked you off the ledge!', 'bad', 2500);
+      const heard = e.cause !== 'rock' && config.values.outside.roof.fallAlert.enabled ? ' The guards nearby heard you fall' : '';
+      show(`${e.cause === 'jump' ? 'Bad jump: you fell off the train!' : e.cause === 'slip' ? 'You slipped off the roof!' : 'A rock knocked you off the ledge!'}${heard}`, 'bad', 2500);
     }
     else if (e.type === 'Climbed') show(e.to === 'roof' ? 'On the roof: guards inside cannot see you. Space jumps the gaps, E at a ladder climbs down' : 'Climbed down', 'info', e.to === 'roof' ? 3000 : 1200);
     else if (e.type === 'RoofLanded' && e.on === 'roof') { if (e.jumped) show('Clean jump', 'good', 1200); }
@@ -369,7 +382,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'RoofSlipped') show('Slipping! Push away from the edge to lean into the curve', 'bad', 1500);
     else if (e.type === 'RoofRecovered') show('Caught your balance', 'good', 1200);
     else if (e.type === 'GuardClimbing' && e.to === 'roof') show('A guard is climbing up to check the roof!', 'warn', 2500);
-    else if (e.type === 'LootLost') { lostOnThrow.push(itemName(e.item)); show(`${e.cause === 'fell' ? 'You fell' : 'A guard threw you off'}: lost ${lostOnThrow.join(', ')}`, 'bad', 3000); }
+    else if (e.type === 'LootLost') {
+      lostOnThrow.push(itemName(e.item));
+      // Thrown off with `ai.thrownOffLootShare` 1 loses everything: say so over your head (Devlin, PR #36).
+      const all = e.cause === 'thrownOff' && config.values.ai.thrownOffLootShare >= 1;
+      show(`${e.cause === 'fell' ? 'You fell' : 'A guard threw you off'}: lost ${all ? 'all your loot: ' : ''}${lostOnThrow.join(', ')}`, 'bad', 3000);
+      lostValue = (spilled && performance.now() - spilled.at < 100 ? lostValue : 0) + e.value;
+      spilled = { title: all ? 'ALL LOOT LOST' : 'LOST LOOT', detail: `-${lostOnThrow.length} item${lostOnThrow.length === 1 ? '' : 's'} ($${lostValue})`, at: performance.now() };
+    }
   };
 
   const cam = { x: sim.state.world.horses[0]!.x, y: sim.state.world.horses[0]!.y };
@@ -445,7 +465,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const climbing = frame ? climbPose(s, config, player) : null;
       const aboardCar = frame ? cars.find((c) => c.trainId === frame.trainId && c.index === (climbing?.car ?? frame.car)) ?? null : null;
       const aboardAt = aboardCar ? climbing ? carToWorld(aboardCar, climbing.x, climbing.y) : carToWorld(aboardCar, placement.x, placement.y) : null;
-      const playerZ = climbing ? climbing.progress * CAR_HEIGHT : onRoofNow ? CAR_HEIGHT : 0;
+      // In the air on a roof jump, an arc `outside.roof.jump.liftTiles` high at the top (Devlin, PR #36).
+      const airT = run?.air ? 1 - run.air.ticks / Math.max(1, roofCfg.jump.airTicks) : null;
+      const lift = airT !== null ? 4 * roofCfg.jump.liftTiles * airT * (1 - airT) : 0;
+      const playerZ = (climbing ? climbing.progress * CAR_HEIGHT : onRoofNow ? CAR_HEIGHT : 0) + lift;
       // The nearest point on the run's train to the horse, while approaching it.
       let gap: { car: (typeof cars)[number]; x: number; y: number; distance: number } | null = null;
       if (ridden && s.run && phase === 'approach' && distanceCueMode !== 'off') {
@@ -551,7 +574,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           closedTrains,
           loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
           cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
-          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt, roof: onRoofNow, climb: climbing?.progress ?? null } : null, focus,
+          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt, roof: onRoofNow, climb: climbing?.progress ?? null, lift } : null, focus,
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
@@ -634,7 +657,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         search: searching ? Math.min(1, searching.ticks / searchTicks) : null,
         overtime: meter ? overtimeText : null,
         lostLoot: lostLootTextOn && spilled && ridden && (now - spilled.at) / 1000 < LOST_LOOT_SEC
-          ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: LOST_LOOT_SEC }
+          ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: LOST_LOOT_SEC, ...(spilled.title ? { title: spilled.title } : {}) }
           : null,
       });
       if (minimap.root.visible) {
@@ -729,6 +752,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
                   : crouched ? `Crouched: creeping quietly, hidden behind crates, barrels and benches. ${crouchMode === 'hold' ? 'Let go of C' : 'C'} to stand`
                     : `Aboard car ${aboardCar?.index ?? '?'}: WASD walk, Shift run, C crouch, hold E on loot, F whistle for your horse` : '';
       const carried = run?.carried ?? [];
+      if (run) carriedCount = carried.length;
       // Thrown off with loot: F gets away with it (cashOut).
       const cashHint = (phase === 'approach' || phase === 'boarding') && carried.length > 0 && config.values.cashOut.enabled ? `F: get away with $${carriedValue(config, carried)}` : '';
       const switchPrompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
@@ -765,6 +789,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,
+        lootTotal: lootTotal && (now - lootTotal.at) / 1000 < lootTotalSec ? { title: lootTotal.title, detail: lootTotal.detail } : null,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,

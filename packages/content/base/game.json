@@ -13,10 +13,10 @@
   "ai": {
     "guardCatch": "heat-only",
     "patrolSpeedTilesPerSec": 1.5, "patrolPauseSec": 1.5, "chaseSpeedTilesPerSec": 4, "turnRateDegPerSec": 240,
-    "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 40, "crouchCoverMin": 0.25 },
+    "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 55, "crouchCoverMin": 0.25 },
     "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3, "stumbleRadiusTiles": 5 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
-    "thrownOffLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
+    "thrownOffLootShare": 1, "fellLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
   },
   "outside": {
     "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,
@@ -25,6 +25,7 @@
     "roof": {
       "enabled": true,
       "ladderEnds": "both",
+      "ladderCarShare": 0.67,
       "ladderRow": 1,
       "ladderReachTiles": 1,
       "climbSec": 1,
@@ -32,10 +33,12 @@
       "noise": { "walkRadiusTiles": 3, "runRadiusTiles": 6, "crouchRadiusTiles": 1.5, "landRadiusTiles": 6, "landSec": 0.25 },
       "edgeSeenTiles": 1.5,
       "crouchEdgeSeenTiles": 0.5,
+      "guardSightTiles": 30,
       "guardsClimb": true,
       "dropStumbleSec": 0.6,
-      "jump": { "airSec": 0.5, "pushTiles": 0.75 },
-      "slip": { "enabled": true, "thresholdTilesPerSec2": 1.2, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1 }
+      "jump": { "airSec": 0.5, "pushTiles": 0.75, "liftTiles": 0.6 },
+      "fallAlert": { "enabled": true, "cars": 1, "checkSec": 8 },
+      "slip": { "enabled": true, "thresholdTilesPerSec2": 0.6, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1 }
     }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
@@ -95,7 +98,7 @@
   "trainMix": { "mode": "map", "mailTrain": "mail-express", "blankTrain": "blank", "trainCount": 3, "blankShare": 0 },
   "carry": { "limitEnabled": true, "slowdownEnabled": true, "maxWeight": 10, "maxItems": 20, "slowdownFromWeight": 6, "minSpeedScale": 0.5 },
   "verbs": { "search": { "searchTimeSec": 1.2, "hiddenSearchTimeSec": 1.8, "timeScale": 1, "walkSpeedScale": 0.3, "cancelRangeTiles": 1.5, "reachTiles": 1.2, "hiddenLoot": true } },
-  "hud": { "showTrainNames": false },
+  "hud": { "showTrainNames": false, "lootTotalSec": 4 },
   "audio": { "volume": 1, "tickVolume": 0.6, "tickEverySec": 30, "finalCountdownSec": 30, "finalTickEverySec": 1 },
   "outcomePolicy": {
     "died": { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [] },

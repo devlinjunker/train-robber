@@ -78,10 +78,10 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 
 /** The shipped roof values at 60 Hz (sneaking PR 3), switched on. */
 export const ROOF: Values['outside']['roof'] = {
-  enabled: true, ladderEnds: 'both', ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
+  enabled: true, ladderEnds: 'both', ladderCarShare: 1, ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
   noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
-  edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardsClimb: true, dropStumbleTicks: 36,
-  jump: { airTicks: 30, pushTiles: 0.75 },
+  edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, dropStumbleTicks: 36,
+  jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480 },
   slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60 },
 };
 /** The roof switched off, as before sneaking PR 3. */
@@ -140,7 +140,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.
       outside: NO_OUTSIDE,

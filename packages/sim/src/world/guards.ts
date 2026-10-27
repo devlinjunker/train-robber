@@ -267,8 +267,10 @@ export const ROOF_STEP_IN = 0.4;
 const ladderCache = new WeakMap<object, Map<string, Ladder[]>>();
 
 /**
- * Every ladder of a train: one on the end platform at each of `outside.roof.ladderEnds` of every car,
- * at row `ladderRow` (or the car's last row on a narrower car). None with the roof off or no platforms.
+ * Every ladder of a train: one on the end platform at each of `outside.roof.ladderEnds` of the cars
+ * that have ladders, at row `ladderRow` (or the car's last row on a narrower car). None with the roof
+ * off or no platforms. `ladderCarShare` of the cars have ladders (at least one); which ones comes
+ * from a hash of the car list, so it is fixed for a train's layout and needs no random stream.
  */
 export function trainLadders(config: SimConfig, cars: readonly string[]): Ladder[] {
   let byCars = ladderCache.get(config.values);
@@ -282,7 +284,9 @@ export function trainLadders(config: SimConfig, cars: readonly string[]): Ladder
     const g = trainGrid(config, cars);
     // The foot stands out from the end wall far enough that a walker's body clears it.
     const out_ = Math.max(P / 2, Math.min(P - 0.01, WALKER_R + 0.05));
+    const withLadders = ladderCars(key, cars.length, rc.ladderCarShare);
     for (let k = 0; k < cars.length; k++) {
+      if (!withLadders.has(k)) continue;
       const y = Math.min(rc.ladderRow, g.carRows[k]! - 1) + 0.5, cols = g.carCols[k]!;
       if (rc.ladderEnds !== 'rear') out.push({ car: k, end: 'front', y, deckLx: g.offsets[k]! - out_, roofX: ROOF_STEP_IN });
       if (rc.ladderEnds !== 'front') out.push({ car: k, end: 'rear', y, deckLx: g.offsets[k]! + cols + out_, roofX: cols - ROOF_STEP_IN });
@@ -290,6 +294,19 @@ export function trainLadders(config: SimConfig, cars: readonly string[]): Ladder
   }
   byCars.set(key, out);
   return out;
+}
+
+/** The cars of a train (by index) that get ladders: `share` of `n`, at least one, picked by a hash of the car list. */
+function ladderCars(key: string, n: number, share: number): Set<number> {
+  const count = Math.max(1, Math.min(n, Math.round(n * share)));
+  if (count >= n) return new Set(Array.from({ length: n }, (_, k) => k));
+  const score = (k: number) => {
+    let h = 2166136261;
+    const s = `${key}#${k}`;
+    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    return h;
+  };
+  return new Set(Array.from({ length: n }, (_, k) => k).sort((a, b) => score(a) - score(b) || a - b).slice(0, count));
 }
 
 /** A walker's radius (separate.ts WALKER_RADIUS, repeated here to keep the import one way). */
@@ -378,7 +395,7 @@ export interface SightTarget { lx: number; y: number; roof: boolean; car: number
 export function guardSees(g: TrainGrid, config: SimConfig, gx: number, gy: number, gRoof: boolean, fx: number, fy: number, t: SightTarget): boolean {
   const ai = config.values.ai;
   if (!gRoof && !t.roof) return canSee(g, ai, gx, gy, fx, fy, t.lx, t.y, t.crouched);
-  if (gRoof) return t.roof && seesInOpen(ai, ai.sight.rangeTiles, gx, gy, fx, fy, t.lx, t.y);
+  if (gRoof) return t.roof && seesInOpen(ai, config.values.outside.roof.guardSightTiles, gx, gy, fx, fy, t.lx, t.y);
   const space = spaceAt(g, gx, gy);
   if (space === Space.Inside || space === Space.None) return false;
   const rc = config.values.outside.roof;
@@ -640,6 +657,33 @@ function startClimb(m: MoveCtx, g: GuardState, l: Ladder, to: 'roof' | 'deck'): 
  * stretch: inside, its platforms and ledges). A guard after the player goes up and down the ladders
  * (`moveGuard`), and catches only on the same layer.
  */
+/**
+ * A fall off a roof (sneaking PR 3, Devlin's PR #36 playtest): the guards in the car the player fell
+ * from and `outside.roof.fallAlert.cars` cars either side hear it. Each one not already alert turns
+ * suspicious and walks out to the ledge on the side the player went over, and keeps looking for at
+ * least `fallAlert.checkSec` before it can calm down.
+ */
+export function alertGuardsToFall(ctx: GuardCtx, p: PlayerState): void {
+  const { state, config } = ctx;
+  const fa = config.values.outside.roof.fallAlert;
+  const run = state.run;
+  const f = parseCarFrame(p.placement.frame);
+  if (!fa.enabled || !run || !f) return;
+  const train = state.world.trains.find((t) => t.id === f.trainId);
+  if (!train) return;
+  const grid = trainGrid(config, train.cars);
+  const at = fromTrain(grid, toTrain(grid, f.car, p.placement.x));
+  const rows = grid.carRows[at.car] ?? 1;
+  // Just outside the car body on the side they went over: the ledge there.
+  const y = p.placement.y < rows / 2 ? -0.05 : rows + 0.05;
+  for (const g of run.guards) {
+    if (g.state === 'alert' || Math.abs(g.car - at.car) > fa.cars) continue;
+    if (g.state === 'unaware') setState(ctx, g, 'suspicious', 'noise');
+    g.lastKnown = { car: at.car, x: at.x, y, roof: false };
+    g.calmTicks = -fa.checkTicks;
+  }
+}
+
 export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerState } | null {
   const { state, config } = ctx;
   const run = state.run;

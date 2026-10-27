@@ -8,7 +8,7 @@ import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
 import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
-import { guardSystem } from './world/guards';
+import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 import { climb, roofJump, roofSystem } from './world/roof';
@@ -154,7 +154,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       walkAboard(state, config);
       // 5a. Roofs: ladders, roof walking, gap jumps and slips (a bad jump or a slip is a fall).
       const offRoof = roofSystem(ctx);
-      if (offRoof) throwOff(ctx, offRoof.p, null, offRoof.cause);
+      if (offRoof) { alertGuardsToFall(ctx, offRoof.p); throwOff(ctx, offRoof.p, null, offRoof.cause); }
       // 5b. Trackside rocks scrape a player on a ledge, or knock them off.
       const fell = ledgeRockSystem(ctx);
       if (fell) throwOff(ctx, fell, null);

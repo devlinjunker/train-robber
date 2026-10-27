@@ -577,6 +577,7 @@ export interface SimConfig {
       loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
+      fellLootShare: number;
       suspiciousStepOutside: boolean;
       suspiciousApproach: boolean;
     };
@@ -633,6 +634,7 @@ export interface SimConfig {
 export interface RoofConfig {
   enabled: boolean;
   ladderEnds: 'both' | 'front' | 'rear';
+  ladderCarShare: number;
   ladderRow: number;
   ladderReachTiles: number;
   climbTicks: number;
@@ -640,9 +642,11 @@ export interface RoofConfig {
   noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; landRadiusTiles: number; landTicks: number };
   edgeSeenTiles: number;
   crouchEdgeSeenTiles: number;
+  guardSightTiles: number;
   guardsClimb: boolean;
   dropStumbleTicks: number;
-  jump: { airTicks: number; pushTiles: number };
+  jump: { airTicks: number; pushTiles: number; liftTiles: number };
+  fallAlert: { enabled: boolean; cars: number; checkTicks: number };
   slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number };
 }
 

@@ -100,7 +100,7 @@ export interface WorldSceneInput {
    * (`roof`) or on a ladder (`climb`, 0 at the foot to 1 at the top) the car stays closed and the
    * player is drawn on it (sneaking PR 3).
    */
-  aboard: { trainId: string; index: number; x: number; y: number; roof?: boolean; climb?: number | null } | null;
+  aboard: { trainId: string; index: number; x: number; y: number; roof?: boolean; climb?: number | null; lift?: number } | null;
   /** Slipping on a roof: the player leans and flashes. */
   slipping?: boolean;
   /** Running on a roof: where a jump now would come down (`roof` on a roof, `drop` short onto the platform or coupling, `fall` off the train). */
@@ -143,7 +143,10 @@ export interface SceneContent {
   /** Platforms, coupling and ledges round each car (outside.*); none when absent. */
   outside?: OutsideDims;
   /** Ladders up to the roofs (outside.roof.*); none when absent or off. */
-  roof?: Pick<SimConfig['values']['outside']['roof'], 'enabled' | 'ladderEnds' | 'ladderRow'>;
+  roof?: Pick<SimConfig['values']['outside']['roof'], 'enabled' | 'ladderEnds' | 'ladderRow'> & {
+    /** Whether a train's car has a ladder at that end (only some cars do, `ladderCarShare`); absent, every car. */
+    hasLadder?(trainId: string, index: number, end: 'front' | 'rear'): boolean;
+  };
 }
 
 export interface WorldScene {
@@ -401,7 +404,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       // Hidden behind any car, they get a hole through every closed slice: a slice whose centre is
       // behind them can still cover the ground around them, so the hole is cut through all of them.
       // Up on a roof or a ladder, the heights to keep in sight are lifted with the player.
-      const playerZ = input.aboard ? figureZ(input.aboard.roof, input.aboard.climb) : 0;
+      const playerZ = input.aboard ? figureZ(input.aboard.roof, input.aboard.climb) + (input.aboard.lift ?? 0) : 0;
       const keepHeights = playerZ > 0 ? HIDDEN_HEIGHTS.map((h) => h + playerZ) : HIDDEN_HEIGHTS;
       // On a roof, your own train's cars are no taller than you stand, so only other trains can hide you.
       const roofTrain = input.aboard?.roof ? input.aboard.trainId : null;
@@ -439,6 +442,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         if (rc?.enabled && (content.outside?.platformDepthTiles ?? 0) > 0) {
           for (const end of ['front', 'rear'] as const) {
             if (rc.ladderEnds !== 'both' && rc.ladderEnds !== end) continue;
+            if (rc.hasLadder && !rc.hasLadder(car.trainId, car.index, end)) continue;
             const g = piece();
             drawLadder(g, car, end, rc.ladderRow, CAR_HEIGHT);
             const a = end === 'front' ? car.halfLength + 0.1 : -car.halfLength - 0.1;

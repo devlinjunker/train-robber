@@ -81,7 +81,7 @@ export interface ScreenOverlayInput {
   /** Progress of the search in progress, 0 to 1, or null. */
   search: number | null;
   /** "LOST LOOT" rising over the rider after a good mount spilled loot: screen position, what was lost, age and lifetime. */
-  lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number } | null;
+  lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number; title?: string } | null;
   /** The grace text ("OUT OF TIME: jump now! 2.1 s") over the mount meter while grace holds expiry, or null. */
   overtime?: string | null;
 }
@@ -159,6 +159,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         const t = ll.ageSec / ll.sec;
         lost.alpha = lostDetail.alpha = t < 2 / 3 ? 1 : 1 - (t - 2 / 3) * 3;
         lost.position.set(ll.x, ll.y - 28 - t * 30);
+        lost.text = ll.title ?? 'LOST LOOT';
         lostDetail.text = ll.detail;
         lostDetail.position.set(ll.x, ll.y - 24 - t * 30);
         lost.visible = lostDetail.visible = true;

@@ -44,6 +44,8 @@ export interface HudState {
   horse?: { text: string; kind: NoticeKind } | null;
   /** The horse boost while riding with it on: ready, running down (`share` left) or cooling down (`share` back). */
   boost?: { state: 'ready' | 'active' | 'cooldown'; share: number; text: string } | null;
+  /** Just off the train with loot (extracted or got away): the total banked, top right, for `hud.lootTotalSec`; null hides it. */
+  lootTotal?: { title: string; detail: string } | null;
 }
 
 const CSS = `
@@ -60,6 +62,9 @@ const CSS = `
 .tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
 .tr-hud .inv-item { background: rgba(0,0,0,.6); border: 1px solid #fff4; padding: 3px 10px; border-radius: 6px; white-space: nowrap; font-size: 13px; }
 .tr-hud .carry.slow { color: #ffb02e; }
+.tr-hud .loot-total { background: rgba(20,50,20,.85); border: 2px solid #6bff8a; padding: 6px 14px; border-radius: 8px; text-align: right; }
+.tr-hud .loot-total .lt-title { font-size: 18px; font-weight: 800; color: #6bff8a; }
+.tr-hud .loot-total .lt-detail { font-size: 13px; }
 .tr-hud .horse-call { background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 8px; font-weight: 700; }
 .tr-hud .horse-call.good { color: #6bff8a; }
 .tr-hud .horse-call.warn { color: #ffb02e; }
@@ -139,12 +144,13 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="horse-call"></div></div>
+    <div class="side"><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="horse-call"></div></div>
     <div class="bottom"><div class="inv"></div><div class="ask"><div class="ask-title"></div><div class="ask-bar"><div></div></div><div class="ask-hint"></div></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
   const top = q('.top');
   const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
+    lootEl = q('.loot-total'), lootTitle = q('.lt-title'), lootDetail = q('.lt-detail'),
     hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
@@ -180,6 +186,8 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         set(carryEl, `$${c.value}  weight ${c.weight.toFixed(1)}${cap}  items ${items}${c.speed < 1 ? `  speed ${Math.round(c.speed * 100)}%` : ''}`);
         carryEl.classList.toggle('slow', c.speed < 1);
       }
+      lootEl.style.display = s.lootTotal ? '' : 'none';
+      if (s.lootTotal) { set(lootTitle, s.lootTotal.title); set(lootDetail, s.lootTotal.detail); }
       horseEl.style.display = s.horse ? '' : 'none';
       if (s.horse) { set(horseEl, s.horse.text); setClass(horseEl, `horse-call ${s.horse.kind}`); }
       invEl.style.display = s.inventory ? '' : 'none';

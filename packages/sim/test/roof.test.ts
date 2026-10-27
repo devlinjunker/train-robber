@@ -317,3 +317,58 @@ describe('slipping on curves', () => {
     expect(ofType(steps(sim, 30, { type: 'move', x: -127, y: 0 }), 'RoofSlipped')).toEqual([]);
   });
 });
+
+describe("Devlin's PR #36 playtest notes", () => {
+  it('outside.roof.ladderCarShare puts ladders on that share of the cars, at least one, the same every time', () => {
+    const cars = ['engine', 'roof-car', 'roof-car', 'roof-car'];
+    const half = roofConfig({ roof: { ladderCarShare: 0.5 } });
+    const l = trainLadders(half, cars);
+    const withLadders = [...new Set(l.map((q) => q.car))];
+    expect(withLadders).toHaveLength(2);
+    expect(l).toHaveLength(4);
+    expect(trainLadders(roofConfig({ roof: { ladderCarShare: 0.5 } }), cars).map((q) => [q.car, q.end])).toEqual(l.map((q) => [q.car, q.end]));
+    expect(new Set(trainLadders(roofConfig({ roof: { ladderCarShare: 0.01 } }), cars).map((q) => q.car)).size).toBe(1);
+    expect(new Set(trainLadders(roofConfig({ roof: { ladderCarShare: 1 } }), cars).map((q) => q.car)).size).toBe(4);
+  });
+
+  it('a guard on a roof sees outside.roof.guardSightTiles along it: the whole car by default', () => {
+    const target = { lx: 0, y: 3, roof: true, car: 1, x: 15.5, crouched: false };
+    const see = (tiles: number) => {
+      const cfg = roofConfig({ roof: { guardSightTiles: tiles } });
+      const g = trainGrid(cfg, ['engine', 'roof-car']);
+      return guardSees(g, cfg, toTrain(g, 1, 0.5), 3, true, 1, 0, { ...target, lx: toTrain(g, 1, 15.5) });
+    };
+    expect(see(30)).toBe(true);
+    expect(see(8)).toBe(false);
+  });
+
+  it('falling off a roof alerts the guards nearby, who head for where you went over; off, they never notice', () => {
+    for (const enabled of [true, false]) {
+      const cfg = roofConfig({ guards: 1, roof: { fallAlert: { ...ROOF.fallAlert, enabled } } });
+      const sim = at(cfg, 2.3, 0.5, 'roof');
+      Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 12, y: 3, fx: 1, fy: 0, post: { car: 1, x: 12, y: 3, fx: 1, fy: 0 }, patrol: null });
+      const run = { type: 'move', x: 127, y: 0 } as const;
+      step(sim, run);
+      const ev = [...step(sim, run, { type: 'jump' }), ...steps(sim, 30)];
+      expect(ofType(ev, 'FellOff')).toEqual([expect.objectContaining({ cause: 'jump' })]);
+      const gd = S(sim).run!.guards[0]!;
+      if (enabled) {
+        expect(ofType(ev, 'GuardStateChanged')).toEqual([expect.objectContaining({ to: 'suspicious', cause: 'noise' })]);
+        expect(gd.lastKnown).toMatchObject({ roof: false, y: -0.05 });
+      } else {
+        expect(gd.state).toBe('unaware');
+      }
+    }
+  });
+
+  it('a fall loses ai.fellLootShare of what you carry; guards throwing you off take ai.thrownOffLootShare (all, by default)', () => {
+    for (const [share, kept] of [[0, 2], [1, 0]] as const) {
+      const sim = at(roofConfig({ ai: { fellLootShare: share, thrownOffLootShare: 0 } }), 2.3, 0.5, 'roof');
+      rp(sim).carried = ['letter', 'letter'];
+      const run = { type: 'move', x: 127, y: 0 } as const;
+      step(sim, run);
+      expect(ofType([...step(sim, run, { type: 'jump' }), ...steps(sim, 30)], 'FellOff')).toHaveLength(1);
+      expect(rp(sim).carried).toHaveLength(kept);
+    }
+  });
+});

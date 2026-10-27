@@ -61,7 +61,7 @@ export function sightCones(config: SimConfig, templates: readonly string[], guar
       const a = base - half + (2 * half * i) / CONE_RAYS;
       const dx = Math.cos(a), dy = Math.sin(a);
       // Up on a roof nothing is in the way (the sim checks range and cone only).
-      const r = g.roof ? ai.sight.rangeTiles : sightReach(grid, lx, g.y, dx, dy, sightRange(grid, ai, lx, g.y));
+      const r = g.roof ? config.values.outside.roof.guardSightTiles : sightReach(grid, lx, g.y, dx, dy, sightRange(grid, ai, lx, g.y));
       const p = world(lx + dx * r, g.y + dy * r);
       if (p) points.push(p);
     }
