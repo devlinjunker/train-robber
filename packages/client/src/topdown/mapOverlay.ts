@@ -75,6 +75,8 @@ export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null): 
   const markers = new Graphics();
   for (const p of Object.values(map.markers)) markers.poly([p.x, p.y - 0.8, p.x + 0.8, p.y, p.x, p.y + 0.8, p.x - 0.8, p.y]);
   markers.fill({ color: 0xb46bff });
+  // Town spots on an open line: a ring round each clearing.
+  for (const t of map.towns ?? []) markers.circle(t.x, t.y, t.radiusTiles).stroke({ width: 0.4, color: 0xe8d9a8, alpha: 0.8 });
 
   // Junctions: a ring and the shared tangent, labelled with their id, as are segments at their middle.
   const junctions = new Graphics();

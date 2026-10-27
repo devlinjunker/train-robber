@@ -1,8 +1,9 @@
 // Heat and the countdown (U1, U2, U3). Heat only ever goes up through raiseHeat, so every gain
 // is one HeatChanged event with its cause; the countdown drains faster as heat rises.
-import type { GameState, HeatCause, HeatSource, PlayerState, RunState, SimConfig, SimEvent } from '../types';
+import type { GameState, HeatCause, HeatSource, PlayerState, RunState, SimConfig, SimEvent, TrainState } from '../types';
 import type { WorldMap } from '../world/map';
 import { escaping } from '../world/mount';
+import { routeOf, trainSpeed } from '../world/trains';
 
 /** What these helpers need from the tick; the run system's context satisfies it. */
 export interface HeatCtx {
@@ -21,6 +22,30 @@ export function drainRate(heat: number, cfg: SimConfig['values']['heat']): numbe
 /** The run's whole countdown: the train's `countdown.baseSec` x `countdown.scale` (U1, U7). */
 export function runCountdownSec(config: SimConfig, trainType: string): number {
   return config.values.trains[trainType]!.countdown.baseSec * config.values.countdown.scale;
+}
+
+/** A town closer than this many seconds of train travel is skipped, so the clock never starts nearly empty. */
+export const LINE_CLOCK_MIN_SEC = 30;
+
+/**
+ * The line clock (`countdown.lineClock: town` on an open line): the next town at least
+ * LINE_CLOCK_MIN_SEC ahead of the train, or the end of the line, and the train's time to reach it.
+ * Null on loops, or when the line clock is `fixed`.
+ */
+export function lineClock(map: WorldMap, config: SimConfig, train: TrainState): { to: string; sec: number } | null {
+  if (!map.openLine || (config.values.countdown.lineClock ?? 'town') !== 'town') return null;
+  const { route } = routeOf(map, config, train);
+  const speed = trainSpeed(config, train.type);
+  const town = map.towns.find((t) => t.route === route.id && (t.d - train.d) / speed >= LINE_CLOCK_MIN_SEC);
+  const to = town?.id ?? 'end';
+  return { to, sec: lineClockSec(map, config, train, to) };
+}
+
+/** Seconds until `train` reaches town `to` (or the end of its line with `end`), never below 0. */
+export function lineClockSec(map: WorldMap, config: SimConfig, train: TrainState, to: string): number {
+  const { route } = routeOf(map, config, train);
+  const d = map.towns.find((t) => t.id === to)?.d ?? route.length;
+  return Math.max(0, (d - train.d) / trainSpeed(config, train.type));
 }
 
 /**
@@ -81,7 +106,9 @@ export function countdownSystem(ctx: HeatCtx): void {
     }
   }
   if (run.clockRunning && run.countdownSec > 0) {
-    run.countdownSec = Math.max(0, run.countdownSec - drainRate(run.heat, v.heat) / v.sim.tickRateHz);
+    // The line clock counts down to a place: heat does not speed the train up.
+    const rate = run.clockTo !== undefined ? 1 : drainRate(run.heat, v.heat);
+    run.countdownSec = Math.max(0, run.countdownSec - rate / v.sim.tickRateHz);
   }
 }
 

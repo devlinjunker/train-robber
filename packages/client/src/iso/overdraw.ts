@@ -93,6 +93,13 @@ export class Overdraw {
     }
   }
 
+  /** Forget static pieces (dropped when their region went far from the view). */
+  remove(gs: readonly Graphics[]): void {
+    const gone = new Set(gs);
+    for (let i = this.statics.length - 1; i >= 0; i--) if (gone.has(this.statics[i]!.g)) this.statics.splice(i, 1);
+    this.live = this.live.filter((s) => !gone.has(s.g));
+  }
+
   /** Note which static pieces are on screen; call after culling. */
   refresh(): void {
     this.live = this.statics.filter((s) => s.g.parent && s.g.visible);

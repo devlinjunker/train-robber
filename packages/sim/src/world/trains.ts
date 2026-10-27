@@ -1,12 +1,15 @@
 // Train scheduler: spawns trains, advances them along their routes and keeps the committed
-// one. Trains loop forever; which ones run comes from the map and the trainMix setting.
+// one. On a loop trains run forever; which ones run comes from the map and the trainMix setting.
+// On an open line (map `openLine`) trains run one way: they enter off the start of the line a
+// headway apart and are removed once past its end.
+import { hashState } from '../hash';
 import { nextInt } from '../rng';
 import type { GameState, PlayerId, SimConfig, TrainState } from '../types';
 import { carCatalog, carSpacing, placeCars, trainLength, type CarPose } from './cars';
 import { pickTrainCars, trainCarsSeed } from './generate';
 import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
-import { wrapDistance } from './track';
+import { wrapDistance, type TrackRoute } from './track';
 
 /** A train's config and route: the route the map placed it on, else the one its type names. */
 export function routeOf(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route'>) {
@@ -25,7 +28,7 @@ export function spawnTrain(state: GameState, map: WorldMap, config: SimConfig, t
   const { route: r } = routeOf(map, config, { type, route });
   state.trainCount += 1;
   const id = `${type}-${state.trainCount}`;
-  const train: TrainState = { id, type, d: wrapDistance(r, d), pinnedBy: null, cars: pickTrainCars(config, type, trainCarsSeed(state, id)), ...(own ? {} : { route }) };
+  const train: TrainState = { id, type, d: r.closed ? wrapDistance(r, d) : d, pinnedBy: null, cars: pickTrainCars(config, type, trainCarsSeed(state, id)), ...(own ? {} : { route }) };
   state.world.trains.push(train);
   return train;
 }
@@ -39,9 +42,11 @@ export function spawnTrain(state: GameState, map: WorldMap, config: SimConfig, t
 export function initialTrains(state: GameState, map: WorldMap, config: SimConfig): MapTrain[] {
   const mix = config.values.trainMix;
   const mail = config.values.trains[mix.mailTrain]!;
-  if (mix.mode === 'map') return map.trains ? map.trains.map((t) => ({ ...t })) : [{ type: mix.mailTrain, route: mail.route, d: 0 }];
+  const line = lineSlots(state.seed, map, config);
+  if (mix.mode === 'map') return line ?? (map.trains ? map.trains.map((t) => ({ ...t })) : [{ type: mix.mailTrain, route: mail.route, d: 0 }]);
   let slots: MapTrain[];
-  if (map.trains) slots = map.trains.map((t) => ({ ...t }));
+  if (line) slots = line;
+  else if (map.trains) slots = map.trains.map((t) => ({ ...t }));
   else {
     const route = map.routes.get(mail.route);
     if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${mail.route}, which map ${map.id} does not have`);
@@ -55,6 +60,31 @@ export function initialTrains(state: GameState, map: WorldMap, config: SimConfig
   }
   const blank = new Set(order.slice(0, blanks));
   return slots.map((s, i) => ({ ...s, type: blank.has(i) ? mix.blankTrain : mix.mailTrain }));
+}
+
+/**
+ * The gap behind a train on an open line: `headwayTiles`, plus or minus up to `headwaySpreadTiles`
+ * picked from a hash of the seed and `key`, so it needs no state and draws on no rng stream.
+ */
+export function lineGap(map: WorldMap, seed: string, key: string): number {
+  const line = map.openLine!;
+  const spread = line.headwaySpreadTiles ?? 0;
+  if (spread <= 0) return line.headwayTiles;
+  const u = parseInt(hashState(`${seed}/headway/${key}`), 16) / 0x100000000;
+  return line.headwayTiles + spread * (2 * u - 1);
+}
+
+/** On an open line, mail trains about a headway apart along the mail route, the first half a headway in; null on a loop. */
+function lineSlots(seed: string, map: WorldMap, config: SimConfig): MapTrain[] | null {
+  if (!map.openLine) return null;
+  const mix = config.values.trainMix;
+  const routeId = config.values.trains[mix.mailTrain]!.route;
+  const route = map.routes.get(routeId);
+  if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${routeId}, which map ${map.id} does not have`);
+  const h = map.openLine.headwayTiles;
+  const out: MapTrain[] = [];
+  for (let d = h / 2, i = 0; d < route.length; d += lineGap(map, seed, `slot${i++}`)) out.push({ type: mix.mailTrain, route: routeId, d });
+  return out;
 }
 
 /** At load: the trains `initialTrains` lists. */
@@ -87,9 +117,65 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
   for (const t of state.world.trains) {
     const { def, route } = routeOf(map, config, t);
     before?.set(t.id, t.d);
-    t.d = wrapDistance(route, t.d + def.speedTilesPerTick);
+    // An open line's distance is not clamped: a train runs on past the end until it is removed.
+    t.d = route.closed ? wrapDistance(route, t.d + def.speedTilesPerTick) : t.d + def.speedTilesPerTick;
   }
   if (before && map.network) junctionSystem(state, map.routes, map.network, config, before);
+  if (map.openLine) lineTraffic(state, map, config);
+}
+
+/** How far inside the map an open line's track must be for the horse to be put beside it. */
+const ON_MAP_MARGIN_TILES = 12;
+
+/**
+ * The first and last distance along an open route where the track is well inside the map: a quick
+ * retry or a whistled horse is put beside the track no further out than these. A closed route is all on the map.
+ */
+export function onMapRange(map: Pick<WorldMap, 'cols' | 'rows'>, route: TrackRoute): { from: number; to: number } {
+  const { x, y, s } = route.samples;
+  const inside = (i: number) => x[i]! >= ON_MAP_MARGIN_TILES && y[i]! >= ON_MAP_MARGIN_TILES && x[i]! < map.cols - ON_MAP_MARGIN_TILES && y[i]! < map.rows - ON_MAP_MARGIN_TILES;
+  if (route.closed) return { from: -Infinity, to: Infinity };
+  let a = 0, b = s.length - 1;
+  while (a < b && !inside(a)) a++;
+  while (b > a && !inside(b)) b--;
+  return { from: s[a]!, to: s[b]! };
+}
+
+/** Tiles past the end of an open line a train's last car gets before the train is removed. */
+export const LINE_EXIT_TILES = 10;
+
+/** True once a train's engine has reached the end of its open route (a committed run ends there). */
+export function atLineEnd(map: WorldMap, config: SimConfig, train: TrainState): boolean {
+  const { route } = routeOf(map, config, train);
+  return !route.closed && train.d >= route.length;
+}
+
+/**
+ * Open line traffic: a train whose last car is LINE_EXIT_TILES past the end leaves (a pinned one
+ * stays until its run lets go of it), and once the train nearest the start of the mail route is
+ * `headwayTiles` in, the next one enters a headway behind it, off the map. Its type follows
+ * `trainMix`: blank with chance `blankShare` from the `schedule` stream, else mail (always mail
+ * with trainMix `map` or `all-mail`).
+ */
+function lineTraffic(state: GameState, map: WorldMap, config: SimConfig): void {
+  const trains = state.world.trains;
+  for (let i = trains.length - 1; i >= 0; i--) {
+    const t = trains[i]!;
+    if (t.pinnedBy !== null) continue;
+    const { route } = routeOf(map, config, t);
+    if (!route.closed && t.d - trainLengthOf(config, t) > route.length + LINE_EXIT_TILES) trains.splice(i, 1);
+  }
+  const mix = config.values.trainMix;
+  const routeId = config.values.trains[mix.mailTrain]!.route;
+  const h = map.openLine!.headwayTiles;
+  let first = Infinity, lead: TrainState | null = null;
+  for (const t of trains) if ((t.route ?? config.values.trains[t.type]!.route) === routeId && t.d < first) { first = t.d; lead = t; }
+  // The gap behind the train nearest the start is set by that train, so it holds still as it moves in.
+  const gap = lead ? lineGap(map, state.seed, lead.id) : h;
+  if (first === Infinity) first = gap;
+  if (first < gap) return;
+  const blank = mix.mode !== 'map' && mix.mode !== 'all-mail' && mix.blankShare > 0 && nextInt(state.rng, 'schedule', 1000) < mix.blankShare * 1000;
+  spawnTrain(state, map, config, blank ? mix.blankTrain : mix.mailTrain, first - gap, routeId);
 }
 
 /** Every car of every train, placed for the current state, in train then car order. */

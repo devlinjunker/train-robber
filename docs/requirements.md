@@ -13,12 +13,12 @@ Train Robber is a stylized, arcade-feel isometric browser game: one outlaw rides
 
 ## Game structure: roguelike option
 
-Whether Train Robber is a roguelike is undecided, and both options stay open until playtesting shows which is more fun. In either one, dying or being downed loses all loot from that run.
+Initial picks from the procedural maps review (2026-10-18), to build and playtest rather than final: a run is one day on the line inside a career, and dying ends your outlaw. Permadeath is a death variant, so the roguelike and standard rules can both be playtested. In either one, dying or being downed loses all loot from that run.
 
 | Option | What death does | Progression |
 | --- | --- | --- |
-| Roguelike | Loses the run's loot and sets you back further. Exactly what resets is to be defined. | Built around runs. Horse upgrades, gear and hideout would need rules for what persists after death. |
-| Standard | Loses the run's loot, and possibly some of your banked loot. | Banked loot and upgrades persist, with death as a setback rather than a reset. |
+| Roguelike (initial pick) | Ends the outlaw: the career is over. Some unlocks may carry over to the next outlaw; exactly which is to be defined. | Built around careers of days. Horse upgrades, gear and hideout need rules for what persists after death. |
+| Standard (variant) | Ends the day and loses its loot, and possibly some of your banked loot. | Banked loot and upgrades persist, with death as a setback rather than a reset. |
 
 To keep both options open:
 
@@ -26,11 +26,33 @@ To keep both options open:
 - Run state (carried loot, health, countdown) stays separate from persistent state (banked loot, upgrades, wanted level), so either structure can be plugged in.
 - The prototype can ship with the simplest rule, losing the run's loot, and the decision comes after playtesting.
 
-Open question: what a roguelike death resets, and how much banked loot a standard death would cost.
+Open question: which unlocks carry over to a new outlaw, and how much banked loot a standard death would cost.
+
+## World structure: a day on the line
+
+Initial picks from the procedural maps review (2026-10-18, [options doc](https://claude.ai/code/artifact/3766a4a9-8b9c-4867-8615-0bc65022f0bf)). Three time scales nest inside each other:
+
+| Scale | What it is | Ends when |
+| --- | --- | --- |
+| Train | Boarding and looting one train | It reaches the next town, you extract, or you are thrown off |
+| Day (one run) | Finding and robbing trains from dawn to dusk, about 12 minutes | Dusk |
+| Career (one outlaw) | Days in a row, moving down the line | Your outlaw dies |
+
+- **The world is an endless line with towns.** One railway generated from a seed forever, with towns along it and land around it, wide enough that riding to the line and choosing where to meet a train are part of the run. An open world with a rail network can grow out of it later.
+- **A day starts at camp** 300-800 tiles off the line. At dusk you pick tonight's camp from 2-3 spots near where you finished, each with a trade-off, and tomorrow starts there. Towns are where you buy and sell.
+- **Day clock.** Dawn to dusk only to start; night comes later as a twist. Dusk waits for a robbery in progress.
+- **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant.
+- **Being thrown off ends that train only.** Its loot is lost and the day goes on.
+- **Telling trains apart.** By sight, plus rumours and timetables you earn, so information is worth buying.
+- **Trains run one way first**, and both ways once passing loops exist.
+- **Seeds.** A new world per career, a daily seed for the daily, and `?seed=` to replay any world. The same seed builds the same world on every machine.
+- **Hand-made maps stay** as test fixtures, golden runs and the source of set pieces.
+
+**Daily demo.** The free daily is a short day; a weekly heist may come later. Your streak, wanted poster and the community line carry over, and your record moves into the full game on purchase. Owners can ride the daily as a gang with free friends, on a gang board, and an occasional free gang weekend lets free players ride together with no owner. Every train type shows up in dailies over a week. No ghost riders in your daily; friends' choices may show on the result screen after you finish.
 
 ## Core loop
 
-One run is one train robbery, and a run takes either 2-5 or 8-15 minutes depending on configuration (both get playtested).
+One run is one train robbery, and a run takes either 2-5 or 8-15 minutes depending on configuration (both get playtested). On the endless line a run becomes one day, with this loop repeated for each train robbed before dusk (see World structure).
 
 1. Pick a train from the real-time loop, using a timetable if you have bought one, and ride your horse toward it.
 2. Match speed and pull alongside the train.
@@ -92,10 +114,10 @@ Still to define: whether wanted level decays over time. Cancelling a run adds no
 
 ## World, schedule and progression
 
-The prototype uses one hand-made map with a fixed track loop, and trains run on it continuously in real time.
+The prototype uses hand-made maps with fixed track loops, and trains run on them continuously in real time. Generated maps come in stages, each ending in a playtest (see World structure for where they lead).
 
-- **World.** One hand-made isometric map first. Procedurally generated tracks and terrain are the long-term goal.
-- **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. Timetables show upcoming trains so you can decide which to rob, and obtaining one costs loot. Timetables are not in the alpha prototype and may be added later. Train frequency and how many run at once are configurable tuning values.
+- **World.** Hand-made isometric maps first. Generated worlds follow: seeded loops (`?map=gen`), then an open line across a long map (`?map=line`), then an endless line with towns, built in chunks as you ride.
+- **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains enter at the start and leave past the end instead; towns get seeded timetables later. Timetables show upcoming trains so you can decide which to rob, and obtaining one costs loot. Timetables are not in the alpha prototype and may be added later. Train frequency and how many run at once are configurable tuning values.
 - **Progression.** Horse upgrades, gear and weapons, a hideout, and reputation/bounty are all after the prototype. Reputation and bounty come last.
 - **Wanted level.** It is the only persistence the first version needs: it raises guard counts on later trains.
 
@@ -180,7 +202,7 @@ These are the gaps found so far, grouped by where they bite.
 - Dying or being downed mid-run: all loot from that run is lost, including loot already thrown off a cargo train. Whether death also costs banked loot depends on the open roguelike question.
 - Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling carries no wanted level to start; revisit if playtests show it being abused.
 - If throwing from the train is added later: crates that land in water or a ravine, or that are never collected before the next train arrives.
-- The train never leaves the map or ends its loop while you are aboard; only the clock expiring ends the run.
+- On a loop, the train never leaves the map while you are aboard; only the clock expiring ends the run. On an open line, a train that reaches the end of the line ends the run as if the clock had expired, until towns end it there instead.
 - Close calls: if the countdown hits zero just as you jump off, a small grace window lets the player get away.
 
 **Open questions**

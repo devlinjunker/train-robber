@@ -49,6 +49,11 @@ export function mapPicture(map: MapDef, scenery: SceneryDef | null, scale = 3): 
   }
   for (const r of map.routes) for (let i = 0; i < r.samples.x.length; i++) dot(r.samples.x[i]!, r.samples.y[i]!, 0, [110, 20, 10]);
   dot(map.markers.playerSpawn.x, map.markers.playerSpawn.y, 3, [230, 30, 30]);
+  // Town spots: a ring round the clearing and a dot at the sign.
+  for (const t of map.towns ?? []) {
+    for (let a = 0; a < 360; a += 2) dot(t.x + t.radiusTiles * Math.cos((a * Math.PI) / 180), t.y + t.radiusTiles * Math.sin((a * Math.PI) / 180), 0, [240, 220, 160]);
+    dot(t.x, t.y, Math.max(2, scale), [240, 220, 160]);
+  }
   const raw = Buffer.alloc((W * 3 + 1) * H);
   for (let y = 0; y < H; y++) { raw[y * (W * 3 + 1)] = 0; Buffer.from(px.subarray(y * W * 3, (y + 1) * W * 3)).copy(raw, y * (W * 3 + 1) + 1); }
   const ihdr = Buffer.alloc(13);

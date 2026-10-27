@@ -7,18 +7,18 @@ import { dcos, dlen, dsin, TAU, type Rng } from './dmath';
 export interface Vec { x: number; y: number }
 
 export const SAMPLE_SPACING_TILES = 0.5;
-const DENSE_PER_TILE = 16;
+export const DENSE_PER_TILE = 16;
 /** Passes of easing the tightest curves before a shape is given up. */
 const EASE_PASSES = 24;
 
-const dist = (a: Vec, b: Vec) => dlen(b.x - a.x, b.y - a.y);
-const lerp = (a: Vec, b: Vec, t0: number, t1: number, t: number): Vec => {
+export const dist = (a: Vec, b: Vec) => dlen(b.x - a.x, b.y - a.y);
+export const lerp = (a: Vec, b: Vec, t0: number, t1: number, t: number): Vec => {
   const u = t1 === t0 ? 0 : (t - t0) / (t1 - t0);
   return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
 };
 
 /** Centripetal Catmull-Rom (alpha 0.5, so dist^alpha is a square root). */
-function catmullRom(p0: Vec, p1: Vec, p2: Vec, p3: Vec, u: number): Vec {
+export function catmullRom(p0: Vec, p1: Vec, p2: Vec, p3: Vec, u: number): Vec {
   const t1 = Math.sqrt(dist(p0, p1));
   const t2 = t1 + Math.sqrt(dist(p1, p2));
   const t3 = t2 + Math.sqrt(dist(p2, p3));
@@ -60,8 +60,8 @@ function resampleClosed(dense: readonly Vec[], maxSpacing: number): { length: nu
   return { length, spacing, points, s };
 }
 
-const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
-const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
+export const r4 = (n: number) => Math.round(n * 1e4) / 1e4;
+export const r6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 export interface Track { route: Route; points: Vec[]; tangents: Vec[]; minRadiusTiles: number; attempts: number }
 

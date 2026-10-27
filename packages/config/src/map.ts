@@ -60,6 +60,21 @@ export const MapDefSchema = z.object({
   trains: z.array(z.object({ type: z.string(), route: z.string(), d: z.number().min(0) }).strict()).min(1).optional(),
   /** Where segments meet, with the track's shared unit tangent there (direction of travel). */
   junctions: z.array(z.object({ id: z.string(), x: z.number(), y: z.number(), tx: z.number(), ty: z.number() }).strict()).optional(),
+  /**
+   * Maps whose routes are open lines (`?map=line`): trains run one way, enter off the start of the
+   * line and are removed past its end, a new one entering once the last is `headwayTiles` in.
+   */
+  openLine: z.object({
+    headwayTiles: z.number().positive(),
+    /** Each gap is headwayTiles plus or minus up to this, seeded per train; below headwayTiles. */
+    headwaySpreadTiles: z.number().min(0).optional(),
+  }).strict().optional(),
+  /**
+   * Town spots along the line: `d` is the distance along route `route`, (x, y) the middle of a flat
+   * clearing of `radiusTiles` beside the track on `side` (+1 right of travel). The sim reads
+   * `route` and `d` for the line clock; towns and timetables come in G6.
+   */
+  towns: z.array(z.object({ id: z.string(), route: z.string(), d: z.number().min(0), x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().positive() }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
 }).strict().superRefine((m, ctx) => {
@@ -68,6 +83,10 @@ export const MapDefSchema = z.object({
   if (m.zones.some(([, i]) => i >= m.zoneLegend.length)) ctx.addIssue({ code: 'custom', path: ['zones'], message: 'zone index outside the legend' });
   const lifted = m.elevation?.reduce((n, [count]) => n + count, 0);
   if (lifted !== undefined && lifted !== m.size.cols * m.size.rows) ctx.addIssue({ code: 'custom', path: ['elevation'], message: `elevation covers ${lifted} tiles, map has ${m.size.cols * m.size.rows}` });
+  m.towns?.forEach((t, i) => {
+    if (!m.routes.some((r) => r.id === t.route)) ctx.addIssue({ code: 'custom', path: ['towns', i, 'route'], message: `no route ${t.route}` });
+  });
+  if (m.openLine && m.routes.some((r) => r.closed)) ctx.addIssue({ code: 'custom', path: ['openLine'], message: 'openLine needs every route open' });
   m.trains?.forEach((t, i) => {
     if (!m.routes.some((r) => r.id === t.route)) ctx.addIssue({ code: 'custom', path: ['trains', i, 'route'], message: `no route ${t.route}` });
   });

@@ -8,15 +8,20 @@
 // block, so it is deterministic too) -> player spawn -> scenery.
 import {
   ELEVATION_MAX, MapDefSchema, type MapTheme, SCENERY_KINDS, SceneryDefSchema, ZONES,
-  type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone,
+  type MapDef, type MapGenSettings, type Route, type SceneryDef, type SceneryKind, type Zone,
 } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
-import { generateTrack, type Vec } from './track';
+import { generateLineTrack } from './line';
+import { generateTrack, r6, type Track, type Vec } from './track';
 
 /** Bump when a change makes the same seed and settings give a different map. */
 export const GENERATOR_VERSION = 4;
 /** The map id the game uses for a generated map (`?map=gen`). */
 export const GENERATED_MAP_ID = 'gen';
+/** The map id of a generated open line (`?map=line`). */
+export const LINE_MAP_ID = 'line';
+/** Bump when a change makes the same seed and settings give a different open line. */
+export const LINE_GENERATOR_VERSION = 2;
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
 const CLIFF_LEVELS = 2;
 
@@ -25,7 +30,7 @@ export interface GeneratedMap {
   scenery: SceneryDef;
   /** Tightest curve, for the checks and the debug panel. */
   minRadiusTiles: number;
-  info: { controlPoints: number; trackAttempts: number; rivers: number; trackLength: number; theme: MapTheme; busyness: number };
+  info: { controlPoints: number; trackAttempts: number; rivers: number; trackLength: number; theme: MapTheme; busyness: number; pieces?: number; towns?: number };
 }
 
 const clamp01 = (v: number) => Math.max(0, Math.min(0.9999, v));
@@ -68,12 +73,134 @@ function rle(values: ArrayLike<number>): [number, number][] {
   return out;
 }
 
+/** The loop's settings without the open line's, so adding line settings leaves loop hashes alone. */
+function loopSettings(given: MapGenSettings): Omit<MapGenSettings, 'line'> {
+  const rest: Partial<MapGenSettings> = { ...given };
+  delete rest.line;
+  return rest as Omit<MapGenSettings, 'line'>;
+}
+
+/** A closed loop map (`?map=gen`). */
 export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
   const { settings: s, theme, busyness } = applyMix(seed, given);
   const { cols, rows } = s.size;
+  const track = generateTrack(rng(`${seed}/track`), cols, rows, s.track);
+  const w = buildWorld(seed, s, { cols, rows, track, closed: true, trackScale: 1, areaScale: 1, spawnAlong: null, towns: null });
+  // The file names the seed, then the theme and busyness it picked, for the debug panel.
+  const source = { file: `gen:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${GENERATOR_VERSION}/${seed}/${JSON.stringify(loopSettings(given))}`).toString(16).padStart(8, '0') };
+  const map = MapDefSchema.parse({
+    schemaVersion: 1, id: GENERATED_MAP_ID, source, size: { cols, rows },
+    zoneLegend: [...ZONES], zones: rle(w.zones), elevation: rle(w.heights),
+    routes: [track.route], speedZones: [], markers: { playerSpawn: w.playerSpawn },
+  });
+  const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items: w.items, bridges: w.bridges });
+  return { map, scenery, minRadiusTiles: track.minRadiusTiles, info: { controlPoints: track.route.points.length, trackAttempts: track.attempts, rivers: w.bridges.length, trackLength: track.route.length, theme, busyness } };
+}
+
+/** Scale a count range, keeping a range that was above zero able to roll at least its own share. */
+const scaleRange = ([a, b]: readonly [number, number], f: number): [number, number] => [Math.round(a * f), Math.max(Math.round(a * f), Math.round(b * f))];
+
+/** The settings a line is built from: all but the loop's track, so tuning loops leaves line hashes alone. */
+function lineSettings(given: MapGenSettings): Omit<MapGenSettings, 'track'> {
+  const rest: Partial<MapGenSettings> = { ...given };
+  delete rest.track;
+  return rest as Omit<MapGenSettings, 'track'>;
+}
+
+/**
+ * An open line across a long map (`?map=line`, G3): the track grows piece by piece from the west
+ * edge to the east one (see line.ts), and the same terrain rules as the loop apply along it. Rivers,
+ * cuts and ridges beside the track come in proportion to its length, free-standing ridges to the
+ * map's area. One or two town spots get a marker and a flat clearing beside the track.
+ */
+export function generateLine(seed: string, given: MapGenSettings): GeneratedMap {
+  const mixed = applyMix(seed, given);
+  const { theme, busyness } = mixed;
+  const l = given.line;
+  const cols = l.lengthTiles, rows = l.widthTiles;
+  const track = generateLineTrack(seed, l, cols, rows);
+  const trackScale = track.route.length / l.featureTilesPerLoop;
+  const areaScale = (cols * rows) / (given.size.cols * given.size.rows);
+  const m = mixed.settings;
+  const s: MapGenSettings = {
+    ...m,
+    rivers: { ...m.rivers, count: scaleRange(m.rivers.count, trackScale) },
+    mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
+  };
+  const built = buildWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns });
+  // `west`: the same line mirrored, so trains run right to left.
+  const west = l.direction === 'west';
+  const w = west ? mirrorWorld(built, cols, rows) : built;
+  const route = west ? mirrorRoute(track.route, cols) : track.route;
+  const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}/${seed}/${JSON.stringify(lineSettings(given))}`).toString(16).padStart(8, '0') };
+  const markers: Record<string, Vec> = { playerSpawn: w.playerSpawn };
+  for (const t of w.towns) markers[t.id] = { x: t.x, y: t.y };
+  const map = MapDefSchema.parse({
+    schemaVersion: 1, id: LINE_MAP_ID, source, size: { cols, rows },
+    zoneLegend: [...ZONES], zones: rle(w.zones), elevation: rle(w.heights),
+    routes: [route], speedZones: [], towns: w.towns, markers,
+    openLine: { headwayTiles: l.trainHeadwayTiles, ...(l.trainHeadwaySpreadTiles > 0 ? { headwaySpreadTiles: Math.min(l.trainHeadwaySpreadTiles, l.trainHeadwayTiles * 0.9) } : {}) },
+  });
+  const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items: w.items, bridges: w.bridges });
+  return {
+    map, scenery, minRadiusTiles: track.minRadiusTiles,
+    info: { controlPoints: track.route.points.length, trackAttempts: 1, rivers: w.bridges.length, trackLength: track.route.length, theme, busyness, pieces: track.pieces, towns: w.towns.length },
+  };
+}
+
+/** x to cols - x across the map: zones, heights, scenery, towns and spawn (a town's side flips with the mirror). */
+function mirrorWorld(w: World, cols: number, rows: number): World {
+  const flip = (a: Uint8Array) => {
+    const out = new Uint8Array(a.length);
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) out[y * cols + x] = a[y * cols + cols - 1 - x]!;
+    return out;
+  };
+  const mx = (x: number) => r4(cols - x);
+  return {
+    zones: flip(w.zones), heights: flip(w.heights),
+    items: { ...w.items, x: w.items.x.map(mx) },
+    bridges: w.bridges.map((b) => ({ ...b, x: r4(cols - b.x - b.w) })),
+    playerSpawn: { x: mx(w.playerSpawn.x), y: w.playerSpawn.y },
+    towns: w.towns.map((t) => ({ ...t, x: mx(t.x), side: (t.side === 1 ? -1 : 1) as 1 | -1 })),
+  };
+}
+
+/** The route mirrored the same way; it keeps its direction of travel, so it now runs west. */
+function mirrorRoute(r: Route, cols: number): Route {
+  const mx = (x: number) => r4(cols - x);
+  return {
+    ...r,
+    points: r.points.map((p) => ({ x: mx(p.x), y: p.y })),
+    samples: { ...r.samples, x: r.samples.x.map(mx), tx: r.samples.tx.map((t) => r6(-t) + 0) },
+  };
+}
+
+interface WorldOpts {
+  cols: number; rows: number; track: Track;
+  /** A loop wraps distances along the track; an open line runs off both ends of the map. */
+  closed: boolean;
+  /** How many loops' worth of track and of map area this is: placement attempts scale with them. */
+  trackScale: number; areaScale: number;
+  /** The player starts between these fractions of the way along the track; null anywhere. */
+  spawnAlong: readonly [number, number] | null;
+  towns: MapGenSettings['line']['towns'] | null;
+}
+
+type Town = NonNullable<MapDef['towns']>[number];
+
+interface World {
+  zones: Uint8Array; heights: Uint8Array;
+  items: { kind: number[]; x: number[]; y: number[]; size: number[] };
+  bridges: SceneryDef['bridges'];
+  playerSpawn: Vec;
+  towns: Town[];
+}
+
+/** Terrain, spawn and scenery round a track: shared by the loop and the open line. */
+function buildWorld(seed: string, s: MapGenSettings, o: WorldOpts): World {
+  const { cols, rows, track, closed } = o;
   const N = cols * rows;
   const salt = (what: string) => hashString(`${seed}/${what}`) & 0xfffff;
-  const track = generateTrack(rng(`${seed}/track`), cols, rows, s.track);
   const { route } = track;
   const xs = route.samples.x, ys = route.samples.y;
   const tangents = track.tangents;
@@ -138,7 +265,11 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     }
   }
   const stretchAt = (t: number): Stretch | null => (near[t]! < 0 || stretchOf[near[t]!]! < 0 ? null : stretches[stretchOf[near[t]!]!]!);
-  const sDist = (a: number, b: number) => { const d = Math.abs(a - b) % L; return Math.min(d, L - d); };
+  const sDist = closed ? (a: number, b: number) => { const d = Math.abs(a - b) % L; return Math.min(d, L - d); } : (a: number, b: number) => Math.abs(a - b);
+  /** Sample `j` on a loop wraps; on an open line it is -1 past either end. */
+  const wrapIdx = (j: number) => (closed ? ((j % n) + n) % n : j < 0 || j >= n ? -1 : j);
+  /** A loop's samples are all on the map; a line's run off both ends, so picks keep 40 tiles in. */
+  const inMap = (i: number) => closed || (xs[i]! >= 40 && xs[i]! < cols - 40);
 
   // Rivers: each crosses the track once, square to it where the track runs along x or y, on a bridge.
   const river = new Uint8Array(N); // 0 dry, 1 water, 2 deep
@@ -164,8 +295,9 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
         }
       }
     };
-    for (let attempt = 0; attempt < 60 && crossings.length < count; attempt++) {
+    for (let attempt = 0; attempt < 60 * Math.max(1, Math.ceil(o.trackScale)) && crossings.length < count; attempt++) {
       const i = r.int(0, n - 1);
+      if (!inMap(i)) continue;
       const tg = tangents[i]!;
       const alongX = Math.abs(tg.x) >= 0.97, alongY = Math.abs(tg.y) >= 0.97;
       if (!alongX && !alongY) continue;
@@ -233,6 +365,48 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     }
   }
 
+  // Town spots (open line only): a flat clearing beside the track, clear of rivers, with both lanes
+  // open past it. Hills ramp down to the clearing and nothing grows in it.
+  const towns: Town[] = [];
+  if (o.towns) {
+    const c = o.towns, r = rng(`${seed}/towns`);
+    const count = r.int(c.count[0], c.count[1]);
+    const reach = c.gapTiles + c.clearingRadiusTiles;
+    for (let attempt = 0; attempt < 40 && towns.length < count; attempt++) {
+      const i = Math.round(r.range(c.along[0], c.along[1]) * (n - 1));
+      if (!inMap(i) || towns.some((t) => Math.abs(t.d - i * spacing) < c.minGapTiles)) continue;
+      const first: 1 | -1 = r.next() < 0.5 ? -1 : 1;
+      for (const side of [first, first === 1 ? -1 : 1] as const) {
+        const tg = tangents[i]!;
+        const x = xs[i]! - tg.y * reach * side, y = ys[i]! + tg.x * reach * side;
+        if (y < c.clearingRadiusTiles + s.edgeTiles + 2 || y > rows - c.clearingRadiusTiles - s.edgeTiles - 2) continue;
+        // Clear of every river and bridge, with room to spare.
+        let wet = false;
+        for (let dy = -c.clearingRadiusTiles - 4; dy <= c.clearingRadiusTiles + 4 && !wet; dy++) {
+          for (let dx = -c.clearingRadiusTiles - 4; dx <= c.clearingRadiusTiles + 4 && !wet; dx++) {
+            const tx = Math.floor(x + dx), ty = Math.floor(y + dy);
+            if (tx < 0 || ty < 0 || tx >= cols || ty >= rows) continue;
+            const t = ty * cols + tx;
+            if (river[t] || deck[t]) wet = true;
+          }
+        }
+        if (wet) continue;
+        towns.push({ id: `town${towns.length + 1}`, route: route.id, d: r4(i * spacing), x: r4(x), y: r4(y), side, radiusTiles: c.clearingRadiusTiles });
+        // Both lanes open along the station.
+        for (let j = 0; j < n; j++) if (Math.abs(j - i) * spacing < reach + 30) stretchOf[j] = -1;
+        break;
+      }
+    }
+    towns.sort((a, b) => a.d - b.d);
+    towns.forEach((t, k) => { t.id = `town${k + 1}`; });
+  }
+  /** Tiles from the edge of the nearest town clearing (negative inside), or Infinity with none. */
+  const townGap = (cx: number, cy: number) => {
+    let best = Infinity;
+    for (const t of towns) best = Math.min(best, Math.sqrt((cx - t.x) * (cx - t.x) + (cy - t.y) * (cy - t.y)) - t.radiusTiles);
+    return best;
+  };
+
   // Long mesas, stamped as shapes on top of the noise clumps: free-standing ridges, ridges that run
   // beside the track, and cuts where the track runs through a long mesa between two cliff walls.
   const mesaMask = new Uint8Array(N);
@@ -243,7 +417,7 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
       for (const [ax, ay] of [[tx, ty], [tx + 1, ty], [tx, ty + 1]] as const) {
         if (ax < 0 || ay < 0 || ax >= cols || ay >= rows) continue;
         const t = ay * cols + ax;
-        if (deck[t] || riverDist[t]! <= 3 || dist(t) < minD) continue;
+        if (deck[t] || riverDist[t]! <= 3 || dist(t) < minD || townGap(ax + 0.5, ay + 0.5) < 4) continue;
         mesaMask[t] = 1;
       }
     };
@@ -251,7 +425,8 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     const alongTrack = (i: number, len: number, side: number, gap: number, width: number) => {
       const steps = Math.floor(len / spacing);
       for (let k = 0; k <= steps; k++) {
-        const j = (i + k) % n, u = (2 * k) / steps - 1;
+        const j = wrapIdx(i + k), u = (2 * k) / steps - 1;
+        if (j < 0) break;
         const w = width * Math.sqrt(Math.max(0, 1 - u * u * u * u));
         const tg = tangents[j]!;
         for (let o = gap; o <= gap + w; o += 0.5) put(xs[j]! - tg.y * o * side, ys[j]! + tg.x * o * side, gap - 0.5);
@@ -260,23 +435,24 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     // Cuts: the track runs through a long mesa, cliffs both sides just outside the riding lanes.
     const cuts = r.int(m.cuts[0], m.cuts[1]);
     const used: number[] = [];
-    for (let attempt = 0; attempt < 40 && used.length < cuts; attempt++) {
+    for (let attempt = 0; attempt < 40 * Math.max(1, Math.ceil(o.trackScale)) && used.length < cuts; attempt++) {
       const i = r.int(0, n - 1);
       const len = r.range(m.cutLengthTiles[0], m.cutLengthTiles[1]);
       const mid = i * spacing + len / 2;
       if (used.some((u) => sDist(u, mid) < len + 40)) continue;
-      // Not across a river: every sample in the cut must be well clear of water.
+      // Not across a river or a town: every sample in the cut must be well clear of water and on the map.
       let wet = false;
       for (let k = 0; k * spacing <= len && !wet; k++) {
-        const j = (i + k) % n;
+        const j = wrapIdx(i + k);
+        if (j < 0 || !inMap(j)) { wet = true; break; }
         const t = Math.floor(ys[j]!) * cols + Math.floor(xs[j]!);
-        if (riverDist[t]! < 12) wet = true;
+        if (riverDist[t]! < 12 || townGap(xs[j]!, ys[j]!) < 30) wet = true;
       }
       if (wet) continue;
       used.push(mid);
       for (const side of [-1, 1]) alongTrack(i, len, side, m.cutGapTiles, r.range(m.cutDepthTiles[0], m.cutDepthTiles[1]));
       // Both lanes open through the cut: no mud bank or rock line inside it.
-      for (let k = -Math.ceil(10 / spacing); k * spacing <= len + 10; k++) stretchOf[(i + k + n) % n] = -1;
+      for (let k = -Math.ceil(10 / spacing); k * spacing <= len + 10; k++) { const j = wrapIdx(i + k); if (j >= 0) stretchOf[j] = -1; }
     }
     // Ridges that run beside the track, further out.
     const beside = r.int(m.besideTrack[0], m.besideTrack[1]);
@@ -318,9 +494,13 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     if (d < Infinity) level = Math.min(level, Math.max(0, Math.floor((d - s.hills.trackGapTiles) / s.hills.tilesPerLevel)));
     level = Math.min(level, Math.max(0, Math.floor(riverDist[t]! / s.hills.tilesPerLevel)));
     if (deck[t]) level = 0;
+    const toTown = towns.length ? townGap(cx, cy) : Infinity;
+    if (toTown < Infinity) level = Math.min(level, Math.max(0, Math.floor(toTown / s.hills.tilesPerLevel)));
     heights[t] = level;
 
-    if (x < s.edgeTiles || y < s.edgeTiles || x >= cols - s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
+    // A line enters and leaves through the west and east edges, so only a loop blocks those.
+    if ((closed && (x < s.edgeTiles || x >= cols - s.edgeTiles)) || y < s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
+    if (toTown < 0) { zones[t] = Z.open; continue; }
     // Mesas: sandstone plateaus that rise by a cliff all round (drawn by iso/mesa.ts), on rock.
     if ((mesaMask[t] || (fbm(cx, cy, s.mesas.scaleTiles, sMesa) > s.mesas.threshold && d > s.mesas.trackGapTiles)) && riverDist[t]! > 3 && lake <= s.lakes.threshold - 0.04) {
       const [lo, hi] = s.mesas.topLevels;
@@ -370,8 +550,9 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
       return out;
     };
     let first: { i: number; side: number } | null = null;
+    const [lo, hi] = o.spawnAlong ? [Math.round(o.spawnAlong[0] * (n - 1)), Math.round(o.spawnAlong[1] * (n - 1))] : [0, n - 1];
     for (let attempt = 0; attempt < 40; attempt++) {
-      const i = r.int(0, n - 1);
+      const i = r.int(lo, hi);
       const st = stretchOf[i]! < 0 ? null : stretches[stretchOf[i]!]!;
       const side = !st || st.side === 0 ? (r.next() < 0.5 ? -1 : 1) : -st.side;
       first ??= { i, side };
@@ -387,14 +568,6 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     y: r4(Math.floor(ys[spawn.i]! + tg.x * s.spawnDistanceTiles * spawn.side) + 0.5),
   };
 
-  // The file names the seed, then the theme and busyness it picked, for the debug panel.
-  const source = { file: `gen:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${GENERATOR_VERSION}/${seed}/${JSON.stringify(given)}`).toString(16).padStart(8, '0') };
-  const map = MapDefSchema.parse({
-    schemaVersion: 1, id: GENERATED_MAP_ID, source, size: { cols, rows },
-    zoneLegend: [...ZONES], zones: rle(zones), elevation: rle(heights),
-    routes: [route], speedZones: [], markers: { playerSpawn },
-  });
-
   // Scenery (render only): trees on forest tiles, bushes and flowers scattered on open ground.
   const items = { kind: [] as number[], x: [] as number[], y: [] as number[], size: [] as number[] };
   const add = (kind: SceneryKind, x: number, y: number, size: number) => {
@@ -406,12 +579,11 @@ export function generateMap(seed: string, given: MapGenSettings): GeneratedMap {
     if (forest[t] && zones[t] === Z.blocked) {
       if (hash3(t, 0, sItems) >= s.forest.treesPerTile) continue;
       add(hash3(t, 1, sItems) < s.forest.pineShare ? 'pine' : 'tree', x + 0.15 + 0.7 * hash3(t, 2, sItems), y + 0.15 + 0.7 * hash3(t, 3, sItems), 0.8 + 0.45 * hash3(t, 4, sItems));
-    } else if (zones[t] === Z.open && dist(t) > s.corridor.laneTiles + 1) {
+    } else if (zones[t] === Z.open && dist(t) > s.corridor.laneTiles + 1 && !(towns.length && townGap(x + 0.5, y + 0.5) < 2)) {
       const g = fbm(x + 0.5, y + 0.5, s.ground.scaleTiles, sGround) * 2;
       if (hash3(t, 5, sItems) < s.ground.bushesPerTile * g) add('bush', x + 0.15 + 0.7 * hash3(t, 6, sItems), y + 0.15 + 0.7 * hash3(t, 7, sItems), 0.8 + 0.45 * hash3(t, 8, sItems));
       else if (hash3(t, 9, sItems) < s.ground.flowersPerTile * g) add('flowers', x + 0.15 + 0.7 * hash3(t, 10, sItems), y + 0.15 + 0.7 * hash3(t, 11, sItems), 0.8 + 0.45 * hash3(t, 12, sItems));
     }
   }
-  const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items, bridges });
-  return { map, scenery, minRadiusTiles: track.minRadiusTiles, info: { controlPoints: route.points.length, trackAttempts: track.attempts, rivers: bridges.length, trackLength: route.length, theme, busyness } };
+  return { zones, heights, items, bridges, playerSpawn, towns };
 }
