@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.4",
+  "version": "0.2.4-chunks",
   "private": true,
   "type": "module",
   "scripts": {

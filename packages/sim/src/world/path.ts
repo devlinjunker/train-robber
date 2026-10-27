@@ -6,30 +6,39 @@ import { Terrain, terrainAt, type WorldMap } from './map';
 /** Terrain the horse paths around: anything but open and slow ground. */
 export const avoids = (t: Terrain): boolean => t !== Terrain.Open && t !== Terrain.Slow;
 
-export interface PathGrid { cell: number; cols: number; rows: number; open: Uint8Array }
+/** `open` holds 1 for an open cell and 2 for a blocked one, 0 until the cell is first looked at (see pathCellOpen). */
+export interface PathGrid { cell: number; cols: number; rows: number; open: Uint8Array; map: WorldMap }
 
 const grids = new WeakMap<WorldMap, Map<number, PathGrid>>();
 
-/** The coarse grid for a map: a cell is open when every tile in it is open or slow ground. Built once per map and cell size. */
+/**
+ * The coarse grid for a map: a cell is open when every tile in it is open or slow ground. One per
+ * map and cell size; each cell is worked out the first time it is looked at, so a long generated
+ * map never reads its far chunks.
+ */
 export function pathGrid(map: WorldMap, cell: number): PathGrid {
   let byCell = grids.get(map);
   if (!byCell) grids.set(map, (byCell = new Map()));
   const have = byCell.get(cell);
   if (have) return have;
   const cols = Math.ceil(map.cols / cell), rows = Math.ceil(map.rows / cell);
-  const open = new Uint8Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      let ok = 1;
-      for (let y = r * cell; ok && y < Math.min(map.rows, (r + 1) * cell); y++) {
-        for (let x = c * cell; x < Math.min(map.cols, (c + 1) * cell); x++) if (avoids(map.terrain[y * map.cols + x] as Terrain)) { ok = 0; break; }
-      }
-      open[r * cols + c] = ok;
-    }
-  }
-  const g = { cell, cols, rows, open };
+  const g = { cell, cols, rows, open: new Uint8Array(cols * rows), map };
   byCell.set(cell, g);
   return g;
+}
+
+/** True when every tile in cell `i` is open or slow ground. */
+export function pathCellOpen(g: PathGrid, i: number): boolean {
+  const known = g.open[i]!;
+  if (known) return known === 1;
+  const { map, cell } = g;
+  const c = i % g.cols, r = (i - c) / g.cols;
+  let ok = true;
+  for (let y = r * cell; ok && y < Math.min(map.rows, (r + 1) * cell); y++) {
+    for (let x = c * cell; x < Math.min(map.cols, (c + 1) * cell); x++) if (avoids(terrainAt(map, x, y))) { ok = false; break; }
+  }
+  g.open[i] = ok ? 1 : 2;
+  return ok;
 }
 
 export const cellOf = (g: PathGrid, x: number, y: number): number =>
@@ -62,7 +71,7 @@ export function findPath(g: PathGrid, start: number, goal: number): number[] | n
     const dx = Math.abs((i % g.cols) - gx), dy = Math.abs(Math.floor(i / g.cols) - gy);
     return 10 * Math.max(dx, dy) + 4 * Math.min(dx, dy);
   };
-  const open = (i: number) => i === goal || i === start || g.open[i] === 1;
+  const open = (i: number) => i === goal || i === start || pathCellOpen(g, i);
   // Binary heap of [f, seq, cell].
   const heap: [number, number, number][] = [];
   let seq = 0;
