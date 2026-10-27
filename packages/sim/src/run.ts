@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome } from './rules/outcome';
-import { countdownExpired, HEAT_SOURCES, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
+import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
@@ -14,7 +14,7 @@ import { generateGuards } from './world/guards';
 import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, playerSpace, trainCars, walkerFits, type WorldModel } from './world/separate';
-import { carPosesOf, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
+import { atLineEnd, carPosesOf, onMapRange, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
 import { freshRoofState } from './world/roof';
@@ -112,14 +112,16 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
   const train = state.world.trains.find((t) => t.id === id)!;
   const cd = config.values.countdown;
-  const countdownSec = runCountdownSec(config, train.type);
+  // On an open line the clock runs to the next town instead (countdown.lineClock).
+  const towards = lineClock(map, config, train);
+  const countdownSec = towards ? towards.sec : runCountdownSec(config, train.type);
   // Run generation: the train's layouts were picked for this run number; fill its loot slots,
   // then place its guards on the layouts' guard spawns.
   const loot = generateLoot(state, config, train);
   const guards = generateGuards(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
-    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', graceTicks: 0,
+    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0,
     heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
@@ -128,6 +130,8 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
     p.resumeRuns = p.resumeRuns.filter((r) => r !== resume);
     const { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat } = resume;
     Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat });
+    // The train kept going while you were off it: the line clock is where it is now.
+    if (resume.clockTo !== undefined) Object.assign(state.run, { clockTo: resume.clockTo, countdownSec: lineClockSec(map, config, train, resume.clockTo) });
     Object.assign(rp, { health: resume.health, meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
   }
   ctx.emit({
@@ -205,7 +209,7 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
  * `cashOut` is the loot value the run would bank (an extraction: the carried value after any spill);
  * it goes into the bank and lifetime earned when the outcome's policy has `bankRunLoot`.
  */
-export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0): void {
+export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0, endOfLine = false): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
@@ -215,6 +219,7 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: banked,
+    ...(endOfLine ? { endOfLine: true as const } : {}),
   });
   const before = state.persistent;
   const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, banked);
@@ -246,7 +251,7 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const rp = run.players[p.id];
   const resume: ResumeRun | null = inPlace && rp ? {
     trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
-    clockRunning: run.clockRunning, graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
+    clockRunning: run.clockRunning, ...(run.clockTo !== undefined ? { clockTo: run.clockTo } : {}), graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
     health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;
@@ -330,7 +335,10 @@ export function quickRetry(ctx: RunCtx, p: PlayerState): void {
   for (const q of state.players) { q.resumeRuns = []; q.commitHold = null; }
   const train = state.world.trains.find((t) => t.id === trainId)!;
   const { route } = routeOf(map, config, train);
-  const at = trackAt(route, train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles);
+  let d = train.d - trainLengthOf(config, train) - config.values.playtest.quickRetryGapTiles;
+  // An open line runs off the map at both ends: wait where the track is still on it.
+  if (!route.closed) { const r = onMapRange(map, route); d = Math.max(r.from, Math.min(d, r.to)); }
+  const at = trackAt(route, d);
   const last = carTemplate(carCatalog(config), train.cars[train.cars.length - 1]!);
   // Left of travel is (ty, -tx).
   const off = last.size.rows / 2 + RETRY_SIDE_GAP;
@@ -630,7 +638,9 @@ export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | unde
 
 /**
  * Tick system 11, run end: a player at no health dies; otherwise a run whose countdown is at zero
- * expires once the grace window no longer holds it (U3). Both then reset as cancel does.
+ * expires once the grace window no longer holds it (U3), and on an open line a run whose train
+ * reaches the end of the line expires there too (the law gets on in the next town). All of them
+ * then reset as cancel does.
  */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
@@ -646,6 +656,15 @@ export function runEndSystem(ctx: RunCtx): void {
   for (const p of ctx.state.players) {
     if (run.players[p.id] && countdownExpired(ctx, p)) {
       endRun(ctx, p, 'expired', false);
+      resetToSpawn(ctx, p);
+      return;
+    }
+  }
+  const train = ctx.map.openLine ? ctx.state.world.trains.find((t) => t.id === run.trainId) : undefined;
+  if (train && atLineEnd(ctx.map, ctx.config, train)) {
+    for (const p of ctx.state.players) {
+      if (!run.players[p.id]) continue;
+      endRun(ctx, p, 'expired', false, 0, true);
       resetToSpawn(ctx, p);
       return;
     }

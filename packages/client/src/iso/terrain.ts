@@ -5,7 +5,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, trackPieces, type MapDef, type Zone } from '@train-robber/config';
 import { isoPoly, shade, oval } from './draw';
-import { Cells, cullChunks, type Chunk, type TileBox } from './cells';
+import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
 export const GROUND = 0xc6a673;
@@ -64,33 +64,74 @@ export function mudPuddle(x: number, y: number): { x: number; y: number; s: numb
 /**
  * The ground, zones, `scenery` (ground cover and flat scenery) and the track, back to front, and
  * a cull that hides the parts outside a box of world tiles. Spots and puddles are left off
- * `raised` tiles: the height layer draws those on the slope.
+ * `raised` tiles: the height layer draws those on the slope. Zones, spots and puddles are built
+ * per region of `region` tiles as they come near the view (cells.ts LazyChunks); the cull returns
+ * true while some near the view still wait for the frame's budget.
  */
-export function drawTerrain(map: MapDef, scenery: Container | null = null, raised?: (x: number, y: number) => boolean): { layer: Container; cull(view: TileBox): void } {
+export function drawTerrain(map: MapDef, scenery: Container | null = null, raised?: (x: number, y: number) => boolean, region = Math.max(map.size.cols, map.size.rows)): { layer: Container; cull(view: TileBox, budget?: BuildBudget): boolean } {
   const layer = new Container();
   layer.label = 'iso-terrain';
   const { cols, rows } = map.size;
 
   const ground = new Graphics();
   ground.poly(isoPoly([[0, 0], [cols, 0], [cols, rows], [0, rows]])).fill(GROUND);
-
-  // Zones: one parallelogram per horizontal run of the same non-open zone, in cells so cells off
-  // screen cull (runs break at cell edges), one colour at a time.
   const grid = decodeZones(map);
-  const zones = new Cells(CELL);
-  for (const colour of new Set(Object.values(ZONE_COLOURS))) {
-    for (let y = 0; y < rows; y++) {
-      let x = 0;
-      while (x < cols) {
-        const z = grid[y * cols + x]!, stop = Math.min(cols, (Math.floor(x / CELL) + 1) * CELL);
-        let end = x + 1;
-        while (end < stop && grid[y * cols + end] === z) end++;
-        if (ZONE_COLOURS[map.zoneLegend[z]!] === colour) zones.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
-        x = end;
+  const zoneLayer = new Container(), spotLayer = new Container(), puddleLayer = new Container();
+
+  const buildRegion = (r: TileBox): Chunk[] => {
+    // Zones: one parallelogram per horizontal run of the same non-open zone, in cells so cells off
+    // screen cull (runs break at cell edges), one colour at a time.
+    const zones = new Cells(CELL);
+    for (const colour of new Set(Object.values(ZONE_COLOURS))) {
+      for (let y = r.y0; y < r.y1; y++) {
+        let x = r.x0;
+        while (x < r.x1) {
+          const z = grid[y * cols + x]!, stop = Math.min(r.x1, (Math.floor(x / CELL) + 1) * CELL);
+          let end = x + 1;
+          while (end < stop && grid[y * cols + end] === z) end++;
+          if (ZONE_COLOURS[map.zoneLegend[z]!] === colour) zones.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
+          x = end;
+        }
+      }
+      zones.each((g) => g.fill(colour));
+    }
+    // Spots on open sand, in three shades.
+    const tufts = new Cells(CELL);
+    for (const [k, colour] of SPOT_COLOURS.entries()) {
+      for (let y = r.y0; y < r.y1; y++) {
+        for (let x = r.x0; x < r.x1; x++) {
+          if (map.zoneLegend[grid[y * cols + x]!] !== 'open' || raised?.(x, y)) continue;
+          const spot = sandSpot(x, y);
+          if (!spot || spot.k !== k) continue;
+          tufts.at(spot.x, spot.y).poly(spotPoly(spot));
+        }
+      }
+      tufts.each((g) => g.fill(colour));
+    }
+    // Mud: a dark puddle on some tiles, and a pale glint on a few of those. Glints draw in the
+    // same cells, after every puddle in it.
+    const puddles = new Cells(CELL), glints: [Graphics, number, number, number][] = [];
+    for (let y = r.y0; y < r.y1; y++) {
+      for (let x = r.x0; x < r.x1; x++) {
+        if (map.zoneLegend[grid[y * cols + x]!] !== 'slow' || raised?.(x, y)) continue;
+        const p = mudPuddle(x, y);
+        if (!p) continue;
+        const g = puddles.at(p.x, p.y);
+        oval(g, isoX(p.x, p.y), isoY(p.x, p.y), p.s * TILE_W * 0.7, p.s * TILE_H * 0.7);
+        if (p.glint) glints.push([g, p.x, p.y, p.s]);
       }
     }
-    zones.each((g) => g.fill(colour));
-  }
+    puddles.each((g) => g.fill(shade(MUD_COLOUR, 0.8)));
+    for (const [g, cx, cy, s] of glints) oval(g, isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
+    puddles.each((g) => g.fill({ color: 0xffffff, alpha: 0.18 }));
+    const z = zones.chunks(), t = tufts.chunks(), pd = puddles.chunks();
+    addChunks(zoneLayer, z);
+    addChunks(spotLayer, t);
+    addChunks(puddleLayer, pd);
+    return [...z, ...t, ...pd];
+  };
+  const regions = new LazyChunks(regionUnits(map, region, 2, buildRegion));
+  if (region >= Math.max(cols, rows)) regions.buildAll();
 
   // The map edge: a dark frame over the rock ring, fading inward, instead of a line of boulders.
   const edge = new Graphics();
@@ -101,40 +142,11 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
   edge.poly(frame(0, EDGE_TILES)).fill(EDGE_COLOUR);
   for (let i = 0; i < 3; i++) edge.poly(frame(EDGE_TILES + i, 1)).fill({ color: EDGE_COLOUR, alpha: 0.45 - i * 0.15 });
 
-  // Spots on open sand, in three shades, and a faint grid every few tiles.
-  const tufts = new Cells(CELL);
-  for (const [k, colour] of SPOT_COLOURS.entries()) {
-    for (let y = 0; y < rows; y++) {
-      for (let x = 0; x < cols; x++) {
-        if (map.zoneLegend[grid[y * cols + x]!] !== 'open' || raised?.(x, y)) continue;
-        const spot = sandSpot(x, y);
-        if (!spot || spot.k !== k) continue;
-        tufts.at(spot.x, spot.y).poly(spotPoly(spot));
-      }
-    }
-    tufts.each((g) => g.fill(colour));
-  }
+  // A faint grid every few tiles.
   const gridLines = new Graphics();
   for (let x = 0; x <= cols; x += GRID_EVERY) gridLines.moveTo(isoX(x, 0), isoY(x, 0)).lineTo(isoX(x, rows), isoY(x, rows));
   for (let y = 0; y <= rows; y += GRID_EVERY) gridLines.moveTo(isoX(0, y), isoY(0, y)).lineTo(isoX(cols, y), isoY(cols, y));
   gridLines.stroke({ width: 1, color: 0x000000, alpha: 0.06 });
-
-  // Mud: a dark puddle on some tiles, and a pale glint on a few of those. Glints draw in the
-  // same cells, after every puddle in it.
-  const puddles = new Cells(CELL), glints: [Graphics, number, number, number][] = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      if (map.zoneLegend[grid[y * cols + x]!] !== 'slow' || raised?.(x, y)) continue;
-      const p = mudPuddle(x, y);
-      if (!p) continue;
-      const g = puddles.at(p.x, p.y);
-      oval(g, isoX(p.x, p.y), isoY(p.x, p.y), p.s * TILE_W * 0.7, p.s * TILE_H * 0.7);
-      if (p.glint) glints.push([g, p.x, p.y, p.s]);
-    }
-  }
-  puddles.each((g) => g.fill(shade(MUD_COLOUR, 0.8)));
-  for (const [g, cx, cy, s] of glints) oval(g, isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);
-  puddles.each((g) => g.fill({ color: 0xffffff, alpha: 0.18 }));
 
   // Track: ties across the route on every other sample (about a tile apart), then two rails, in
   // stretches of TRACK_STRETCH samples so stretches off screen cull. Shared segments are drawn
@@ -183,14 +195,21 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
     track.push({ g, x0: sx - 2, y0: sy - 2, x1: sx + 2, y1: sy + 2 });
   }
 
-  const culled = [...zones.chunks(), ...tufts.chunks(), ...puddles.chunks(), ...track];
   // Its own render group: the ground is drawn once, so the horse, trains and trees changing every
   // frame don't make Pixi rebuild it.
   layer.enableRenderGroup();
-  layer.addChild(ground, ...zones.chunks().map((c) => c.g), edge, gridLines, ...tufts.chunks().map((c) => c.g), ...puddles.chunks().map((c) => c.g));
+  layer.addChild(ground, zoneLayer, edge, gridLines, spotLayer, puddleLayer);
   if (scenery) layer.addChild(scenery);
-  layer.addChild(...track.map((c) => c.g));
-  return { layer, cull: (view) => cullChunks(culled, view) };
+  addChunks(layer, track);
+  return {
+    layer,
+    cull: (view, budget) => {
+      const waiting = regions.update(view, budget);
+      cullChunks(regions.chunks, view);
+      cullChunks(track, view);
+      return waiting;
+    },
+  };
 }
 
 /** The map debug overlay in iso: speed zones, route samples and tangents, control points and markers. */

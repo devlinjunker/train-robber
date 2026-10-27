@@ -139,6 +139,12 @@ export const GameSchema = z.object({
     scale: positive,
     /** U3: how long expiry waits while the player is already escaping (horse alongside, near a door on its side). */
     graceSec: z.number().min(0),
+    /**
+     * Open lines only: `town` (the default) makes the clock the committed train's time to reach the
+     * next town (or the end of the line), and heat no longer speeds it up; `fixed` keeps the
+     * train's baseSec clock that heat drains, as on loops (Devlin, PR #34).
+     */
+    lineClock: z.enum(['town', 'fixed']).optional(),
   }).strict(),
   /** Heat 0 to maxHeat speeds up the countdown (U2). Every gain goes through raiseHeat with one of these sources. */
   heat: z.object({

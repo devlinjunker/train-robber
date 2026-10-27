@@ -11,11 +11,12 @@ import { createMesas } from './mesa';
 import { createSceneryLayers, forestTiles } from './scenery';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
-import type { TileBox } from './cells';
+import { regionSize, type Chunk, type TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
 import { createDust } from './dust';
+import { drawTowns } from './towns';
 import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
@@ -59,6 +60,8 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
  * the static layers, so it should happen every few seconds of riding, not every frame.
  */
 const CULL_SNAP = 12, CULL_MARGIN = 6;
+/** On big maps, how long a frame may spend building regions that are near the view but not on it yet. */
+const BUILD_MS_PER_FRAME = 4;
 const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
 /**
  * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
@@ -292,13 +295,20 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   land.sortableChildren = true;
   land.enableRenderGroup();
   const field = createHeightField(map);
-  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land, field.raised ? field.surfaceZ : undefined) : null;
-  const cover = groundCover === null ? null : createGroundCover(map, groundCover);
+  // Big maps (the open line) build their static drawing per region as it comes near the view and
+  // drop it far behind; the rest build it all here, as before (cells.ts regionSize).
+  const region = regionSize(map), lazyDraw = region < Math.max(map.size.cols, map.size.rows);
+  // Pieces that sort with the movers get copies over them (overdraw.ts); it hears about pieces built and dropped later.
+  let overdraw: Overdraw | null = null;
+  const sortedHooks = { onBuild: (cs: Chunk[]) => overdraw?.add(cs.map((c) => c.g)), onDrop: (cs: Chunk[]) => overdraw?.remove(cs.map((c) => c.g)) };
+  const treeHooks = { onBuild: (gs: Graphics[]) => overdraw?.add(gs), onDrop: (gs: Graphics[]) => overdraw?.remove(gs) };
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land, field.raised ? field.surfaceZ : undefined, region, treeHooks) : null;
+  const cover = groundCover === null ? null : createGroundCover(map, groundCover, region);
   const ground = new Container();
-  if (cover) ground.addChild(...cover.chunks.map((c) => c.g));
+  if (cover) ground.addChild(cover.layer);
   if (sceneryLayers) ground.addChild(sceneryLayers.ground);
   // Raised tiles get their spots and puddles from the height layer, on the slope.
-  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0));
+  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0), region);
   const shadows = new Graphics();
   const floors = new Graphics();
   const markers = new Graphics();
@@ -309,12 +319,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   mapOverlay.visible = false;
   // Forest tiles are blocked too, but draw as trees on forest floor, not boulders.
   const forest = scenery ? forestTiles(map, scenery) : undefined;
-  const heights = createHeightLayer(map, field, land, forest);
-  const rocks = createRocks(map, land, field, forest);
-  const mesas = createMesas(map, field, land, rocks.chunks, objects);
+  const heights = createHeightLayer(map, field, land, forest, region, sortedHooks);
+  const rocks = createRocks(map, land, field, forest, region, sortedHooks);
+  const mesas = createMesas(map, field, land, () => rocks.chunks, objects, lazyDraw, sortedHooks);
   const mud = createMud();
-  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, land, objects, zoneOverlay, markers, mesas.masks);
-  const overdraw = new Overdraw(objects, mesas.masks);
+  const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined);
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, towns, land, objects, zoneOverlay, markers, mesas.masks);
+  overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
   const dust = createDust(content.boostDust ?? 1);
@@ -350,7 +361,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   let used = 0;
   let lastFadeSec = 0;
 
-  let culledView: TileBox | null = null;
+  let culledView: TileBox | null = null, building = false;
   return {
     root, mapOverlay, zoneOverlay,
     groundZ: field.groundZ,
@@ -359,16 +370,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       const iv = input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
       const recull = !culledView || iv.x0 < culledView.x0 || iv.y0 < culledView.y0 || iv.x1 > culledView.x1 || iv.y1 > culledView.y1
         || culledView.x1 - culledView.x0 > iv.x1 - iv.x0 + 2 * slack || culledView.y1 - culledView.y0 > iv.y1 - iv.y0 + 2 * slack;
-      if (recull) {
+      if (recull || building) {
         const snap = (v: number, up: boolean) => (up ? Math.ceil(v / CULL_SNAP) : Math.floor(v / CULL_SNAP)) * CULL_SNAP;
-        const view = { x0: snap(iv.x0 - CULL_MARGIN, false), y0: snap(iv.y0 - CULL_MARGIN, false), x1: snap(iv.x1 + CULL_MARGIN, true), y1: snap(iv.y1 + CULL_MARGIN, true) };
+        const view = recull || !culledView ? { x0: snap(iv.x0 - CULL_MARGIN, false), y0: snap(iv.y0 - CULL_MARGIN, false), x1: snap(iv.x1 + CULL_MARGIN, true), y1: snap(iv.y1 + CULL_MARGIN, true) } : culledView;
         culledView = view;
-        cullTerrain(view);
-        cover?.cull(view);
-        sceneryLayers?.cull(view);
-        rocks.cull(view);
-        heights.cull(view);
-        mesas.cull(view);
+        // Regions near the view but off screen build a few milliseconds' worth a frame; the ones on screen build at once.
+        const budget = { until: performance.now() + BUILD_MS_PER_FRAME };
+        building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean);
         overdraw.refresh();
       }
       // Trees in front of the horse (or you aboard) fade so you stay in view.

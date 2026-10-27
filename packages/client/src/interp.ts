@@ -20,6 +20,8 @@ export class Interpolator {
   private currCars = new Float64Array(0);
   private carMeta: Pick<CarPose, 'trainId' | 'index' | 'template' | 'halfLength' | 'halfWidth'>[] = [];
   private carsChanged = true;
+  /** When the car list changed, each current car's index in the previous list (-1 for a new car). */
+  private prevIndex: Int32Array = new Int32Array(0);
   private prevHorse = new Float64Array(4);
   private currHorse = new Float64Array(4);
   private prevPlacement = new Float64Array(2);
@@ -38,6 +40,11 @@ export class Interpolator {
     if (this.currCars.length !== cars.length * CAR_FIELDS) this.currCars = new Float64Array(cars.length * CAR_FIELDS);
     this.carsChanged = this.prevCars.length !== this.currCars.length
       || cars.some((c, i) => this.carMeta[i]?.trainId !== c.trainId || this.carMeta[i]?.index !== c.index);
+    // Trains entering or leaving an open line change the list; the cars still on it keep sliding.
+    if (this.carsChanged) {
+      const was = new Map(this.carMeta.map((m, i) => [`${m.trainId}#${m.index}`, i]));
+      this.prevIndex = Int32Array.from(cars, (c) => was.get(`${c.trainId}#${c.index}`) ?? -1);
+    }
     this.carMeta = cars.map(({ trainId, index, template, halfLength, halfWidth }) => ({ trainId, index, template, halfLength, halfWidth }));
     cars.forEach((c, i) => this.currCars.set([c.x, c.y, c.ux, c.uy], i * CAR_FIELDS));
 
@@ -81,15 +88,16 @@ export class Interpolator {
 
   /** Car poses at fraction `t` between the last two ticks. */
   cars(t: number): CarPose[] {
-    const fresh = this.carsChanged || this.pushes < 2;
     return this.carMeta.map((m, i) => {
-      const o = i * CAR_FIELDS, c = this.currCars, p = fresh ? c : this.prevCars;
-      const far = Math.abs(c[o]! - p[o]!) + Math.abs(c[o + 1]! - p[o + 1]!) > SNAP_TILES;
+      const o = i * CAR_FIELDS, c = this.currCars;
+      const j = this.pushes < 2 ? -1 : this.carsChanged ? this.prevIndex[i]! : i;
+      const p = j < 0 ? c : this.prevCars, po = j < 0 ? o : j * CAR_FIELDS;
+      const far = Math.abs(c[o]! - p[po]!) + Math.abs(c[o + 1]! - p[po + 1]!) > SNAP_TILES;
       const k = far ? 1 : t;
-      let ux = lerp(p[o + 2]!, c[o + 2]!, k), uy = lerp(p[o + 3]!, c[o + 3]!, k);
+      let ux = lerp(p[po + 2]!, c[o + 2]!, k), uy = lerp(p[po + 3]!, c[o + 3]!, k);
       const n = Math.hypot(ux, uy) || 1;
       ux /= n; uy /= n;
-      return { ...m, x: lerp(p[o]!, c[o]!, k), y: lerp(p[o + 1]!, c[o + 1]!, k), ux, uy };
+      return { ...m, x: lerp(p[po]!, c[o]!, k), y: lerp(p[po + 1]!, c[o + 1]!, k), ux, uy };
     });
   }
 

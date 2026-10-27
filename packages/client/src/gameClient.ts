@@ -13,7 +13,7 @@ import { follow, FOLLOW_RATE, lookAheadTarget } from './camera';
 import { clampRunZoom, clampZoom, DEFAULT_ZOOM, depthOf, isoX, isoY, keyDirToWorld, RUN_ZOOM_RANGE, screenToWorld, stepRunZoom, stepZoom, worldToScreen, type Camera } from './projection';
 import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
-import { createScreenOverlay, type DistanceCue, type MeterView, type TrainPointer } from './screenOverlay';
+import { createScreenOverlay, type DistanceCue, type MeterView, type TownPointer, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
 import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
@@ -138,6 +138,28 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Hoofbeats while you ride, quieter than the called horse's: ?rideHoofbeats= scales them (0 is silent).
   const rideHoofParam = Number(params.get('rideHoofbeats') ?? 1);
   const rideHoofScale = Number.isFinite(rideHoofParam) && rideHoofParam >= 0 ? rideHoofParam : 1;
+  // Edge arrows off the train. On an open line with towns they point at the next town, a countdown
+  // as you ride, and only at the committed train and the switch candidate (Devlin, PR #34):
+  // ?edgeArrows=town (default there), trains (every nearby train, the loop default) or both.
+  const arrowsParam = params.get('edgeArrows');
+  // Towns in the order the line reaches them; a line can run west (mapGen.line.direction).
+  const towns = [...(opts.map.towns ?? [])].sort((a, b) => a.d - b.d);
+  /** How far along the line (route `main`) the point nearest (x, y) is. */
+  const lineRoute = opts.map.openLine ? opts.map.routes[0] : undefined;
+  const alongLine = (x: number, y: number): number => {
+    const { x: xs, y: ys, s: ds } = lineRoute!.samples;
+    let best = Infinity, d = 0;
+    for (let i = 0; i < xs.length; i += 2) {
+      const e = (xs[i]! - x) ** 2 + (ys[i]! - y) ** 2;
+      if (e < best) { best = e; d = ds[i]!; }
+    }
+    return d;
+  };
+  /** A town's name on screen, numbered along the line; `end` is the end of the line. */
+  const placeName = (id: string) => id === 'end' ? 'END OF LINE' : `TOWN ${towns.findIndex((t) => t.id === id) + 1}`;
+  // What the line clock counted down to, kept past the run's end for the expiry message.
+  let lastClockTo: string | undefined;
+  const edgeArrows: 'town' | 'trains' | 'both' = arrowsParam === 'town' || arrowsParam === 'trains' || arrowsParam === 'both' ? arrowsParam : towns.length ? 'town' : 'trains';
   const cueParam = params.get('distanceCue');
   const distanceCueMode: DistanceCueMode = cueParam === 'line' || cueParam === 'off' ? cueParam : 'world';
   const replay = opts.replayControls !== undefined;
@@ -176,7 +198,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const isoWorld = createWorldScene(map, sceneContent, scenery, groundSeed);
   // Top-down debug view.
   const topdown = new Container();
-  const topdownOverlay = drawMapOverlay(map, scenery);
+  // Drawn the first time the top-down view shows: on a long map it is hundreds of thousands of shapes.
+  const topdownOverlay = new Container();
+  let topdownDrawn = false;
   const topdownView = createWorldView(sceneContent);
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
@@ -297,7 +321,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm', audioCfg.volume); } else audio.play('heat', audioCfg.volume);
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
-      show(`Time's up: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
+      const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
+      show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
       const c = config.values.cashOut;
@@ -465,6 +490,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
+      if (!iso && !topdownDrawn) { topdownOverlay.addChild(drawMapOverlay(map, scenery)); topdownDrawn = true; }
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
       // The ground under the screen's corners, for culling scenery and the minimap's view box.
@@ -574,6 +600,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
+      // The next town ahead of the rider along the line: the first whose clearing is not yet behind them.
+      let town: TownPointer | null = null;
+      if (ridden && edgeArrows !== 'trains') {
+        const at = lineRoute ? alongLine(ridden.x, ridden.y) : 0;
+        const i = towns.findIndex((t) => t.d + t.radiusTiles > at);
+        const t = towns[i];
+        if (t) {
+          const p = project(t.x, t.y, iso ? isoWorld.groundZ(t.x, t.y) : 0);
+          town = { name: `TOWN ${i + 1}`, sx: p.x, sy: p.y, distanceTiles: Math.hypot(t.x - ridden.x, t.y - ridden.y) };
+        }
+      }
       // The line cue, on the far side of the run's train in iso.
       let distanceCue: DistanceCue | null = null;
       if (ridden && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(ridden.x, ridden.y) < depthOf(gap.car.x, gap.car.y)) {
@@ -590,6 +627,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         horse: ridden ? project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0)
           : meter && aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 2.4 + playerZ : 0) : null,
         meter, check, toleranceTilesPerSec: b.speedToleranceTilesPerSec, showSpeed: phase === 'approach', trains, distanceCue,
+        town, ...(edgeArrows === 'town' ? { maxTrainArrows: 0 } : {}),
         player: aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 1.7 + playerZ : 0) : null,
         landing: landing && aboardPhase && !riding && landingAge < LANDING_CUE_SEC ? { result: landing.result, ageSec: landingAge } : null,
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
@@ -615,7 +653,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const bucket = clockOn ? tickBucket(rs.countdownSec, audioCfg) : null;
       if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick', audioCfg.volume * audioCfg.tickVolume);
       lastTick = bucket;
-      const rate = rs ? drainRate(rs.heat, config.values.heat) : 1;
+      // The line clock (countdown.lineClock) runs to a town and heat does not speed it up.
+      const rate = rs && rs.clockTo === undefined ? drainRate(rs.heat, config.values.heat) : 1;
+      if (rs) lastClockTo = rs.clockTo;
       heatNotices = heatNotices.filter((n) => n.until > now);
 
       // Hoofbeats while the riderless horse is near and moving, louder as it closes; quieter
@@ -720,7 +760,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
-        clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate } : null,
+        clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,
@@ -729,7 +769,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
-          `map ${map.id} ${map.size.cols}x${map.size.rows}${map.source.file.startsWith('gen:') ? `  (${map.source.file})` : ''}  route ${routeText}`,
+          `map ${map.id} ${map.size.cols}x${map.size.rows}${/^(gen|line):/.test(map.source.file) ? `  (${map.source.file})` : ''}  route ${routeText}`,
           `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseState.boostTicks > 0 ? ' BOOST' : ''}${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
           `run: ${phase.toUpperCase()}  wanted ${s.persistent.wantedLevel}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,

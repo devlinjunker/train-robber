@@ -1,9 +1,10 @@
 // Picks the map for a session from the URL (?map=alpha-flats) and validates it.
 // Maps are the built files in packages/content/base/maps; only the chosen one is fetched.
-// ?map=gen generates one from the run seed instead (packages/mapgen), with the generator's
-// settings from base/map-gen.json and any ?set=mapGen.<path>=<value> overrides.
+// ?map=gen generates a loop from the run seed instead (packages/mapgen), and ?map=line an open line
+// across a long map, with the generator's settings from base/map-gen.json and any
+// ?set=mapGen.<path>=<value> overrides.
 import { MapDefSchema, SceneryDefSchema, resolveMapGen, type MapDef, type ResolvedConfig, type SceneryDef } from '@train-robber/config';
-import { generateMap, GENERATED_MAP_ID } from '@train-robber/mapgen';
+import { generateLine, generateMap, GENERATED_MAP_ID, LINE_MAP_ID } from '@train-robber/mapgen';
 import mapGenDefaults from '@train-robber/content/base/map-gen.json';
 
 export const DEFAULT_MAP = 'alpha-flats';
@@ -50,18 +51,19 @@ export async function loadScenery(map: MapDef, files: ReadonlyMap<string, Loader
   return parsed.data;
 }
 
-export { GENERATED_MAP_ID };
+export { GENERATED_MAP_ID, LINE_MAP_ID };
 
-/** A generated map and its scenery from the run seed and the config's `mapGen` overrides. Same inputs, same map. */
-export function generatedMap(seed: string, config: Pick<ResolvedConfig, 'values'>): { map: MapDef; scenery: SceneryDef } {
-  const { map, scenery } = generateMap(seed, resolveMapGen(mapGenDefaults, config.values.mapGen));
+/** A generated map (a loop for `gen`, the open line for `line`) and its scenery from the run seed and the config's `mapGen` overrides. Same inputs, same map. */
+export function generatedMap(seed: string, config: Pick<ResolvedConfig, 'values'>, id = GENERATED_MAP_ID): { map: MapDef; scenery: SceneryDef } {
+  const settings = resolveMapGen(mapGenDefaults, config.values.mapGen);
+  const { map, scenery } = id === LINE_MAP_ID ? generateLine(seed, settings) : generateMap(seed, settings);
   return { map, scenery };
 }
 
-/** The session's map and scenery: generated for `gen`, else the built file by id. */
+/** The session's map and scenery: generated for `gen` and `line`, else the built file by id. */
 export async function sessionMap(id: string, seed: string, config: Pick<ResolvedConfig, 'values'>, search = location.search): Promise<{ map: MapDef; scenery: SceneryDef | null }> {
-  if (id === GENERATED_MAP_ID) {
-    const { map, scenery } = generatedMap(seed, config);
+  if (id === GENERATED_MAP_ID || id === LINE_MAP_ID) {
+    const { map, scenery } = generatedMap(seed, config, id);
     return { map, scenery: new URLSearchParams(search).get('scenery') === 'off' ? null : scenery };
   }
   const map = await loadMap(id);

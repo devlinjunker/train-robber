@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { overridesFromSet, resolveMapGen } from '@train-robber/config';
-import { generateMap } from '@train-robber/mapgen';
+import { generateLine, generateMap } from '@train-robber/mapgen';
 import { CONTENT_DIR, readJson } from './content';
 import { mapProblems, minRadius } from './maps/checks';
 import { mapPicture } from './maps/picture';
@@ -73,23 +73,31 @@ const commands: Record<string, (args: string[]) => number | null> = {
     return 0;
   },
   'gen-map'(args) {
-    // tools gen-map <seed>... [--set path=value]... [--out dir]: generate maps, run the map checks, write layout PNGs.
+    // tools gen-map <seed>... [--line] [--set path=value]... [--out dir]: generate maps, run the map checks, write layout PNGs.
+    // --line generates the open line (?map=line) instead of a loop (?map=gen).
     const seeds: string[] = [], sets: string[] = [];
-    let out = '.';
+    let out = '.', line = false;
     for (let i = 0; i < args.length; i++) {
       if (args[i] === '--set') sets.push(args[++i] ?? '');
       else if (args[i] === '--out') out = args[++i] ?? '.';
+      else if (args[i] === '--line') line = true;
       else seeds.push(args[i]!);
     }
-    if (!seeds.length) { console.error('usage: tools gen-map <seed>... [--set path=value]... [--out dir]'); return 2; }
+    if (!seeds.length) { console.error('usage: tools gen-map <seed>... [--line] [--set path=value]... [--out dir]'); return 2; }
     const settings = resolveMapGen(readJson(join(CONTENT_DIR, 'base/map-gen.json')), overridesFromSet(sets.map((e) => e.replace(/^mapGen\./, ''))));
     let failed = 0;
     for (const seed of seeds) {
-      const g = generateMap(seed, settings);
+      const t0 = performance.now();
+      const g = line ? generateLine(seed, settings) : generateMap(seed, settings);
+      const ms = performance.now() - t0;
       const problems = mapProblems(g.map, g.scenery, minRadius(g.map));
-      const file = join(out, `gen-${seed.replace(/[^\w.-]/g, '_')}.png`);
-      writeFileSync(file, mapPicture(g.map, g.scenery));
-      console.log(`${problems.length ? 'FAILED' : 'ok'} ${seed}: loop ${g.info.trackLength.toFixed(0)} tiles, tightest curve ${minRadius(g.map).toFixed(1)}, ${g.info.rivers} bridges, ${g.scenery.items.kind.length} scenery items -> ${file}`);
+      const file = join(out, `${line ? 'line' : 'gen'}-${seed.replace(/[^\w.-]/g, '_')}.png`);
+      // A long line at one pixel per tile; loops at three.
+      writeFileSync(file, mapPicture(g.map, g.scenery, line ? 1 : 3));
+      const shape = line
+        ? `line ${g.info.trackLength.toFixed(0)} tiles in ${g.info.pieces} pieces, ${g.info.towns} towns, ${g.map.size.cols}x${g.map.size.rows}`
+        : `loop ${g.info.trackLength.toFixed(0)} tiles`;
+      console.log(`${problems.length ? 'FAILED' : 'ok'} ${seed}: ${shape}, tightest curve ${minRadius(g.map).toFixed(1)}, ${g.info.rivers} bridges, ${g.scenery.items.kind.length} scenery items, ${g.info.theme} ${g.info.busyness}, built in ${ms.toFixed(0)} ms -> ${file}`);
       for (const p of problems.slice(0, 5)) console.log(`  ${p}`);
       if (problems.length) failed++;
     }
