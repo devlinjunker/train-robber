@@ -1,5 +1,15 @@
 name: ci
-on: [push, pull_request]
+# Push runs only on main; PR commits are covered by the pull_request event,
+# so each PR push runs CI once instead of twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     runs-on: ubuntu-latest
