@@ -18,7 +18,7 @@ export interface Mover { zIndex: number; minX: number; minY: number; maxX: numbe
 
 type Style = { color: number; alpha: number };
 interface Shape { pts: number[]; closed: boolean; fill: Style | null; stroke: (Style & { width: number }) | null; minX: number; minY: number; maxX: number; maxY: number }
-interface Static { g: Graphics; shapes: Shape[] | null; minX: number; minY: number; maxX: number; maxY: number }
+interface Static { g: Graphics; shapes: Shape[] | null; minX: number; minY: number; maxX: number; maxY: number; order: number; seen: number }
 
 /** Shapes and their styles from a Graphics made of polygons and polylines. */
 function shapesOf(g: Graphics): Shape[] {
@@ -77,9 +77,16 @@ function clipSegment(ax: number, ay: number, bx: number, by: number, x0: number,
   return [ax + dx * t0, ay + dy * t0, ax + dx * t1, ay + dy * t1];
 }
 
+/** Screen cell size (iso pixels) for finding the pieces near a mover. */
+const GRID = 256;
+const cellKey = (cx: number, cy: number) => cy * 65_536 + cx;
+
 export class Overdraw {
   private readonly statics: Static[] = [];
   private live: Static[] = [];
+  /** The live pieces by GRID-pixel cell of screen, so each mover only looks at pieces near it. */
+  private grid = new Map<number, Static[]>();
+  private stamp = 0;
   private readonly pool: { g: Graphics; mask: Graphics; masked: boolean }[] = [];
 
   /** Copies go in `objects`; masks for copies of holed pieces go in `masks`. */
@@ -89,7 +96,7 @@ export class Overdraw {
   add(gs: readonly Graphics[]): void {
     for (const g of gs) {
       const b = g.getLocalBounds();
-      this.statics.push({ g, shapes: null, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY });
+      this.statics.push({ g, shapes: null, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, order: 0, seen: 0 });
     }
   }
 
@@ -98,18 +105,44 @@ export class Overdraw {
     const gone = new Set(gs);
     for (let i = this.statics.length - 1; i >= 0; i--) if (gone.has(this.statics[i]!.g)) this.statics.splice(i, 1);
     this.live = this.live.filter((s) => !gone.has(s.g));
+    this.index();
   }
 
   /** Note which static pieces are on screen; call after culling. */
   refresh(): void {
     this.live = this.statics.filter((s) => s.g.parent && s.g.visible);
+    this.index();
+  }
+
+  private index(): void {
+    this.grid.clear();
+    this.live.forEach((s, i) => {
+      s.order = i;
+      for (let cy = Math.floor(s.minY / GRID); cy <= Math.floor(s.maxY / GRID); cy++) {
+        for (let cx = Math.floor(s.minX / GRID); cx <= Math.floor(s.maxX / GRID); cx++) {
+          const k = cellKey(cx, cy), list = this.grid.get(k);
+          if (list) list.push(s); else this.grid.set(k, [s]);
+        }
+      }
+    });
+  }
+
+  /** Live pieces whose cells meet a mover's box, in their order in `live`. */
+  private near(m: Mover): Static[] {
+    const out: Static[] = [], stamp = ++this.stamp;
+    for (let cy = Math.floor(m.minY / GRID); cy <= Math.floor(m.maxY / GRID); cy++) {
+      for (let cx = Math.floor(m.minX / GRID); cx <= Math.floor(m.maxX / GRID); cx++) {
+        for (const s of this.grid.get(cellKey(cx, cy)) ?? []) if (s.seen !== stamp) { s.seen = stamp; out.push(s); }
+      }
+    }
+    return out.sort((a, b) => a.order - b.order);
   }
 
   /** Draw this frame's copies over the movers. */
   update(movers: readonly Mover[]): void {
     let used = 0;
     for (const m of movers) {
-      for (const s of this.live) {
+      for (const s of this.near(m)) {
         // A piece already in `objects` (a mesa piece with the hole cut in it) sorts there itself.
         if (s.g.parent === this.objects || s.g.zIndex <= m.zIndex || s.maxX < m.minX || s.minX > m.maxX || s.maxY < m.minY || s.minY > m.maxY) continue;
         s.shapes ??= shapesOf(s.g);

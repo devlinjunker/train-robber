@@ -104,6 +104,13 @@ export function regionSize(map: { size: { cols: number; rows: number } }): numbe
 /** A piece of a layer that is built when it comes near the view: `box` is the tiles its drawing can reach. */
 export interface LazyUnit { box: TileBox; build(): Chunk[] }
 
+/**
+ * Graphics built since the scene last warmed them up: Pixi triangulates a Graphics the first
+ * time it is drawn, and a fresh region's pieces all coming into view in one frame made that
+ * frame stutter, so the scene triangulates them a few at a time first (worldScene warmUp).
+ */
+export const freshlyBuilt: Graphics[] = [];
+
 /** A deadline (performance.now() ms) shared by every layer's building in one frame. */
 export interface BuildBudget { until: number }
 
@@ -160,6 +167,7 @@ export class LazyChunks {
 
   private add(u: LazyUnit, refresh = true): void {
     const chunks = u.build();
+    for (const c of chunks) freshlyBuilt.push(c.g);
     this.built.set(u, chunks);
     this.hooks.onBuild?.(chunks);
     if (refresh) this.list = [...this.built.values()].flat();

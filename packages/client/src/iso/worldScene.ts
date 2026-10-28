@@ -1,7 +1,7 @@
 // The isometric world: terrain and track, boulders and cars drawn with height that depth-sort
 // against the horse (cars in two-tile slices, boulders in strips), the mud cue, entry markers and
 // the debug overlays.
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, GraphicsContext } from 'pixi.js';
 import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef } from '@train-robber/sim';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
@@ -12,7 +12,7 @@ import { createSceneryLayers } from './scenery';
 import { mapTiles, type MapTiles } from '../tiles';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
-import { regionSize, type Chunk, type TileBox } from './cells';
+import { freshlyBuilt, regionSize, type Chunk, type TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
@@ -63,6 +63,8 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
 const CULL_SNAP = 12, CULL_MARGIN = 6;
 /** On big maps, how long a frame may spend building regions that are near the view but not on it yet. */
 const BUILD_MS_PER_FRAME = 4;
+/** Milliseconds a frame may spend triangulating freshly built pieces ahead of drawing them. */
+const WARM_MS_PER_FRAME = 2;
 const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
 /**
  * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
@@ -186,8 +188,44 @@ function drawGapGlow(g: Graphics, car: CarPose, at: { x: number; y: number }, t:
   strip(0.06 + 0.1 * t, 0.25 + 0.45 * t);
 }
 
-/** One slice of a car: its box, and which of its faces are the car's real ends. */
-function carSlices(car: CarPose): { box: Box; along0: number; along1: number; first: boolean; last: boolean }[] {
+/** One slice of a car: its box, the stretch of the car it covers, and whether it holds the car's real ends. */
+interface CarSlice { box: Box; along0: number; along1: number; first: boolean; last: boolean }
+type DoorSpan = { side: 'left' | 'right'; a0: number; a1: number };
+
+/** Car slices turn in steps this fine (radians, half a degree) so their drawings can be cached. */
+const SLICE_ANGLE_STEP = Math.PI / 360;
+/** Cached slice drawings kept before old ones are dropped. */
+const SLICE_CACHE_MAX = 3000;
+
+/** A slice's box, doors and (at the front) roof chevron, drawn as `box` (the slice's own box, or one round the origin for the cache). */
+function drawSliceBody(g: Graphics | GraphicsContext, s: CarSlice, box: Box, colour: number, doors: readonly DoorSpan[], shut: boolean): void {
+  const gg = g as Graphics;
+  // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
+  drawBox(gg, box, colour, [!s.first, false, !s.last, false]);
+  const mid = (s.along0 + s.along1) / 2;
+  for (const d of doors) {
+    const a0 = Math.max(d.a0, s.along0), a1 = Math.min(d.a1, s.along1);
+    if (a1 <= a0) continue;
+    // sidePanel measures along the slice from its own centre.
+    if (!shut) { sidePanel(gg, box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, DOOR_COLOUR); continue; }
+    // Shut: a dark plank door with two bars across it.
+    sidePanel(gg, box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, shade(colour, SHUT_DOOR_SHADE));
+    sidePanel(gg, box, d.side, a0 - mid, a1 - mid, 0.55, 0.75, DOOR_BAR_COLOUR);
+    sidePanel(gg, box, d.side, a0 - mid, a1 - mid, 1.35, 1.55, DOOR_BAR_COLOUR);
+  }
+  if (s.first) {
+    // A pale chevron on the roof at the front, so the direction of travel reads at a glance.
+    const b = box, lx = b.uy, ly = -b.ux, tip = b.halfLength - 0.2, back = tip - 1.4;
+    gg.poly(isoPoly([
+      [b.x + b.ux * tip, b.y + b.uy * tip],
+      [b.x + b.ux * back + lx * 1.4, b.y + b.uy * back + ly * 1.4],
+      [b.x + b.ux * back - lx * 1.4, b.y + b.uy * back - ly * 1.4],
+    ], CAR_HEIGHT + 0.01)).fill({ color: 0xffffff, alpha: 0.55 });
+  }
+}
+
+/** A car in slices along its length. */
+function carSlices(car: CarPose): CarSlice[] {
   const n = Math.ceil((car.halfLength * 2) / SLICE_TILES);
   const out = [];
   for (let i = 0; i < n; i++) {
@@ -266,7 +304,7 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
 }
 
 /** `groundCover`: scatter grass and scrub over open ground from this seed, or none when null. */
-export function createWorldScene(map: MapDef, content: SceneContent, scenery: SceneryDef | null = null, groundCover: number | null = null): WorldScene {
+export function createWorldScene(map: MapDef, content: SceneContent, scenery: SceneryDef | null = null, groundCover: number | null = null, warmUp: ((ctx: GraphicsContext) => void) | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
   // What moves (the horse, the player, cars) sorts in `objects`. Static pieces that sort with
@@ -327,7 +365,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const holes: Graphics[] = [], holed: boolean[] = [];
   // The hole around the hidden horse or player, stretched to a point on the car side (`to`) when it shows the gap.
   let hole: { x: number; y: number; to: { x: number; y: number } | null } | null = null;
-  const piece = (cut = false) => {
+  const piece = (cut = false, own = true) => {
     let g = slicePool[used];
     if (!g) {
       g = new Graphics(); slicePool.push(g); objects.addChild(g);
@@ -340,9 +378,38 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     // mask still costs a stencil pass.
     if (cut !== holed[used]) { if (cut) g.setMask({ mask: m, inverse: true }); else g.mask = null; holed[used] = cut; }
     g.visible = true;
-    g.clear();
+    // A slice may be showing a cached car context: draw into the piece's own one instead of clearing that.
+    if (own) ownContext(g);
     used++;
     return g;
+  };
+  // Each pooled piece's own context, for drawing that changes every frame (interiors, guards, glowing slices).
+  const owned = new WeakMap<Graphics, GraphicsContext>();
+  const ownContext = (g: Graphics) => {
+    let ctx = owned.get(g);
+    if (!ctx) { ctx = g.context; owned.set(g, ctx); }
+    if (g.context !== ctx) { g.context = ctx; g.position.set(0, 0); }
+    ctx.clear();
+  };
+  // Car slice drawings by template, slice, colour, door state and angle (to SLICE_ANGLE_STEP),
+  // drawn round the slice centre. Ones unused for a while go once there are too many.
+  const sliceCache = new Map<string, { ctx: GraphicsContext; frame: number }>();
+  let frameNo = 0;
+  const sliceContext = (template: string, s: CarSlice, colour: number, doors: DoorSpan[], shut: boolean): GraphicsContext => {
+    const step = SLICE_ANGLE_STEP, k = Math.round(Math.atan2(s.box.uy, s.box.ux) / step);
+    const key = `${template}|${s.along0}|${s.along1}|${s.box.halfWidth}|${colour}|${shut ? 1 : 0}|${k}`;
+    let e = sliceCache.get(key);
+    if (!e) {
+      const ctx = new GraphicsContext();
+      const box: Box = { ...s.box, x: 0, y: 0, ux: Math.cos(k * step), uy: Math.sin(k * step) };
+      drawSliceBody(ctx, s, box, colour, doors, shut);
+      sliceCache.set(key, e = { ctx, frame: frameNo });
+      if (sliceCache.size > SLICE_CACHE_MAX) {
+        for (const [k2, v] of sliceCache) if (frameNo - v.frame > 2) { v.ctx.destroy(); sliceCache.delete(k2); }
+      }
+    }
+    e.frame = frameNo;
+    return e.ctx;
   };
   let used = 0;
   let lastFadeSec = 0;
@@ -352,6 +419,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     root, mapOverlay, zoneOverlay, tiles,
     groundZ: field.groundZ,
     update(input) {
+      frameNo++;
       // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.
       const iv = input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
       const recull = !culledView || iv.x0 < culledView.x0 || iv.y0 < culledView.y0 || iv.x1 > culledView.x1 || iv.y1 > culledView.y1
@@ -365,6 +433,14 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean);
         overdraw.refresh();
       }
+      // Triangulate freshly built pieces while the frame's budget lasts, before they come into view.
+      if (warmUp && freshlyBuilt.length) {
+        const until = performance.now() + WARM_MS_PER_FRAME;
+        while (freshlyBuilt.length && performance.now() < until) {
+          const g = freshlyBuilt.pop()!;
+          if (!g.destroyed) warmUp(g.context);
+        }
+      } else freshlyBuilt.length = 0;
       // Trees in front of the horse (or you aboard) fade so you stay in view.
       const seen = input.aboard ? { x: input.aboard.x, y: input.aboard.y, z: 1 } : input.horse ? { x: input.horse.x, y: input.horse.y, z: 1 } : null;
       sceneryLayers?.fade(seen, Math.min(0.1, Math.max(0, input.timeSec - lastFadeSec)));
@@ -425,20 +501,18 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         }
         for (const s of carSlices(car)) {
           // Only slices that reach the hole get it: each masked slice is an extra stencil pass.
-          const g = piece(hole !== null && sliceNearHole(s.box, hole));
-          // Inner slice ends are hidden by their neighbours; only the car's real ends are drawn.
-          drawBox(g, s.box, colour, [!s.first, false, !s.last, false]);
-          for (const d of doors) {
-            const a0 = Math.max(d.a0, s.along0), a1 = Math.min(d.a1, s.along1);
-            if (a1 <= a0) continue;
-            // sidePanel measures along the slice from its own centre.
-            const mid = (s.along0 + s.along1) / 2;
-            if (!shut) { sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, DOOR_COLOUR); continue; }
-            // Shut: a dark plank door with two bars across it.
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.15, DOOR_TOP, shade(colour, SHUT_DOOR_SHADE));
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 0.55, 0.75, DOOR_BAR_COLOUR);
-            sidePanel(g, s.box, d.side, a0 - mid, a1 - mid, 1.35, 1.55, DOOR_BAR_COLOUR);
+          const glowing = gap !== null && gapCar === car && glow > 0;
+          const g = piece(hole !== null && sliceNearHole(s.box, hole), glowing);
+          if (!glowing) {
+            // The usual case: the slice's drawing comes from a cache by its shape and angle, so
+            // nothing is triangulated or uploaded again; only its position moves.
+            g.context = sliceContext(car.template, s, colour, doors, shut);
+            g.position.set(isoX(s.box.x, s.box.y), isoY(s.box.x, s.box.y));
+            g.zIndex = depthOf(s.box.x, s.box.y);
+            continue;
           }
+          ownContext(g);
+          drawSliceBody(g, s, s.box, colour, doors, shut);
           if (gap && gapCar === car && glow > 0) {
             // The glow on the near wall's bottom edge, where that face is in view.
             const along = (gap.x - car.x) * car.ux + (gap.y - car.y) * car.uy, half = 1 + 3 * glow;
@@ -450,15 +524,6 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
               sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.1 + 0.25 * glow, glowColour, 0.12 + 0.25 * glow);
               sidePanel(g, s.box, side, a0 - mid, a1 - mid, 0, 0.05, glowColour, 0.4 + 0.5 * glow);
             }
-          }
-          if (s.first) {
-            // A pale chevron on the roof at the front, so the direction of travel reads at a glance.
-            const b = s.box, lx = b.uy, ly = -b.ux, tip = b.halfLength - 0.2, back = tip - 1.4;
-            g.poly(isoPoly([
-              [b.x + b.ux * tip, b.y + b.uy * tip],
-              [b.x + b.ux * back + lx * 1.4, b.y + b.uy * back + ly * 1.4],
-              [b.x + b.ux * back - lx * 1.4, b.y + b.uy * back - ly * 1.4],
-            ], CAR_HEIGHT + 0.01)).fill({ color: 0xffffff, alpha: 0.55 });
           }
           g.zIndex = depthOf(s.box.x, s.box.y);
         }
@@ -519,14 +584,16 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       for (const car of input.cars) {
         const m = margin(car);
         if (car.x < v.x0 - m || car.x > v.x1 + m || car.y < v.y0 - m || car.y > v.y1 + m) continue;
-        const mv: Mover = { zIndex: Infinity, minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
-        for (const [x, y] of boxCorners({ ...car, z0: 0, z1: 0 })) {
-          mv.zIndex = Math.min(mv.zIndex, depthOf(x, y));
-          const sx = isoX(x, y), top = isoY(x, y, CAR_HEIGHT), bottom = isoY(x, y);
-          mv.minX = Math.min(mv.minX, sx - pad); mv.maxX = Math.max(mv.maxX, sx + pad);
-          mv.minY = Math.min(mv.minY, top - pad); mv.maxY = Math.max(mv.maxY, bottom + pad);
+        // One mover per slice: a long car's screen box is mostly empty ground, and each slice sorts on its own.
+        for (const s of carSlices(car)) {
+          const mv: Mover = { zIndex: depthOf(s.box.x, s.box.y), minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+          for (const [x, y] of boxCorners({ ...s.box, z0: 0, z1: 0 })) {
+            const sx = isoX(x, y), top = isoY(x, y, CAR_HEIGHT), bottom = isoY(x, y);
+            mv.minX = Math.min(mv.minX, sx - pad); mv.maxX = Math.max(mv.maxX, sx + pad);
+            mv.minY = Math.min(mv.minY, top - pad); mv.maxY = Math.max(mv.maxY, bottom + pad);
+          }
+          movers.push(mv);
         }
-        movers.push(mv);
       }
       for (const g of [horseG, playerG]) {
         if (!g.visible) continue;

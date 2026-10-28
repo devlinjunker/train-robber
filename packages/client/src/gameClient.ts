@@ -190,7 +190,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const scenery = opts.scenery ?? null;
   // Grass and scrub land differently on every load; ?groundSeed= repeats a layout, ?groundCover=off drops it.
   const groundSeed = params.get('groundCover') === 'off' ? null : Number(params.get('groundSeed')) || Math.floor(Math.random() * 2 ** 32);
-  const isoWorld = createWorldScene(map, sceneContent, scenery, groundSeed);
+  const isoWorld = createWorldScene(map, sceneContent, scenery, groundSeed, (ctx) => app.renderer.graphicsContext.updateGpuContext(ctx));
   // Top-down debug view.
   const topdown = new Container();
   // Drawn the first time the top-down view shows: on a long map it is hundreds of thousands of shapes.
