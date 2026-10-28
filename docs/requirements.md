@@ -119,7 +119,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 
 - **World.** Hand-made isometric maps first. Generated worlds follow: seeded loops (`?map=gen`), then an open line across a long map (`?map=line`), then an endless line with towns, built in chunks as you ride.
 - **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains enter at the start and leave past the end instead; towns get seeded timetables later. Timetables show upcoming trains so you can decide which to rob, and obtaining one costs loot. Timetables are not in the alpha prototype and may be added later. Train frequency and how many run at once are configurable tuning values.
-- **Progression.** Careers (camps and a saved career, G11) and towns with a fence, outfitter, rumours and the first upgrades (G12) come before Phase 4, so the passenger and bank trains are playtested inside a career (decided 2026-10-28). Deeper progression (more horse upgrades, gear and weapons, a hideout, reputation and bounty) comes after the prototype. Reputation and bounty come last.
+- **Progression.** Camps at dusk (G11a) come right after finding trains, as part of the day. Saved careers (G11b) and towns with a fence, outfitter, rumours and the first upgrades (G12) come before Phase 4, so the passenger and bank trains are playtested inside a career (decided 2026-10-28). Deeper progression (more horse upgrades, gear and weapons, a hideout, reputation and bounty) comes after the prototype. Reputation and bounty come last.
 - **Wanted level.** It is the only persistence the first version needs: it raises guard counts on later trains.
 
 ## Technical and non-functional requirements
@@ -146,7 +146,7 @@ The prototype includes four trains (bank, passenger, military payroll and mail/e
 5. **Bank.** Vault cracking with guard interruptions. Gate: the minigame holds up under time pressure, and each train clearly favors a different playstyle while other approaches still work.
 6. **After the prototype.** Cargo and tycoon trains, then the later trains, deeper progression and full online multiplayer.
 
-**Order of work across the phases and the G series** (decided 2026-10-28; the wiki [Roadmap](https://github.com/devlinjunker/train-robber/wiki/Roadmap) keeps the live status). After the Phase 2 gate: G7 long replays, then G8 the day clock, with the Phase 3 plan written alongside them; G9 finding trains and the day gate; G14a passing loops and trains both ways; Phase 3 and the network test; the switch to live 3D; G10 land worth riding with the first map edges; G11 camps and careers and G12 towns as places, with the career gate; Phases 4 and 5; G13 regions with telling train types apart, G14b forks and the choosing-a-train gate; G15 the daily day; full online multiplayer; G16 shared world.
+**Order of work across the phases and the G series** (decided 2026-10-28; the wiki [Roadmap](https://github.com/devlinjunker/train-robber/wiki/Roadmap) keeps the live status). After the Phase 2 gate: G7 long replays, then G8 the day clock, with the Phase 3 plan written alongside them; G9 finding trains, G11a camps at dusk and the day gate; G14a passing loops and trains both ways; Phase 3 and the network test; the switch to live 3D; G10 land worth riding with the first map edges; G11b saved careers and G12 towns as places, with the career gate; Phases 4 and 5; G13 regions with telling train types apart, G14b forks and the choosing-a-train gate; G15 the daily day; full online multiplayer; G16 shared world.
 
 ## Prototype requirements and test plan
 
@@ -167,7 +167,7 @@ The alpha prototype is single-player on one map with placeholder art, and trains
 
 - Timetables and their loot cost, which may be added later.
 - Cargo and tycoon trains, and throwing crates from the train.
-- Deeper progression: more horse upgrades, gear, hideout and reputation. Careers and town shops (G11, G12) come before Phase 4.
+- Deeper progression: more horse upgrades, gear, hideout and reputation. Camps (G11a) come with the day; saved careers and town shops (G11b, G12) come before Phase 4.
 - Gamepad support, full multiplayer (a network test comes right after Phase 3) and mobile. 3D rendering arrives after the network test.
 
 **Variants to test**
