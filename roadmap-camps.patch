@@ -1,0 +1,119 @@
+diff --git a/A-day-on-the-line.md b/A-day-on-the-line.md
+index 4f6c908..1916e77 100644
+--- a/A-day-on-the-line.md
++++ b/A-day-on-the-line.md
+@@ -8,7 +8,7 @@ The world design that the generated-maps steps (the G series on the [Roadmap](Ro
+ 
+ ## The world
+ 
+-The world is one seeded railway that runs on forever, with terrain around it, towns every few thousand tiles and trains on a seeded timetable. You find the track, scout or wait, and pick a train, sometimes the wrong or a tougher one. You find trains by their smoke and whistles, and tell train types apart by sight once there are several types; later by rumours and timetables too. At dusk you pick a camp off the line, and tomorrow starts from there. Each career gets a new world.
++The world is one seeded railway that runs on forever, with terrain around it, towns every few thousand tiles and trains on a seeded timetable. You find the track, scout or wait, and pick a train, sometimes the wrong or a tougher one. You find trains by their smoke and whistles, and tell train types apart by sight once there are several types; later by rumours and timetables too. At dusk you race the light to a camp off the line, and tomorrow starts from there. Picking a good camp is part of the day: a bad one means a long ride to tomorrow's trains, and later a posse may find it. Each career gets a new world.
+ 
+ Trains run one way first, and both ways once passing loops exist. Forks come later, leading into regions with different trains. Something has to stop you riding off the side of the line: see [Map edges](Map-edges).
+ 
+diff --git a/Roadmap.md b/Roadmap.md
+index a25f977..7693a27 100644
+--- a/Roadmap.md
++++ b/Roadmap.md
+@@ -19,32 +19,33 @@ One line per step, in the order they're planned. Steps marked "alongside" can ru
+ | 9 | Phase 2 M6: tests, tuning and **the Phase 2 gate** (pick a target robbery time) | Next | M5 |
+ | 10 | G7: replays and logs for long runs | | G6 |
+ | 11 | G8: the day clock | | G6, step 9 |
+-| 12 | Phase 3 plan and its review (alongside steps 10–14) | No plan yet | Step 9 |
++| 12 | Phase 3 plan and its review (alongside steps 10–15) | No plan yet | Step 9 |
+ | 13 | G9: finding trains while the day clock runs | | G8 |
+-| 14 | **Gate: the day.** Is the day the right length, and is finding a train fun? | | G9 |
+-| 15 | G14a: passing loops and trains both ways | | Step 14 |
+-| 16 | Phase 3: the military payroll train and combat, and **the Phase 3 gate** | | Step 12 |
+-| 17 | Network test: two players on one train | | Phase 3 |
+-| 18 | Graphics upgrade to live 3D | Art plan questions open | Network test |
+-| 19 | G10: land worth riding, with the first map edges (see [Map edges](Map-edges)) | | 3D |
+-| 20 | G11: camps and careers | | G8, M5 |
+-| 21 | G12: towns as places | | G11 |
+-| 22 | **Gate: the career.** Do you want to play tomorrow's day? | | G12 |
+-| 23 | Phase 4: the passenger hold-up, and its gate | | Step 22 |
+-| 24 | Phase 5: the bank train, and its gate (the prototype's last) | | Phase 4 |
+-| 25 | G13: regions down the line, and telling train types apart | | G10, Phases 3–5 trains |
+-| 26 | G14b: forks in the line | | G13 |
+-| 27 | **Gate: choosing a train.** Is choosing between train types fun? | | G13 |
+-| 28 | G15: the daily day, and **its gate** (do people come back tomorrow, and bring friends?) | | G8, G7 |
+-| 29 | Full online multiplayer | | Network test |
+-| 30 | G16: shared world online | | Full multiplayer |
+-| 31 | After that: cargo and tycoon trains, the later trains, deeper progression | Order not set | |
++| 14 | G11a: camps at dusk | | G8 |
++| 15 | **Gate: the day.** Is the day the right length, and are finding a train and making camp fun? | | G9, G11a |
++| 16 | G14a: passing loops and trains both ways | | Step 15 |
++| 17 | Phase 3: the military payroll train and combat, and **the Phase 3 gate** | | Step 12 |
++| 18 | Network test: two players on one train | | Phase 3 |
++| 19 | Graphics upgrade to live 3D | Art plan questions open | Network test |
++| 20 | G10: land worth riding, with the first map edges (see [Map edges](Map-edges)) | | 3D |
++| 21 | G11b: careers | | G11a, M5 |
++| 22 | G12: towns as places | | G11b |
++| 23 | **Gate: the career.** Do you want to play tomorrow's day? | | G12 |
++| 24 | Phase 4: the passenger hold-up, and its gate | | Step 23 |
++| 25 | Phase 5: the bank train, and its gate (the prototype's last) | | Phase 4 |
++| 26 | G13: regions down the line, and telling train types apart | | G10, Phases 3–5 trains |
++| 27 | G14b: forks in the line | | G13 |
++| 28 | **Gate: choosing a train.** Is choosing between train types fun? | | G13 |
++| 29 | G15: the daily day, and **its gate** (do people come back tomorrow, and bring friends?) | | G8, G7 |
++| 30 | Full online multiplayer | | Network test |
++| 31 | G16: shared world online | | Full multiplayer |
++| 32 | After that: cargo and tycoon trains, the later trains, deeper progression | Order not set | |
+ 
+ Versions follow `0.<phase>.<milestone>`: Phase 2 M5 is 0.2.5, and Phase 3 starts at 0.3.x.
+ 
+ ### How the time questions connect
+ 
+-Three gates ask about time at three scales. **Phase 2 M6 (step 9):** how long should one robbery be, and how much train fits in it? **G6 (step 7):** do town spacing and timetables set a good rhythm on the line? **G8 and the day gate (steps 11 and 14):** do the day's robberies fit in about 12 minutes?
++Three gates ask about time at three scales. **Phase 2 M6 (step 9):** how long should one robbery be, and how much train fits in it? **G6 (step 7):** do town spacing and timetables set a good rhythm on the line? **G8 and the day gate (steps 11 and 15):** do the day's robberies fit in about 12 minutes?
+ 
+ M6's answer feeds G6, which feeds G8. The robbery time sets town spacing. Town spacing and the day clock set how many trains fit in a day. Train length (cars and loot) has to match that time. The heat-driven countdown is Phase 2 only: on the open line the train clock replaces it, and heat will change guard behaviour instead (Phase 3).
+ 
+@@ -52,6 +53,7 @@ M6's answer feeds G6, which feeds G8. The robbery time sets town spacing. Town s
+ 
+ - **G7 and G8 come before Phase 3.** G8 re-tests M6's robbery time against a whole day, and Phase 3 changes what heat does on the line, so it's better designed once a day exists. The Phase 3 plan is written alongside them, since the two barely depend on each other.
+ - **Finding trains (G9) comes before Phase 3, but telling train types apart doesn't.** The hunt against the day clock works with mail trains alone. Telling types apart needs several types, and the 3D graphics will make them much easier to read from outside, so it moves to G13.
++- **Camps (G11a) come right after finding trains,** because choosing a camp and racing the dusk to it is part of the day. The first version picks from a few seeded spots; G10's land later turns it into a real search. Saved careers (G11b) stay before Phase 4, since several days in one sitting don't need a save.
+ - **Trains both ways (G14a) come after the day gate.** The gate first checks the hunt with one-way trains; forks wait for regions, where they lead somewhere different.
+ - **The network test comes straight after Phase 3,** while combat is fresh, and keeps working through Phases 4 and 5.
+ - **3D comes before G10.** The game logic doesn't change with the graphics, so combat isn't rebuilt (only its effects, mouse aim and animations are redrawn). G10 is mostly art, so it's built once, in 3D.
+@@ -95,8 +97,9 @@ The design is on [A day on the line](A-day-on-the-line), from the [procedural ma
+ | G7 | Replays and logs that handle 15-minute runs over thousands of tiles |
+ | G8 | Day clock: dawn to dusk, several trains a day, being thrown off ends that train only, a day summary. Checks that the robbery time fits several trains into the day. Day and night setting how long a day lasts is an idea from the G3 playtest |
+ | G9 | Finding trains: smoke on the horizon, whistles, telegraph poles, hearing a train before you see it |
+-| G10 | Land worth riding: biomes (including green ground, from the G3 playtest), places where trains slow, hand-made set pieces, pacing along the line, and the first [map edges](Map-edges) |
+-| G11 | Camps and careers: pick a camp at dusk; a saved career (day, place on the line, bank, wanted level per region); permadeath as a variant |
++| G10 | Land worth riding: biomes (including green ground, from the G3 playtest), places where trains slow, hand-made set pieces, pacing along the line, and the first [map edges](Map-edges). Camp spots start coming from the land (shelter, canyons, river bends), so finding a camp becomes a search, and its playtest re-checks that finding a camp is fun |
++| G11a | Camps: at dusk you ride for one of 2 or 3 seeded camp spots, each with a trade-off (near the line, far and hidden, near a town, by a slow spot), and the next day starts there. The line gets wide enough for camps 300–800 tiles off it. A bad camp costs a long ride to tomorrow's trains, and not reaching one before dark could cost health. **Open question for its plan:** what exactly does a bad camp cost? Posses finding your camp come later, with the law's reach (G12 and after Phase 3) |
++| G11b | Careers: a saved career (day, place on the line, bank, wanted level per region); permadeath as a variant |
+ | G12 | Towns as places: fence, outfitter, rumours and timetables to buy, the first upgrades |
+ | G13 | Regions down the line that change which trains run, and telling train types apart by sight. The spyglass still needs design (see [Ideas](Ideas)) |
+ | G14a | Passing loops, so trains can run both ways on the line |
+@@ -104,7 +107,7 @@ The design is on [A day on the line](A-day-on-the-line), from the [procedural ma
+ | G15 | The daily day: a daily seed, a community line, a streak and wanted poster, a share card. Everyone starts the daily at the same wanted level (yours never carries in); an idea is for the day's seed to set it, so some days the law is out in force |
+ | G16 | Shared world online: your gang shares one day and camp |
+ 
+-### Phase 3: the military payroll train and combat (steps 12 and 16)
++### Phase 3: the military payroll train and combat (steps 12 and 17)
+ 
+ Phase 3 adds fighting. Its gate: combat feels good, and the two health models have been compared. There's no Phase 3 plan yet; like Phases 1 and 2, it starts with a plan and a review of its open questions.
+ 
+@@ -117,15 +120,15 @@ Phase 3 adds fighting. Its gate: combat feels good, and the two health models ha
+ 
+ **Open questions for the Phase 3 plan:** ammo limits (the alpha default is unlimited), knocking guards out as well as killing them, healing items as loot, and how to keep sneaking workable on a train built for fighting.
+ 
+-### Network test and multiplayer (steps 17, 29 and 30)
++### Network test and multiplayer (steps 18, 30 and 31)
+ 
+ Two players on one train over a simple server, with no lobby, straight after Phase 3, and kept working as Phases 4 and 5 add their trains. Full online multiplayer comes later. What's already in place, what's left and the open questions are on [Multiplayer](Multiplayer).
+ 
+-### Graphics upgrade (step 18)
++### Graphics upgrade (step 19)
+ 
+ The [art plan](https://claude.ai/code/artifact/eeb02aaf-38e7-4bab-ab38-40892d4bad4a) recommends a live 3D world (three.js) with the HUD kept in Pixi. Its questions A1–A6 need a review before work starts. Only the drawing changes, so the step ends with a quick re-check that shots and cover still read clearly in combat.
+ 
+-### Phases 4 and 5 (steps 23 and 24)
++### Phases 4 and 5 (steps 24 and 25)
+ 
+ - **Phase 4: the passenger hold-up.** Reading passengers by sight, an inspect action, and armed passengers. Gate: judging passengers is a decision, not a chore.
+ - **Phase 5: the bank train.** Cracking the vault while guards interrupt. Gate: the minigame holds up under time pressure, and each train clearly favours a different playstyle.
