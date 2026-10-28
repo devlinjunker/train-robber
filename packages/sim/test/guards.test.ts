@@ -93,16 +93,52 @@ describe('guard spawns', () => {
     expect(S(committed(guardConfig({ train: { guards: undefined } }))).run!.guards).toEqual([]);
   });
 
-  it('reads the count through guardCount, which adds no wanted level bonus until M5', () => {
+  it('reads the count through guardCount, with no wanted level bonus at level 0', () => {
     const cfg = guardConfig({ train: { guards: { base: 3 } } });
     expect(guardCount(cfg, 'mail', 0)).toBe(3);
-    expect(guardCount(cfg, 'mail', 4)).toBe(3);
-    expect(guardCount(cfg, 'blank', 2)).toBe(0);
+    expect(guardCount(cfg, 'blank', 0)).toBe(0);
     // perCar: about 2 guards for every 3 guarded cars, rounded.
     const per = guardConfig({ train: { carCount: 3, guards: { base: 0, perCar: 0.67 } } });
     expect(guardCount(per, 'mail', 0)).toBe(2);
     expect(guardCount(per, 'mail', 0, 6)).toBe(4);
     expect(guardCount(per, 'mail', 0, 1)).toBe(1);
+  });
+});
+
+describe('wanted level guards (phase 2 M5)', () => {
+  const table = (perWantedLevel?: number) => guardConfig({ train: { carCount: 3, guards: { base: 0, perCar: 0.67, ...(perWantedLevel === undefined ? {} : { perWantedLevel }) } } });
+
+  it('adds wanted.guardBonus[level] at each level 0 to 5, and the last entry past the end', () => {
+    const cfg = table();
+    // wanted.guardBonus [0, 1, 1, 2, 2, 3] on top of the 2 guards at level 0.
+    expect([0, 1, 2, 3, 4, 5, 6].map((l) => guardCount(cfg, 'mail', l))).toEqual([2, 3, 3, 4, 4, 5, 5]);
+    // A train with no guards still gets the wanted bonus: wanted level means more guards everywhere.
+    expect(guardCount(cfg, 'blank', 3)).toBe(2);
+  });
+
+  it('adds trains.<id>.guards.perWantedLevel x level, rounded', () => {
+    const cfg = table(0.5);
+    expect([0, 1, 2, 3, 4, 5].map((l) => guardCount(cfg, 'mail', l))).toEqual([2, 4, 4, 6, 6, 8]);
+  });
+
+  it('spawns more guards at a higher saved level, and wanted.forceLevel overrides the save', () => {
+    const base = guardConfig({ train: { carCount: 3, guards: { base: 1 } } });
+    const at = (level: number, force: number | null = null) => {
+      const cfg = testConfig({}, 'guardw01', { ...base.values, wanted: { ...base.values.wanted, forceLevel: force } });
+      const sim = createSim({ config: cfg, map, seed: 'wanted', playerIds: [1], persistent: { wantedLevel: level, bank: 0, lifetimeEarned: 0 } });
+      S(sim).world.trains[0]!.d = 100;
+      step(sim, { type: 'startRun', trainId: S(sim).world.trains[0]!.id });
+      return S(sim).run!.guards.length;
+    };
+    // Three guarded cars with one spawn each: level 0 has 1 guard, level 1 adds 1, level 3 adds 2.
+    expect(at(0)).toBe(1);
+    expect(at(1)).toBe(2);
+    expect(at(3)).toBe(3);
+    // More guards than spawns: capped at the spawns.
+    expect(at(5)).toBe(3);
+    // A forced level wins over the saved one.
+    expect(at(0, 1)).toBe(2);
+    expect(at(3, 0)).toBe(1);
   });
 });
 
@@ -268,6 +304,33 @@ describe('F after being thrown off (cash out)', () => {
     const again = step(sim, { type: 'startRun', trainId });
     expect(ofType(again, 'CommandRejected')[0]).toMatchObject({ command: 'startRun', reason: 'doors closed' });
     expect(S(sim).run).toBeNull();
+  });
+  it('banks only what is left after the throw took its share (thrownOffLootShare), through applyOutcome', () => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0.5 }, train: { layouts: ['watch-car'] } });
+    const sim = aboardAt(base, 5.5, 2.5);
+    S(sim).persistent = { wantedLevel: 1, bank: 10, lifetimeEarned: 100 };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter', 'letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    const lost = ofType(steps(sim, 60 * 6), 'LootLost');
+    expect(lost).toHaveLength(2);
+    const left = 2 * base.values.items.letter!.value;
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: left });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'cashedOut', before: { wantedLevel: 1, bank: 10, lifetimeEarned: 100 }, after: { wantedLevel: 1, bank: 10 + left, lifetimeEarned: 100 + left } });
+  });
+  it('a wanted.forceLevel run is practice: RunEnded says what it would bank, but the save stays as it was (G9)', () => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } });
+    const cfg = { ...base, values: { ...base.values, wanted: { ...base.values.wanted, forceLevel: 2 } } };
+    const sim = aboardAt(cfg, 5.5, 2.5);
+    const saved = { wantedLevel: 0, bank: 10, lifetimeEarned: 100 };
+    S(sim).persistent = { ...saved };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    steps(sim, 60 * 6);
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: 2 * cfg.values.items.letter!.value, practice: true });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ practice: true, before: saved, after: saved });
+    expect(S(sim).persistent).toEqual(saved);
   });
   it('with doorsReopenTicks the doors open again after that long; without closeDoors they never shut', () => {
     const { sim, trainId } = thrownOff({ doorsReopenTicks: 30 });

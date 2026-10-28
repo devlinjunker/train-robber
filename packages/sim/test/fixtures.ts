@@ -122,6 +122,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
+      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
         cancelled: { bankRunLoot: false, wantedDelta: 0 },

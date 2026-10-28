@@ -22,7 +22,7 @@ Phase 2 starts from Phase 1 as merged on main (M1 to M4, PRs #4 to #7). Since th
 | Car authoring | No car pipeline; templates are code | The Tiled car pipeline (`tools build-cars`) with 3 generated starter layouts (D6) |
 | Loot | None | Items, loot tables, the `search` verb, carry limit and weight slowdown |
 | Horse aboard | Abstract, `mode: 'away'`, never comes back | Whistle, arrival delay, pacing beside the train, mount jump on the boarding meter |
-| Persistence | `PersistentState` exists in the sim; `applyOutcome` handles died and cancelled; nothing saved by the host | `LocalStorageStore`, wanted level, bank, lifetime earned, local leaderboard |
+| Persistence | `PersistentState` exists in the sim; `applyOutcome` handles died and cancelled; nothing saved by the host | `LocalStorageStore`, wanted level, bank, lifetime earned, local leaderboard (built in M5) |
 | HUD | Phase, health, prompt, meter | Countdown bar, heat meter, carried loot and weight, whistle state, end-of-run summary |
 | World mode | Sim runs the separate mode, but the client draws the world view aboard (M4 decision) | Stays separate mode, but the horse is physical whenever it is in the world: it runs off when you board, and the whistle places it behind the train to ride up around terrain (G3, changed in the PR #14 review) |
 
@@ -106,12 +106,14 @@ Built in PR [#29](https://github.com/devlinjunker/train-robber/pull/29), branch 
 
 ### M5: Wanted level, persistence and score
 
-- [ ] Full `outcomePolicy` (extracted, expired, died, cancelled) through `rules/applyOutcome`, unit-tested as a table
-- [ ] `PersistentStore` with a versioned `LocalStorageStore`: `wantedLevel`, `bank`, `lifetimeEarned`; a bad or newer save is backed up and reset with a notice
-- [ ] Wanted level 0-5 read at run generation: `wanted.guardBonus` plus `trains.<id>.guards.perWantedLevel`
-- [ ] Local leaderboard: score, seed, config hash, variants, date. A `wanted.forceLevel` option (preset or `?wanted=`) sets the run's wanted level; such runs save nothing (G8, G9)
-- [ ] End-of-run summary screen: outcome, loot banked, time, heat, wanted level change, quick retry
-- [ ] Log header records persistent state at start; `PersistentChanged` on every outcome
+- [x] Full `outcomePolicy` (extracted, expired, died, cancelled) through `rules/applyOutcome`, unit-tested as a table
+- [x] `PersistentStore` with a versioned `LocalStorageStore`: `wantedLevel`, `bank`, `lifetimeEarned`; a bad or newer save is backed up and reset with a notice
+- [x] Wanted level 0-5 read at run generation: `wanted.guardBonus` plus `trains.<id>.guards.perWantedLevel`
+- [x] Local leaderboard: score, seed, config hash, variants, date. A `wanted.forceLevel` option (preset or `?wanted=`) sets the run's wanted level; such runs save nothing (G8, G9)
+- [x] End-of-run summary screen: outcome, loot banked, time, heat, wanted level change, quick retry
+- [x] Log header records persistent state at start; `PersistentChanged` on every outcome
+
+Built in the M5 PR (branch `claude/phase-2-m5-wanted-persistence`, v0.2.5). `applyOutcome(persistent, outcome, { cashOut }, policy, maxLevel)` covers all five outcomes (cashedOut too), keeps wanted level within 0 to `wanted.maxLevel` and never lowers lifetime earned; the cash-out after being thrown off banks only what the throw left, and a good mount banks what the spill left. Every run end emits `PersistentChanged` (with its outcome), changed or not, and the host saves on it. The save lives in localStorage under `train-robber.save` (version 1; an unversioned save migrates, a corrupt or newer one is copied to `train-robber.save.backup.<time>` and reset with an on-screen notice). Wanted level adds `wanted.guardBonus` [0, 1, 1, 2, 2, 3] guards by level (Claude's pick), plus `guards.perWantedLevel` × level per train (0 on the mail train), capped by the train's guard spawns (5 to 6 on three mail cars). `?wanted=N` is short for `?set=wanted.forceLevel=N`; the `wanted-3` preset sets 3. Forced runs are practice: the HUD, the run start notice and the summary say so, and wanted level, bank, lifetime and the leaderboard stay as they were. Reset save is a button with the debug overlay (`` ` ``) and `?resetSave=1`; both confirm first and back the old save up. The summary panel shows the outcome, loot banked (or lost), loot lost on the way, items, time, heat, the wanted level change, the bank and the best runs, with Quick retry and Close (`?summary=off` hides it; a cancel's summary closes itself after 4 s). The HUD shows the wanted level as stars next to the phase. The Playtests page has Wanted and Bank columns, a practice filter, and lost loot under Loot.
 
 ### M6: Tests, tuning and playtest
 

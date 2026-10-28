@@ -1,5 +1,5 @@
 import { createApp, createCarScene, createGameClient, showFatal } from '@train-robber/client';
-import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, type RunHeader } from '@train-robber/sim';
+import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, type RunHeader, type SimEvent } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { setupFromUrl } from './setup';
@@ -10,6 +10,7 @@ import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
 import { installLogDrop, replaySourceFromUrl } from './logDrop';
 import { bootReplay } from './replay';
+import { addToLeaderboard, LocalStorageStore, type KeyValueStorage, type LoadResult, type SaveData } from './save';
 
 const MAX_CATCHUP = 5;
 
@@ -24,6 +25,27 @@ async function openSink(session: string, startedAt: string): Promise<Sink> {
     const mem: Record<LogKind, string[]> = { commands: [], events: [] };
     return { writer: (log) => (line) => void mem[log].push(line), read: async (log) => mem[log].join('\n') + '\n', flush: async () => {} };
   }
+}
+
+/** localStorage, or an in-memory stand-in when the browser blocks it (the save then lasts this page only). */
+function saveStorage(): KeyValueStorage {
+  try { if (window.localStorage) return window.localStorage; } catch { /* blocked site data */ }
+  const mem = new Map<string, string>();
+  return { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => void mem.set(k, v), removeItem: (k) => void mem.delete(k) };
+}
+
+/**
+ * `?resetSave=1` (G28): confirm, then wipe the save. The parameter is taken off the URL either way,
+ * so a reload does not ask again.
+ */
+async function resetSaveFromUrl(store: LocalStorageStore): Promise<boolean> {
+  const q = new URLSearchParams(location.search);
+  if (q.get('resetSave') !== '1') return false;
+  q.delete('resetSave');
+  history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}${location.hash}`);
+  if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0 and clears the local leaderboard.')) return false;
+  await store.reset();
+  return true;
 }
 
 async function boot() {
@@ -55,12 +77,17 @@ async function boot() {
     throw e;
   }
   const { config, seed } = setup;
+  // The save (phase 2 M5): wanted level, bank, lifetime earned and the local leaderboard.
+  const store = new LocalStorageStore(saveStorage());
+  const wasReset = await resetSaveFromUrl(store);
+  const loaded: LoadResult = await store.load();
+  let save: SaveData = loaded.data;
   const tickRateHz = config.values.sim.tickRateHz;
   const STEP_MS = 1000 / tickRateHz;
   const startedAt = new Date().toISOString();
   const header: RunHeader = {
     gameVersion: pkg.version, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
-    seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, startedAt,
+    seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { ...save.persistent }, startedAt,
     config: config.values, url: location.search,
   };
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
@@ -115,7 +142,42 @@ async function boot() {
   document.body.appendChild(history);
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
-  const client = createGameClient(app, { sim, map, scenery, config, onExportLogs: exportLogs, onAddNote: addNote });
+  const resetSave = () => {
+    if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0 and clears the local leaderboard. The page reloads.')) return;
+    // Nothing more is saved from this page: the reload starts from the empty save.
+    saving = false;
+    void store.reset().then(() => location.reload());
+  };
+  const client = createGameClient(app, {
+    sim, map, scenery, config, onExportLogs: exportLogs, onAddNote: addNote,
+    bestRuns: () => save.leaderboard, debugActions: [{ label: 'Reset save', run: resetSave }],
+  });
+  if (loaded.problem) {
+    client.notify(`Your save ${loaded.problem === 'newer' ? 'is from a newer version of the game' : 'could not be read'}: it was backed up (${loaded.backupKey}) and reset`, 'bad', 8000);
+  } else if (wasReset) client.notify('Save reset: wanted level, bank and leaderboard are back to 0', 'info', 4000);
+
+  // Save at each run end (PersistentChanged). Practice runs (wanted.forceLevel) save nothing (G9).
+  let saving = true;
+  let runInfo = { trainId: '', wantedLevel: 0 };
+  let banked: { score: number; outcome: string } | null = null;
+  const persist = (events: readonly SimEvent[]) => {
+    for (const e of events) {
+      if (e.type === 'RunStarted') runInfo = { trainId: e.trainId, wantedLevel: e.wantedLevel };
+      else if (e.type === 'RunEnded') banked = e.practice ? null : { score: e.cashOut, outcome: e.outcome };
+      else if (e.type === 'PersistentChanged' && !e.practice && saving) {
+        let leaderboard = save.leaderboard;
+        if (banked) {
+          leaderboard = addToLeaderboard(leaderboard, {
+            score: banked.score, seed, configHash: config.hash, preset: config.preset, variants: config.variants, date: new Date().toISOString(),
+            gameVersion: header.gameVersion, outcome: banked.outcome, trainId: runInfo.trainId, mapId: map.id, wantedLevel: runInfo.wantedLevel,
+          });
+        }
+        banked = null;
+        save = { ...save, persistent: { ...e.after }, leaderboard };
+        void store.save(save);
+      }
+    }
+  };
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();
@@ -130,7 +192,10 @@ async function boot() {
       simTick = res.tick;
       cmdLog.checkpoint(simTick, () => sim.hash());
       evLog.events(res.events);
-      if (res.events.length) for (const run of tracker.events(res.events, new Date().toISOString())) saveRun(run);
+      if (res.events.length) {
+        persist(res.events);
+        for (const run of tracker.events(res.events, new Date().toISOString())) saveRun(run);
+      }
       client.afterTick(res.events);
       acc -= STEP_MS; steps++;
     }

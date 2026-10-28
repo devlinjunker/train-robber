@@ -1,7 +1,7 @@
 // The run lifecycle (idle, approach, boarding, aboard, extracting, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
-import { applyOutcome } from './rules/outcome';
+import { applyOutcome, isPractice, runWantedLevel } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -136,7 +136,8 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   }
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
-    countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: state.persistent.wantedLevel, ...(resume ? { resumed: true as const } : {}),
+    countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: runWantedLevel(state, config), ...(resume ? { resumed: true as const } : {}),
+    ...(isPractice(config) ? { practice: true as const } : {}),
   });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
 }
@@ -214,19 +215,20 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   const run = state.run;
   if (!run) return;
   setPhase(ctx, p.id, 'ended');
-  const banked = ctx.config.values.outcomePolicy[outcome].bankRunLoot ? cashOut : 0;
+  // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
+  const practice = isPractice(ctx.config);
+  const before = state.persistent;
+  const result = applyOutcome(before, outcome, { cashOut }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
+  const after = practice ? before : result.persistent;
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: banked,
-    ...(endOfLine ? { endOfLine: true as const } : {}),
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
+    ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
   });
-  const before = state.persistent;
-  const after = applyOutcome(before, outcome, ctx.config.values.outcomePolicy, banked);
-  if (after.wantedLevel !== before.wantedLevel || after.bank !== before.bank || after.lifetimeEarned !== before.lifetimeEarned) {
-    state.persistent = after;
-    ctx.emit({ type: 'PersistentChanged', tick: state.tick, before, after });
-  }
+  // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
+  state.persistent = after;
+  ctx.emit({ type: 'PersistentChanged', tick: state.tick, outcome, before, after: { ...after }, ...(practice ? { practice: true as const } : {}) });
   unpinTrain(state, run.trainId);
   // Saved runs only survive an in-place cancel, which puts them back after this.
   for (const q of state.players) q.resumeRuns = [];

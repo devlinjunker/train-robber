@@ -1,6 +1,7 @@
 // Picks the config and seed for a session from the URL:
 //   ?preset=alpha-default&v=boardingFailure:time-only&set=countdown.scale=4&seed=abc123
 // Each `set=<path>=<value>` is a run-time override of one config value, recorded in the log header.
+// `?wanted=3` is short for `?set=wanted.forceLevel=3`: practice runs at that wanted level that save nothing.
 import { loadContent, overridesFromSet, resolveConfig, type ContentFile, type ResolvedConfig } from '@train-robber/config';
 import base from '@train-robber/content/base/game.json';
 import cellTypes from '@train-robber/content/base/cell-types.json';
@@ -34,7 +35,10 @@ export function setupFromUrl(search = location.search): Setup {
     const [group, id] = v.split(':');
     if (group && id) variants[group] = id;
   }
-  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, variants, overrides: overridesFromSet(q.getAll('set')) });
+  const sets = q.getAll('set');
+  const wanted = q.get('wanted');
+  if (wanted !== null && wanted !== '') sets.push(`wanted.forceLevel=${wanted}`);
+  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, variants, overrides: overridesFromSet(sets) });
   // Any string works as a seed; without one, the host picks a random one (the sim never does).
   const seed = q.get('seed') || Math.random().toString(36).slice(2, 10);
   return { config, seed };

@@ -7,3 +7,4 @@ export * from './cues';
 export * from './clock';
 export * from './audio';
 export * from './carScene';
+export * from './summary';

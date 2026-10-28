@@ -62,6 +62,29 @@ describe('run tracker', () => {
     expect(summarize([rec!, { ...rec!, id: 'x', lootValue: 100 }, { ...rec!, id: 'old', lootValue: undefined }])[0]!.avgLoot).toBe(200);
     expect(toCsv([rec!]).split('\n')[1]).toContain(',300,1,');
   });
+  it('M5: subtracts lost loot, records the wanted level and the saved state after the outcome', () => {
+    const t = createRunTracker(meta);
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 2 })], 'T0');
+    t.events([
+      ev({ type: 'LootPickedUp', tick: 10, player: 1, item: 'cash-bundle', value: 40, weight: 1, car: 1, loot: 0 }),
+      ev({ type: 'LootPickedUp', tick: 20, player: 1, item: 'letter', value: 5, weight: 0.1, car: 1, loot: 1 }),
+      ev({ type: 'LootLost', tick: 30, player: 1, item: 'letter', value: 5, weight: 0.1, cause: 'thrownOff' }),
+    ], 'T1');
+    const recs = t.events([
+      ev({ type: 'RunEnded', tick: 600, player: 1, outcome: 'cashedOut', durationTicks: 600, boardingAttempts: 1, retry: false, countdownLeftSec: 100, heat: 5, cashOut: 40 }),
+      ev({ type: 'PersistentChanged', tick: 600, outcome: 'cashedOut', before: { wantedLevel: 2, bank: 0, lifetimeEarned: 0 }, after: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 } }),
+    ], 'T2');
+    // The record is stored at RunEnded and again with the saved state.
+    expect(recs).toHaveLength(2);
+    expect(recs[1]).toMatchObject({ id: recs[0]!.id, lootValue: 40, lootItems: 1, lootLost: 5, cashOut: 40, wantedLevel: 2, wantedAfter: 2, bankAfter: 40, lifetimeAfter: 40, practice: false });
+    // A practice run says so.
+    t.events([ev({ type: 'RunStarted', tick: 700, player: 1, runNumber: 2, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 3, practice: true })], 'T3');
+    const [, p] = t.events([
+      ev({ type: 'RunEnded', tick: 800, player: 1, outcome: 'expired', durationTicks: 100, boardingAttempts: 0, retry: false, countdownLeftSec: 0, heat: 0, cashOut: 0, practice: true }),
+      ev({ type: 'PersistentChanged', tick: 800, outcome: 'expired', before: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 }, after: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 }, practice: true }),
+    ], 'T4');
+    expect(p).toMatchObject({ wantedLevel: 3, practice: true, wantedAfter: 2 });
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);

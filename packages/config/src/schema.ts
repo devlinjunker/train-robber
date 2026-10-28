@@ -197,7 +197,12 @@ export const GameSchema = z.object({
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
     /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
     /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
-    guards: z.object({ base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional() }).strict().optional(),
+    guards: z.object({
+      base: z.number().int().min(0).optional(),
+      perCar: z.number().min(0).optional(),
+      /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
+      perWantedLevel: z.number().min(0).optional(),
+    }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
@@ -265,6 +270,17 @@ export const GameSchema = z.object({
   items: z.record(ItemSchema),
   lootTables: z.record(LootTableSchema),
   carTemplates: z.record(CarTemplateSchema),
+  /**
+   * Wanted level (phase 2 M5, U11): 0 to `maxLevel`, read only when a run is generated. Each level
+   * adds `guardBonus[level]` guards to every train (the last entry covers higher levels), plus the
+   * train's `guards.perWantedLevel` x level. `forceLevel` (preset or `?wanted=`) sets the level a run
+   * uses; such runs are practice and save nothing (G8, G9). Null or absent: the saved level.
+   */
+  wanted: z.object({
+    maxLevel: z.number().int().min(0),
+    guardBonus: z.array(z.number().int().min(0)).min(1),
+    forceLevel: z.number().int().min(0).nullable().optional(),
+  }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     died: z.object({
       bankRunLoot: z.boolean(),

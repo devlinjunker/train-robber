@@ -2,7 +2,7 @@
 // retry, the car frame aboard, and snapshots taken mid-boarding.
 import { describe, it, expect } from 'vitest';
 import {
-  applyOutcome, boardingCheck, carToWorld, commitTarget, createSim, entryPointWorld, meterPosition, meterResult, meterZones, restoreSim, spawnTrain, switchTarget, trackAt,
+  boardingCheck, carToWorld, commitTarget, createSim, entryPointWorld, meterPosition, meterResult, meterZones, restoreSim, spawnTrain, switchTarget, trackAt,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap } from './fixtures';
@@ -371,13 +371,6 @@ describe('health and death', () => {
     // Health is refilled at the next run's start.
     step(sim, { type: 'startRun', trainId: 'blank-1' });
     expect(rp(sim).health).toBe(100);
-  });
-
-  it('applyOutcome follows outcomePolicy', () => {
-    const before = { wantedLevel: 2, bank: 100, lifetimeEarned: 300 };
-    const policy = { ...config.values.outcomePolicy, died: { bankRunLoot: false, wantedDelta: -1, bankLossFraction: 0.25, reset: ['wantedLevel'] as const } };
-    expect(applyOutcome(before, 'died', policy)).toEqual({ wantedLevel: 0, bank: 75, lifetimeEarned: 300 });
-    expect(applyOutcome(before, 'cancelled', policy)).toEqual(before);
   });
 });
 

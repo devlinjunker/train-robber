@@ -111,7 +111,8 @@ export type LootRefusal = 'too heavy' | 'too many items';
 export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
   /** `resumed`: the commit picked up a run cancelled in place on this train (clock, heat, health and meter carried over). */
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; resumed?: true }
+  /** `wantedLevel` is the level the run uses; `practice` marks a run at `wanted.forceLevel`, which saves nothing (G9). */
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; resumed?: true; practice?: true }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
@@ -132,9 +133,10 @@ export type SimEvent =
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
    * (a cash-out on F), else 0. `endOfLine`: on an open line, the committed train reached the end of
-   * the line (the run expires there).
+   * the line (the run expires there). `practice`: a `wanted.forceLevel` run, so `cashOut` is what the
+   * outcome would have banked, but nothing was saved (G9).
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; practice?: true }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few
@@ -153,7 +155,11 @@ export type SimEvent =
   | { type: 'MountAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   /** A good mount spilled loot (mountSpill): the items lost, and the value lost with them. */
   | { type: 'LootSpilled'; tick: number; player: PlayerId; items: string[]; value: number; rule: MountSpill }
-  | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
+  /**
+   * Emitted at every run end, changed or not (phase 2 M5): the host saves `after`. `outcome` is how
+   * the run ended. `practice`: a `wanted.forceLevel` run, so `after` equals `before` and nothing is saved.
+   */
+  | { type: 'PersistentChanged'; tick: number; outcome: RunOutcome; before: PersistentState; after: PersistentState; practice?: true }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** A search finished but taking the item would break a carry cap, so it stays. */
@@ -536,6 +542,8 @@ export interface SimConfig {
       /** Off when null or absent. */
       boardingResistanceAt?: number | null;
     };
+    /** Wanted level 0 to `maxLevel` (phase 2 M5). `forceLevel` set: practice runs at that level that save nothing. */
+    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
@@ -675,7 +683,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base?: number; perCar?: number };
+  guards?: { base?: number; perCar?: number; perWantedLevel?: number };
   verbs: readonly string[];
 }
 
