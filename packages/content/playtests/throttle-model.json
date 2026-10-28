@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "throttle-model",
+  "title": "Throttle while chasing a train",
+  "question": "From Phase 1 M2: which throttle makes matching the train's speed easiest: coast (speed holds), hold (W to keep speed) or cruise (W/S set a target)?",
+  "setups": [
+    {
+      "id": "coast",
+      "name": "Coast",
+      "variants": {
+        "throttleModel": "coast"
+      }
+    },
+    {
+      "id": "hold",
+      "name": "Hold",
+      "variants": {
+        "throttleModel": "hold"
+      }
+    },
+    {
+      "id": "cruise",
+      "name": "Cruise",
+      "variants": {
+        "throttleModel": "cruise"
+      }
+    }
+  ],
+  "numbers": [
+    "aboard",
+    "toBoard",
+    "jumps",
+    "damage"
+  ],
+  "status": "done",
+  "conclusion": "Coast became the default with heading steering (Devlin, PR #5, 2026-10-09). All three stay available as ?v=throttleModel:."
+}

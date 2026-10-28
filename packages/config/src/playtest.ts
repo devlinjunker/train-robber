@@ -62,6 +62,10 @@ export const ExperimentSchema = z.object({
   setups: z.array(ExperimentSetupSchema).min(2).max(4),
   /** The numbers the card shows per setup, besides runs and session pull. */
   numbers: z.array(numberId).min(1).max(6),
+  /** `done` once the question is answered: the page tucks the card into Finished experiments. */
+  status: z.enum(['open', 'done']).optional(),
+  /** What was decided, shown on a finished card. */
+  conclusion: z.string().max(400).optional(),
 }).strict().superRefine((e, ctx) => {
   const seen = new Set<string>();
   e.setups.forEach((s, i) => {

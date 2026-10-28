@@ -144,3 +144,14 @@ export function playQuery(e: Experiment, setupId: string, base: ExperimentBase |
 export function shareQuery(e: Experiment, isRepo: boolean): string {
   return isRepo ? `?exp=${encodeURIComponent(e.id)}` : `?xp=${encodeExperiment(e)}`;
 }
+
+const STATUS_KEY = 'train-robber-experiment-status';
+export type ExperimentStatus = 'open' | 'done';
+/** Experiments you marked done or reopened in this browser, by id; they win over the file's `status`. */
+export function loadStatus(s = storage()): Record<string, ExperimentStatus> {
+  const raw = readJson(STATUS_KEY, s);
+  const out: Record<string, ExperimentStatus> = {};
+  if (raw && typeof raw === 'object') for (const [id, v] of Object.entries(raw)) if (v === 'open' || v === 'done') out[id] = v;
+  return out;
+}
+export function saveStatus(status: Record<string, ExperimentStatus>, s = storage()): void { writeJson(STATUS_KEY, status, s); }

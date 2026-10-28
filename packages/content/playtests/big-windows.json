@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "big-windows",
+  "title": "Big-window cars",
+  "question": "From PR #35 (questions 6 and 17): is being spotted through windows and open doors fair, and can you tell from outside which wall cells are windows? Should every car have big windows, or keep a mix?",
+  "setups": [
+    {
+      "id": "mix",
+      "name": "Mixed layouts"
+    },
+    {
+      "id": "big",
+      "name": "Big windows only",
+      "preset": "big-windows"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "lootCarried",
+    "lootLeft",
+    "length"
+  ]
+}

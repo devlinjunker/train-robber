@@ -25,10 +25,25 @@
   details.menu > div button:hover { border-color:var(--accent); }
   details.menu .sep { border-top:1px solid var(--line); margin:2px 0; }
   /* Filters stay on one line and scroll sideways when there are many. */
-  #filters { display:flex; flex-wrap:nowrap; gap:10px; overflow-x:auto; padding-bottom:4px; white-space:nowrap; margin:8px 0; }
+  /* The Variants menu opens under the filter row from its left edge, so it never runs off the right side. */
+  #filters { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:8px 0; position:relative; }
+  #filters details.more { position:static; }
+  #filters details.more > div { left:0; right:auto; top:100%; display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); width:min(640px, calc(100vw - 32px)); gap:6px 10px; }
+  #filters details.more label { justify-content:space-between; }
   #filters:empty { display:none; }
   /* Experiment cards */
-  #experiments { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap:12px; }
+  .finished { margin-top:12px; }
+  .finished > summary { cursor:pointer; color:var(--muted); font-size:13px; margin-bottom:8px; }
+  .finished .card { opacity:.85; }
+  .finished #finishedCards { grid-template-columns:repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+  details.results > summary { cursor:pointer; color:var(--accent); font-size:12px; margin:4px 0; }
+  .conclusion { margin:6px 0; padding:6px 8px; border-left:3px solid var(--ok); background:var(--panel2); font-size:13px; }
+  .stats { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+  .stats:empty { display:none; }
+  .stats div { display:flex; flex-direction:column; }
+  .stats span { color:var(--muted); font-size:11px; }
+  .stats b { font-variant-numeric:tabular-nums; }
+  #experiments, #finishedCards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap:12px; }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:0; }
   .card.flash { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
   .card-head { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; justify-content:space-between; }
@@ -92,7 +107,7 @@
       <div class="muted">Build <b id="build"></b> (0.phase.milestone). Every run played in this browser is recorded here. Experiments compare a few setups on one question: press Play on a setup, play a few runs, then write your answer.</div>
     </div>
     <div class="bar">
-      <label>Your name <input id="tester" placeholder="for runs from now on" size="14" /></label>
+      <label>Your name <input id="tester" placeholder="for runs from now on" size="22" /></label>
       <details class="menu" id="exportMenu">
         <summary>Export ▾</summary>
         <div>
@@ -111,8 +126,10 @@
   <div id="filters"></div>
   <div class="head"><h2>Experiments</h2><button id="newExp">New experiment</button></div>
   <div id="experiments"></div>
+  <details id="finished" class="finished" hidden><summary>Finished experiments (<span id="finishedCount">0</span>)</summary><div id="finishedCards"></div></details>
   <div class="head"><h2>Runs</h2><div class="tabs" id="views"></div></div>
   <div class="muted" id="viewHelp"></div>
+  <div id="runStats" class="stats"></div>
   <div class="scroll" style="margin-top:6px"><table id="runs"></table></div>
   <dialog id="editor"></dialog>
 </main><script type="module" src="/src/playtests.ts"></script></body></html>

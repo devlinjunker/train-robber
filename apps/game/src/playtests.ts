@@ -12,7 +12,7 @@ import {
 import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
 import {
-  ANSWER_FIELDS, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
+  ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
   playQuery, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
 import { diffLabel, mapChoices, presetIds, repoExperiments, selectionError, settablePaths, variantGroups } from './setup';
@@ -27,7 +27,7 @@ const when = (iso: string) => new Date(iso).toLocaleString([], { dateStyle: 'sho
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
 /** An experiment as the page shows it: where it came from and the base its Play links use. */
-interface Shown { exp: Experiment; repo: boolean; base: ExperimentBase | undefined; baseChanged: boolean }
+interface Shown { exp: Experiment; repo: boolean; base: ExperimentBase | undefined; baseChanged: boolean; done: boolean }
 
 // ---------- Run list views ----------
 
@@ -38,6 +38,17 @@ const VIEWS: Record<View, { name: string; help: string }> = {
   boarding: { name: 'Boarding', help: 'The Phase 1 numbers: jumps, how far each run got, time from commit to aboard, damage.' },
   all: { name: 'All', help: 'Who played what, on which build and map. Click a run for every number it recorded.' },
 };
+
+/** The totals strip above the run list: the visible runs summed up for the view's own numbers. */
+function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
+  const n = (k: ExperimentNumber) => experimentNumber(k, rs);
+  const count = (f: (r: RunRecord) => string) => String(new Set(rs.map(f)).size);
+  const head: [string, string][] = [['Runs', String(rs.length)]];
+  if (view === 'robbery') return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')]];
+  if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
+  const pull = sessionPull(rs);
+  return [...head, ['Testers', count((r) => r.tester || '?')], ['Sessions', String(pull.sessions)], ['Versions', count(runVersion)], ['Maps', count((r) => r.mapId)], ['Notes', String(rs.reduce((k, r) => k + r.notes.length, 0))], [`Went again within ${PULL_WINDOW_SEC} s`, pullWords(pull)]];
+}
 
 /** How a setup is told in lists: its difference from the default. */
 function selectionLabel(base: ExperimentBase | undefined, setup: ExperimentSetup): string {
@@ -51,9 +62,11 @@ async function main() {
   let runs: RunRecord[] = [];
   let stored = new Set<string>();
   const filters = new Map<string, string>();
+  let moreOpen = false;
   let own = loadOwn();
   let bases = loadBases();
   const answers = loadAnswers();
+  let status = loadStatus();
   let view: View = 'robbery';
   try { const v = localStorage.getItem(VIEW_KEY); if (v && v in VIEWS) view = v as View; } catch { /* default view */ }
   const expanded = new Set<string>();
@@ -67,7 +80,7 @@ async function main() {
   const shown = (): Shown[] => [
     ...repoExperiments.map((exp) => ({ exp, repo: true, base: bases[exp.id] ?? exp.base, baseChanged: exp.id in bases })),
     ...own.map((exp) => ({ exp, repo: false, base: exp.base, baseChanged: false })),
-  ];
+  ].map((x) => ({ ...x, done: (status[x.exp.id] ?? x.exp.status ?? 'open') === 'done' }));
   const findShown = (id: string | undefined) => (id ? shown().find((s) => s.exp.id === id) : undefined);
   const labelCache = new Map<string, string>();
   /** The Setup column: the experiment and setup when the run was tagged, else its difference from the default. */
@@ -117,16 +130,28 @@ async function main() {
     const keys = ['version', 'tester', 'outcome', 'experiment', 'mapId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
     const box = $('filters');
     box.innerHTML = '';
+    // Variant groups go in a More filters menu, so the row stays short however many groups there are.
+    const more = document.createElement('details');
+    more.className = 'menu more';
+    const moreBox = document.createElement('div');
     for (const k of keys) {
       const values = [...new Set(runs.map((r) => filterValue(r, k)))].sort(k === 'version' ? compareVersions : undefined);
       // Version is always offered, so notes can be exported for one version; other filters only when they would split the runs.
       if (k !== 'version' && values.length < 2 && !filters.get(k)) continue;
       const sel = document.createElement('select');
       sel.innerHTML = `<option value="">all</option>` + values.map((v) => `<option value="${esc(v)}"${filters.get(k) === v ? ' selected' : ''}>${esc(k === 'experiment' ? findShown(v)?.exp.title ?? v : v)}</option>`).join('');
-      sel.addEventListener('change', () => { filters.set(k, sel.value); renderExperiments(); renderRuns(); });
+      sel.addEventListener('change', () => { filters.set(k, sel.value); if (k.startsWith('v:')) renderFilters(); renderExperiments(); renderRuns(); });
       const label = document.createElement('label');
       label.append(k.startsWith('v:') ? k.slice(2) : k === 'mapId' ? 'map' : k, sel);
-      box.append(label);
+      (k.startsWith('v:') ? moreBox : box).append(label);
+    }
+    if (moreBox.children.length) {
+      const active = [...filters].filter(([k, v]) => k.startsWith('v:') && v !== ALL).length;
+      more.innerHTML = `<summary>Variants${active ? ` (${active} set)` : ''} ▾</summary>`;
+      more.open = moreOpen;
+      more.addEventListener('toggle', () => { moreOpen = more.open; });
+      more.append(moreBox);
+      box.append(more);
     }
   }
 
@@ -151,10 +176,13 @@ async function main() {
           <button data-act="dup" title="Make your own editable copy">Duplicate</button>
           <button data-act="file" title="Copy the experiment as a packages/content/playtests/*.json file">Copy as file</button>
           ${s.repo ? '<button data-act="base" title="Change the base setup every setup builds on, in this browser only">Edit base</button>' : '<button data-act="edit">Edit</button><button data-act="del">Delete</button>'}
+          ${s.done ? '<button data-act="reopen" title="Move it back to the open experiments">Reopen</button>' : '<button data-act="done" title="Answered: move it to Finished experiments (in this browser)">Mark done</button>'}
         </div>
       </div>
       <div class="question">${esc(exp.question)}</div>
+      ${s.done ? `<div class="conclusion"><b>Done.</b> ${esc(exp.conclusion || answers[exp.id]?.answer || 'No conclusion written.')}</div>` : ''}
       <div class="base muted">Base: ${esc(base)}${s.baseChanged ? ' <b>(changed in this browser)</b> <button data-act="resetbase">Reset</button>' : ''}</div>
+      ${s.done ? '<details class="results"><summary>Results and answers</summary>' : ''}
       <div class="scroll"><table class="cmp">
         <tr><th></th>${exp.setups.map((setup) => `<th>${esc(setup.name)}<div class="diff">${esc(selectionLabel(s.base, setup))}</div><a class="play" href="${esc(href(setup.id))}" target="_blank" title="Play this setup; its runs are tagged for this card">Play ▸</a></th>`).join('')}</tr>
         <tr><td>Runs</td>${cells((c) => `${c.length}${c.length ? ` <span class="muted">(${new Set(c.map((r) => r.tester || '?')).size} tester${new Set(c.map((r) => r.tester || '?')).size === 1 ? '' : 's'})</span>` : ''}`)}</tr>
@@ -167,13 +195,19 @@ async function main() {
         <label>Your answer to the question<textarea data-ans="answer" rows="2">${esc(ans.answer)}</textarea></label>
         ${ANSWER_FIELDS.map((f) => `<label>${esc(f.label)}<textarea data-ans="${f.key}" rows="1">${esc(ans[f.key])}</textarea></label>`).join('')}
       </div>
+      ${s.done ? '</details>' : ''}
     </article>`;
   }
 
   function renderExperiments() {
     const rs = visible();
     const list = shown();
-    $('experiments').innerHTML = list.length ? list.map((s) => card(s, rs)).join('') : '<div class="empty">No experiments yet. Press New experiment to compare a few setups.</div>';
+    const open = list.filter((s) => !s.done), done = list.filter((s) => s.done);
+    $('experiments').innerHTML = open.length ? open.map((s) => card(s, rs)).join('') : '<div class="empty">No open experiments. Press New experiment to compare a few setups.</div>';
+    const fin = $<HTMLDetailsElement>('finished');
+    fin.hidden = done.length === 0;
+    $('finishedCount').textContent = String(done.length);
+    $('finishedCards').innerHTML = done.map((s) => card(s, rs)).join('');
   }
 
   async function copyText(btn: HTMLButtonElement, text: string, fallback: () => void) {
@@ -182,7 +216,7 @@ async function main() {
     setTimeout(() => { btn.textContent = label; }, 1500);
   }
 
-  $('experiments').addEventListener('click', (e) => {
+  const onCardClick = (e: Event) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
     const id = btn?.closest<HTMLElement>('[data-exp]')?.dataset.exp;
     const s = findShown(id);
@@ -221,16 +255,26 @@ async function main() {
       case 'del':
         if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) { own = own.filter((o) => o.id !== exp.id); saveOwn(own); render(); }
         break;
+      case 'done':
+      case 'reopen': {
+        const want = btn.dataset.act === 'done' ? 'done' : 'open';
+        status = { ...status, [exp.id]: want };
+        if (want === (exp.status ?? 'open')) delete status[exp.id];
+        saveStatus(status); renderExperiments();
+        if (want === 'open') flash(exp.id);
+        break;
+      }
     }
-  });
-  $('experiments').addEventListener('input', (e) => {
+  };
+  const onCardInput = (e: Event) => {
     const ta = e.target as HTMLTextAreaElement;
     const key = ta.dataset.ans as keyof Answers | undefined;
     const id = ta.closest<HTMLElement>('[data-exp]')?.dataset.exp;
     if (!key || !id) return;
     answers[id] = { ...(answers[id] ?? emptyAnswers()), [key]: ta.value };
     saveAnswers(answers);
-  });
+  };
+  for (const box of ['experiments', 'finishedCards']) { $(box).addEventListener('click', onCardClick); $(box).addEventListener('input', onCardInput); }
   $('newExp').addEventListener('click', () => {
     const draft: Experiment = {
       schemaVersion: 1, id: newExperimentId('my experiment', new Set([...repoIds, ...own.map((o) => o.id)])), title: '', question: '',
@@ -309,6 +353,7 @@ async function main() {
     $('views').innerHTML = (Object.keys(VIEWS) as View[]).map((v) => `<button data-view="${v}" aria-pressed="${v === view}">${VIEWS[v].name}</button>`).join('');
     $('viewHelp').textContent = VIEWS[view].help;
     const rs = visible();
+    $('runStats').innerHTML = rs.length ? viewStats(view, rs).map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('') : '';
     const cols = COLS[view];
     $('runs').innerHTML = rs.length === 0
       ? `<tr><td class="empty">${runs.length ? 'No runs match the filters.' : 'No runs yet. Press Play on an experiment setup, or open the game and commit to a train with E; each run shows up here when it ends.'}</td></tr>`
@@ -494,6 +539,8 @@ async function main() {
     requestAnimationFrame(() => {
       const el = document.getElementById(`exp-${id}`);
       if (!el) return;
+      const fin = el.closest('details');
+      if (fin) fin.open = true;
       el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       el.classList.add('flash');
       setTimeout(() => el.classList.remove('flash'), 2500);
@@ -509,7 +556,7 @@ async function main() {
     history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}${location.hash}`);
   }
 
-  addEventListener('focus', () => { own = loadOwn(); bases = loadBases(); void load(); });
+  addEventListener('focus', () => { own = loadOwn(); bases = loadBases(); status = loadStatus(); void load(); });
   await load();
   if (target) {
     if (findShown(target)) flash(target);
