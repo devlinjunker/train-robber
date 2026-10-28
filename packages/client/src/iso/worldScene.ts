@@ -8,7 +8,8 @@ import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, typ
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
 import { carHides } from './occlusion';
 import { createMesas } from './mesa';
-import { createSceneryLayers, forestTiles } from './scenery';
+import { createSceneryLayers } from './scenery';
+import { mapTiles, type MapTiles } from '../tiles';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
 import { regionSize, type Chunk, type TileBox } from './cells';
@@ -142,6 +143,8 @@ export interface WorldScene {
   zoneOverlay: Graphics;
   /** Ground height under a world point, in tiles of z (0 on maps without elevation). */
   groundZ(x: number, y: number): number;
+  /** The map's tiles as the scene reads them (streamed on a generated line, tiles.ts). */
+  tiles: MapTiles;
   update(input: WorldSceneInput): void;
 }
 
@@ -275,21 +278,23 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   land.label = 'iso-land';
   land.sortableChildren = true;
   land.enableRenderGroup();
-  const field = createHeightField(map);
+  // A generated line made without its tiles streams them chunk by chunk (tiles.ts); the rest decode once.
+  const tiles = mapTiles(map, scenery);
+  const field = createHeightField(map, tiles);
   // Big maps (the open line) build their static drawing per region as it comes near the view and
   // drop it far behind; the rest build it all here, as before (cells.ts regionSize).
-  const region = regionSize(map), lazyDraw = region < Math.max(map.size.cols, map.size.rows);
+  const region = regionSize(map), lazyDraw = tiles.streamed || region < Math.max(map.size.cols, map.size.rows);
   // Pieces that sort with the movers get copies over them (overdraw.ts); it hears about pieces built and dropped later.
   let overdraw: Overdraw | null = null;
   const sortedHooks = { onBuild: (cs: Chunk[]) => overdraw?.add(cs.map((c) => c.g)), onDrop: (cs: Chunk[]) => overdraw?.remove(cs.map((c) => c.g)) };
   const treeHooks = { onBuild: (gs: Graphics[]) => overdraw?.add(gs), onDrop: (gs: Graphics[]) => overdraw?.remove(gs) };
-  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land, field.raised ? field.surfaceZ : undefined, region, treeHooks) : null;
-  const cover = groundCover === null ? null : createGroundCover(map, groundCover, region);
+  const sceneryLayers = scenery ? createSceneryLayers(map, scenery, land, field.raised ? field.surfaceZ : undefined, region, treeHooks, tiles) : null;
+  const cover = groundCover === null ? null : createGroundCover(map, groundCover, region, tiles);
   const ground = new Container();
   if (cover) ground.addChild(cover.layer);
   if (sceneryLayers) ground.addChild(sceneryLayers.ground);
   // Raised tiles get their spots and puddles from the height layer, on the slope.
-  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0), region);
+  const { layer: terrain, cull: cullTerrain } = drawTerrain(map, ground, (x, y) => field.corners(x, y).some((z) => z > 0), region, tiles);
   const shadows = new Graphics();
   const floors = new Graphics();
   const markers = new Graphics();
@@ -299,9 +304,9 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const mapOverlay = drawIsoMapOverlay(map);
   mapOverlay.visible = false;
   // Forest tiles are blocked too, but draw as trees on forest floor, not boulders.
-  const forest = scenery ? forestTiles(map, scenery) : undefined;
-  const heights = createHeightLayer(map, field, land, forest, region, sortedHooks);
-  const rocks = createRocks(map, land, field, forest, region, sortedHooks);
+  const forest = scenery ? (x: number, y: number) => tiles.forest(x, y) : undefined;
+  const heights = createHeightLayer(map, field, land, forest, region, sortedHooks, tiles);
+  const rocks = createRocks(map, land, field, forest, region, sortedHooks, tiles);
   const mesas = createMesas(map, field, land, () => rocks.chunks, objects, lazyDraw, sortedHooks);
   const mud = createMud();
   const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined);
@@ -344,7 +349,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
 
   let culledView: TileBox | null = null, building = false;
   return {
-    root, mapOverlay, zoneOverlay,
+    root, mapOverlay, zoneOverlay, tiles,
     groundZ: field.groundZ,
     update(input) {
       // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.

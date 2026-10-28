@@ -6,6 +6,7 @@
 import type { Container, Graphics } from 'pixi.js';
 import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { decodeZones, type MapDef } from '@train-robber/config';
+import type { MapTiles } from '../tiles';
 import { facesViewer, isoPoly, shade } from './draw';
 import { depthOf } from '../projection';
 import { hash, onEdge } from './terrain';
@@ -33,13 +34,20 @@ export interface Boulder {
  * Tiles in `skip` (forest, drawn by the scenery) get none; `lifted` (a mesa top) gets only a few.
  */
 export function placeBoulders(map: MapDef, skip: ReadonlySet<number> = new Set(), lifted?: (x: number, y: number) => boolean): Boulder[] {
-  const grid = decodeZones(map), { cols, rows } = map.size, out: Boulder[] = [];
-  for (let cy = 0; cy < rows; cy += CELL) {
-    for (let cx = 0; cx < cols; cx += CELL) {
+  const grid = decodeZones(map), { cols, rows } = map.size;
+  return placeBouldersIn(map, (x, y) => grid[y * cols + x]!, (x, y) => skip.has(y * cols + x), lifted, { x0: 0, y0: 0, x1: cols, y1: rows });
+}
+
+/** placeBoulders over the 2 x 2 cells in a box whose corners are on even tiles, reading zones through `zone`. */
+export function placeBouldersIn(map: MapDef, zone: (x: number, y: number) => number, skip: (x: number, y: number) => boolean, lifted: ((x: number, y: number) => boolean) | undefined, box: TileBox): Boulder[] {
+  const { cols, rows } = map.size, out: Boulder[] = [];
+  const blocked = map.zoneLegend.indexOf('blocked');
+  for (let cy = box.y0; cy < box.y1; cy += CELL) {
+    for (let cx = box.x0; cx < box.x1; cx += CELL) {
       let n = 0, sx = 0, sy = 0;
       for (let y = cy; y < Math.min(rows, cy + CELL); y++) {
         for (let x = cx; x < Math.min(cols, cx + CELL); x++) {
-          if (map.zoneLegend[grid[y * cols + x]!] !== 'blocked' || onEdge(map, x, y) || skip.has(y * cols + x)) continue;
+          if (zone(x, y) !== blocked || onEdge(map, x, y) || skip(x, y)) continue;
           n++; sx += x + 0.5; sy += y + 0.5;
         }
       }
@@ -97,10 +105,34 @@ export interface RockLayer {
  * on screen. Built per region of `region` tiles as they come near the view (all at once with one
  * region); `hooks` hear about pieces being built and dropped.
  */
-export function createRocks(map: MapDef, objects: Container, field?: HeightField, skip?: ReadonlySet<number>, region = Math.max(map.size.cols, map.size.rows), hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}): RockLayer {
-  const placed = placeBoulders(map, skip, field?.raised ? (x, y) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined);
+export function createRocks(map: MapDef, objects: Container, field?: HeightField, skip?: ReadonlySet<number> | ((x: number, y: number) => boolean), region = Math.max(map.size.cols, map.size.rows), hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}, tiles?: MapTiles): RockLayer {
+  const lifted = field?.raised ? (x: number, y: number) => field.plateauOf(Math.floor(x), Math.floor(y)) >= 0 : undefined;
+  const skipAt = typeof skip === 'function' ? skip : (x: number, y: number) => skip?.has(y * map.size.cols + x) ?? false;
+  const order = (a: Boulder, c: Boulder) => Math.floor(depthOf(a.x, a.y)) - Math.floor(depthOf(c.x, c.y)) || a.x - a.y - (c.x - c.y);
+  if (tiles?.streamed) {
+    // Streamed: each region places its own boulders from the tiles in it (regions are a whole number of cells).
+    const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, (r) => {
+      const cells = new SortedCells('rocks', 32, 2);
+      const placed = placeBouldersIn(map, (x, y) => tiles.zone(x, y), skipAt, lifted, r).sort(order);
+      for (const b of placed) {
+        const z = field?.surfaceZ(b.x, b.y) ?? 0;
+        drawBoulder(cells.at(Math.floor(depthOf(b.x, b.y)) + 0.5, b.x, b.y, z + b.h), b, z);
+      }
+      return cells.chunks();
+    }), hooks);
+    return {
+      get chunks() { return lazy.chunks; },
+      cull(view, budget) {
+        const waiting = lazy.update(view, budget);
+        cullSorted(lazy.chunks, view, objects);
+        return waiting;
+      },
+    };
+  }
+  const grid = decodeZones(map);
+  const placed = placeBouldersIn(map, (x, y) => grid[y * map.size.cols + x]!, skipAt, lifted, { x0: 0, y0: 0, x1: map.size.cols, y1: map.size.rows });
   // Back to front, then left to right along a depth; neighbours share a depth, so their order barely shows.
-  placed.sort((a, c) => Math.floor(depthOf(a.x, a.y)) - Math.floor(depthOf(c.x, c.y)) || a.x - a.y - (c.x - c.y));
+  placed.sort(order);
   // Each boulder by the region its centre is in, keeping the back-to-front order.
   const across = Math.ceil(map.size.cols / region), down = Math.ceil(map.size.rows / region), byRegion = new Map<number, Boulder[]>();
   for (const b of placed) {

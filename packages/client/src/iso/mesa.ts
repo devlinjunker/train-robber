@@ -8,7 +8,8 @@
 // outline, and sorts like the ground; each cliff face segment sorts by its own depth, so the
 // horse in front of a cliff draws over it and the horse behind is hidden by it.
 import { Container, Graphics } from 'pixi.js';
-import { cullSorted, LazyChunks, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, type BuildBudget, type Chunk, type LazyUnit, type TileBox } from './cells';
+import { CHUNK_TILES } from '@train-robber/config';
 import type { MapDef } from '@train-robber/config';
 import { facesViewer, mix, shade } from './draw';
 import { hash } from './terrain';
@@ -77,7 +78,7 @@ export function plateauOutlines(cols: number, rows: number, k: number, p: Platea
       const zt = p.topZ(mx - dy * 0.01, my + dx * 0.01);
       const other = field.plateauOf(ox, oy);
       const below = other < 0 || ox < 0 || oy < 0 || ox >= cols || oy >= rows
-        ? field.groundZ(mx, my) : field.plateaus[other]!.topZ(mx + dy * 0.01, my - dx * 0.01);
+        ? field.groundZ(mx, my) : field.plateau(other).topZ(mx + dy * 0.01, my - dx * 0.01);
       const e: E = { from: ay * VC + ax, to: (ay + dy) * VC + ax + dx, dx, dy, mid: { x: mx, y: my, zb: Math.min(below, zt), zt }, used: false };
       const list = byStart.get(e.from);
       if (list) list.push(e); else byStart.set(e.from, [e]);
@@ -107,7 +108,7 @@ export function plateauOutlines(cols: number, rows: number, k: number, p: Platea
     return l.map((v, i) => {
       const a = l[(i + l.length - 1) % l.length]!, b = l[(i + 1) % l.length]!;
       const dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1;
-      const off = (noise(v.x * 0.6 + k * 13.1, v.y * 0.6) - WANDER_BIAS) * WANDER + (noise(v.x * 2.2, v.y * 2.2 + k * 7.3) - 0.5) * 0.22 + (hash(Math.round(v.x * 40), Math.round(v.y * 40)) - 0.5) * 0.05;
+      const off = (noise(v.x * 0.6 + p.id * 13.1, v.y * 0.6) - WANDER_BIAS) * WANDER + (noise(v.x * 2.2, v.y * 2.2 + p.id * 7.3) - 0.5) * 0.22 + (hash(Math.round(v.x * 40), Math.round(v.y * 40)) - 0.5) * 0.05;
       return { ...v, x: v.x + (dy / n) * off, y: v.y - (dx / n) * off };
     });
   });
@@ -188,7 +189,7 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
       const x = i % cols, y = (i - x) / cols;
       const p = piece(x + y - 0.005, x + 0.5, y + 0.5, plateau.topZ(x + 0.5, y + 0.5));
       // Each mesa's top leans toward a strata colour of its own.
-      const tint = mix(TOP_COLOUR, STRATA[Math.floor(hash(k, 101) * STRATA.length)]!, 0.3);
+      const tint = mix(TOP_COLOUR, STRATA[Math.floor(hash(plateau.id, 101) * STRATA.length)]!, 0.3);
       let interior = true;
       for (let dy = -1; dy <= 1 && interior; dy++) for (let dx = -1; dx <= 1; dx++) if (field.plateauOf(x + dx, y + dy) !== k) { interior = false; break; }
       const parts = interior
@@ -259,7 +260,7 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
 
   const maskedNow = new Set<Piece>();
   // One unit per mesa, built as it comes near the view on big maps (cells.ts LazyChunks), all at once otherwise.
-  const units = field.plateaus.map((plateau, k) => {
+  const unitOf = (plateau: Plateau, k: number): LazyUnit => {
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, top = 0;
     for (const i of plateau.tiles) {
       const x = i % cols, y = (i - x) / cols;
@@ -275,7 +276,27 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
         return [...pieces.values()];
       },
     };
-  });
+  };
+  const units: LazyUnit[] = field.plateaus.map(unitOf);
+  // A streamed map (tiles.ts) knows no mesas up front: each chunk near the view is searched once
+  // for them as it comes within reach, and each mesa found becomes a unit.
+  const streamed = field.raised && field.plateaus.length === 0;
+  const searched = new Set<number>(), known = new Set<number>();
+  const discover = (view: TileBox) => {
+    const T = CHUNK_TILES, reach = 24 + 8;
+    for (let cy = Math.max(0, Math.floor((view.y0 - reach) / T)); cy * T < Math.min(rows, view.y1 + reach); cy++) {
+      for (let cx = Math.max(0, Math.floor((view.x0 - reach) / T)); cx * T < Math.min(cols, view.x1 + reach); cx++) {
+        const key = cy * 100_003 + cx;
+        if (searched.has(key)) continue;
+        searched.add(key);
+        for (const k of field.plateausIn({ x0: cx * T, y0: cy * T, x1: (cx + 1) * T, y1: (cy + 1) * T })) {
+          if (known.has(k)) continue;
+          known.add(k);
+          units.push(unitOf(field.plateau(k), k));
+        }
+      }
+    }
+  };
   // Cut pieces from other layers (boulders), wrapped once each for the hole's bounds.
   const wrapped = new WeakMap<Chunk, Piece>();
   const wrap = (c: Chunk): Piece => {
@@ -314,6 +335,7 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
     masks,
     get chunks() { return list; },
     cull(view, budget) {
+      if (streamed) discover(view);
       const waiting = lazy.update(view, budget);
       refresh();
       cullSorted(list, view, objects);

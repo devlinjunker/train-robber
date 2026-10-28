@@ -5,6 +5,7 @@ import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type SceneryK
 import { drawBox, groundEllipse, isoPoly, shade, oval } from './draw';
 import { addChunks, Cells, inRegion, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
+import type { MapTiles } from '../tiles';
 
 /** Height of the ground under a world point, in tiles of z (iso/height.ts); flat maps use 0. */
 export type GroundAt = (x: number, y: number) => number;
@@ -69,16 +70,15 @@ export function forestTiles(map: MapDef, scenery: SceneryDef): Set<number> {
  * The flat scenery in a region: forest floor and bridge decks, drawn under the track. In cells and
  * one piece per bridge, so pieces off screen cull; the forest floor is one strip per run of forest tiles.
  */
-function drawSceneryFlat(map: MapDef, scenery: SceneryDef, forest: ReadonlySet<number>, r: TileBox): Chunk[] {
-  const { cols } = map.size;
+function drawSceneryFlat(scenery: SceneryDef, forest: (x: number, y: number) => boolean, r: TileBox): Chunk[] {
   const floor = new Cells(FLAT_CELL);
   for (let y = r.y0; y < r.y1; y++) {
     let x = r.x0;
     while (x < r.x1) {
-      if (!forest.has(y * cols + x)) { x++; continue; }
+      if (!forest(x, y)) { x++; continue; }
       const stop = Math.min(r.x1, (Math.floor(x / FLAT_CELL) + 1) * FLAT_CELL);
       let end = x + 1;
-      while (end < stop && forest.has(y * cols + end)) end++;
+      while (end < stop && forest(end, y)) end++;
       floor.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
       x = end;
     }
@@ -215,16 +215,72 @@ export interface SceneryLayers {
  * them. Built per region of `region` tiles as it comes near the view (all at once with one region);
  * `onTrees` hears about tree groups being built and dropped.
  */
-export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container, groundAt: GroundAt = flat, region = Math.max(map.size.cols, map.size.rows), onTrees: { onBuild?(gs: Graphics[]): void; onDrop?(gs: Graphics[]): void } = {}): SceneryLayers {
+export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: Container, groundAt: GroundAt = flat, region = Math.max(map.size.cols, map.size.rows), onTrees: { onBuild?(gs: Graphics[]): void; onDrop?(gs: Graphics[]): void } = {}, tiles?: MapTiles): SceneryLayers {
   const ground = new Container();
   ground.label = 'iso-scenery-ground';
   const flatLayer = new Container(), coverLayer = new Container();
   ground.addChild(flatLayer, coverLayer);
+  const { cols, rows } = map.size;
+  type Tree = Chunk & { bounds: { x: number; y: number; width: number; height: number } };
+  const isTree = new WeakSet<Chunk>();
+  /** One region's flat scenery, cover and trees from `local` (the items in the region and LONE_TILES * 2 round it). */
+  const buildRegion = (r: TileBox, local: SceneryDef, inRegion: (i: number) => boolean, forestAt: (x: number, y: number) => boolean, lone: (i: number) => boolean, cover?: readonly number[], treeItems?: readonly number[]): Chunk[] => {
+    const lx = local.items.x, ly = local.items.y, lk = local.items.kind;
+    let coverList = cover, treeList = treeItems;
+    if (!coverList || !treeList) {
+      const c: number[] = [], t: number[] = [];
+      for (let i = 0; i < lk.length; i++) {
+        if (!inRegion(i)) continue;
+        (SOLID_SCENERY.has(local.kindLegend[lk[i]!]!) || groundAt(lx[i]!, ly[i]!) >= RAISED_Z ? t : c).push(i);
+      }
+      coverList = c; treeList = t;
+    }
+    const flatChunks = drawSceneryFlat(scenery, forestAt, r);
+    const coverChunks = drawSceneryCover(local, coverList);
+    addChunks(flatLayer, flatChunks);
+    addChunks(coverLayer, coverChunks);
+    const treeChunks = drawTrees(local, treeList, groundAt, lone).map((t): Tree => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
+    for (const t of treeChunks) isTree.add(t);
+    return [...flatChunks, ...coverChunks, ...treeChunks];
+  };
+  /** Which trees stand alone (no other solid item within about LONE_TILES): counted per LONE_TILES cell. */
+  const loneOf = (items: SceneryDef['items'], legend: SceneryDef['kindLegend']) => {
+    const near = new Map<number, number>();
+    const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
+    for (let i = 0; i < items.kind.length; i++) {
+      if (!SOLID_SCENERY.has(legend[items.kind[i]!]!)) continue;
+      const k = cellKey(Math.floor(items.x[i]! / LONE_TILES), Math.floor(items.y[i]! / LONE_TILES));
+      near.set(k, (near.get(k) ?? 0) + 1);
+    }
+    return (i: number) => {
+      const cx = Math.floor(items.x[i]! / LONE_TILES), cy = Math.floor(items.y[i]! / LONE_TILES);
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += near.get(cellKey(cx + dx, cy + dy)) ?? 0;
+      return n === 1;
+    };
+  };
+  let trees: Tree[] = [];
+  const hooks = {
+    onBuild: (cs: Chunk[]) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onBuild?.(t.map((c) => c.g)); },
+    onDrop: (cs: Chunk[]) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onDrop?.(t.map((c) => c.g)); },
+  };
+  let lazy: LazyChunks;
+  if (tiles?.streamed) {
+    // Streamed: each region reads its items (and those round it, for lone trees) from the chunks.
+    const m = LONE_TILES * 2;
+    lazy = new LazyChunks(regionUnits(map, region, 12, (r) => {
+      const local = tiles.sceneryIn({ x0: r.x0 - m, y0: r.y0 - m, x1: r.x1 + m, y1: r.y1 + m }) ?? { ...scenery, items: { kind: [], x: [], y: [], size: [] } };
+      const { x: lx, y: ly } = local.items;
+      return buildRegion(r, local, (i) => lx[i]! >= r.x0 && lx[i]! < r.x1 && ly[i]! >= r.y0 && ly[i]! < r.y1, (x, y) => tiles.forest(x, y), loneOf(local.items, local.kindLegend));
+    }), hooks);
+  } else {
+    lazy = wholeLazy();
+  }
+  function wholeLazy(): LazyChunks {
   const { kind, x, y } = scenery.items;
   const forest = forestTiles(map, scenery);
   const solid = (i: number) => SOLID_SCENERY.has(scenery.kindLegend[kind[i]!]!);
   // Each item, by region: low cover on flat ground, or with the trees.
-  const { cols, rows } = map.size;
   const across = Math.ceil(cols / region), regionOf = (i: number) => Math.min(Math.ceil(rows / region) - 1, Math.max(0, Math.floor(y[i]! / region))) * across + Math.min(across - 1, Math.max(0, Math.floor(x[i]! / region)));
   const coverIn = new Map<number, number[]>(), treesIn = new Map<number, number[]>();
   for (let i = 0; i < kind.length; i++) {
@@ -234,34 +290,9 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
   }
   // A tree with no other within LONE_TILES stands alone in open country: drawn bigger, so it reads
   // as an obstacle before you hit it (Devlin, 2026-10-13: single trees were hard to see).
-  const near = new Map<number, number>();
-  const cellKey = (cx: number, cy: number) => cy * 100000 + cx;
-  for (let i = 0; i < kind.length; i++) {
-    if (!solid(i)) continue;
-    const k = cellKey(Math.floor(x[i]! / LONE_TILES), Math.floor(y[i]! / LONE_TILES));
-    near.set(k, (near.get(k) ?? 0) + 1);
+  const lone = loneOf(scenery.items, scenery.kindLegend);
+  return new LazyChunks(regionUnits(map, region, 12, (r, index) => buildRegion(r, scenery, () => false, (fx, fy) => forest.has(fy * cols + fx), lone, coverIn.get(index) ?? [], treesIn.get(index) ?? [])), hooks);
   }
-  const lone = (i: number) => {
-    const cx = Math.floor(x[i]! / LONE_TILES), cy = Math.floor(y[i]! / LONE_TILES);
-    let n = 0;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) n += near.get(cellKey(cx + dx, cy + dy)) ?? 0;
-    return n === 1;
-  };
-  type Tree = Chunk & { bounds: { x: number; y: number; width: number; height: number } };
-  let trees: Tree[] = [];
-  const isTree = new WeakSet<Chunk>();
-  const lazy = new LazyChunks(regionUnits(map, region, 12, (r, index) => {
-    const flatChunks = drawSceneryFlat(map, scenery, forest, r);
-    const coverChunks = drawSceneryCover(scenery, coverIn.get(index) ?? []);
-    addChunks(flatLayer, flatChunks);
-    addChunks(coverLayer, coverChunks);
-    const treeChunks = drawTrees(scenery, treesIn.get(index) ?? [], groundAt, lone).map((t): Tree => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
-    for (const t of treeChunks) isTree.add(t);
-    return [...flatChunks, ...coverChunks, ...treeChunks];
-  }), {
-    onBuild: (cs) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onBuild?.(t.map((c) => c.g)); },
-    onDrop: (cs) => { const t = cs.filter((c) => isTree.has(c)); if (t.length) onTrees.onDrop?.(t.map((c) => c.g)); },
-  });
   const refresh = () => { trees = lazy.chunks.filter((c): c is Tree => isTree.has(c)); };
   if (region >= Math.max(cols, rows)) lazy.buildAll();
   refresh();

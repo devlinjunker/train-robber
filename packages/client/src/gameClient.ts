@@ -19,7 +19,7 @@ import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landi
 import { createWorldView } from './topdown/worldView';
 import { createAudioBus } from './audio';
 import { heatNotice, tickBucket } from './clock';
-import { drawMapOverlay } from './topdown/mapOverlay';
+import { createStreamedOverlayGround, drawMapOverlay } from './topdown/mapOverlay';
 import { createMinimap } from './minimap';
 import { guardsInWorld, sightCones } from './guards';
 
@@ -196,10 +196,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Drawn the first time the top-down view shows: on a long map it is hundreds of thousands of shapes.
   const topdownOverlay = new Container();
   let topdownDrawn = false;
+  // A streamed map's ground is drawn near the view only.
+  const overlayGround = isoWorld.tiles.streamed ? createStreamedOverlayGround(map, isoWorld.tiles, scenery) : null;
   const topdownView = createWorldView(sceneContent);
   topdown.addChild(topdownOverlay, topdownView.layer);
   const overlay = createScreenOverlay();
-  const minimap = createMinimap(map, scenery);
+  const minimap = createMinimap(map, scenery, isoWorld.tiles);
   minimap.root.visible = params.get('minimap') === 'on';
   app.stage.addChild(isoWorld.root, topdown, overlay.root, minimap.root);
   const hud = createHud();
@@ -462,12 +464,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const inMud = physical && terrainAt(sim.map, horseState.x, horseState.y) === Terrain.Slow;
       isoWorld.root.visible = iso;
       topdown.visible = !iso;
-      if (!iso && !topdownDrawn) { topdownOverlay.addChild(drawMapOverlay(map, scenery)); topdownDrawn = true; }
+      if (!iso && !topdownDrawn) {
+        if (overlayGround) topdownOverlay.addChild(overlayGround.layer);
+        topdownOverlay.addChild(drawMapOverlay(map, scenery, !overlayGround));
+        topdownDrawn = true;
+      }
       let project: (x: number, y: number, z: number) => { x: number; y: number };
 
       // The ground under the screen's corners, for culling scenery and the minimap's view box.
       const corners = ([[0, 0], [W, 0], [W, H], [0, H]] as const).map(([sx, sy]) => iso ? screenToWorld(sx, sy, camera)
         : { x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
+      if (!iso && overlayGround && topdownOverlay.visible) {
+        const xs = corners.map((c) => c.x), ys = corners.map((c) => c.y);
+        overlayGround.cull({ x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
+      }
       // Loot lying in the committed train, what is in reach of E and what is being searched.
       const lootLeft = s.run ? s.run.loot.filter((l) => !l.taken) : [];
       const reachLoot = aboardPhase && !riding ? nearestLoot(s, player, search.reachTiles) : null;
