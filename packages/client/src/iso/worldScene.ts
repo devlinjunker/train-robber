@@ -365,10 +365,14 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const holes: Graphics[] = [], holed: boolean[] = [];
   // The hole around the hidden horse or player, stretched to a point on the car side (`to`) when it shows the gap.
   let hole: { x: number; y: number; to: { x: number; y: number } | null } | null = null;
+  // Each pooled piece's own context, for drawing that changes every frame (interiors, guards, glowing slices).
+  const owned = new WeakMap<Graphics, GraphicsContext>();
   const piece = (cut = false, own = true) => {
     let g = slicePool[used];
     if (!g) {
       g = new Graphics(); slicePool.push(g); objects.addChild(g);
+      // Remember the piece's own context now: it may show shared cached car drawings later.
+      owned.set(g, g.context);
       const m = new Graphics(); holes.push(m); holed.push(false); root.addChild(m);
     }
     const m = holes[used]!;
@@ -383,11 +387,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     used++;
     return g;
   };
-  // Each pooled piece's own context, for drawing that changes every frame (interiors, guards, glowing slices).
-  const owned = new WeakMap<Graphics, GraphicsContext>();
   const ownContext = (g: Graphics) => {
-    let ctx = owned.get(g);
-    if (!ctx) { ctx = g.context; owned.set(g, ctx); }
+    const ctx = owned.get(g)!;
     if (g.context !== ctx) { g.context = ctx; g.position.set(0, 0); }
     ctx.clear();
   };
