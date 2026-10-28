@@ -14,8 +14,11 @@ permissions:
   contents: write
   pull-requests: write
 
+# Group PR runs by PR number, not github.ref: when a PR is merged, its "closed"
+# run reports github.ref as refs/heads/main, so it shared main's group and
+# cancelled the push-to-main deploy that started at the same moment.
 concurrency:
-  group: pages-${{ github.ref }}
+  group: pages-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
   cancel-in-progress: true
 
 jobs:

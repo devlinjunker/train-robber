@@ -144,10 +144,16 @@ describe('open lines are deterministic', () => {
     const { map, scenery } = generateLine('pinned-line-1', settings);
     expect(sha(map)).toBe(PINNED.map);
     expect(sha(scenery)).toBe(PINNED.scenery);
+    // G4 built the tiles in chunks and added `generated` to the map, which moved the map pin once;
+    // the tiles, routes and markers are still exactly the G3 ones.
+    expect(sha(map.zones)).toBe('9569c6973a0b3bb7');
+    expect(sha(map.elevation)).toBe('c53da0b03adcd059');
+    expect(sha(map.routes)).toBe('69a90b6ca7b0618e');
+    expect(sha(map.markers)).toBe('5e32385ac16d1d56');
   });
 });
 
-const PINNED = { map: 'ee5d93c19922b25a', scenery: '50cb77e6f09cbb17' };
+const PINNED = { map: '9dfb7f8fd203ba65', scenery: '50cb77e6f09cbb17' };
 
 describe('the line clock', () => {
   const { map } = generateLine('line-clock', settings);

@@ -1,7 +1,8 @@
 // Grass tufts and scrub brush scattered over open ground at random each time a map loads. Not
 // part of any map file and never seen by the sim: it only breaks up the plain grass.
 import { Container, Graphics } from 'pixi.js';
-import { decodeZones, type MapDef } from '@train-robber/config';
+import type { MapDef } from '@train-robber/config';
+import { mapTiles, type MapTiles } from '../tiles';
 import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { groundEllipse, shade, oval } from './draw';
 import { isoX, isoY } from '../projection';
@@ -33,24 +34,39 @@ function rng(seed: number): () => number {
   };
 }
 
-/** Open tiles away from the track, where ground cover may go. */
-function coverTiles(map: MapDef): Uint8Array {
-  const { cols, rows } = map.size;
-  const grid = decodeZones(map);
+/** Open tiles away from the track in a box of tiles, where ground cover may go: 1 per tile, row-major over the box. */
+function coverTiles(map: MapDef, tiles: MapTiles, box: TileBox, samples: (box: TileBox) => Iterable<[number, number]>): Uint8Array {
+  const w = box.x1 - box.x0, h = box.y1 - box.y0;
   const open = map.zoneLegend.indexOf('open');
-  const ok = new Uint8Array(cols * rows);
-  for (let i = 0; i < ok.length; i++) ok[i] = grid[i] === open ? 1 : 0;
-  for (const r of map.routes) {
-    const { x, y } = r.samples;
-    for (let i = 0; i < x.length; i++) {
-      for (let ty = Math.floor(y[i]! - TRACK_CLEAR); ty <= y[i]! + TRACK_CLEAR; ty++) {
-        for (let tx = Math.floor(x[i]! - TRACK_CLEAR); tx <= x[i]! + TRACK_CLEAR; tx++) {
-          if (tx >= 0 && ty >= 0 && tx < cols && ty < rows) ok[ty * cols + tx] = 0;
-        }
+  const ok = new Uint8Array(w * h);
+  for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++) ok[(y - box.y0) * w + (x - box.x0)] = tiles.zone(x, y) === open ? 1 : 0;
+  for (const [sx, sy] of samples(box)) {
+    for (let ty = Math.floor(sy - TRACK_CLEAR); ty <= sy + TRACK_CLEAR; ty++) {
+      for (let tx = Math.floor(sx - TRACK_CLEAR); tx <= sx + TRACK_CLEAR; tx++) {
+        if (tx >= box.x0 && ty >= box.y0 && tx < box.x1 && ty < box.y1) ok[(ty - box.y0) * w + (tx - box.x0)] = 0;
       }
     }
   }
   return ok;
+}
+
+/** Track samples near a box (within TRACK_CLEAR + 1 tiles), from a grid of them built once. */
+function sampleFinder(map: MapDef): (box: TileBox) => Iterable<[number, number]> {
+  const S = 32, cells = new Map<number, [number, number][]>();
+  for (const r of map.routes) {
+    const { x, y } = r.samples;
+    for (let i = 0; i < x.length; i++) {
+      const k = Math.floor(y[i]! / S) * 100_003 + Math.floor(x[i]! / S);
+      const list = cells.get(k);
+      if (list) list.push([x[i]!, y[i]!]); else cells.set(k, [[x[i]!, y[i]!]]);
+    }
+  }
+  return function* (box) {
+    const m = TRACK_CLEAR + 1;
+    for (let cy = Math.floor((box.y0 - m) / S); cy <= Math.floor((box.y1 + m) / S); cy++) {
+      for (let cx = Math.floor((box.x0 - m) / S); cx <= Math.floor((box.x1 + m) / S); cx++) yield* cells.get(cy * 100_003 + cx) ?? [];
+    }
+  };
 }
 
 /** A tuft: a few thin blades fanning up from one spot. */
@@ -110,18 +126,21 @@ function patchDepth(patches: readonly Patch[], x: number, y: number): number {
  * patches, as cells of Graphics to add under everything else on the ground. Built per region of
  * `region` tiles as it comes near the view; with one region (small maps) it is built at once.
  */
-export function createGroundCover(map: MapDef, seed: number, region = Math.max(map.size.cols, map.size.rows)): { layer: Container; readonly chunks: readonly Chunk[]; cull(view: TileBox, budget?: BuildBudget): boolean } {
+export function createGroundCover(map: MapDef, seed: number, region = Math.max(map.size.cols, map.size.rows), tiles: MapTiles = mapTiles(map, null)): { layer: Container; readonly chunks: readonly Chunk[]; cull(view: TileBox, budget?: BuildBudget): boolean } {
   const { cols, rows } = map.size;
-  const ok = coverTiles(map);
+  // A whole map works its cover tiles out once; a streamed one per region, from the tiles round it.
+  const allSamples = (): Iterable<[number, number]> => map.routes.flatMap((r) => r.samples.x.map((x, i): [number, number] => [x, r.samples.y[i]!]));
+  const wholeOk = tiles.streamed ? null : coverTiles(map, tiles, { x0: 0, y0: 0, x1: cols, y1: rows }, allSamples);
+  const near = tiles.streamed ? sampleFinder(map) : null;
   const whole = region >= Math.max(cols, rows);
   const patches = placePatches(map, rng(seed));
   // Patches only matter near their centres, so look them up per cell of the patch grid.
-  const near = new Map<number, Patch[]>();
+  const patchesNear = new Map<number, Patch[]>();
   for (const p of patches) {
     for (let cy = Math.floor((p.y - p.ry) / CELL); cy <= Math.floor((p.y + p.ry) / CELL); cy++) {
       for (let cx = Math.floor((p.x - p.rx) / CELL); cx <= Math.floor((p.x + p.rx) / CELL); cx++) {
         const k = cy * 100000 + cx;
-        near.set(k, [...(near.get(k) ?? []), p]);
+        patchesNear.set(k, [...(patchesNear.get(k) ?? []), p]);
       }
     }
   }
@@ -132,12 +151,17 @@ export function createGroundCover(map: MapDef, seed: number, region = Math.max(m
   const build = (reg: TileBox, index: number): Chunk[] => {
     const r = wholeStream ?? rng((seed ^ Math.imul(index + 1, 0x9e3779b1)) >>> 0);
     const cells = new Cells(CELL);
+    // The region's cover tiles and the row and column before it, which the clump test reads.
+    const box = { x0: Math.max(0, reg.x0 - 1), y0: Math.max(0, reg.y0 - 1), x1: reg.x1, y1: reg.y1 };
+    const local = wholeOk ? null : coverTiles(map, tiles, box, near!);
+    const bw = box.x1 - box.x0;
+    const ok = wholeOk ? (x: number, y: number) => wholeOk[y * cols + x] === 1 : (x: number, y: number) => local![(y - box.y0) * bw + (x - box.x0)] === 1;
     // Row by row; the items are small enough that strict back-to-front order doesn't show.
     for (let ty = reg.y0; ty < reg.y1; ty++) {
       for (let tx = reg.x0; tx < reg.x1; tx++) {
         // The tiles behind (up the screen) must be open too, or a clump would poke over water or rock.
-        if (!ok[ty * cols + tx] || tx === 0 || ty === 0 || !ok[(ty - 1) * cols + tx] || !ok[ty * cols + tx - 1] || !ok[(ty - 1) * cols + tx - 1]) continue;
-        const thick = patchDepth(near.get(Math.floor(ty / CELL) * 100000 + Math.floor(tx / CELL)) ?? [], tx + 0.5, ty + 0.5);
+        if (!ok(tx, ty) || tx === 0 || ty === 0 || !ok(tx, ty - 1) || !ok(tx - 1, ty) || !ok(tx - 1, ty - 1)) continue;
+        const thick = patchDepth(patchesNear.get(Math.floor(ty / CELL) * 100000 + Math.floor(tx / CELL)) ?? [], tx + 0.5, ty + 0.5);
         const grass = GRASS_DENSITY + thick * (PATCH_GRASS - GRASS_DENSITY), scrub = SCRUB_DENSITY + thick * (PATCH_SCRUB - SCRUB_DENSITY);
         // A thick tile can hold more than one item.
         for (let n = 0; n < 1 + Math.floor(thick * 2); n++) {
