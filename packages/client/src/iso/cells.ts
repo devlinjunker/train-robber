@@ -1,7 +1,7 @@
 // Static ground drawing split into square cells of tiles, so cells off screen can be hidden and
 // the GPU only draws what is in view. A whole-map Graphics on big-country is hundreds of
 // thousands of vertices a frame, almost all of them off screen.
-import { Graphics, type Container } from 'pixi.js';
+import { Container, Graphics, type ContainerChild } from 'pixi.js';
 
 /** A box of world tiles. */
 export interface TileBox { x0: number; y0: number; x1: number; y1: number }
@@ -101,11 +101,31 @@ export function regionSize(map: { size: { cols: number; rows: number } }): numbe
   return cols * rows > LAZY_AREA_TILES ? REGION_TILES : Math.max(cols, rows);
 }
 
+/**
+ * How far along a depth row (x - y, tiles) one sorted piece reaches. Lazily built regions hold
+ * one piece per depth row per layer, since every piece in the static land layer is repacked by Pixi
+ * whenever any piece comes or goes (G5 perf: about 4,900 pieces at 0.25x zoom took 40-75 ms);
+ * maps built whole keep pieces 32 tiles across so ones off screen still drop out.
+ */
+export function sortedAcross(map: { size: { cols: number; rows: number } }, region: number): number {
+  return region < Math.max(map.size.cols, map.size.rows) ? 2 * region : 32;
+}
+
 /** A piece of a layer that is built when it comes near the view: `box` is the tiles its drawing can reach. */
 export interface LazyUnit { box: TileBox; build(): Chunk[] }
 
-/** A deadline (performance.now() ms) shared by every layer's building in one frame. */
-export interface BuildBudget { until: number }
+/**
+ * Graphics built since the scene last warmed them up: Pixi triangulates a Graphics the first
+ * time it is drawn, and a fresh region's pieces all coming into view in one frame made that
+ * frame stutter, so the scene triangulates them a few at a time first (worldScene warmUp).
+ */
+export const freshlyBuilt: Graphics[] = [];
+
+/**
+ * A deadline (performance.now() ms) shared by every layer's building in one frame, and the box
+ * that must be built at once whatever the deadline (the view when not given).
+ */
+export interface BuildBudget { until: number; must?: TileBox }
 
 const overlaps = (a: TileBox, b: TileBox) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
 const grow = (b: TileBox, m: number): TileBox => ({ x0: b.x0 - m, y0: b.y0 - m, x1: b.x1 + m, y1: b.y1 + m });
@@ -150,7 +170,7 @@ export class LazyChunks {
     todo.sort((a, b) => dist(a) - dist(b));
     let waiting = false;
     for (const u of todo) {
-      if (!overlaps(u.box, view) && performance.now() > budget.until) { waiting = true; continue; }
+      if (!overlaps(u.box, budget.must ?? view) && performance.now() > budget.until) { waiting = true; continue; }
       this.add(u, false);
       changed = true;
     }
@@ -160,6 +180,7 @@ export class LazyChunks {
 
   private add(u: LazyUnit, refresh = true): void {
     const chunks = u.build();
+    for (const c of chunks) freshlyBuilt.push(c.g);
     this.built.set(u, chunks);
     this.hooks.onBuild?.(chunks);
     if (refresh) this.list = [...this.built.values()].flat();
@@ -184,4 +205,91 @@ export const inRegion = (r: TileBox, x: number, y: number) => x >= r.x0 && x < r
 /** Add the chunks' Graphics to a container (Pixi's addChild with no arguments throws). */
 export function addChunks(into: Container, chunks: readonly Chunk[]): void {
   if (chunks.length) into.addChild(...chunks.map((c) => c.g));
+}
+
+/**
+ * A depth-sorted layer split into bands of `depth` sort depth (x + y), each its own render group.
+ * Children go into their band by zIndex (set it before adding), and bands sort by depth, so the
+ * drawing order is the same as one sorted container's. Pixi repacks a render group whole whenever
+ * a child comes or goes, so a cull at the top or bottom of the view only repacks the bands there,
+ * not the thousands of land pieces on screen (line perf: 25-50 ms headless repacks at 0.25x).
+ */
+export class DepthBands extends Container {
+  private readonly bands = new Map<number, Container>();
+  /** Adds and removals waiting for `flush`, by band, while `deferred`. */
+  private readonly adds = new Map<number, Set<ContainerChild>>();
+  private readonly removes = new Map<number, Set<ContainerChild>>();
+  /**
+   * While true, adds and removals wait for `flush`, which applies them a few bands a frame, so a
+   * cull's repacking spreads over frames instead of landing in one (riding fast while zoomed out).
+   */
+  deferred = false;
+  constructor(private readonly depth = 48) {
+    super();
+    this.sortableChildren = true;
+  }
+
+  private key(c: ContainerChild): number { return Math.floor(c.zIndex / this.depth); }
+
+  private band(k: number): Container {
+    let band = this.bands.get(k);
+    if (!band) {
+      band = new Container();
+      band.label = `${this.label}-band-${k}`;
+      band.sortableChildren = true;
+      band.zIndex = k;
+      band.enableRenderGroup();
+      this.bands.set(k, band);
+      super.addChild(band);
+    }
+    return band;
+  }
+
+  override addChild<U extends ContainerChild[]>(...children: U): U[0] {
+    for (const c of children) {
+      const k = this.key(c);
+      if (!this.deferred) { this.band(k).addChild(c); continue; }
+      this.removes.get(k)?.delete(c);
+      if (c.parent?.parent === this) continue;
+      let set = this.adds.get(k);
+      if (!set) this.adds.set(k, set = new Set());
+      set.add(c);
+    }
+    return children[0] as U[0];
+  }
+
+  override removeChild<U extends ContainerChild[]>(...children: U): U[0] {
+    for (const c of children) {
+      const k = this.key(c);
+      this.adds.get(k)?.delete(c);
+      if (!(c.parent && c.parent.parent === this)) continue;
+      if (!this.deferred) { c.parent.removeChild(c); continue; }
+      let set = this.removes.get(k);
+      if (!set) this.removes.set(k, set = new Set());
+      set.add(c);
+    }
+    return children[0] as U[0];
+  }
+
+  /** Whether a child is waiting to be added. */
+  pendingAdd(c: ContainerChild): boolean { return this.adds.get(this.key(c))?.has(c) ?? false; }
+
+  /**
+   * Apply what is waiting in up to `bands` bands (all of them when not given): bands with pieces
+   * to add first, then ones with only removals. True when anything changed.
+   */
+  flush(bands = Infinity): boolean {
+    let done = 0;
+    const apply = (k: number) => {
+      const add = this.adds.get(k), remove = this.removes.get(k);
+      const band = this.band(k);
+      if (remove) for (const c of remove) if (c.parent === band) band.removeChild(c);
+      if (add) for (const c of add) if (!c.destroyed && !c.parent) band.addChild(c);
+      this.adds.delete(k); this.removes.delete(k);
+      done++;
+    };
+    for (const k of [...this.adds.keys()]) { if (done >= bands) break; if (this.adds.get(k)!.size) apply(k); else this.adds.delete(k); }
+    for (const k of [...this.removes.keys()]) { if (done >= bands) break; if (this.removes.get(k)!.size) apply(k); else this.removes.delete(k); }
+    return done > 0;
+  }
 }

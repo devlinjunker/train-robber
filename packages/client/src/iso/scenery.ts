@@ -195,6 +195,8 @@ function drawTrees(scenery: SceneryDef, items: readonly number[], groundAt: Grou
 export interface SceneryLayers {
   /** Forest floor and bridges, then bushes and flowers: goes under the track. */
   ground: Container;
+  /** Just the bushes and flowers (in `ground`), which far zoom can hide. */
+  cover: Container;
   /** The tree groups built so far, sorted pieces for `objects`. */
   readonly trees: readonly Graphics[];
   /**
@@ -298,6 +300,7 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
   refresh();
   return {
     ground,
+    cover: coverLayer,
     get trees() { return trees.map((t) => t.g); },
     fade(at, dt) {
       const px = at && isoX(at.x, at.y), py = at && isoY(at.x, at.y, at.z), depth = at && depthOf(at.x, at.y);

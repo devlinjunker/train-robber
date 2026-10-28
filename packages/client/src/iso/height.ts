@@ -9,7 +9,7 @@ import type { Container } from 'pixi.js';
 import { CHUNK_TILES, decodeElevation, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
 import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
-import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { FOREST_FLOOR } from './scenery';
 import { mapTiles, type MapTiles, type TileBoxLike } from '../tiles';
 import { isoX, isoY } from '../projection';
@@ -174,12 +174,9 @@ export function createHeightField(map: Pick<MapDef, 'size' | 'elevation' | 'zone
           let n = index.get(ty * cols + tx);
           if (n === undefined) {
             // Just outside its tiles (a rounded outline can bulge a little): use the nearest one.
-            let best = Infinity;
-            for (const i of tiles) {
-              const ix = i % cols, iy = (i - ix) / cols, d = Math.max(Math.abs(ix + 0.5 - x), Math.abs(iy + 0.5 - y));
-              if (d < best) { best = d; tx = ix; ty = iy; }
-            }
-            n = index.get(ty * cols + tx)!;
+            const i = nearestTile(tiles, index, cols, x, y);
+            tx = i % cols; ty = (i - tx) / cols;
+            n = index.get(i)!;
           }
           return bilinear(top, n * 4, Math.min(1, Math.max(0, x - tx)), Math.min(1, Math.max(0, y - ty)));
         },
@@ -284,23 +281,29 @@ export interface HeightLayer {
 export function createHeightLayer(map: MapDef, field: HeightField, objects: Container, forest: (x: number, y: number) => boolean = () => false, region = Math.max(map.size.cols, map.size.rows), hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}, tiles: MapTiles = mapTiles(map, null)): HeightLayer {
   if (!field.raised) return { chunks: [], cull: () => false };
   const { cols, rows } = map.size;
-  // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot.
-  const scree = (x: number, y: number) => {
-    if (field.plateauOf(x, y) >= 0) return 1;
-    let d = Infinity;
-    for (let dy = -SCREE_TILES; dy <= SCREE_TILES; dy++) for (let dx = -SCREE_TILES; dx <= SCREE_TILES; dx++) {
-      if (field.plateauOf(x + dx, y + dy) >= 0) d = Math.min(d, Math.hypot(dx, dy));
-    }
-    return Math.max(0, 1 - (d - 1) / SCREE_TILES);
-  };
-  const hidden = (x: number, y: number) => {
-    const k = field.plateauOf(x, y);
-    if (k < 0) return false;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (field.plateauOf(x + dx, y + dy) !== k) return false;
-    return true;
-  };
+  // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot (scree in build).
   const build = (r: TileBox): Chunk[] => {
-    const cells = new SortedCells('ground', 32);
+    const cells = new SortedCells('ground', sortedAcross(map, region));
+    // Plateau labels over the region and SCREE_TILES round it, read once: scree and hidden look
+    // at dozens of neighbours per tile.
+    const M = SCREE_TILES, mx0 = r.x0 - M, my0 = r.y0 - M, MW = r.x1 - r.x0 + 2 * M, MH = r.y1 - r.y0 + 2 * M;
+    const label = new Int32Array(MW * MH);
+    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) label[y * MW + x] = field.plateauOf(mx0 + x, my0 + y);
+    const labelAt = (x: number, y: number) => label[(y - my0) * MW + (x - mx0)]!;
+    const scree = (x: number, y: number) => {
+      if (labelAt(x, y) >= 0) return 1;
+      let d2 = Infinity;
+      for (let dy = -SCREE_TILES; dy <= SCREE_TILES; dy++) for (let dx = -SCREE_TILES; dx <= SCREE_TILES; dx++) {
+        if (labelAt(x + dx, y + dy) >= 0) d2 = Math.min(d2, dx * dx + dy * dy);
+      }
+      return Math.max(0, 1 - (Math.sqrt(d2) - 1) / SCREE_TILES);
+    };
+    const hidden = (x: number, y: number) => {
+      const k = labelAt(x, y);
+      if (k < 0) return false;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (labelAt(x + dx, y + dy) !== k) return false;
+      return true;
+    };
     for (let y = r.y0; y < r.y1; y++) {
       for (let x = r.x0; x < r.x1; x++) {
         const [tl, tr, br, bl] = field.corners(x, y);
@@ -359,18 +362,56 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
   };
 }
 
+/**
+ * The plateau tile (index y * cols + x) whose centre is nearest (x, y) by the larger of the two
+ * offsets, the first in `tiles` (ascending) on a tie. Looks a few tiles round the point first:
+ * mesa outlines ask this thousands of times, and scanning every tile of a big plateau each time
+ * was most of the cost of drawing one.
+ */
+function nearestTile(tiles: readonly number[], index: ReadonlyMap<number, number>, cols: number, x: number, y: number): number {
+  const R = 3, fx = Math.floor(x), fy = Math.floor(y);
+  let best = Infinity, at = -1;
+  for (let iy = fy - R; iy <= fy + R; iy++) {
+    for (let ix = fx - R; ix <= fx + R; ix++) {
+      if (ix < 0 || iy < 0 || ix >= cols) continue;
+      const i = iy * cols + ix;
+      if (!index.has(i)) continue;
+      const d = Math.max(Math.abs(ix + 0.5 - x), Math.abs(iy + 0.5 - y));
+      if (d < best || (d === best && i < at)) { best = d; at = i; }
+    }
+  }
+  // Any tile outside the box is at least R from the point, so a nearer one inside settles it.
+  if (at >= 0 && best < R) return at;
+  best = Infinity;
+  for (const i of tiles) {
+    const ix = i % cols, iy = (i - ix) / cols, d = Math.max(Math.abs(ix + 0.5 - x), Math.abs(iy + 0.5 - y));
+    if (d < best) { best = d; at = i; }
+  }
+  return at;
+}
+
 /** A small least-recently-used cache. */
 class Lru<V> {
   private readonly m = new Map<number, V>();
+  // The last key asked for: tile after tile reads the same chunk, and moving it to the back of
+  // the map on every read was most of the cost of building raised ground.
+  private lastK = NaN;
+  private lastV: V | undefined;
   constructor(private readonly keep: number) {}
   get(k: number): V | undefined {
+    if (k === this.lastK) return this.lastV;
     const v = this.m.get(k);
-    if (v !== undefined) { this.m.delete(k); this.m.set(k, v); }
+    if (v !== undefined) { this.m.delete(k); this.m.set(k, v); this.lastK = k; this.lastV = v; }
     return v;
   }
   set(k: number, v: V): void {
     this.m.set(k, v);
-    if (this.m.size > this.keep) this.m.delete(this.m.keys().next().value!);
+    this.lastK = k; this.lastV = v;
+    if (this.m.size > this.keep) {
+      const oldest = this.m.keys().next().value!;
+      this.m.delete(oldest);
+      if (oldest === this.lastK) { this.lastK = NaN; this.lastV = undefined; }
+    }
   }
 }
 
@@ -464,12 +505,9 @@ function streamedHeightField(tiles: MapTiles): HeightField {
         let tx = Math.floor(x), ty = Math.floor(y);
         let n = index.get(ty * cols + tx);
         if (n === undefined) {
-          let best = Infinity;
-          for (const i of own) {
-            const ix = i % cols, iy = (i - ix) / cols, d = Math.max(Math.abs(ix + 0.5 - x), Math.abs(iy + 0.5 - y));
-            if (d < best) { best = d; tx = ix; ty = iy; }
-          }
-          n = index.get(ty * cols + tx)!;
+          const i = nearestTile(own, index, cols, x, y);
+          tx = i % cols; ty = (i - tx) / cols;
+          n = index.get(i)!;
         }
         return bilinear(top, n * 4, Math.min(1, Math.max(0, x - tx)), Math.min(1, Math.max(0, y - ty)));
       },
