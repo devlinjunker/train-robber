@@ -12,7 +12,7 @@ import { createSceneryLayers } from './scenery';
 import { mapTiles, type MapTiles } from '../tiles';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
-import { freshlyBuilt, regionSize, type Chunk, type TileBox } from './cells';
+import { DepthBands, freshlyBuilt, regionSize, type Chunk, type TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
@@ -38,6 +38,17 @@ function urlNumber(name: string, fallback: number, min: number): number {
   const v = raw === null ? NaN : Number(raw);
   return Number.isFinite(v) && v >= min ? v : fallback;
 }
+/**
+ * `?farDetail=off` hides grass, scrub, bushes and flowers at zoom 0.35 and below (the farthest Q
+ * step, and the wheel past it); `?farDetail=<zoom>` hides them at that zoom and below. Shown at
+ * every zoom by default (Devlin's PR #42 playtest: a setting to try).
+ */
+const FAR_DETAIL_ZOOM = (() => {
+  const raw = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('farDetail');
+  if (raw === 'off') return 0.35;
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+})();
 export const CAR_COLOURS: Record<string, number> = { engine: 0x4a4a58, caboose: 0xa83a2a, 'mail-car': 0x9a5534, 'blank-car': 0x86604a, 'small-mail-car': 0x9a5534, 'small-blank-car': 0x86604a };
 const DOOR_COLOUR = 0xe8c872;
 /** A shut door (a cash-out closed the train's doors): dark planks the body's colour, barred across. */
@@ -113,6 +124,12 @@ export interface WorldSceneInput {
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
   view: { x0: number; y0: number; x1: number; y1: number };
+  /** While zooming out, the box on screen once the zoom settles: culled for at once, built within the frame budget. */
+  cullView?: { x0: number; y0: number; x1: number; y1: number };
+  /** The zoom is still easing: the culled box is not shrunk to fit until it settles. */
+  zooming?: boolean;
+  /** The zoom on screen, for hiding small ground detail far out (?farDetail=). */
+  zoom?: number;
   /** Trains whose doors a cash-out shut: their side doors are drawn closed and barred. */
   closedTrains?: ReadonlySet<string>;
   /** Loot lying in the car the player is aboard (its frame), the loot being searched and the one in reach. */
@@ -312,9 +329,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   // the movers where they cover them (see overdraw.ts).
   const objects = new Container();
   objects.sortableChildren = true;
-  const land = new Container();
+  const land = new DepthBands();
   land.label = 'iso-land';
-  land.sortableChildren = true;
   land.enableRenderGroup();
   // A generated line made without its tiles streams them chunk by chunk (tiles.ts); the rest decode once.
   const tiles = mapTiles(map, scenery);
@@ -422,18 +438,24 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     update(input) {
       frameNo++;
       // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.
-      const iv = input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
+      const iv = input.cullView ?? input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
       const recull = !culledView || iv.x0 < culledView.x0 || iv.y0 < culledView.y0 || iv.x1 > culledView.x1 || iv.y1 > culledView.y1
-        || culledView.x1 - culledView.x0 > iv.x1 - iv.x0 + 2 * slack || culledView.y1 - culledView.y0 > iv.y1 - iv.y0 + 2 * slack;
+        || (!input.zooming && (culledView.x1 - culledView.x0 > iv.x1 - iv.x0 + 2 * slack || culledView.y1 - culledView.y0 > iv.y1 - iv.y0 + 2 * slack));
       if (recull || building) {
         const snap = (v: number, up: boolean) => (up ? Math.ceil(v / CULL_SNAP) : Math.floor(v / CULL_SNAP)) * CULL_SNAP;
         const view = recull || !culledView ? { x0: snap(iv.x0 - CULL_MARGIN, false), y0: snap(iv.y0 - CULL_MARGIN, false), x1: snap(iv.x1 + CULL_MARGIN, true), y1: snap(iv.y1 + CULL_MARGIN, true) } : culledView;
         culledView = view;
         // Regions near the view but off screen build a few milliseconds' worth a frame; the ones on screen build at once.
-        const budget = { until: performance.now() + BUILD_MS_PER_FRAME };
+        // Only what is on screen now must be built at once; the rest of a zoom's target waits for budget.
+        const sv = input.view, must = { x0: sv.x0 - CULL_MARGIN, y0: sv.y0 - CULL_MARGIN, x1: sv.x1 + CULL_MARGIN, y1: sv.y1 + CULL_MARGIN };
+        const budget = { until: performance.now() + BUILD_MS_PER_FRAME, must };
         building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean);
         overdraw.refresh();
       }
+      // Far out, grass, scrub, bushes and flowers can go (?farDetail=).
+      const detail = !(input.zoom !== undefined && input.zoom <= FAR_DETAIL_ZOOM);
+      if (cover) cover.layer.visible = detail;
+      if (sceneryLayers) sceneryLayers.cover.visible = detail;
       // Triangulate freshly built pieces while the frame's budget lasts, before they come into view.
       if (warmUp && freshlyBuilt.length) {
         const until = performance.now() + WARM_MS_PER_FRAME;

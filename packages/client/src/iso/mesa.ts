@@ -8,7 +8,7 @@
 // outline, and sorts like the ground; each cliff face segment sorts by its own depth, so the
 // horse in front of a cliff draws over it and the horse behind is hidden by it.
 import { Container, Graphics } from 'pixi.js';
-import { cullSorted, LazyChunks, type BuildBudget, type Chunk, type LazyUnit, type TileBox } from './cells';
+import { cullSorted, LazyChunks, REGION_TILES, type BuildBudget, type Chunk, type LazyUnit, type TileBox } from './cells';
 import { CHUNK_TILES } from '@train-robber/config';
 import type { MapDef } from '@train-robber/config';
 import { facesViewer, mix, shade } from './draw';
@@ -22,8 +22,11 @@ const BAND = LEVEL_TILES / 2;
 const TOP_COLOUR = 0xa98760, CAP_COLOUR = 0xe2c494, SCRUB_COLOUR = 0x5f6a3a;
 /** How far the outline wanders in and out, in tiles; it leans inward so cliffs stay off open ground. */
 const WANDER = 0.45, WANDER_BIAS = 0.55;
-/** Pieces split every this many tiles across the screen (x - y), so pieces off screen drop out. */
-const ACROSS_TILES = 32;
+/**
+ * Pieces split every this many tiles across the screen (x - y), so pieces off screen drop out;
+ * on a lazily built map, much less often, as for the other sorted layers (cells.ts sortedAcross).
+ */
+const ACROSS_TILES = 32, LAZY_ACROSS_TILES = 2 * REGION_TILES;
 
 interface V { x: number; y: number; zb: number; zt: number }
 
@@ -143,10 +146,11 @@ function clipToTile(poly: readonly V[], tx: number, ty: number): V[] {
 export function createMesas(map: MapDef, field: HeightField, objects: Container, alsoCut: () => readonly Chunk[] = () => [], cutInto: Container = objects, lazyDraw = false, hooks: { onBuild?(c: Chunk[]): void; onDrop?(c: Chunk[]): void } = {}): MesaLayer {
   const masks = new Container();
   masks.label = 'mesa-masks';
+  const across = lazyDraw ? LAZY_ACROSS_TILES : ACROSS_TILES;
   let pieces = new Map<string, Piece>();
   /** The piece for sort depth `zIndex` at world point (x, y), grown to cover it standing `lift` tiles high. */
   const piece = (zIndex: number, x: number, y: number, lift: number): Piece => {
-    const key = `${zIndex}:${Math.floor((x - y) / ACROSS_TILES)}`;
+    const key = `${zIndex}:${Math.floor((x - y) / across)}`;
     let p = pieces.get(key);
     if (!p) {
       const g = new Graphics();

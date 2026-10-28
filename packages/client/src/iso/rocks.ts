@@ -4,7 +4,7 @@
 // against the horse and cars. A strip runs along x + y = const, a horizontal band on screen, so
 // strips off the top or bottom of the screen are hidden each frame.
 import type { Container, Graphics } from 'pixi.js';
-import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import type { MapTiles } from '../tiles';
 import { facesViewer, isoPoly, shade } from './draw';
@@ -112,7 +112,7 @@ export function createRocks(map: MapDef, objects: Container, field?: HeightField
   if (tiles?.streamed) {
     // Streamed: each region places its own boulders from the tiles in it (regions are a whole number of cells).
     const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, (r) => {
-      const cells = new SortedCells('rocks', 32, 2);
+      const cells = new SortedCells('rocks', sortedAcross(map, region), 2);
       const placed = placeBouldersIn(map, (x, y) => tiles.zone(x, y), skipAt, lifted, r).sort(order);
       for (const b of placed) {
         const z = field?.surfaceZ(b.x, b.y) ?? 0;
@@ -141,7 +141,7 @@ export function createRocks(map: MapDef, objects: Container, field?: HeightField
     if (list) list.push(b); else byRegion.set(k, [b]);
   }
   const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, (_r, index) => {
-    const cells = new SortedCells('rocks', 32, 2);
+    const cells = new SortedCells('rocks', sortedAcross(map, region), 2);
     for (const b of byRegion.get(index) ?? []) {
       const z = field?.surfaceZ(b.x, b.y) ?? 0;
       // A boulder covers the strip below its centre's floor depth up to its radius, so sort it by its centre.

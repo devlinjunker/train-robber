@@ -9,7 +9,7 @@ import type { Container } from 'pixi.js';
 import { CHUNK_TILES, decodeElevation, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
 import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
-import { cullSorted, LazyChunks, regionUnits, SortedCells, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { FOREST_FLOOR } from './scenery';
 import { mapTiles, type MapTiles, type TileBoxLike } from '../tiles';
 import { isoX, isoY } from '../projection';
@@ -283,7 +283,7 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
   const { cols, rows } = map.size;
   // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot (scree in build).
   const build = (r: TileBox): Chunk[] => {
-    const cells = new SortedCells('ground', 32);
+    const cells = new SortedCells('ground', sortedAcross(map, region));
     // Plateau labels over the region and SCREE_TILES round it, read once: scree and hidden look
     // at dozens of neighbours per tile.
     const M = SCREE_TILES, mx0 = r.x0 - M, my0 = r.y0 - M, MW = r.x1 - r.x0 + 2 * M, MH = r.y1 - r.y0 + 2 * M;
