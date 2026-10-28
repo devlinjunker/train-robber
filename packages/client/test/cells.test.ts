@@ -25,3 +25,33 @@ describe('DepthBands', () => {
     expect(b.parent?.parent).toBe(land);
   });
 });
+
+describe('DepthBands deferred', () => {
+  it('holds adds and removals until flushed, a few bands at a time', () => {
+    const land = new DepthBands(10);
+    const a = at(5), b = at(15), c = at(25);
+    land.addChild(a);
+    land.deferred = true;
+    land.addChild(b, c);
+    land.removeChild(a);
+    expect(b.parent).toBeNull();
+    expect(a.parent).not.toBeNull();
+    expect(land.flush(1)).toBe(true);
+    expect([b.parent, c.parent].filter(Boolean)).toHaveLength(1);
+    land.flush();
+    expect(b.parent).not.toBeNull();
+    expect(c.parent).not.toBeNull();
+    expect(a.parent).toBeNull();
+    expect(land.flush()).toBe(false);
+  });
+
+  it('cancels an add removed before it lands', () => {
+    const land = new DepthBands(10);
+    land.deferred = true;
+    const a = at(5);
+    land.addChild(a);
+    land.removeChild(a);
+    land.flush();
+    expect(a.parent).toBeNull();
+  });
+});

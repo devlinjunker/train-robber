@@ -216,31 +216,80 @@ export function addChunks(into: Container, chunks: readonly Chunk[]): void {
  */
 export class DepthBands extends Container {
   private readonly bands = new Map<number, Container>();
+  /** Adds and removals waiting for `flush`, by band, while `deferred`. */
+  private readonly adds = new Map<number, Set<ContainerChild>>();
+  private readonly removes = new Map<number, Set<ContainerChild>>();
+  /**
+   * While true, adds and removals wait for `flush`, which applies them a few bands a frame, so a
+   * cull's repacking spreads over frames instead of landing in one (riding fast while zoomed out).
+   */
+  deferred = false;
   constructor(private readonly depth = 48) {
     super();
     this.sortableChildren = true;
   }
 
+  private key(c: ContainerChild): number { return Math.floor(c.zIndex / this.depth); }
+
+  private band(k: number): Container {
+    let band = this.bands.get(k);
+    if (!band) {
+      band = new Container();
+      band.label = `${this.label}-band-${k}`;
+      band.sortableChildren = true;
+      band.zIndex = k;
+      band.enableRenderGroup();
+      this.bands.set(k, band);
+      super.addChild(band);
+    }
+    return band;
+  }
+
   override addChild<U extends ContainerChild[]>(...children: U): U[0] {
     for (const c of children) {
-      const k = Math.floor(c.zIndex / this.depth);
-      let band = this.bands.get(k);
-      if (!band) {
-        band = new Container();
-        band.label = `${this.label}-band-${k}`;
-        band.sortableChildren = true;
-        band.zIndex = k;
-        band.enableRenderGroup();
-        this.bands.set(k, band);
-        super.addChild(band);
-      }
-      band.addChild(c);
+      const k = this.key(c);
+      if (!this.deferred) { this.band(k).addChild(c); continue; }
+      this.removes.get(k)?.delete(c);
+      if (c.parent?.parent === this) continue;
+      let set = this.adds.get(k);
+      if (!set) this.adds.set(k, set = new Set());
+      set.add(c);
     }
     return children[0] as U[0];
   }
 
   override removeChild<U extends ContainerChild[]>(...children: U): U[0] {
-    for (const c of children) if (c.parent && c.parent.parent === this) c.parent.removeChild(c);
+    for (const c of children) {
+      const k = this.key(c);
+      this.adds.get(k)?.delete(c);
+      if (!(c.parent && c.parent.parent === this)) continue;
+      if (!this.deferred) { c.parent.removeChild(c); continue; }
+      let set = this.removes.get(k);
+      if (!set) this.removes.set(k, set = new Set());
+      set.add(c);
+    }
     return children[0] as U[0];
+  }
+
+  /** Whether a child is waiting to be added. */
+  pendingAdd(c: ContainerChild): boolean { return this.adds.get(this.key(c))?.has(c) ?? false; }
+
+  /**
+   * Apply what is waiting in up to `bands` bands (all of them when not given): bands with pieces
+   * to add first, then ones with only removals. True when anything changed.
+   */
+  flush(bands = Infinity): boolean {
+    let done = 0;
+    const apply = (k: number) => {
+      const add = this.adds.get(k), remove = this.removes.get(k);
+      const band = this.band(k);
+      if (remove) for (const c of remove) if (c.parent === band) band.removeChild(c);
+      if (add) for (const c of add) if (!c.destroyed && !c.parent) band.addChild(c);
+      this.adds.delete(k); this.removes.delete(k);
+      done++;
+    };
+    for (const k of [...this.adds.keys()]) { if (done >= bands) break; if (this.adds.get(k)!.size) apply(k); else this.adds.delete(k); }
+    for (const k of [...this.removes.keys()]) { if (done >= bands) break; if (this.removes.get(k)!.size) apply(k); else this.removes.delete(k); }
+    return done > 0;
   }
 }

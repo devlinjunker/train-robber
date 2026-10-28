@@ -73,6 +73,13 @@ const HORSE_COLOUR = 0x8a5a32, RIDER_COLOUR = 0x6bd3ff, MUDDY_LEGS = 0x3d2a18;
  * the static layers, so it should happen every few seconds of riding, not every frame.
  */
 const CULL_SNAP = 12, CULL_MARGIN = 6;
+/**
+ * The land's depth bands (cells.ts DepthBands): each LAND_BAND_DEPTH of sort depth, and how many
+ * take their pieces' comings and goings each frame while the view slides. Thinner bands repack
+ * faster (riding fast at 0.25x, worst repack 67 ms with 48 and one at a time, 27 ms with 16 and two).
+ */
+const LAND_BAND_DEPTH = 16, LAND_BANDS_PER_FRAME = 2;
+const overlapsBox = (a: TileBox, b: TileBox) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
 /** On big maps, how long a frame may spend building regions that are near the view but not on it yet. */
 const BUILD_MS_PER_FRAME = 4;
 /** Milliseconds a frame may spend triangulating freshly built pieces ahead of drawing them. */
@@ -331,7 +338,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const objects = new Container();
   objects.sortableChildren = true;
   // ?landBands=off keeps the land in one band (one render group), as before PR #42 round 2, to compare.
-  const land = new DepthBands(urlFlag('landBands') === 'off' ? Infinity : 48);
+  const land = new DepthBands(urlFlag('landBands') === 'off' ? Infinity : LAND_BAND_DEPTH);
   land.label = 'iso-land';
   land.enableRenderGroup();
   // A generated line made without its tiles streams them chunk by chunk (tiles.ts); the rest decode once.
@@ -446,14 +453,21 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       if (recull || building) {
         const snap = (v: number, up: boolean) => (up ? Math.ceil(v / CULL_SNAP) : Math.floor(v / CULL_SNAP)) * CULL_SNAP;
         const view = recull || !culledView ? { x0: snap(iv.x0 - CULL_MARGIN, false), y0: snap(iv.y0 - CULL_MARGIN, false), x1: snap(iv.x1 + CULL_MARGIN, true), y1: snap(iv.y1 + CULL_MARGIN, true) } : culledView;
-        culledView = view;
         // Regions near the view but off screen build a few milliseconds' worth a frame; the ones on screen build at once.
         // Only what is on screen now must be built at once; the rest of a zoom's target waits for budget.
         const sv = input.view, must = { x0: sv.x0 - CULL_MARGIN, y0: sv.y0 - CULL_MARGIN, x1: sv.x1 + CULL_MARGIN, y1: sv.y1 + CULL_MARGIN };
         const budget = { until: performance.now() + BUILD_MS_PER_FRAME, must };
+        // A view that jumped (the first frame, a switch far away) or is zooming gets its land at once; a sliding
+        // one gets it a few bands a frame (DepthBands.flush below), well inside the cull margin.
+        const jumped = !culledView || !overlapsBox(culledView, iv) || !!input.zooming;
+        culledView = view;
+        land.deferred = !jumped;
         building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean);
+        if (jumped) land.flush();
+        land.deferred = true;
         overdraw.refresh();
       }
+      if (land.flush(LAND_BANDS_PER_FRAME)) overdraw.refresh();
       // Far out, grass, scrub, bushes and flowers can go (?farDetail=).
       const detail = !(input.zoom !== undefined && input.zoom <= FAR_DETAIL_ZOOM);
       if (cover) cover.layer.visible = detail;
