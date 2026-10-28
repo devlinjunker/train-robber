@@ -2,10 +2,10 @@
 // and the horse boost.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, createSim, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
+  canSee, createSim, entryPointWorld, gridCell, gridWalkable, Space, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
   type Command, type GameState, type GuardState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
-import { asciiCar, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
+import { asciiCar, OUTSIDE, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
 
 type Values = SimConfig['values'];
 
@@ -134,6 +134,58 @@ describe('patrol and watch', () => {
     steps(sim, 120);
     const g = guard(sim);
     expect({ x: g.x, y: g.y, fx: g.fx, fy: g.fy, patrol: g.patrol }).toEqual({ x: 12.5, y: 1.5, fx: -1, fy: 0, patrol: null });
+  });
+});
+
+describe('rounds between cars', () => {
+  const rounds = (r: Partial<Values['ai']['rounds']>, train: Partial<Values['trains'][string]> = {}) =>
+    guardConfig({ ai: { rounds: { share: 0, reachCars: 1, walkerChance: 0, pauseTicks: 60, ...r } }, train: { carCount: 3, guards: { base: 3 }, ...train } });
+  /** The cars each guard stands in over `secs` seconds. */
+  function carsVisited(sim: Sim, secs: number): Set<number>[] {
+    const seen = S(sim).run!.guards.map(() => new Set<number>());
+    for (let t = 0; t < 60 * secs; t++) { step(sim); S(sim).run!.guards.forEach((g, i) => seen[i]!.add(g.car)); }
+    return seen;
+  }
+
+  it('share 1: every patrolling guard walks to the next car either side and back, through the end doors', () => {
+    const cfg = rounds({ share: 1 });
+    const sim = committed(cfg);
+    const gs = S(sim).run!.guards;
+    // Car 0 is the engine: no guard spawns or routes, so no stop there.
+    expect(gs.map((g) => g.rounds?.map((s) => s.car))).toEqual([[1, 2], [1, 2, 3], [2, 3]]);
+    const grid = trainGrid(cfg, S(sim).world.trains[0]!.cars);
+    const seen = carsVisited(sim, 60);
+    expect(seen.map((c) => [...c].sort())).toEqual([[1, 2], [1, 2, 3], [2, 3]]);
+    for (const g of S(sim).run!.guards) expect(gridWalkable(grid, toTrain(grid, g.car, g.x), g.y)).toBe(true);
+  });
+
+  it('walkerChance 1: one guard walks the whole train, the others keep to their cars', () => {
+    const sim = committed(rounds({ walkerChance: 1, reachCars: 0 }));
+    const walkers = S(sim).run!.guards.filter((g) => g.rounds);
+    expect(walkers).toHaveLength(1);
+    expect(walkers[0]!.rounds!.map((s) => s.car)).toEqual([1, 2, 3]);
+    const seen = carsVisited(sim, 90);
+    S(sim).run!.guards.forEach((g, i) => expect(seen[i]!.size).toBe(g.rounds ? 3 : 1));
+  });
+
+  it("a train type's guards.rounds overrides ai.rounds; share 0 and no walker keeps everyone home", () => {
+    expect(S(committed(rounds({ share: 1, walkerChance: 1 }, { guards: { base: 3, rounds: { share: 0, walkerChance: 0 } } }))).run!.guards.every((g) => g.rounds === null)).toBe(true);
+    expect(S(committed(rounds({}, { guards: { base: 3, rounds: { share: 1 } } }))).run!.guards.every((g) => g.rounds !== null)).toBe(true);
+  });
+
+  it('with platforms and ledges, rounds cross the platforms and couplings but never the side ledges', () => {
+    const base = rounds({ share: 1 });
+    const cfg: SimConfig = { ...base, values: { ...base.values, outside: OUTSIDE } };
+    const sim = committed(cfg);
+    const grid = trainGrid(cfg, S(sim).world.trains[0]!.cars);
+    const spaces = new Set<number>();
+    for (let t = 0; t < 60 * 60; t++) {
+      step(sim);
+      for (const g of S(sim).run!.guards) spaces.add(grid.space[gridCell(grid, toTrain(grid, g.car, g.x), g.y)]!);
+    }
+    expect(spaces.has(Space.Platform)).toBe(true);
+    expect(spaces.has(Space.Coupling)).toBe(true);
+    expect(spaces.has(Space.Ledge)).toBe(false);
   });
 });
 

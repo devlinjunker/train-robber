@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "train-walker",
+  "extends": "long-train",
+  "variants": {},
+  "values": {
+    "ai": { "rounds": { "share": 0, "walkerChance": 1 } }
+  }
+}

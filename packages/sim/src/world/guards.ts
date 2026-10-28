@@ -485,12 +485,44 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     }
     return {
       id, car, x, y, fx, fy, state: 'unaware' as GuardAwareness,
-      post: { car, x, y, fx, fy }, patrol: route && route.length ? spawn.patrol! : null,
+      post: { car, x, y, fx, fy }, patrol: route && route.length ? spawn.patrol! : null, rounds: null as GuardState['rounds'],
       waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false, roof: false, climb: null, slip: null, slipCooldownTicks: 0, jump: null,
     };
   });
+  assignRounds(state, config, train, guards);
   if (config.values.playtest.edgeGuards && guards.length > 0) placeEdgeGuards(config, train, guards);
   return guards;
+}
+
+/**
+ * Guards walking between cars: the train type's `guards.rounds` over `ai.rounds`. With chance
+ * `walkerChance` one patrolling guard, picked at random, walks the whole train; then each other
+ * patrolling guard walks rounds `reachCars` either side with chance `share`. Chances are drawn from
+ * `gen` only when they are between 0 and 1, so 0 and 1 leave the stream as it was.
+ */
+function assignRounds(state: GameState, config: SimConfig, train: TrainState, guards: GuardState[]): void {
+  const r = { ...config.values.ai.rounds, ...config.values.trains[train.type]?.guards?.rounds };
+  const chance = (p: number) => p >= 1 || (p > 0 && nextInt(state.rng, GEN, 1000) < p * 1000);
+  const patrolling = guards.filter((g) => g.patrol);
+  if (patrolling.length === 0 || (r.share <= 0 && r.walkerChance <= 0)) return;
+  const grid = trainGrid(config, train.cars);
+  const give = (g: GuardState, reach: number): boolean => {
+    const stops = roundsStops(config, grid, train, g.post, reach);
+    if (!stops) return false;
+    // Start at its own stop, heading the way it faces (toward the front for -x), or the only way there is.
+    const own = stops.findIndex((s) => s.car === g.car);
+    let dir: 1 | -1 = g.fx < 0 ? -1 : 1;
+    if (own + dir < 0 || own + dir >= stops.length) dir = dir === 1 ? -1 : 1;
+    Object.assign(g, { rounds: stops, waypoint: own, dir });
+    return true;
+  };
+  let walker: GuardState | null = null;
+  if (chance(r.walkerChance)) {
+    walker = patrolling[patrolling.length > 1 ? nextInt(state.rng, GEN, patrolling.length) : 0]!;
+    if (!give(walker, train.cars.length)) walker = null;
+  }
+  if (r.reachCars <= 0) return;
+  for (const g of patrolling) if (g !== walker && chance(r.share)) give(g, r.reachCars);
 }
 
 /**
@@ -509,7 +541,7 @@ function placeEdgeGuards(config: SimConfig, train: TrainState, guards: GuardStat
   spots.forEach((p, i) => {
     const g = guards[i];
     if (!g) return;
-    Object.assign(g, { car, x: p.x, y: p.y, fx: p.fx, fy: p.fy, post: { car, ...p }, patrol: null, waypoint: 0 });
+    Object.assign(g, { car, x: p.x, y: p.y, fx: p.fx, fy: p.fy, post: { car, ...p }, patrol: null, rounds: null, waypoint: 0 });
   });
 }
 
@@ -529,14 +561,25 @@ export function turnToward(g: { fx: number; fy: number }, tx: number, ty: number
 let dist = new Int32Array(0), queue = new Int32Array(0);
 
 /**
- * Steps from every cell to `target` over cells that do not block movement (4-connected); -1
- * unreachable. `insideOnly` keeps to the inside of the cars, for guards that are not after the player.
+ * Where a calm guard may walk: anywhere walkable, only inside the cars (its own route), or inside
+ * and over the end platforms and coupling plates but not the side ledges (rounds between cars).
  */
-function distancesTo(g: TrainGrid, target: number, insideOnly = false): Int32Array {
+type Keep = 'any' | 'inside' | 'deck';
+
+/** Whether a cell of space `s` is one a walk kept to `keep` may use. */
+function keeps(keep: Keep, s: number): boolean {
+  return keep === 'any' || s === Space.Inside || (keep === 'deck' && (s === Space.Platform || s === Space.Coupling));
+}
+
+/**
+ * Steps from every cell to `target` over cells that do not block movement (4-connected); -1
+ * unreachable. `keep` limits the cells used, for guards that are not after the player.
+ */
+function distancesTo(g: TrainGrid, target: number, keep: Keep = 'any'): Int32Array {
   const n = g.cols * g.rows;
   if (dist.length < n) { dist = new Int32Array(n); queue = new Int32Array(n); }
   dist.fill(-1, 0, n);
-  const ok = (i: number) => g.blocksMove[i] === 0 && (!insideOnly || g.space[i] === Space.Inside);
+  const ok = (i: number) => g.blocksMove[i] === 0 && keeps(keep, g.space[i]!);
   if (target < 0 || !ok(target)) return dist;
   let head = 0, tail = 0;
   dist[target] = 0;
@@ -559,10 +602,10 @@ interface Walker { lx: number; y: number; fx: number; fy: number }
  * faster than the cell it is on allows (the outside speeds). In the target's cell or the one next
  * to it, it goes straight there (two neighbouring cells make a rectangle, so the straight line
  * never leaves them); otherwise it heads for the centre of the neighbouring cell nearest the target
- * by a breadth-first search, kept inside the cars with `insideOnly` while the guard is inside.
- * Returns true on arrival.
+ * by a breadth-first search, kept to `keep` while the guard is on a cell that allows (one outside
+ * it finds its way back by any route). Returns true on arrival.
  */
-function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: number, turn: (w: Walker, x: number, y: number) => void, insideOnly = false): boolean {
+function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: number, turn: (w: Walker, x: number, y: number) => void, keep: Keep = 'any'): boolean {
   const from = gridCell(g, w.lx, w.y), to = gridCell(g, tx, ty);
   if (from >= 0) speed = Math.min(speed, g.speedCap[from]!);
   let ax = tx, ay = ty;
@@ -570,7 +613,7 @@ function walkToward(g: TrainGrid, w: Walker, tx: number, ty: number, speed: numb
     && (Math.abs(from - to) === g.cols || (Math.abs(from - to) === 1 && Math.floor(from / g.cols) === Math.floor(to / g.cols))));
   if (!adjacent) {
     // A guard already outside finds its way back in by any route.
-    const d = distancesTo(g, to, insideOnly && from >= 0 && g.space[from] === Space.Inside);
+    const d = distancesTo(g, to, from >= 0 && keeps(keep, g.space[from]!) ? keep : 'any');
     const c = from % g.cols;
     let best = -1, bestD = d[from]! >= 0 ? d[from]! : Infinity;
     // Neighbours in a fixed order, so ties always break the same way.
@@ -650,11 +693,11 @@ interface MoveCtx { ctx: GuardCtx; grid: TrainGrid; ladders: readonly Ladder[]; 
  * down it drops off the end nearest the goal onto the platform. Without `outside.roof.guardsClimb` a
  * guard below only turns to face a goal on a roof. Returns true on arrival.
  */
-function moveGuard(m: MoveCtx, g: GuardState, w: Walker, tx: number, ty: number, roof: boolean, speed: number, insideOnly = false): boolean {
+function moveGuard(m: MoveCtx, g: GuardState, w: Walker, tx: number, ty: number, roof: boolean, speed: number, keep: Keep = 'any'): boolean {
   const { grid, ladders, turn, ctx } = m;
   const rc = ctx.config.values.outside.roof;
   if (g.climb || g.jump) return false;
-  if (!g.roof && !roof) return walkToward(grid, w, tx, ty, speed, turn, insideOnly);
+  if (!g.roof && !roof) return walkToward(grid, w, tx, ty, speed, turn, keep);
   const jumps = rc.guardJump.enabled;
   const roofSpeed = Math.min(speed, rc.speedTilesPerTick);
   const goalCar = roof ? roofCarAt(grid, tx) : -1;
@@ -925,7 +968,8 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
   const off = grid.offsets[g.post.car] ?? 0;
   // A patrol stays inside its car, but a guard left in another car (after a chase) goes back by any
   // route: through the doors, over the platforms (Devlin, PR #36 playtest: guards forgot their routes).
-  const inside = fromTrain(grid, w.lx).car === g.post.car;
+  const inside: Keep = fromTrain(grid, w.lx).car === g.post.car ? 'inside' : 'any';
+  if (g.rounds && g.rounds.length > 1) { walkRounds(grid, g, w, g.rounds, ai, turn); return; }
   if (!route || route.length === 0) {
     const px = off + g.post.x;
     if (Math.abs(w.lx - px) > 1e-6 || Math.abs(w.y - g.post.y) > 1e-6) walkToward(grid, w, px, g.post.y, ai.patrolSpeedTilesPerTick, turn, inside);
@@ -951,4 +995,63 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
     g.waitTicks = ai.patrolPauseTicks;
   }
   g.waypoint = next;
+}
+
+/**
+ * Rounds between cars (`ai.rounds`): walk to the stop in each car in turn, through the end doors and
+ * over the platforms and couplings (never the ledges), back and forth along the stops, pausing
+ * `rounds.pauseTicks` at each to look along the car toward the next one.
+ */
+function walkRounds(grid: TrainGrid, g: GuardState, w: Walker, stops: NonNullable<GuardState['rounds']>, ai: SimConfig['values']['ai'], turn: (w: Walker, x: number, y: number) => void): void {
+  const at = (i: number) => ({ lx: toTrain(grid, stops[i]!.car, stops[i]!.x), y: stops[i]!.y });
+  if (g.waitTicks > 0) {
+    g.waitTicks -= 1;
+    const n = at(g.waypoint + g.dir >= 0 && g.waypoint + g.dir < stops.length ? g.waypoint + g.dir : g.waypoint - g.dir);
+    turn(w, n.lx - w.lx, n.y - w.y);
+    return;
+  }
+  const s = at(g.waypoint);
+  if (!walkToward(grid, w, s.lx, s.y, ai.patrolSpeedTilesPerTick, turn, 'deck')) return;
+  let next = g.waypoint + g.dir;
+  if (next < 0 || next >= stops.length) { g.dir = g.dir === 1 ? -1 : 1; next = g.waypoint + g.dir; }
+  g.waypoint = next;
+  g.waitTicks = ai.rounds.pauseTicks;
+}
+
+/**
+ * The stops of a guard's rounds (`ai.rounds`): its own post, and in each car up to `reach` either
+ * side with guard spawns or routes, the middle of its first spawn's route (else of its first route,
+ * else the walkable inside cell nearest the car's middle), as long as the car is reached from the
+ * post over the deck (inside, platforms, couplings). Null when there is no other car to go to.
+ */
+function roundsStops(config: SimConfig, grid: TrainGrid, train: TrainState, post: GuardState['post'], reach: number): GuardState['rounds'] {
+  const catalog = carCatalog(config);
+  const start = gridCell(grid, toTrain(grid, post.car, post.x), post.y);
+  if (reach <= 0 || start < 0) return null;
+  const stop = (car: number): { car: number; x: number; y: number } | null => {
+    const t = carTemplate(catalog, train.cars[car]!);
+    const routes = config.values.carTemplates[train.cars[car]!]?.patrols ?? {};
+    const name = t.guardSpawns.find((sp) => sp.patrol && routes[sp.patrol]?.length)?.patrol ?? Object.keys(routes).find((k) => routes[k]!.length > 0);
+    if (!name && t.guardSpawns.length === 0) return null;
+    let cell: readonly [number, number] | null = name ? routes[name]![Math.floor(routes[name]!.length / 2)]! : null;
+    if (!cell) {
+      // No route: the walkable inside cell nearest the car's middle.
+      let best = Infinity;
+      for (let y = 0; y < t.size.rows; y++) for (let x = 0; x < t.size.cols; x++) {
+        const i = gridCell(grid, toTrain(grid, car, x + 0.5), y + 0.5);
+        if (i < 0 || grid.blocksMove[i] !== 0 || grid.space[i] !== Space.Inside) continue;
+        const d = (x + 0.5 - t.size.cols / 2) ** 2 + (y + 0.5 - t.size.rows / 2) ** 2;
+        if (d < best) { best = d; cell = [x, y]; }
+      }
+    }
+    if (!cell) return null;
+    const i = gridCell(grid, toTrain(grid, car, cell[0] + 0.5), cell[1] + 0.5);
+    if (i < 0 || distancesTo(grid, i, 'deck')[start]! < 0) return null;
+    return { car, x: cell[0] + 0.5, y: cell[1] + 0.5 };
+  };
+  const before: { car: number; x: number; y: number }[] = [], after: { car: number; x: number; y: number }[] = [];
+  for (let k = 1; k <= reach; k++) { const s = post.car - k >= 0 ? stop(post.car - k) : null; if (!s) break; before.unshift(s); }
+  for (let k = 1; k <= reach; k++) { const s = post.car + k < train.cars.length ? stop(post.car + k) : null; if (!s) break; after.push(s); }
+  if (before.length + after.length === 0) return null;
+  return [...before, { car: post.car, x: post.x, y: post.y }, ...after];
 }

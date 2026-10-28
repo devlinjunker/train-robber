@@ -206,6 +206,13 @@ export type CarEnd = 'front' | 'rear';
  * car's frame like the player's; `fx, fy` is its unit facing in that frame (+x toward the rear,
  * +y toward the right side), turned at `ai.turnRateDegPerSec`.
  */
+/**
+ * Guards walking between cars (Devlin, 2026-10-28): with chance `walkerChance` a train gets one
+ * walker, a patrolling guard that walks the whole train end to end; then `share` of the other
+ * patrolling guards walk rounds to a stop in each car up to `reachCars` either side of their own.
+ */
+export interface RoundsConfig { share: number; reachCars: number; walkerChance: number }
+
 export interface GuardState {
   id: number;
   car: number;
@@ -218,6 +225,11 @@ export interface GuardState {
   post: { car: number; x: number; y: number; fx: number; fy: number };
   /** Patrol route name in the post car's template, or null to stand watch. */
   patrol: string | null;
+  /**
+   * Rounds between cars (`ai.rounds`): a stop in each car it visits (car frame, in train order), or
+   * null for a guard that keeps to its own car's route. With rounds, `waypoint` is the stop it walks toward.
+   */
+  rounds: { car: number; x: number; y: number }[] | null;
   /** The route cell it walks toward, and which way along the route it is going. */
   waypoint: number;
   dir: 1 | -1;
@@ -589,6 +601,8 @@ export interface SimConfig {
       fellLootShare: number;
       suspiciousStepOutside: boolean;
       suspiciousApproach: boolean;
+      /** Rounds between cars, the defaults a train type's `guards.rounds` can override; see `RoundsConfig`. */
+      rounds: RoundsConfig & { pauseTicks: number };
     };
     /**
      * Outside the cars (sneaking PR 2): an end platform `platformDepthTiles` deep at each end of every
@@ -675,7 +689,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base?: number; perCar?: number };
+  guards?: { base?: number; perCar?: number; rounds?: Partial<RoundsConfig> };
   verbs: readonly string[];
 }
 

@@ -197,7 +197,11 @@ export const GameSchema = z.object({
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
     /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
     /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
-    guards: z.object({ base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional() }).strict().optional(),
+    /** `rounds`: this train type's own mix of guards walking between cars, over `ai.rounds`. */
+    guards: z.object({
+      base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional(),
+      rounds: z.object({ share: z.number().min(0).max(1), reachCars: z.number().int().min(0), walkerChance: z.number().min(0).max(1) }).partial().strict().optional(),
+    }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
@@ -434,6 +438,15 @@ export const GameSchema = z.object({
     suspiciousStepOutside: z.boolean(),
     /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
     suspiciousApproach: z.boolean(),
+    /**
+     * Rounds between cars (Devlin, 2026-10-28): this share of the guards that have a patrol route walk
+     * rounds instead, through the end doors and over the platforms to a stop in each car up to
+     * `reachCars` either side of their own (cars with guard spawns or routes only), pausing `pauseSec`
+     * at each stop, then back. 0 keeps every guard in its own car. With chance `walkerChance` a train
+     * also gets one walker: a patrolling guard whose rounds take in every car it can reach, end to end.
+     * A train type's `guards.rounds` overrides any of share, reachCars and walkerChance.
+     */
+    rounds: z.object({ share: z.number().min(0).max(1), reachCars: z.number().int().min(0), walkerChance: z.number().min(0).max(1), pauseSec: z.number().min(0) }).strict(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;
