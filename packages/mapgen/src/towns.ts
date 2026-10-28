@@ -87,8 +87,11 @@ export function townLayout(r: Rng, size: TownSize, spot: TownSpot, ux: number, u
   const platformHalf = size === 'town' ? 14 : size === 'village' ? 10 : 7;
   // Cars are about 7 tiles wide: the platform starts just past their side.
   at('platform', 0, 5.5, platformHalf * 2);
-  const stationAlong = r4(r.range(-3, 3));
-  at('station', stationAlong, gapTiles + 3.5);
+  // The station stands back from the clearing's edge, off centre when it fits.
+  const [sl, sw] = BUILDING_SIZE.station, stationOut = gapTiles + 4.5;
+  const shift = r4(r.range(-3, 3));
+  const stationAlong = fits(shift, stationOut, sl / 2, sw / 2) ? shift : 0;
+  at('station', stationAlong, stationOut);
   const towerSide = r.next() < 0.5 ? -1 : 1;
   const towerAlong = stationAlong + towerSide * 8;
   if (fits(towerAlong, gapTiles + 2, 1.1, 1.1)) at('water-tower', towerAlong, gapTiles + 2);
