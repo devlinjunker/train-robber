@@ -105,9 +105,11 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.runCount += 1;
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = {
-    health: config.values.health.max, meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0, hitCooldownTicks: 0, lastHitDamage: 0,
+    meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0,
     carried: [], search: null, searchLatched: false, crouched: false, ...freshRoofState(),
   };
+  // A health bar per run refills at every commit; a day's bar carries on (Devlin, 2026-10-28).
+  if (config.values.health.scope === 'run') p.health = config.values.health.max;
   rollMeterZones(state, rp.meter, config.values.boarding.meter.zoneWidths);
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
   const train = state.world.trains.find((t) => t.id === id)!;
@@ -132,7 +134,8 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
     Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat });
     // The train kept going while you were off it: the line clock is where it is now.
     if (resume.clockTo !== undefined) Object.assign(state.run, { clockTo: resume.clockTo, countdownSec: lineClockSec(map, config, train, resume.clockTo) });
-    Object.assign(rp, { health: resume.health, meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
+    Object.assign(rp, { meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
+    if (config.values.health.scope === 'run') p.health = resume.health;
   }
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
@@ -198,6 +201,24 @@ export function remount(state: GameState, p: PlayerState, x: number, y: number, 
   p.placement = { frame: WORLD_FRAME, x, y, layer: 'ground' };
 }
 
+/**
+ * Health ran out: the day ends and the next starts at full health (the rider is already back at
+ * the spawn). With `health.scope: run` the next commit would refill it anyway; the day still counts.
+ * Saved runs from in-place cancels belong to the day that ended.
+ */
+function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
+  const tick = ctx.state.tick;
+  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause: 'died', onRun });
+  p.day += 1;
+  p.health = ctx.config.values.health.max;
+  p.hitCooldownTicks = 0;
+  p.lastHitDamage = 0;
+  p.resumeRuns = [];
+  p.commitHold = null;
+  p.commitTimer = null;
+  ctx.emit({ type: 'DayStarted', tick, player: p.id, day: p.day, health: p.health });
+}
+
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
 function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
   const s = ctx.map.playerSpawn;
@@ -252,7 +273,7 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const resume: ResumeRun | null = inPlace && rp ? {
     trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
     clockRunning: run.clockRunning, ...(run.clockTo !== undefined ? { clockTo: run.clockTo } : {}), graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
-    health: rp.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
+    health: p.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;
   endRun(ctx, p, 'cancelled', false);
@@ -419,8 +440,8 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
   h.cruiseTarget = h.speed;
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
-    rp.health = Math.max(0, rp.health - amount);
-    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'boarding' });
+    p.health = Math.max(0, p.health - amount);
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause: 'boarding' });
   }
 }
 
@@ -512,8 +533,8 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
   if (guard === null ? config.values.outside.scrape.closeDoors : config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
   const amount = config.values.health.max * b.failure.damageFraction;
   if (amount > 0) {
-    rp.health = Math.max(0, rp.health - amount);
-    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause });
+    p.health = Math.max(0, p.health - amount);
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause });
   }
 }
 
@@ -546,11 +567,11 @@ export function ledgeRockSystem(ctx: RunCtx): PlayerState | null {
     if (!struck && terrainAt(map, edge.x, edge.y) !== Terrain.Blocked) continue;
     const c = config.values.collision;
     const amount = c.scrapeDamageFraction > 0 ? Math.max(1, Math.round(config.values.health.max * c.scrapeDamageFraction)) : 0;
-    if (amount <= 0 || rp.hitCooldownTicks > 0) continue;
-    rp.health = Math.max(0, rp.health - amount);
-    rp.hitCooldownTicks = c.cooldownTicks;
-    rp.lastHitDamage = amount;
-    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'collision', against: 'obstacle', kind: 'scrape', impact: 0 });
+    if (amount <= 0 || p.hitCooldownTicks > 0) continue;
+    p.health = Math.max(0, p.health - amount);
+    p.hitCooldownTicks = c.cooldownTicks;
+    p.lastHitDamage = amount;
+    ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause: 'collision', against: 'obstacle', kind: 'scrape', impact: 0 });
   }
   return null;
 }
@@ -597,28 +618,28 @@ export function collisionDamage(c: SimConfig['values']['collision'], maxHealth: 
  * After riding: on a run, contact with a train car or blocked ground costs `collisionDamage`. After
  * a hit, contacts for `collision.cooldownTicks` only cost what they exceed the last hit by, so one
  * crash or a long scrape is charged once per cooldown and a crash right after a scrape still hurts
- * in full. No run, no health, so riding about idle is free.
+ * in full. Off a run, with `health.scope: day`, only a crash at `offRunMinImpactTilesPerSec` or
+ * harder hurts, costing the same as on a run (Devlin, 2026-10-28); with `run` riding about idle is free.
  */
 export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
   const { state, config } = ctx;
   const run = state.run;
-  if (!run) return;
   const c = config.values.collision;
-  for (const p of state.players) {
-    const rp = run.players[p.id];
-    if (rp && rp.hitCooldownTicks > 0) rp.hitCooldownTicks -= 1;
-  }
+  const offRunHurts = config.values.health.scope === 'day';
+  for (const p of state.players) if (p.hitCooldownTicks > 0) p.hitCooldownTicks -= 1;
   for (const i of impacts) {
-    const rp = run.players[i.player];
-    if (!rp) continue;
+    const p = state.players.find((q) => q.id === i.player);
+    if (!p) continue;
+    const onRun = !!run?.players[p.id];
+    if (!onRun && (!offRunHurts || i.impact < c.offRunMinImpactTilesPerSec)) continue;
     const full = collisionDamage(c, config.values.health.max, i.target, i.impact);
-    const amount = rp.hitCooldownTicks > 0 ? full - rp.lastHitDamage : full;
+    const amount = p.hitCooldownTicks > 0 ? full - p.lastHitDamage : full;
     if (amount <= 0) continue;
-    rp.health = Math.max(0, rp.health - amount);
-    rp.hitCooldownTicks = c.cooldownTicks;
-    rp.lastHitDamage = full;
+    p.health = Math.max(0, p.health - amount);
+    p.hitCooldownTicks = c.cooldownTicks;
+    p.lastHitDamage = full;
     ctx.emit({
-      type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: rp.health, cause: 'collision', against: i.target,
+      type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: p.health, cause: 'collision', against: i.target,
       kind: i.impact < c.minImpactTilesPerSec ? 'scrape' : 'crash', impact: i.impact,
     });
   }
@@ -645,15 +666,15 @@ export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | unde
  */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
-  if (!run) return;
   for (const p of ctx.state.players) {
-    const rp = run.players[p.id];
-    if (rp && rp.health <= 0) {
-      endRun(ctx, p, 'died', false);
-      resetToSpawn(ctx, p);
-      return;
-    }
+    if (p.health > 0) continue;
+    const onRun = !!run?.players[p.id];
+    if (onRun) endRun(ctx, p, 'died', false);
+    resetToSpawn(ctx, p);
+    newDay(ctx, p, onRun);
+    return;
   }
+  if (!run) return;
   for (const p of ctx.state.players) {
     if (run.players[p.id] && countdownExpired(ctx, p)) {
       endRun(ctx, p, 'expired', false);

@@ -22,6 +22,7 @@ function setup(cfg: SimConfig = config): Sim {
 const S = (sim: Sim) => sim.state as GameState;
 const horse = (sim: Sim) => S(sim).world.horses[0]!;
 const rp = (sim: Sim) => S(sim).run!.players[1]!;
+const me = (sim: Sim) => S(sim).players[0]!;
 const step = (sim: Sim, ...commands: Command[]) => sim.step([{ player: 1, commands }]).events;
 const steps = (sim: Sim, n: number) => { const ev: SimEvent[] = []; for (let i = 0; i < n; i++) ev.push(...step(sim)); return ev; };
 const rejections = (ev: SimEvent[]) => ev.flatMap((e) => (e.type === 'CommandRejected' ? [`${e.command}: ${e.reason}`] : []));
@@ -66,12 +67,13 @@ describe('commit', () => {
     expect(commitTarget(S(sim), sim.map, config, horse(sim))).toBeNull();
   });
 
-  it('startRun pins the train, fills health and enters approach', () => {
+  it('startRun pins the train and enters approach', () => {
     const sim = setup();
     const ev = step(sim, { type: 'startRun', trainId: 'blank-1' });
     expect(ev.map((e) => e.type)).toEqual(['RunStarted', 'RunPhaseChanged']);
     expect(phases(ev)).toEqual(['idle>approach']);
-    expect(S(sim).run).toMatchObject({ trainId: 'blank-1', phase: 'approach', players: { 1: { health: 100, boardingAttempts: 0 } } });
+    expect(S(sim).run).toMatchObject({ trainId: 'blank-1', phase: 'approach', players: { 1: { boardingAttempts: 0 } } });
+    expect(me(sim).health).toBe(100);
     expect(S(sim).world.trains[0]!.pinnedBy).toBe(1);
   });
 
@@ -272,7 +274,7 @@ describe('meter', () => {
       rp(sim).meter.zoneCentre = 0.1; // marker at 0.83: a sure fail
       step(sim, { type: 'jump' });
       expect(rp(sim).meter.zoneCentre).not.toBe(0.1);
-      rp(sim).health = 100;
+      me(sim).health = 100;
       steps(sim, 91);
       expect(S(sim).run!.phase).toBe('approach');
     }
@@ -290,7 +292,8 @@ describe('landings', () => {
     // The horse stays in the world, riderless, running off for horse.runOffSec (U4).
     expect(horse(sim).mode).toBe('physical');
     expect(S(sim).run!.horse).toMatchObject({ state: 'leaving', ticks: 179 }); // counted from the landing tick
-    expect(rp(sim)).toMatchObject({ stumbleTicks: 0, health: 100 });
+    expect(rp(sim)).toMatchObject({ stumbleTicks: 0 });
+    expect(me(sim).health).toBe(100);
     // The entry cell sits just inside the door, where the boarding rule measured.
     const at = sim.world.toWorld(S(sim), S(sim).players[0]!.placement);
     const ep = entryPointWorld(sim.cars()[1]!, { side: 'left', along: DOOR_ALONG });
@@ -350,7 +353,7 @@ describe('landings', () => {
     const sim = approach(testConfig({}, 'test0002', { boarding: { ...config.values.boarding, failure: { stunTicks: 90, damageFraction: 0, horseSpeedScale: 0.5 } } }));
     const ev = jump(sim, 'fail');
     expect(ev.some((e) => e.type === 'DamageDealt')).toBe(false);
-    expect(rp(sim).health).toBe(100);
+    expect(me(sim).health).toBe(100);
   });
 });
 
@@ -359,7 +362,7 @@ describe('health and death', () => {
     const sim = approach();
     S(sim).persistent = { wantedLevel: 2, bank: 50, lifetimeEarned: 70 };
     for (let i = 0; i < 3; i++) { jump(sim, 'fail'); steps(sim, 90); alongside(sim); }
-    expect(rp(sim).health).toBe(25);
+    expect(me(sim).health).toBe(25);
     const ev = jump(sim, 'fail');
     expect(phases(ev)).toEqual(['approach>boarding', 'boarding>ended', 'ended>idle']);
     expect(ev.find((e) => e.type === 'RunEnded')).toMatchObject({ outcome: 'died', boardingAttempts: 4, retry: false });
@@ -368,9 +371,35 @@ describe('health and death', () => {
     expect(S(sim).world.trains[0]!.pinnedBy).toBeNull();
     // alpha-default's died policy changes nothing persistent in phase 1.
     expect(S(sim).persistent).toEqual({ wantedLevel: 2, bank: 50, lifetimeEarned: 70 });
-    // Health is refilled at the next run's start.
+    // Death ends the day: the next starts at full health.
+    expect(ev.filter((e) => e.type === 'DayEnded' || e.type === 'DayStarted')).toEqual([
+      { type: 'DayEnded', tick: S(sim).tick - 1, player: 1, day: 1, cause: 'died', onRun: true },
+      { type: 'DayStarted', tick: S(sim).tick - 1, player: 1, day: 2, health: 100 },
+    ]);
+    expect(me(sim)).toMatchObject({ health: 100, day: 2 });
+  });
+
+  it('health.scope day: a new run keeps the health the last one left', () => {
+    const sim = approach();
+    jump(sim, 'fail');
+    while (S(sim).run!.phase === 'boarding') step(sim);
+    expect(me(sim).health).toBe(75);
+    step(sim, { type: 'cancelRun' });
     step(sim, { type: 'startRun', trainId: 'blank-1' });
-    expect(rp(sim).health).toBe(100);
+    expect(S(sim).run).not.toBeNull();
+    expect(me(sim)).toMatchObject({ health: 75, day: 1 });
+  });
+
+  it('health.scope run: every commit refills health, as before', () => {
+    const base = testConfig();
+    const cfg: SimConfig = { ...base, values: { ...base.values, health: { max: 100, scope: 'run' } } };
+    const sim = approach(cfg);
+    jump(sim, 'fail');
+    while (S(sim).run!.phase === 'boarding') step(sim);
+    expect(me(sim).health).toBe(75);
+    step(sim, { type: 'cancelRun' });
+    step(sim, { type: 'startRun', trainId: 'blank-1' });
+    expect(me(sim).health).toBe(100);
   });
 
   it('applyOutcome follows outcomePolicy', () => {
@@ -440,7 +469,7 @@ describe('cancel', () => {
     while (S(sim).run!.phase === 'boarding') step(sim);
     steps(sim, 30);
     const run = S(sim).run!;
-    const before = { countdownSec: run.countdownSec, heat: run.heat, startedTick: run.startedTick, ...rp(sim), meter: { ...rp(sim).meter } };
+    const before = { countdownSec: run.countdownSec, heat: run.heat, startedTick: run.startedTick, health: me(sim).health, ...rp(sim), meter: { ...rp(sim).meter } };
     expect(before.boardingAttempts).toBe(1);
     step(sim, { type: 'cancelRun' });
     expect(S(sim).players[0]!.resumeRuns).toHaveLength(1);
@@ -450,7 +479,8 @@ describe('cancel', () => {
     expect(S(sim).run).toMatchObject({ heat: before.heat, startedTick: before.startedTick });
     // The clock carries on from where it was (it drains once on the commit tick).
     expect(S(sim).run!.countdownSec).toBeCloseTo(before.countdownSec - 1 / 60, 6);
-    expect(rp(sim)).toMatchObject({ health: before.health, boardingAttempts: 1, meter: { zoneCentre: before.meter.zoneCentre } });
+    expect(rp(sim)).toMatchObject({ boardingAttempts: 1, meter: { zoneCentre: before.meter.zoneCentre } });
+    expect(me(sim).health).toBe(before.health);
     expect(S(sim).players[0]!.resumeRuns).toEqual([]);
     // Cancelled in place again, then a quick retry: the saved run is gone and the next commit is fresh.
     step(sim, { type: 'cancelRun' });
@@ -486,13 +516,14 @@ describe('switching trains', () => {
   it('moves the pin to the other train and keeps the run, its start tick, health and jumps', () => {
     const sim = twoTrains();
     const run = { ...S(sim).run! };
-    rp(sim).health = 70; rp(sim).boardingAttempts = 2;
+    me(sim).health = 70; rp(sim).boardingAttempts = 2;
     steps(sim, 30);
     expect(switchTarget(S(sim), sim.map, config, horse(sim))).toBe('blank-2');
     const ev = step(sim, { type: 'switchTrain' });
     expect(switched(ev)).toEqual(['blank-1>blank-2']);
     expect(ev.map((e) => e.type)).toEqual(['TrainSwitched']);
-    expect(S(sim).run).toMatchObject({ runNumber: run.runNumber, startedTick: run.startedTick, trainId: 'blank-2', phase: 'approach', players: { 1: { health: 70, boardingAttempts: 2 } } });
+    expect(S(sim).run).toMatchObject({ runNumber: run.runNumber, startedTick: run.startedTick, trainId: 'blank-2', phase: 'approach', players: { 1: { boardingAttempts: 2 } } });
+    expect(me(sim).health).toBe(70);
     expect(S(sim).world.trains.map((t) => t.pinnedBy)).toEqual([null, 1]);
     // Tab again goes back.
     expect(switched(step(sim, { type: 'switchTrain' }))).toEqual(['blank-2>blank-1']);

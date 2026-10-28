@@ -63,8 +63,15 @@ export const GameSchema = z.object({
      */
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
   }).strict(),
-  health: z.object({ max: positive }).strict(),
-  /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
+  health: z.object({
+    max: positive,
+    /**
+     * `day` (Devlin, 2026-10-28): one health bar for the whole day; committing doesn't refill it and
+     * dying ends the day, starting the next at full health back at the spawn. `run`: refilled at every commit.
+     */
+    scope: z.enum(['day', 'run']),
+  }).strict(),
+  /** Running into a train or blocked ground (water and the map edge never hurt). */
   collision: z.object({
     /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
@@ -76,6 +83,11 @@ export const GameSchema = z.object({
     minImpactTilesPerSec: z.number().min(0),
     /** Impact at and above which a crash costs the full damageFraction; between the two it scales up from the scrape damage. */
     fullImpactTilesPerSec: z.number().min(0),
+    /**
+     * Off a run with `health.scope: day` (Devlin, 2026-10-28): a crash only hurts from this impact,
+     * then costs what the same crash would on a run; slower touches and scrapes are free.
+     */
+    offRunMinImpactTilesPerSec: z.number().min(0),
     /** After a crash, further crashes are free for this long, so one crash costs health once. */
     cooldownSec: z.number().min(0),
   }).strict().refine((c) => c.fullImpactTilesPerSec >= c.minImpactTilesPerSec, { message: 'full impact must not be below min impact', path: ['fullImpactTilesPerSec'] }),

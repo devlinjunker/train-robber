@@ -50,8 +50,8 @@
     "failure": { "stunSec": 1.5, "damageFraction": 0.15, "horseSpeedScale": 0.5 },
     "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33, "goodStumbleInTiles": 2 }
   },
-  "health": { "max": 100 },
-  "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "cooldownSec": 1 },
+  "health": { "max": 100, "scope": "day" },
+  "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "offRunMinImpactTilesPerSec": 6, "cooldownSec": 1 },
   "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10, "edgeGuards": false },
   "extraction": {
     "arrivalDelaySec": [5, 20], "paceWindowSec": 10, "rewhistleCooldownSec": 5, "laneOffsetTiles": 2, "dropBackSec": 3,

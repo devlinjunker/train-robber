@@ -234,8 +234,8 @@ function resolveMount(ctx: RunCtx, p: PlayerState, h: HorseState): void {
     rp.stumbleTicks = config.values.boarding.landing.stumbleTicks;
     const amount = config.values.health.max * config.values.boarding.failure.damageFraction;
     if (amount > 0) {
-      rp.health = Math.max(0, rp.health - amount);
-      ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: rp.health, cause: 'mount' });
+      p.health = Math.max(0, p.health - amount);
+      ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause: 'mount' });
     }
     return;
   }

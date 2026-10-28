@@ -343,6 +343,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const c = config.values.cashOut;
       show(`Got away: $${e.cashOut} banked${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
     }
+    else if (e.type === 'DayStarted') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
@@ -808,7 +809,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       hud.update({
         phase,
         boost: boostView,
-        health: run ? { now: run.health, max: config.values.health.max } : null,
+        // A day's health bar is always up; a run's only during the run.
+        health: run || config.values.health.scope === 'day' ? { now: player.health, max: config.values.health.max, ...(config.values.health.scope === 'day' ? { day: player.day } : {}) } : null,
         carry,
         inventory: !inventoryOpen ? null : carried.length === 0 ? { title: 'Inventory: empty  (I closes)', items: [] }
           : { title: 'Inventory: 1-9 drops that item  (I closes)', items: [...carried.slice(0, 9).map((id, i) => `${i + 1}  ${itemName(id)}  $${config.values.items[id]?.value ?? 0}  wt ${config.values.items[id]?.weight ?? 0}`),
