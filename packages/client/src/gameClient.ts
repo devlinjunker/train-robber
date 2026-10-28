@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -312,6 +312,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
+  // What the player just hit: blocked ground beside the horse, or (on a ledge) beside the player on the car.
+  const obstacleHit = () => {
+    const p = sim.state.players[0]!, car = carOf(p.placement.frame);
+    if (car) { const at = carToWorld(car, p.placement.x, p.placement.y); return isoWorld.obstacleAt(at.x, at.y, config.values.outside.scrape.glanceTiles + 0.5); }
+    const h = sim.state.world.horses[0]!;
+    return isoWorld.obstacleAt(h.x, h.y, HORSE_RADIUS + 0.25);
+  };
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -322,7 +329,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // A scrape inside a crash's flash keeps the longer flash.
       const now = performance.now(), sec = e.kind === 'scrape' ? SCRAPE_FLASH_SEC : HIT_FLASH_SEC;
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
-      show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
+      show(collisionNotice(e.against, e.kind, e.amount, e.against === 'obstacle' ? obstacleHit() : undefined), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
     else if (e.type === 'RunStarted') { switchedAt = performance.now(); if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000); }
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }

@@ -24,6 +24,7 @@ import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWI
 import { drawInterior, type InteriorLoot } from './interior';
 import { drawCarOutside, drawLadder, type OutsideDims } from './outside';
 import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
+import { obstacleNear, type ObstacleKind, type ObstacleTiles } from '../obstacle';
 
 const PERFECT_RING_SEC = 0.8;
 
@@ -185,6 +186,8 @@ export interface WorldScene {
   groundZ(x: number, y: number): number;
   /** The map's tiles as the scene reads them (streamed on a generated line, tiles.ts). */
   tiles: MapTiles;
+  /** What the blocked ground nearest a world point, within `reach` tiles, is drawn as: for the crash notice. */
+  obstacleAt(x: number, y: number, reach: number): ObstacleKind;
   update(input: WorldSceneInput): void;
 }
 
@@ -463,9 +466,16 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   let lastFadeSec = 0;
 
   let culledView: TileBox | null = null, building = false;
+  const blockedZone = map.zoneLegend.indexOf('blocked');
+  const obstacleTiles: ObstacleTiles = {
+    blocked: (x, y) => x >= 0 && y >= 0 && x < tiles.cols && y < tiles.rows && tiles.zone(x, y) === blockedZone,
+    forest: (x, y) => tiles.forest(x, y),
+    mesa: (x, y) => field.plateauOf(x, y) >= 0,
+  };
   return {
     root, mapOverlay, zoneOverlay, tiles,
     groundZ: field.groundZ,
+    obstacleAt: (x, y, reach) => obstacleNear(obstacleTiles, x, y, reach),
     update(input) {
       frameNo++;
       // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.

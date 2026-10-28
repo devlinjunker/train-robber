@@ -1,5 +1,6 @@
 // Readouts the view shows beside the horse, as pure functions of what the sim reports.
 import type { BoardingCheck } from '@train-robber/sim';
+import type { ObstacleKind } from './obstacle';
 
 /** The too fast / too slow / matched readout: the sim's verdict in range, the same reading by speed out of it. */
 export function speedLabel(check: BoardingCheck, tolerance: number): { text: string; colour: number } {
@@ -44,9 +45,9 @@ export interface TrainFocus {
 /** A scrape flashes red only briefly; a crash for HIT_FLASH_SEC. */
 export const SCRAPE_FLASH_SEC = 0.4;
 
-/** The notice for a crash or a scrape. */
-export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | 'scrape', amount: number): string {
-  const what = against === 'train' ? 'the train' : 'a rock';
+/** The notice for a crash or a scrape; `obstacle` names what blocked ground was drawn as. */
+export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | 'scrape', amount: number, obstacle: ObstacleKind = 'rock'): string {
+  const what = against === 'train' ? 'the train' : `a ${obstacle}`;
   return `${kind === 'scrape' ? 'Scraped' : 'Crashed into'} ${what}: -${Math.round(amount)} health`;
 }
 
