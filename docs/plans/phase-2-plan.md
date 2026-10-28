@@ -123,6 +123,7 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 - [ ] Repo experiments in `content/playtests/*.json`, read-only on the page; your own built on the page (preset, variant dropdowns, `?set=` rows) and saved in the browser; Duplicate and Copy as file (G41)
 - [ ] Runs tagged from the Play link (`?exp=<id>&setup=<id>`), so imported runs from other testers land in the right card
 - [ ] Experiment card: setups side by side, only the 4-6 numbers its question names, notes per setup, an answer box carried by the notes export and Send to GitHub
+- [ ] Session pull on every experiment card: how often a new run starts within 30 s of the summary screen, and which outcome ended each session; every answer box also asks "Did you want to go again? Why?" (G45)
 - [ ] Run list split into views: Robbery (default), Boarding (the Phase 1 stats), All; about 7-8 columns each; click a run to expand seed, variants, damage, logs, Watch and notes (G39)
 - [ ] Header tidied: export, import and GitHub in one Export menu; filters on one line, version first
 - [ ] Rule from now on: a milestone adds its numbers to a view and the expanded run, never as a column everywhere (wiki Playtesting and project memory)
@@ -132,7 +133,7 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 - [ ] Heat never changes the clock (already true on the line); remove `heat.heatDrainFactor` from runs and `heat.sources.timeAboardPerSec` with its `no-time-aboard-heat` preset (G34, G35)
 - [ ] Heat bands (low, mid, high) scale guards: longer alert and calm-down times, a little more sight and hearing range, faster chase, more guards patrolling instead of standing posts; one config table, switch `heatGuards` on/off to compare (G34)
 - [ ] Heat roll: at every run end, heat % is the chance of +1 wanted level, extractions included; the roll is seeded from the run so replays match; `outcomePolicy.<outcome>.heatRoll` turns it off per outcome; expired still adds +1 outright (G35, G37)
-- [ ] Wanted decays: `wanted.decayPerDay` 1 at each new day (today a day ends at death, PR #45; G8 brings the day clock); paying it off with bank comes with careers and towns (G36)
+- [ ] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day (today a day ends at death, PR #45; G8 brings the day clock); paying it off with bank comes with careers and towns (G36)
 - [ ] Summary screen and Playtests page show heat at end, the roll's chance and whether it hit
 
 **M6c: Tests and the gate** (needs G6, PR #47, and M6b; bumps to 0.2.6; branch `claude/phase-2-m6c-tests-gate`)
@@ -143,7 +144,7 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 - [ ] Robbery numbers recorded per run: time aboard, town clock left at boarding, bag fill %, loot value per minute, how it ended, heat at end and the roll
 - [ ] Line made long enough for 3+ towns in every spacing preset; presets for each gate experiment (below)
 - [ ] The gate shipped as experiment `phase-2-gate` in `content/playtests/`, with a "Phase 2 gate" section on the wiki Playtesting page: the questions, how to play each experiment, and how to customize setups on the page or with `?set=` (G42)
-- [ ] Playtest question comment on the PR, one per gate question
+- [ ] Playtest question comment on the PR, one per gate question, plus "Would you pay for the full game after this? What would make you?" (G45); experiment 7's boon pick screen after extraction if it is built (G47)
 
 **The gate questions** (G43). Played in order: experiment 1 first, then 2-6 start from the spacing it picked.
 
@@ -151,11 +152,12 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 | --- | --- | --- | --- |
 | 1 | Which town spacing makes a robbery tense without dragging? | towns-tight (\~1,100 tiles, \~2 min, 3 cars), towns-mid (\~1,600, \~3 min, 4 cars), towns-wide (\~2,200, \~4 min, 6 cars) | Town spacing for G6 |
 | 2 | Do you run out of train before the clock, or the clock before the train? | 3, 4, 6 mail cars | Cars per train |
-| 3 | Does a 10-weight bag fill at a good moment, and does "full bag, find the next train" feel good? | carry 6, 10, 15 | Baseline carry (later a progression stat) |
+| 3 | Does a 10-weight bag fill at a good moment, and does "full bag, find the next train" feel good? Would +5 carry feel worth buying, or just easier? (progression: stats or options) | carry 6, 10, 15 | Baseline carry, and whether a carry upgrade is worth having |
 | 4 | Does the coming town change where and when you board, and can you read the time left? | town clock always shown, only in the last minute | Clock HUD |
 | 5 | Can you feel heat in how guards act, and is high heat too harsh? | heatGuards off, default, harsh | Heat band values |
-| 6 | Does the wanted roll feel fair, and does decay keep wanted in a useful range? | decay 0, 1, 2 per day, starting at wanted 3 | wanted.decayPerDay |
-| 7 | Measured, not asked: how many robberies fit in a 12-minute day at the chosen spacing? | from the run numbers | Trains per day for G8 |
+| 6 | Should wanted level go down on its own, and does the roll feel fair? (progression question) | no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted), each starting at wanted 3 | Wanted decay rule (G46) |
+| 7 | Optional, after 1-6. Does a build that grows between trains make the third train feel different from the first? (progression: roguelite career or arcade mastery) | three trains in a row, with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes) | Whether to lean toward a career or toward arcade mastery and co-op (G47) |
+| 8 | Measured, not asked: how many robberies fit in a 12-minute day at the chosen spacing? | from the run numbers | Trains per day for G8 |
 
 **Pass bar** (G44): no numeric threshold; Devlin judges by playing. It passes when a full robbery on the line (find, board, loot, get off before the town) is fun enough to play three times in a row. If it fails, tune and replay before G7 and the Phase 3 plan start. The answers go into the technical design and G6's town spacing.
 
@@ -323,6 +325,10 @@ Decisions from grilling the plan with Devlin, newest last.
 | G42 | How does M6 ship? | Three PRs: M6a Playtests page (can start now), M6b heat drives guards and wanted (after M5), M6c tests and the gate (after G6 and M6b, 0.2.6). The gate guide, including how to customize setups, is a section on the wiki Playtesting page | 2026-10-28 |
 | G43 | What are the gate questions? | Six experiments played in order, each starting from the spacing experiment 1 picks: town spacing, train length, the bag, reading the clock, heat and guards, wanted roll and decay; plus robberies per 12-minute day, measured for G8 | 2026-10-28 |
 | G44 | What counts as passing? | No numeric threshold. A full robbery on the line (find, board, loot, get off before the town) is fun enough to play three times in a row; if not, tune and replay before G7 and the Phase 3 plan | 2026-10-28 |
+| G45 | How does M6 measure reasons to keep playing? (progression doc) | Every experiment card shows session pull (a new run within 30 s of the summary, and which outcome ended each session), and every answer box asks "Did you want to go again? Why?". The gate comment also asks "Would you pay for the full game after this? What would make you?" | 2026-10-28 |
+| G46 | Should wanted level go down on its own? (progression doc open question) | Not settled by the 1 per day default (Devlin). Experiment 6 tests it: no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted). Paying it off with bank waits for careers | 2026-10-28 |
+| G47 | Roguelite career or arcade mastery? (progression doc open question) | Optional experiment 7 after the six gate experiments: three trains in a row with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes). If the third train doesn't feel different, lean toward arcade mastery and co-op | 2026-10-28 |
+| G48 | How does the Roadmap show M6? | Row 9 splits into 9a M6a, 9b M6b, 9c M6c and 9d the Phase 2 gate (its own bold row); later step numbers stay the same | 2026-10-28 |
 
 **Wiki Ideas page additions** (pushed to the wiki on 2026-10-11 with a rank per idea, except where marked)
 

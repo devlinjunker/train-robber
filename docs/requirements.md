@@ -111,7 +111,7 @@ The law arrives when the clock reaches zero. On the open line the clock is the t
 - **Expiry.** If the clock runs out before you extract, the run ends, the loot is lost, and you gain a wanted level. A small grace window lets you escape if you are already jumping off.
 - **Wanted level.** It makes later trains tougher by adding more guards. It starts with a few levels, and other structures such as a continuous value or named tiers stay possibilities.
 
-Wanted level drops by one each day; paying it off comes later with careers and towns. Cancelling a run rolls heat for a wanted level like every other ending, so it can't be used to dodge one. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
+Whether wanted level drops on its own (each day, only after a quiet day, or never) is tested in the Phase 2 gate; paying it off comes later with careers and towns. Cancelling a run rolls heat for a wanted level like every other ending, so it can't be used to dodge one. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
 
 ## World, schedule and progression
 
