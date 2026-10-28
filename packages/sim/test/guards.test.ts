@@ -275,7 +275,7 @@ describe('guardCatch thrown-off', () => {
     // Half of three, rounded up: two (picked at random) go over the side, one is kept.
     expect(s.run!.players[1]!.carried).toEqual(['letter']);
     expect(ofType(ev, 'LootLost').map((e) => [e.item, e.cause])).toEqual([['letter', 'thrownOff'], ['letter', 'thrownOff']]);
-    expect(s.run!.players[1]!.health).toBe(100 - 25);
+    expect(s.players[0]!.health).toBe(100 - 25);
     // The stun passes and the approach resumes.
     steps(sim, cfg.values.boarding.failure.stunTicks + 2);
     expect(s.run!.phase).toBe('approach');

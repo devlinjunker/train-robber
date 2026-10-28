@@ -1,4 +1,5 @@
-// Collision damage: running into a train or blocked ground on a run costs health, once per crash.
+// Collision damage: running into a train or blocked ground costs health, once per crash. Off a run
+// (health.scope day) only crashes from collision.offRunMinImpactTilesPerSec hurt.
 import { describe, it, expect } from 'vitest';
 import { collisionDamage, createSim, entryPointWorld, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
 import { testConfig, testMap, type Paint } from './fixtures';
@@ -25,7 +26,8 @@ const steps = (sim: Sim, n: number, ...first: Command[]) => {
 };
 const damage = (ev: SimEvent[]) => ev.filter((e) => e.type === 'DamageDealt');
 const lost = (ev: SimEvent[]) => damage(ev).reduce((n, e) => n + e.amount, 0);
-const health = (sim: Sim) => S(sim).run!.players[1]!.health;
+const health = (sim: Sim) => S(sim).players[0]!.health;
+const runScope = (): SimConfig => { const b = testConfig(); return { ...b, values: { ...b.values, health: { max: 100, scope: 'run' } } }; };
 
 /** Gallop right at full speed from (x, y) toward whatever lies at x = 60. */
 function charge(sim: Sim, y: number, x = 50): SimEvent[] {
@@ -75,9 +77,38 @@ describe('collision damage', () => {
     expect(health(sim)).toBe(100);
   });
 
-  it('is free with no run, since there is no health to lose', () => {
-    const sim = setup(testConfig(), false);
+  it('with health.scope run, is free with no run, since there is no health to lose', () => {
+    const sim = setup(runScope(), false);
     expect(damage(charge(sim, 7))).toHaveLength(0);
+  });
+
+  it('with health.scope day, a rock crash off a run hurts from 6 tiles/s, the same as on a run', () => {
+    const sim = setup(testConfig(), false);
+    const ev = charge(sim, 7);
+    expect(S(sim).run).toBeNull();
+    expect(damage(ev)).toHaveLength(1);
+    expect(damage(ev)[0]).toMatchObject({ cause: 'collision', against: 'obstacle', kind: 'crash', amount: 10 });
+    expect(health(sim)).toBe(90);
+  });
+
+  it('with health.scope day, a rock bump off a run below 6 tiles/s is free', () => {
+    const sim = setup(testConfig(), false);
+    Object.assign(horse(sim), { x: 56, y: 7, hx: 1, hy: 0, speed: 5, cruiseTarget: 5 });
+    expect(damage(steps(sim, 120))).toHaveLength(0);
+    expect(health(sim)).toBe(100);
+  });
+
+  it('with health.scope day, running out of health off a run ends the day: back at the spawn, full health, day 2', () => {
+    const sim = setup(testConfig(), false);
+    S(sim).players[0]!.health = 5;
+    Object.assign(horse(sim), { x: 50, y: 7, hx: 1, hy: 0, speed: 14, cruiseTarget: 14 });
+    const ev: SimEvent[] = [];
+    for (let i = 0; i < 120 && !ev.some((e) => e.type === 'DayStarted'); i++) ev.push(...step(sim));
+    expect(ev.find((e) => e.type === 'RunEnded')).toBeUndefined();
+    expect(ev.find((e) => e.type === 'DayEnded')).toMatchObject({ day: 1, cause: 'died', onRun: false });
+    expect(ev.find((e) => e.type === 'DayStarted')).toMatchObject({ day: 2, health: 100 });
+    expect(S(sim).players[0]).toMatchObject({ health: 100, day: 2 });
+    expect(horse(sim)).toMatchObject({ x: 116, y: 22, speed: 0 });
   });
 
   it('walking into a rock is free', () => {
@@ -141,7 +172,7 @@ describe('collision damage', () => {
 
   it('crashing to no health ends the run as a death', () => {
     const sim = setup();
-    S(sim).run!.players[1]!.health = 10;
+    S(sim).players[0]!.health = 10;
     const ev = charge(sim, 7);
     expect(ev.find((e) => e.type === 'RunEnded')).toMatchObject({ outcome: 'died' });
     expect(S(sim).run).toBeNull();

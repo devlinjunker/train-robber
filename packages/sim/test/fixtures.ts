@@ -112,8 +112,8 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
       },
-      health: { max: 100 },
-      collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownTicks: 60 },
+      health: { max: 100, scope: 'day' },
+      collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },
       playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,

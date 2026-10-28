@@ -123,7 +123,7 @@ describe('the riderless horse', () => {
     expect(Math.hypot(horse(sim).x - lane2.x, horse(sim).y - lane2.y)).toBeLessThan(3);
     expect(lane2.x).not.toBe(lane.x);
     // It takes no crash damage while riderless.
-    expect(rp(sim).health).toBe(100);
+    expect(S(sim).players[0]!.health).toBe(100);
   });
 
   it('after the pace window it departs, the run goes back to aboard, and a whistle waits out the cooldown', () => {

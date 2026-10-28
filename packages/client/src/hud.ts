@@ -12,8 +12,8 @@ export interface ClockView { sec: number; total: number; rate: number; to?: stri
 
 export interface HudState {
   phase: string;
-  /** Health while a run is active, else null. */
-  health: { now: number; max: number } | null;
+  /** Health: always with `health.scope: day` (with the day number), else while a run is active, else null. */
+  health: { now: number; max: number; day?: number } | null;
   /** What the player carries while a run is active: value, weight against the limit, items, and the walk speed it leaves. */
   carry: { value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number } | null;
   /** The open inventory strip (I) along the bottom: a title and one entry per item, or null when it is closed. */
@@ -188,7 +188,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       if (s.health) {
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
         bar.style.width = `${pct}%`;
-        set(hpText, `${s.health.now}/${s.health.max}`);
+        set(hpText, `${s.health.now}/${s.health.max}${s.health.day !== undefined ? `  day ${s.health.day}` : ''}`);
       }
       boostEl.style.display = s.boost ? '' : 'none';
       if (s.boost) {

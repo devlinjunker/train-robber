@@ -128,6 +128,10 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
+  /** Health ran out (`health.scope: day`): the day ends; `onRun` when a run was on (it also ends `died`). */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died'; onRun: boolean }
+  /** A new day at full health, back at the spawn. */
+  | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
@@ -267,15 +271,10 @@ export interface MeterState {
 }
 
 export interface PlayerRunState {
-  health: number;
   meter: MeterState;
   boardingAttempts: number;
   /** Ticks of good-landing stumble left; walk speed is scaled while above 0. */
   stumbleTicks: number;
-  /** Ticks before another collision can hurt, so one crash costs health once. */
-  hitCooldownTicks: number;
-  /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
-  lastHitDamage: number;
   /** Item ids carried, in pickup order; a `drop` slot indexes this. */
   carried: string[];
   /** The search in progress: which loot and how many ticks E has been held on it. */
@@ -422,6 +421,17 @@ export interface PlayerState {
    * left off, so Esc cannot reset the clock or reroll the meter. Cleared when a run ends any other way (Esc aboard, quick retry, escape, death, expiry).
    */
   resumeRuns: ResumeRun[];
+  /**
+   * Health. With `health.scope: day` (the default) it lasts the whole day: runs don't refill it and
+   * dying starts a new day at full health. With `run` each commit refills it, as before.
+   */
+  health: number;
+  /** The day number, from 1; dying ends the day (`DayEnded`) and starts the next. */
+  day: number;
+  /** Ticks before another collision can hurt, so one crash costs health once. */
+  hitCooldownTicks: number;
+  /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
+  lastHitDamage: number;
 }
 
 export interface HorseState {
@@ -502,9 +512,13 @@ export interface SimConfig {
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
     };
-    health: { max: number };
-    /** Running into a train or blocked ground while on a run. */
-    collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
+    /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
+    health: { max: number; scope: 'day' | 'run' };
+    /**
+     * Running into a train or blocked ground. On a run, from `minImpactTilesPerSec`; off a run (day
+     * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.
+     */
+    collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; offRunMinImpactTilesPerSec: number; cooldownTicks: number };
     playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean };
     /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
     extraction: {

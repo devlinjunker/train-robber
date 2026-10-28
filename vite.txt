@@ -3,3 +3,12 @@
 
   ➜  Local:   http://localhost:5199/
   ➜  Network: use --host to expose
+5:20:23 PM [vite] page reload playtests.html
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/client/src/hud.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/config/src/schema.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/content/base/game.json
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/sim/src/extraction.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/sim/src/run.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/sim/src/sim.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/sim/src/types.ts
+5:20:25 PM [vite] page reload /home/claude/train-robber/packages/client/src/gameClient.ts

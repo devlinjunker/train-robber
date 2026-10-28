@@ -57,6 +57,7 @@ export function createSim(opts: SimOptions): Sim {
     world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
       id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false, commitTimer: null, commitHold: null, resumeRuns: [],
+      health: opts.config.values.health.max, day: 1, hitCooldownTicks: 0, lastHitDamage: 0,
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
