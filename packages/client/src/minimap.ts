@@ -18,6 +18,15 @@ const FOREST = '#3f5a2e', BRIDGE = '#8b6a45', TRACK = '#2a1a10';
 const TRAIN = 0xffffff, COMMITTED = 0xffb020, RIDER = 0x6bd3ff, TOWN = 0xe8d9a8;
 /** On a map more than this many times longer than wide, the minimap shows a window `rows x WINDOW_ASPECT` tiles long. */
 const WINDOW_ASPECT = 1.5;
+
+/** Tiles of map the minimap shows across: a window on a long line, else the whole map. */
+const spanOf = (cols: number, rows: number) => cols > rows * WINDOW_ASPECT * 2 ? Math.round(rows * WINDOW_ASPECT) : cols;
+/**
+ * The track's width in tiles: a share of what the minimap shows across. A long line's is set by
+ * its window, not its length, so it stays the same on a line of any length (Devlin found it far
+ * too wide on a 20,000-tile line, PR #40); a loop's is unchanged.
+ */
+const trackWidth = (cols: number, rows: number) => Math.max(2, Math.min(cols, spanOf(cols, rows) * 4) / 160);
 /** The bar under a windowed minimap: the whole line, with towns, the window and the rider on it (taller after Devlin missed it, PR #34). */
 const BAR_H = 12;
 
@@ -58,7 +67,7 @@ function paint(map: MapDef, scenery: SceneryDef | null): HTMLCanvasElement {
     for (const b of scenery.bridges) ctx.fillRect(b.x, b.y, b.w, b.h);
   }
   ctx.strokeStyle = TRACK;
-  ctx.lineWidth = Math.max(2, cols / 160);
+  ctx.lineWidth = trackWidth(cols, rows);
   ctx.lineJoin = 'round';
   for (const r of map.routes) {
     const { x, y } = r.samples;
@@ -78,7 +87,7 @@ const UNSEEN = '#3b3a33';
 /** Draw the track over a part of the canvas (in tiles, drawn at 1/`scale`). */
 function strokeTrack(ctx: CanvasRenderingContext2D, map: MapDef, path: Path2D) {
   ctx.strokeStyle = TRACK;
-  ctx.lineWidth = Math.max(2, map.size.cols / 160);
+  ctx.lineWidth = trackWidth(map.size.cols, map.size.rows);
   ctx.lineJoin = 'round';
   ctx.stroke(path);
 }
@@ -174,7 +183,7 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null, tiles?: M
   const marks = new Graphics();
   const frame = new Container();
   // Long maps show a window that follows the rider, clipped to its edges.
-  const span = cols > rows * WINDOW_ASPECT * 2 ? Math.round(rows * WINDOW_ASPECT) : cols;
+  const span = spanOf(cols, rows);
   const windowed = span < cols;
   const clip = new Graphics();
   frame.addChild(ground, marks);
