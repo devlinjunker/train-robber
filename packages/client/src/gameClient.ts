@@ -384,6 +384,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'RoofRecovered') show('Caught your balance', 'good', 1200);
     else if (e.type === 'GuardClimbing' && e.to === 'roof') show('A guard is climbing up to check the roof!', 'warn', 2500);
     else if (e.type === 'GuardSlipped') show('A guard slipped on the curve!', 'good', 1500);
+    else if (e.type === 'GuardJumped') show(e.short ? 'A guard jumped after you and came down short!' : 'A guard jumped across after you!', e.short ? 'good' : 'warn', 1800);
     else if (e.type === 'LootLost') {
       lostOnThrow.push(itemName(e.item));
       // Thrown off with `ai.thrownOffLootShare` 1 loses everything: say so over your head (Devlin, PR #36).

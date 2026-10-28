@@ -22,14 +22,14 @@ export interface BoardingReport {
   guards: { spotted: number; alarms: number; thrownOff: number };
   boosts: number;
   /** Roofs (sneaking PR 3): climbs up, roof jumps, landings by where, slips and recoveries, falls by cause, guards climbing. */
-  roof: { climbsUp: number; jumps: number; landed: Record<string, number>; slips: number; recovered: number; fell: Record<string, number>; guardClimbs: number; guardSlips: number };
+  roof: { climbsUp: number; jumps: number; landed: Record<string, number>; slips: number; recovered: number; fell: Record<string, number>; guardClimbs: number; guardSlips: number; guardJumps: number };
 }
 
 const bump = (o: Record<string, number>, k: string) => { o[k] = (o[k] ?? 0) + 1; };
 
 /** Folds events into a report one at a time, so long bot sweeps need not keep them. */
 export class ReportBuilder {
-  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [], loot: { picked: 0, value: 0, refused: {}, dropped: 0, lost: 0, cancelled: 0 }, guards: { spotted: 0, alarms: 0, thrownOff: 0 }, boosts: 0, roof: { climbsUp: 0, jumps: 0, landed: {}, slips: 0, recovered: 0, fell: {}, guardClimbs: 0, guardSlips: 0 } };
+  readonly r: BoardingReport = { runs: 0, outcomes: {}, quickRetries: 0, trainSwitches: 0, boarded: 0, attempts: 0, results: {}, rejections: {}, commitToAboardSec: [], runSec: [], loot: { picked: 0, value: 0, refused: {}, dropped: 0, lost: 0, cancelled: 0 }, guards: { spotted: 0, alarms: 0, thrownOff: 0 }, boosts: 0, roof: { climbsUp: 0, jumps: 0, landed: {}, slips: 0, recovered: 0, fell: {}, guardClimbs: 0, guardSlips: 0, guardJumps: 0 } };
   private startedAt = new Map<number, number>();
   constructor(private readonly tickRateHz: number) {}
 
@@ -64,6 +64,7 @@ export class ReportBuilder {
       case 'FellOff': bump(r.roof.fell, e.cause); break;
       case 'GuardClimbing': if (e.to === 'roof') r.roof.guardClimbs++; break;
       case 'GuardSlipped': r.roof.guardSlips++; break;
+      case 'GuardJumped': r.roof.guardJumps++; break;
       case 'RunEnded':
         bump(r.outcomes, e.outcome);
         if (e.retry) r.quickRetries++;
@@ -107,6 +108,6 @@ export function formatReport(r: BoardingReport): string {
     `commit to aboard: median ${sec(median(r.commitToAboardSec))}; run length: median ${sec(median(r.runSec))}`,
     `loot: picked ${r.loot.picked} ($${r.loot.value}), refused: ${counts(r.loot.refused)}, dropped ${r.loot.dropped}, lost ${r.loot.lost}, searches cancelled ${r.loot.cancelled}`,
     `guards: spotted ${r.guards.spotted}, alarms ${r.guards.alarms}, thrown off ${r.guards.thrownOff}; horse boosts ${r.boosts}`,
-    `roofs: climbed up ${r.roof.climbsUp}, jumps ${r.roof.jumps}, landed: ${counts(r.roof.landed)}, slips ${r.roof.slips} (recovered ${r.roof.recovered}), fell: ${counts(r.roof.fell)}, guards climbed up ${r.roof.guardClimbs}, guard slips ${r.roof.guardSlips}`,
+    `roofs: climbed up ${r.roof.climbsUp}, jumps ${r.roof.jumps}, landed: ${counts(r.roof.landed)}, slips ${r.roof.slips} (recovered ${r.roof.recovered}), fell: ${counts(r.roof.fell)}, guards climbed up ${r.roof.guardClimbs}, guard slips ${r.roof.guardSlips}, guard jumps ${r.roof.guardJumps}`,
   ].join('\n');
 }

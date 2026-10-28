@@ -103,7 +103,7 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     for (const g of run.guards) {
       if (g.car < 0 || g.car >= train.cars.length) return `guard ${g.id} in car ${g.car} of a ${train.cars.length}-car train`;
       for (const k of ['x', 'y', 'fx', 'fy'] as const) if (!Number.isFinite(g[k])) return `guard ${g.id} ${k} is ${g[k]}`;
-      if (g.roof ? !onRoof(grid, g.car, g.x, g.y) : !gridWalkable(grid, toTrain(grid, g.car, g.x), g.y)) return `guard ${g.id} on an unwalkable ${g.roof ? 'roof spot' : 'cell'} (${g.x}, ${g.y}) of car ${g.car}`;
+      if (!g.jump && (g.roof ? !onRoof(grid, g.car, g.x, g.y) : !gridWalkable(grid, toTrain(grid, g.car, g.x), g.y))) return `guard ${g.id} on an unwalkable ${g.roof ? 'roof spot' : 'cell'} (${g.x}, ${g.y}) of car ${g.car}`;
       if (Math.abs(Math.hypot(g.fx, g.fy) - 1) > 1e-3) return `guard ${g.id} facing length ${Math.hypot(g.fx, g.fy)}`;
     }
   }

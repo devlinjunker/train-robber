@@ -375,6 +375,12 @@ export const GameSchema = z.object({
       guardSightTiles: positive,
       /** Guards who heard or saw you up there climb up after you (off: they stand below and look up). */
       guardsClimb: z.boolean(),
+      /**
+       * Guards on a roof run and jump the gap to follow you to the next car's roof, landing short on the
+       * platform this share of the time; they also climb a neighbour's ladder to reach a roof without one,
+       * and drop off a roof end when their car has no ladder down (Devlin, PR #36 playtest, 2026-10-28).
+       */
+      guardJump: z.object({ enabled: z.boolean(), shortShare: z.number().min(0).max(1) }).strict(),
       /** A drop off a roof onto the platform or coupling (a short jump, or walking off the end) staggers you this long; it is loud, like the landing stumble. */
       dropStumbleSec: z.number().min(0),
       /** Space on a roof: you fly airSec at your speed, plus pushTiles; a running jump clears a gap only from near the edge. */

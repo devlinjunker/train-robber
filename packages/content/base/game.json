@@ -35,6 +35,7 @@
       "crouchEdgeSeenTiles": 0.5,
       "guardSightTiles": 30,
       "guardsClimb": true,
+      "guardJump": { "enabled": true, "shortShare": 0.25 },
       "dropStumbleSec": 0.6,
       "jump": { "airSec": 0.5, "pushTiles": 0.75, "liftTiles": 0.6 },
       "fallAlert": { "enabled": true, "cars": 1, "checkSec": 8 },

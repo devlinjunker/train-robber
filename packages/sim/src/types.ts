@@ -191,6 +191,8 @@ export type SimEvent =
   | { type: 'GuardClimbing'; tick: number; guard: number; car: number; to: 'roof' | 'deck' }
   /** A guard on a roof slipped on a curve (`outside.roof.slip.guards`); it slides outward and catches itself. */
   | { type: 'GuardSlipped'; tick: number; guard: number; car: number; dir: 1 | -1 }
+  /** A guard on a roof jumped the gap toward car `toCar` (`outside.roof.guardJump`); `short` lands it on the platform instead. */
+  | { type: 'GuardJumped'; tick: number; guard: number; car: number; toCar: number; short: boolean }
   | { type: 'HorseBoosted'; tick: number; player: PlayerId };
 
 export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
@@ -241,6 +243,8 @@ export interface GuardState {
   /** Slipping on a roof on a curve: sliding toward side `dir` for `ticks` more, then it has caught itself; `cooldown` ticks before the next. */
   slip: { dir: 1 | -1; ticks: number } | null;
   slipCooldownTicks: number;
+  /** Jumping the gap between roofs (`outside.roof.guardJump`): train x from and to over `total` ticks, landing on car `toCar`'s roof or short on the platform. */
+  jump: { ticks: number; total: number; fromLx: number; toLx: number; toRoof: boolean; toCar: number } | null;
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
@@ -649,6 +653,7 @@ export interface RoofConfig {
   crouchEdgeSeenTiles: number;
   guardSightTiles: number;
   guardsClimb: boolean;
+  guardJump: { enabled: boolean; shortShare: number };
   dropStumbleTicks: number;
   jump: { airTicks: number; pushTiles: number; liftTiles: number };
   fallAlert: { enabled: boolean; cars: number; checkTicks: number };

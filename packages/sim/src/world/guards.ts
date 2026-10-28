@@ -486,7 +486,7 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     return {
       id, car, x, y, fx, fy, state: 'unaware' as GuardAwareness,
       post: { car, x, y, fx, fy }, patrol: route && route.length ? spawn.patrol! : null,
-      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false, roof: false, climb: null, slip: null, slipCooldownTicks: 0,
+      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false, roof: false, climb: null, slip: null, slipCooldownTicks: 0, jump: null,
     };
   });
   if (config.values.playtest.edgeGuards && guards.length > 0) placeEdgeGuards(config, train, guards);
@@ -644,27 +644,77 @@ interface MoveCtx { ctx: GuardCtx; grid: TrainGrid; ladders: readonly Ladder[]; 
  * Move a guard toward train point (tx, ty), on a roof (`roof`) or below, at `speed`. On the same
  * layer (and for a roof, the same car's roof) it walks there; otherwise it walks to a ladder and
  * starts climbing (`GuardClimbing`): up the one of the goal car nearest it, or down the one of its
- * own car nearest the goal. Guards do not jump gaps. Without `outside.roof.guardsClimb` a guard
- * below only turns to face a goal on a roof. Returns true on arrival.
+ * own car nearest the goal. With `outside.roof.guardJump` a guard on a roof heads for the end facing
+ * a goal on another car's roof and jumps the gap (`GuardJumped`), one car at a time; below, it climbs
+ * the ladder nearest the goal car on any car when the goal car has none; and on a roof with no ladder
+ * down it drops off the end nearest the goal onto the platform. Without `outside.roof.guardsClimb` a
+ * guard below only turns to face a goal on a roof. Returns true on arrival.
  */
 function moveGuard(m: MoveCtx, g: GuardState, w: Walker, tx: number, ty: number, roof: boolean, speed: number, insideOnly = false): boolean {
   const { grid, ladders, turn, ctx } = m;
   const rc = ctx.config.values.outside.roof;
-  if (g.climb) return false;
+  if (g.climb || g.jump) return false;
   if (!g.roof && !roof) return walkToward(grid, w, tx, ty, speed, turn, insideOnly);
+  const jumps = rc.guardJump.enabled;
   const roofSpeed = Math.min(speed, rc.speedTilesPerTick);
   const goalCar = roof ? roofCarAt(grid, tx) : -1;
   if (g.roof && roof && goalCar === g.car) return walkRoof(grid, w, g.car, tx, ty, roofSpeed, turn);
   if (!g.roof) {
-    const l = rc.guardsClimb && goalCar >= 0 ? nearestLadder(grid, ladders, goalCar, w.lx, w.y, 'deck') : null;
+    let l = rc.guardsClimb && goalCar >= 0 ? nearestLadder(grid, ladders, goalCar, w.lx, w.y, 'deck') : null;
+    if (!l && rc.guardsClimb && jumps && goalCar >= 0) l = ladderNearCar(ladders, goalCar, w.lx);
     if (!l) { turn(w, tx - w.lx, ty - w.y); return false; }
     if (walkToward(grid, w, l.deckLx, l.y, speed, turn)) startClimb(m, g, l, 'roof');
     return false;
   }
+  const off = grid.offsets[g.car]!, cols = grid.carCols[g.car]!;
+  if (roof && goalCar >= 0 && jumps) {
+    // Toward the goal's roof: run to the end facing it and jump to the next car.
+    const dir = goalCar > g.car ? 1 : -1;
+    const edge = dir > 0 ? off + cols : off;
+    if (walkRoof(grid, w, g.car, edge - dir * WALKER_R, w.y, roofSpeed, turn)) startJump(m, g, w, g.car + dir, edge, dir);
+    return false;
+  }
   const l = nearestLadder(grid, ladders, g.car, tx, ty, 'roof');
-  if (!l) return false;
-  if (walkRoof(grid, w, g.car, grid.offsets[g.car]! + l.roofX, l.y, roofSpeed, turn)) startClimb(m, g, l, 'deck');
+  if (!l) {
+    // No ladder down on this car (it jumped here): drop off the end nearest the goal onto the platform.
+    if (!jumps) return false;
+    const dir = tx >= off + cols / 2 ? 1 : -1;
+    const edge = dir > 0 ? off + cols : off;
+    if (walkRoof(grid, w, g.car, edge - dir * WALKER_R, w.y, roofSpeed, turn)) {
+      w.lx = edge + dir * ctx.config.values.outside.platformDepthTiles / 2;
+      g.roof = false;
+    }
+    return false;
+  }
+  if (walkRoof(grid, w, g.car, off + l.roofX, l.y, roofSpeed, turn)) startClimb(m, g, l, 'deck');
   return false;
+}
+
+/** The ladder (at its foot) on the car nearest car `car`, then nearest train x `lx`, for a guard heading to a roof with no ladder. */
+function ladderNearCar(ladders: readonly Ladder[], car: number, lx: number): Ladder | null {
+  let best: Ladder | null = null, bestCars = Infinity, bestD = Infinity;
+  for (const l of ladders) {
+    const c = Math.abs(l.car - car), d = Math.abs(l.deckLx - lx);
+    if (c < bestCars || (c === bestCars && d < bestD)) { best = l; bestCars = c; bestD = d; }
+  }
+  return best;
+}
+
+/**
+ * A guard at roof end `edge` (train x) jumps toward car `toCar`, over `outside.roof.jump.airSec`:
+ * onto that car's roof, or with chance `guardJump.shortShare` (the `ai` stream) short onto the
+ * platform below the end it jumped from.
+ */
+function startJump(m: MoveCtx, g: GuardState, w: Walker, toCar: number, edge: number, dir: 1 | -1): void {
+  const { ctx, grid } = m;
+  const rc = ctx.config.values.outside.roof;
+  if (toCar < 0 || toCar >= grid.carCols.length) return;
+  const short = rc.guardJump.shortShare > 0 && nextInt(ctx.state.rng, 'ai', 1000) < rc.guardJump.shortShare * 1000;
+  const toOff = grid.offsets[toCar]!, toCols = grid.carCols[toCar]!;
+  const toLx = short ? edge + dir * ctx.config.values.outside.platformDepthTiles / 2 : dir > 0 ? toOff + 2 * WALKER_R : toOff + toCols - 2 * WALKER_R;
+  const total = Math.max(1, rc.jump.airTicks);
+  g.jump = { ticks: total, total, fromLx: w.lx, toLx, toRoof: !short, toCar };
+  ctx.emit({ type: 'GuardJumped', tick: ctx.state.tick, guard: g.id, car: g.car, toCar, short });
 }
 
 function startClimb(m: MoveCtx, g: GuardState, l: Ladder, to: 'roof' | 'deck'): void {
@@ -784,7 +834,13 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
     // Action. A guard never walks into the player: a step that ends closer than two walker radii is undone.
     const fromX = w.lx, fromY = w.y;
     const known = g.lastKnown ? { lx: toTrain(grid, g.lastKnown.car, g.lastKnown.x), y: g.lastKnown.y, roof: g.lastKnown.roof } : null;
-    if (g.climb) {
+    if (g.jump) {
+      // In the air over the gap: then on the next roof, or short on the platform.
+      const j = g.jump;
+      j.ticks -= 1;
+      w.lx = j.fromLx + (j.toLx - j.fromLx) * (1 - j.ticks / j.total);
+      if (j.ticks <= 0) { w.lx = j.toLx; g.roof = j.toRoof; g.jump = null; }
+    } else if (g.climb) {
       // On a ladder: up or down it, then step off at the other end.
       if (--g.climb.ticks <= 0) {
         const l = ladders.find((q) => q.car === g.climb!.car && q.end === g.climb!.end);
@@ -827,7 +883,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
     const at = g.roof ? { car: roofCarAt(grid, w.lx) >= 0 ? roofCarAt(grid, w.lx) : g.car, x: 0 } : fromTrain(grid, w.lx);
     if (g.roof) at.x = w.lx - grid.offsets[at.car]!;
     g.car = at.car; g.x = at.x; g.y = w.y; g.fx = w.fx; g.fy = w.fy;
-    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && !g.slip && g.roof === target.roof && !target.air) {
+    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && !g.slip && !g.jump && g.roof === target.roof && !target.air) {
       const dx = target.lx - w.lx, dy = target.y - w.y;
       if (dx * dx + dy * dy <= ai.catchRangeTiles * ai.catchRangeTiles) caught = { guard: g, player: target.p };
     }
@@ -852,7 +908,7 @@ function slipGuard(ctx: GuardCtx, grid: TrainGrid, train: TrainState, g: GuardSt
     if (--g.slip.ticks <= 0) { g.slip = null; g.slipCooldownTicks = sl.cooldownTicks; }
     return;
   }
-  if (g.slipCooldownTicks > 0 || g.climb || !g.roof || !(rc.speedTilesPerTick > 0)) return;
+  if (g.slipCooldownTicks > 0 || g.climb || g.jump || !g.roof || !(rc.speedTilesPerTick > 0)) return;
   const dx = w.lx - fromX, dy = w.y - fromY;
   const share = Math.sqrt(dx * dx + dy * dy) / rc.speedTilesPerTick;
   if (share <= 0) return;

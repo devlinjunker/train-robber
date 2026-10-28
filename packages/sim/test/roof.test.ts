@@ -424,3 +424,56 @@ describe('guards find their way back to their own car', () => {
     expect({ car: gd.car, x: gd.x, y: gd.y }).toEqual({ car: post.car, x: post.x, y: post.y });
   });
 });
+
+describe('guards jumping between roofs', () => {
+  const alertOn = (sim: Sim, car: number, roof: boolean, target: { car: number; x: number }) => Object.assign(S(sim).run!.guards[0]!, {
+    car, x: 8, y: 3, fx: 1, fy: 0, roof, state: 'alert', spotted: true, lastKnown: { car: target.car, x: target.x, y: 3, roof: true }, patrol: null,
+  });
+
+  it('a guard chasing you on the next roof runs to the end and jumps the gap onto it', () => {
+    const sim = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' } }), 8, 3, 'roof', 2);
+    alertOn(sim, 1, true, { car: 2, x: 8 });
+    const ev = steps(sim, 60 * 4);
+    expect(ofType(ev, 'GuardJumped')).toEqual([expect.objectContaining({ car: 1, toCar: 2, short: false })]);
+    expect(S(sim).run!.guards[0]).toMatchObject({ car: 2, roof: true });
+  });
+
+  it('with outside.roof.guardJump.shortShare 1 it lands short on the platform; off, it never jumps', () => {
+    const short = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' }, roof: { guardJump: { enabled: true, shortShare: 1 } } }), 8, 3, 'roof', 2);
+    alertOn(short, 1, true, { car: 2, x: 8 });
+    let ev: SimEvent[] = [];
+    for (let i = 0; i < 120 && ofType(ev, 'GuardJumped').length === 0; i++) ev = ev.concat(step(short));
+    expect(ofType(ev, 'GuardJumped')).toEqual([expect.objectContaining({ short: true })]);
+    steps(short, ROOF.jump.airTicks);
+    expect(S(short).run!.guards[0]!.roof).toBe(false);
+    const off = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' }, roof: { guardJump: { enabled: false, shortShare: 0 } } }), 8, 3, 'roof', 2);
+    alertOn(off, 1, true, { car: 2, x: 8 });
+    expect(ofType(steps(off, 60 * 4), 'GuardJumped')).toEqual([]);
+  });
+
+  it('to reach a roof with no ladder it climbs a neighbour\'s, then jumps across; with no ladder down it drops off the end', () => {
+    const cars = ['engine', 'roof-car', 'roof-car'];
+    let share = 0.5;
+    const cfg = () => roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off', catchRangeTiles: 0 }, roof: { ladderCarShare: share } });
+    // Find a share that leaves a roof car without ladders.
+    const bare = [0.34, 0.5, 0.67].map((s) => { share = s; return { s, l: trainLadders(cfg(), cars) }; })
+      .map(({ s, l }) => ({ s, car: [1, 2].find((c) => !l.some((q) => q.car === c)) }))
+      .find((x) => x.car !== undefined)!;
+    share = bare.s;
+    const goal = bare.car!;
+    const sim = at(cfg(), 8, 3, 'roof', goal);
+    alertOn(sim, goal, false, { car: goal, x: 8 });
+    const ev = steps(sim, 60 * 12);
+    expect(ofType(ev, 'GuardClimbing')[0]).toMatchObject({ to: 'roof' });
+    expect(ofType(ev, 'GuardClimbing')[0]!.car).not.toBe(goal);
+    expect(ofType(ev, 'GuardJumped')[0]).toMatchObject({ toCar: goal });
+    // Calm again on the bare roof: it drops off an end to get down.
+    const gd = S(sim).run!.guards[0]!;
+    Object.assign(gd, { state: 'unaware', lastKnown: null, jump: null, climb: null, car: goal, x: 8, y: 3, roof: true });
+    // You are back down in the engine's cab, out of its sight.
+    player(sim).placement = { frame: carFrame(S(sim).world.trains[0]!.id, 0), x: 13, y: 3, layer: 'interior' };
+    const ev2 = steps(sim, 60 * 8);
+    expect(ofType(ev2, 'GuardClimbing')).toEqual([]);
+    expect(S(sim).run!.guards[0]!.roof).toBe(false);
+  });
+});
