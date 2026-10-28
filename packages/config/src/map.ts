@@ -11,6 +11,19 @@ export const ELEVATION_MAX = 8;
 const point = z.object({ x: z.number(), y: z.number() }).strict();
 const nums = z.array(z.number());
 
+/** How big a town is: a halt is a station and a water tower, a village a few houses, a town a street. */
+export const TOWN_SIZES = ['halt', 'village', 'town'] as const;
+export type TownSize = (typeof TOWN_SIZES)[number];
+/** What a town building is; the view draws each its own way. */
+export const TOWN_BUILDINGS = ['station', 'platform', 'water-tower', 'house', 'store', 'saloon', 'church', 'stable'] as const;
+export type TownBuildingKind = (typeof TOWN_BUILDINGS)[number];
+/** One building of a town's layout: a box centred on (x, y), its length along (ux, uy), for the view only. */
+const townBuilding = z.object({
+  kind: z.enum(TOWN_BUILDINGS), x: z.number(), y: z.number(), ux: z.number(), uy: z.number(),
+  halfLength: z.number().positive(), halfWidth: z.number().positive(), heightTiles: z.number().positive(),
+}).strict();
+export type TownBuilding = z.infer<typeof townBuilding>;
+
 /** A route baked into samples about half a tile apart, so the sim does no spline math. */
 export const RouteSchema = z.object({
   id: z.string(),
@@ -73,11 +86,18 @@ export const MapDefSchema = z.object({
     headwaySpreadTiles: z.number().min(0).optional(),
   }).strict().optional(),
   /**
-   * Town spots along the line: `d` is the distance along route `route`, (x, y) the middle of a flat
-   * clearing of `radiusTiles` beside the track on `side` (+1 right of travel). The sim reads
-   * `route` and `d` for the line clock; towns and timetables come in G6.
+   * Towns along the line (G6): `d` is the distance along route `route`, (x, y) the middle of a flat
+   * clearing of `radiusTiles` beside the track on `side` (+1 right of travel). Each has a name, a
+   * size and a layout of buildings, all from the seed. `end` marks the two towns at the ends of an
+   * open line, off the map, where trains set out from and arrive. The sim reads `route` and `d`
+   * (the next-town clock and the timetables); the rest is for the view.
    */
-  towns: z.array(z.object({ id: z.string(), route: z.string(), d: z.number().min(0), x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().positive() }).strict()).optional(),
+  towns: z.array(z.object({
+    id: z.string(), name: z.string(), size: z.enum(TOWN_SIZES), route: z.string(), d: z.number().min(0),
+    x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().min(0),
+    end: z.enum(['start', 'end']).optional(),
+    layout: z.array(townBuilding),
+  }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
   /**

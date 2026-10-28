@@ -1,14 +1,14 @@
 // Train scheduler: spawns trains, advances them along their routes and keeps the committed
 // one. On a loop trains run forever; which ones run comes from the map and the trainMix setting.
-// On an open line (map `openLine`) trains run one way: they enter off the start of the line a
-// headway apart and are removed once past its end.
-import { hashState } from '../hash';
+// On an open line (map `openLine`) trains run one way: they set out from the start of the line
+// on the seeded timetable (timetable.ts) and are removed once past its end.
 import { nextInt } from '../rng';
 import type { GameState, PlayerId, SimConfig, TrainState } from '../types';
 import { carCatalog, carSpacing, placeCars, trainLength, type CarPose } from './cars';
 import { pickTrainCars, trainCarsSeed } from './generate';
 import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
+import { lineTrainAt, lineTrainsAtStart, lineTrainsSettingOut, lineTrainType } from './timetable';
 import { wrapDistance, type TrackRoute } from './track';
 
 /** A train's config and route: the route the map placed it on, else the one its type names. */
@@ -42,11 +42,10 @@ export function spawnTrain(state: GameState, map: WorldMap, config: SimConfig, t
 export function initialTrains(state: GameState, map: WorldMap, config: SimConfig): MapTrain[] {
   const mix = config.values.trainMix;
   const mail = config.values.trains[mix.mailTrain]!;
-  const line = lineSlots(state.seed, map, config);
-  if (mix.mode === 'map') return line ?? (map.trains ? map.trains.map((t) => ({ ...t })) : [{ type: mix.mailTrain, route: mail.route, d: 0 }]);
+  if (map.openLine) return lineSlots(state.seed, map, config);
+  if (mix.mode === 'map') return map.trains ? map.trains.map((t) => ({ ...t })) : [{ type: mix.mailTrain, route: mail.route, d: 0 }];
   let slots: MapTrain[];
-  if (line) slots = line;
-  else if (map.trains) slots = map.trains.map((t) => ({ ...t }));
+  if (map.trains) slots = map.trains.map((t) => ({ ...t }));
   else {
     const route = map.routes.get(mail.route);
     if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${mail.route}, which map ${map.id} does not have`);
@@ -62,29 +61,21 @@ export function initialTrains(state: GameState, map: WorldMap, config: SimConfig
   return slots.map((s, i) => ({ ...s, type: blank.has(i) ? mix.blankTrain : mix.mailTrain }));
 }
 
-/**
- * The gap behind a train on an open line: `headwayTiles`, plus or minus up to `headwaySpreadTiles`
- * picked from a hash of the seed and `key`, so it needs no state and draws on no rng stream.
- */
-export function lineGap(map: WorldMap, seed: string, key: string): number {
-  const line = map.openLine!;
-  const spread = line.headwaySpreadTiles ?? 0;
-  if (spread <= 0) return line.headwayTiles;
-  const u = parseInt(hashState(`${seed}/headway/${key}`), 16) / 0x100000000;
-  return line.headwayTiles + spread * (2 * u - 1);
+/** The mail route of an open line: every line train runs on it. */
+function lineRoute(map: WorldMap, config: SimConfig) {
+  const routeId = config.values.trains[config.values.trainMix.mailTrain]!.route;
+  const route = map.routes.get(routeId);
+  if (!route) throw new Error(`train ${config.values.trainMix.mailTrain} runs on route ${routeId}, which map ${map.id} does not have`);
+  return route;
 }
 
-/** On an open line, mail trains about a headway apart along the mail route, the first half a headway in; null on a loop. */
-function lineSlots(seed: string, map: WorldMap, config: SimConfig): MapTrain[] | null {
-  if (!map.openLine) return null;
-  const mix = config.values.trainMix;
-  const routeId = config.values.trains[mix.mailTrain]!.route;
-  const route = map.routes.get(routeId);
-  if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${routeId}, which map ${map.id} does not have`);
-  const h = map.openLine.headwayTiles;
-  const out: MapTrain[] = [];
-  for (let d = h / 2, i = 0; d < route.length; d += lineGap(map, seed, `slot${i++}`)) out.push({ type: mix.mailTrain, route: routeId, d });
-  return out;
+/**
+ * On an open line, the timetable's trains already on the line at tick 0 (G6): train 0 half a
+ * headway in, the others a seeded gap apart ahead of it, each of the type the timetable gives it.
+ */
+function lineSlots(seed: string, map: WorldMap, config: SimConfig): MapTrain[] {
+  const route = lineRoute(map, config);
+  return lineTrainsAtStart(map, config, seed, route.length).map((k) => ({ type: lineTrainType(config, seed, k), route: route.id, d: lineTrainAt(map, config, seed, k, 0) }));
 }
 
 /** At load: the trains `initialTrains` lists. */
@@ -152,10 +143,9 @@ export function atLineEnd(map: WorldMap, config: SimConfig, train: TrainState): 
 
 /**
  * Open line traffic: a train whose last car is LINE_EXIT_TILES past the end leaves (a pinned one
- * stays until its run lets go of it), and once the train nearest the start of the mail route is
- * `headwayTiles` in, the next one enters a headway behind it, off the map. Its type follows
- * `trainMix`: blank with chance `blankShare` from the `schedule` stream, else mail (always mail
- * with trainMix `map` or `all-mail`).
+ * stays until its run lets go of it), and each train the timetable sets out on this tick enters at
+ * the start of the mail route, where the timetable puts it (timetable.ts). Types come from the
+ * timetable too, so nothing here draws on an rng stream.
  */
 function lineTraffic(state: GameState, map: WorldMap, config: SimConfig): void {
   const trains = state.world.trains;
@@ -165,17 +155,11 @@ function lineTraffic(state: GameState, map: WorldMap, config: SimConfig): void {
     const { route } = routeOf(map, config, t);
     if (!route.closed && t.d - trainLengthOf(config, t) > route.length + LINE_EXIT_TILES) trains.splice(i, 1);
   }
-  const mix = config.values.trainMix;
-  const routeId = config.values.trains[mix.mailTrain]!.route;
-  const h = map.openLine!.headwayTiles;
-  let first = Infinity, lead: TrainState | null = null;
-  for (const t of trains) if ((t.route ?? config.values.trains[t.type]!.route) === routeId && t.d < first) { first = t.d; lead = t; }
-  // The gap behind the train nearest the start is set by that train, so it holds still as it moves in.
-  const gap = lead ? lineGap(map, state.seed, lead.id) : h;
-  if (first === Infinity) first = gap;
-  if (first < gap) return;
-  const blank = mix.mode !== 'map' && mix.mode !== 'all-mail' && mix.blankShare > 0 && nextInt(state.rng, 'schedule', 1000) < mix.blankShare * 1000;
-  spawnTrain(state, map, config, blank ? mix.blankTrain : mix.mailTrain, first - gap, routeId);
+  // Trains have just moved to tick + 1.
+  const route = lineRoute(map, config), at = state.tick + 1;
+  for (const k of lineTrainsSettingOut(map, config, state.seed, at)) {
+    spawnTrain(state, map, config, lineTrainType(config, state.seed, k), lineTrainAt(map, config, state.seed, k, at), route.id);
+  }
 }
 
 /** Every car of every train, placed for the current state, in train then car order. */

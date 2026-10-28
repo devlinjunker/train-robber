@@ -27,16 +27,25 @@ export function runCountdownSec(config: SimConfig, trainType: string): number {
 /** A town closer than this many seconds of train travel is skipped, so the clock never starts nearly empty. */
 export const LINE_CLOCK_MIN_SEC = 30;
 
+/** The trainClock variant (G6); the pre-G6 `countdown.lineClock` wins when a config sets it. */
+export function trainClockOf(config: SimConfig): 'fixed-countdown' | 'next-town' {
+  const c = config.values.countdown;
+  if (c.lineClock) return c.lineClock === 'town' ? 'next-town' : 'fixed-countdown';
+  return c.trainClock;
+}
+
 /**
- * The line clock (`countdown.lineClock: town` on an open line): the next town at least
- * LINE_CLOCK_MIN_SEC ahead of the train, or the end of the line, and the train's time to reach it.
- * Null on loops, or when the line clock is `fixed`.
+ * The next-town clock (trainClock `next-town` on an open line): the next town at least
+ * LINE_CLOCK_MIN_SEC ahead of the train, else the town at the end of the line, and the train's time
+ * to reach it. On a line without an end town, `end` (the end of the line) stands in for it. Null on
+ * loops, or under the fixed countdown.
  */
 export function lineClock(map: WorldMap, config: SimConfig, train: TrainState): { to: string; sec: number } | null {
-  if (!map.openLine || (config.values.countdown.lineClock ?? 'town') !== 'town') return null;
+  if (!map.openLine || trainClockOf(config) !== 'next-town') return null;
   const { route } = routeOf(map, config, train);
   const speed = trainSpeed(config, train.type);
-  const town = map.towns.find((t) => t.route === route.id && (t.d - train.d) / speed >= LINE_CLOCK_MIN_SEC);
+  const ahead = map.towns.filter((t) => t.route === route.id && t.d > train.d);
+  const town = ahead.find((t) => (t.d - train.d) / speed >= LINE_CLOCK_MIN_SEC) ?? ahead.find((t) => t.end === 'end');
   const to = town?.id ?? 'end';
   return { to, sec: lineClockSec(map, config, train, to) };
 }
@@ -89,7 +98,7 @@ export function graceApplies(state: GameState, map: WorldMap, config: SimConfig,
  * add time-aboard heat, and drain the countdown at the heat's rate. Expiry itself is a run end,
  * decided in the run end system with `countdownExpired`.
  */
-export function countdownSystem(ctx: HeatCtx): void {
+export function countdownSystem(ctx: HeatCtx & { map?: WorldMap }): void {
   const { state, config } = ctx;
   const run = state.run;
   if (!run || run.phase === 'ended') return;
@@ -106,9 +115,14 @@ export function countdownSystem(ctx: HeatCtx): void {
     }
   }
   if (run.clockRunning && run.countdownSec > 0) {
-    // The line clock counts down to a place: heat does not speed the train up.
-    const rate = run.clockTo !== undefined ? 1 : drainRate(run.heat, v.heat);
-    run.countdownSec = Math.max(0, run.countdownSec - rate / v.sim.tickRateHz);
+    // The next-town clock counts down to a place: it is the train's time to get there, which heat
+    // does not change. Worked out from where the train is, so it reads right however the clock started.
+    const train = run.clockTo !== undefined && ctx.map ? state.world.trains.find((t) => t.id === run.trainId) : undefined;
+    if (train && ctx.map) run.countdownSec = lineClockSec(ctx.map, config, train, run.clockTo!);
+    else {
+      const rate = run.clockTo !== undefined ? 1 : drainRate(run.heat, v.heat);
+      run.countdownSec = Math.max(0, run.countdownSec - rate / v.sim.tickRateHz);
+    }
   }
 }
 

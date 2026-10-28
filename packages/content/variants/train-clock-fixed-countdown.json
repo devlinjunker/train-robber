@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "fixed-countdown",
+  "group": "trainClock",
+  "label": "Fixed countdown (train baseSec x scale, heat drains it)",
+  "question": "Should the run's clock be a fixed countdown or the time to the next town?",
+  "patch": {}
+}

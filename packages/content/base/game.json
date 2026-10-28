@@ -60,7 +60,7 @@
     "mountSpill": "random", "spillShare": 0.3, "pathCellTiles": 3, "stuckSec": 3,
     "passThroughBeyondTiles": 30, "goodMountStunSec": 1
   },
-  "countdown": { "enabled": true, "startsAt": "commit", "scale": 1, "graceSec": 3 },
+  "countdown": { "enabled": true, "startsAt": "commit", "scale": 1, "graceSec": 3, "trainClock": "fixed-countdown" },
   "heat": {
     "maxHeat": 100,
     "heatDrainFactor": 1.0,

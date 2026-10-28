@@ -24,6 +24,6 @@
     "pieceTiles": [160, 240], "stepTiles": 16, "maxHeadingDeg": 100, "selfGapTiles": 40, "direction": "east", "curviness": 1, "swingChance": 0.5, "swingDeg": 30, "bendShare": [0.25, 0.8],
     "centrePull": 0.5, "marginTiles": 70, "minRadiusTiles": 19, "featureTilesPerLoop": 850,
     "trainHeadwayTiles": 600, "trainHeadwaySpreadTiles": 200, "spawnAlong": [0.1, 0.25],
-    "towns": { "count": [1, 2], "along": [0.3, 0.9], "minGapTiles": 1200, "clearingRadiusTiles": 18, "gapTiles": 8 }
+    "towns": { "count": [1, 2], "along": [0.3, 0.9], "minGapTiles": 1200, "clearingRadiusTiles": 18, "gapTiles": 8, "sizeWeights": { "halt": 1, "village": 2, "town": 1 }, "endTowns": true }
   }
 }

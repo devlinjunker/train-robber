@@ -152,7 +152,7 @@ export const MapGenSchema = z.object({
     trainHeadwaySpreadTiles: z.number().min(0),
     /** The player starts beside the track between these fractions of the way along it. */
     spawnAlong: range(unit),
-    /** Town spots: a marker and a flat clearing beside the track (towns themselves come in G6). */
+    /** Towns: a marker and a flat clearing beside the track, with a name, a size and buildings (G6). */
     towns: z.object({
       count: range(z.number().int().min(0).max(4)),
       /** Fractions of the way along the line where towns may sit. */
@@ -162,6 +162,11 @@ export const MapGenSchema = z.object({
       clearingRadiusTiles: z.number().min(4).max(60),
       /** Gap between the track's centre line and the clearing's edge. */
       gapTiles: z.number().min(4),
+      /** How often each size comes up (G6); a size's buildings fit the clearing. */
+      sizeWeights: z.object({ halt: z.number().min(0), village: z.number().min(0), town: z.number().min(0) }).strict()
+        .refine((w) => w.halt + w.village + w.town > 0, 'one size needs a weight above 0'),
+      /** Add a town off each end of the line, where trains set out from and arrive (G6). */
+      endTowns: z.boolean(),
     }).strict(),
   }).strict(),
 }).strict();

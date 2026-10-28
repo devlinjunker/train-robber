@@ -2,3 +2,4 @@ export { generateMap, generateLine, GENERATED_MAP_ID, LINE_MAP_ID, GENERATOR_VER
 export { generateTrack, bakeLoop, SAMPLE_SPACING_TILES, type Track, type Vec } from './track';
 export { growLine, bakeOpen, lineControlPoints, generateLineTrack, type LinePiece, type LineSettings } from './line';
 export * from './dmath';
+export { lineTowns, townName, townLayout, type Town } from './towns';

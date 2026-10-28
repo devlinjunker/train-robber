@@ -41,7 +41,7 @@ const base = {
       jump: { airSec: 0.5, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkSec: 8 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1, guards: true, guardCatchSec: 0.8 },
     },
   },
-  countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
+  countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3, trainClock: 'fixed-countdown' },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
   loot: { densityScale: 1 },
   trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },

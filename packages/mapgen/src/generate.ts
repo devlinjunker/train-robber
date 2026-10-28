@@ -13,6 +13,7 @@ import {
 import { hashString, rng } from './dmath';
 import { generateLineTrack } from './line';
 import { generateTrack, r6, type Vec } from './track';
+import { lineTowns, type Town } from './towns';
 import { buildWindow, planWorld, ZONE_INDEX, type WorldPlan, type WorldWindow } from './world';
 
 /** Bump when a change makes the same seed and settings give a different map. */
@@ -21,8 +22,11 @@ export const GENERATOR_VERSION = 4;
 export const GENERATED_MAP_ID = 'gen';
 /** The map id of a generated open line (`?map=line`). */
 export const LINE_MAP_ID = 'line';
-/** Bump when a change makes the same seed and settings give a different open line. */
-export const LINE_GENERATOR_VERSION = 2;
+/**
+ * Bump when a change makes the same seed and settings give a different open line. 3 (G6): towns
+ * got names, sizes, buildings and a town off each end; every tile, route and marker is unchanged.
+ */
+export const LINE_GENERATOR_VERSION = 3;
 
 export interface GeneratedMap {
   /** On an open line, `terrain` builds any chunk of it on demand. */
@@ -214,14 +218,17 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
   const west = l.direction === 'west';
   const mx = (x: number) => r4(cols - x);
   const route = west ? mirrorRoute(track.route, cols) : track.route;
-  const towns = west ? plan.towns.map((t) => ({ ...t, x: mx(t.x), side: (t.side === 1 ? -1 : 1) as 1 | -1 })) : plan.towns.map((t) => ({ ...t }));
+  // Towns get their names, sizes and buildings from the east line, then are mirrored with it.
+  const eastTowns = lineTowns(seed, plan.towns, track, l.towns);
+  const towns = west ? eastTowns.map((t) => mirrorTown(t, cols)) : eastTowns;
   const playerSpawn = west ? { x: mx(plan.playerSpawn.x), y: plan.playerSpawn.y } : plan.playerSpawn;
   const bridges = west ? plan.bridges.map((b) => ({ ...b, x: r4(cols - b.x - b.w) })) : plan.bridges;
   const settings = lineSettings(given);
   const version = `line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}`;
   const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${version}/${seed}/${JSON.stringify(settings)}`).toString(16).padStart(8, '0') };
   const markers: Record<string, Vec> = { playerSpawn };
-  for (const t of towns) markers[t.id] = { x: t.x, y: t.y };
+  // A marker for each town in a clearing (the end towns are off the map).
+  for (const t of towns) if (!t.end) markers[t.id] = { x: t.x, y: t.y };
   const terrain = new LineChunks(plan, west);
   const built = whole ? wholeMap(cols, rows, terrain) : null;
   const parsed = MapDefSchema.parse({
@@ -236,8 +243,14 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
   const scenery = SceneryDefSchema.parse({ schemaVersion: 1, map: map.id, source, kindLegend: [...SCENERY_KINDS], items, bridges });
   return {
     map, scenery, minRadiusTiles: track.minRadiusTiles,
-    info: { controlPoints: track.route.points.length, trackAttempts: 1, rivers: plan.bridges.length, trackLength: track.route.length, theme, busyness, pieces: track.pieces, towns: towns.length },
+    info: { controlPoints: track.route.points.length, trackAttempts: 1, rivers: plan.bridges.length, trackLength: track.route.length, theme, busyness, pieces: track.pieces, towns: towns.filter((t) => !t.end).length },
   };
+}
+
+/** A town mirrored x to cols - x with the line: its side of the track and its buildings flip too. */
+function mirrorTown(t: Town, cols: number): Town {
+  const mx = (x: number) => r4(cols - x);
+  return { ...t, x: mx(t.x), side: (t.side === 1 ? -1 : 1) as 1 | -1, layout: t.layout.map((b) => ({ ...b, x: mx(b.x), ux: r6(-b.ux) + 0 })) };
 }
 
 /** The route mirrored x to cols - x; it keeps its direction of travel, so it now runs west. */

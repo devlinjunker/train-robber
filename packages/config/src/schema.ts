@@ -145,10 +145,13 @@ export const GameSchema = z.object({
     /** U3: how long expiry waits while the player is already escaping (horse alongside, near a door on its side). */
     graceSec: z.number().min(0),
     /**
-     * Open lines only: `town` (the default) makes the clock the committed train's time to reach the
-     * next town (or the end of the line), and heat no longer speeds it up; `fixed` keeps the
-     * train's baseSec clock that heat drains, as on loops (Devlin, PR #34).
+     * trainClock variant group (G6). `fixed-countdown`: the train's baseSec x scale clock that heat
+     * drains (Phase 2). `next-town`: on an open line, the clock is the committed train's time to
+     * reach the next town, heat does not speed it up, and the run ends as expired in that town.
+     * Loops have no towns, so they always use the fixed countdown.
      */
+    trainClock: z.enum(['fixed-countdown', 'next-town']),
+    /** Before G6 (PR #34): `town` is trainClock `next-town` and `fixed` is `fixed-countdown`. Kept so older logs replay; it wins over trainClock when set. */
     lineClock: z.enum(['town', 'fixed']).optional(),
   }).strict(),
   /** Heat 0 to maxHeat speeds up the countdown (U2). Every gain goes through raiseHeat with one of these sources. */

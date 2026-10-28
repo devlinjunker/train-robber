@@ -131,10 +131,11 @@ export type SimEvent =
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
-   * (a cash-out on F), else 0. `endOfLine`: on an open line, the committed train reached the end of
-   * the line (the run expires there).
+   * (a cash-out on F), else 0. `endOfLine`: on an open line under the fixed countdown, the committed
+   * train reached the end of the line (the run expires there). `town`: under trainClock `next-town`,
+   * the town the train pulled into when the run expired.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; town?: string }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few
@@ -319,8 +320,9 @@ export interface RunState {
   /** False until the clock starts: at commit, or on boarding with `countdown.startsAt: boarding`. */
   clockRunning: boolean;
   /**
-   * On an open line with `countdown.lineClock: town`: the town id (or `end`) the clock counts down
-   * to. The clock is then the train's time to reach it and heat does not speed it up.
+   * On an open line with trainClock `next-town`: the town id (or `end` on a line without an end
+   * town) the clock counts down to. The clock is then the train's time to reach it, worked out from
+   * where the train is each tick, and heat does not speed it up.
    */
   clockTo?: string;
   /** Ticks expiry has waited in the grace window so far (U3), up to `countdown.graceTicks`. */
@@ -528,7 +530,7 @@ export interface SimConfig {
       /** How long a good mount stuns the horse. */
       goodMountStunTicks: number;
     };
-    countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; lineClock?: 'town' | 'fixed' };
+    countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; trainClock: 'fixed-countdown' | 'next-town'; lineClock?: 'town' | 'fixed' };
     heat: {
       maxHeat: number;
       heatDrainFactor: number;
