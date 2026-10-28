@@ -44,8 +44,8 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 - **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant.
 - **How the clocks fit together.** The day clock budgets the whole day, and riding to a train and scouting use part of it. The train clock is town spacing divided by train speed, so it sets how long one robbery can last. Train length (cars and loot) has to fit that time: too long and the train can't be finished, too short and the player is left waiting. Town spacing, train speed and cars per train are therefore tuned together, starting from the Phase 2 robbery time.
 - **Being thrown off ends that train only.** Its loot is lost and the day goes on.
-- **Telling trains apart.** By sight, plus rumours and timetables you earn, so information is worth buying.
-- **Trains run one way first**, and both ways once passing loops exist.
+- **Finding and telling trains apart.** Finding a train while the day clock runs (smoke, whistles, telegraph poles) comes first, with mail trains alone (G9). Telling train types apart by sight comes once there are several types and 3D graphics, with regions (G13), plus rumours and timetables you earn, so information is worth buying. The spyglass still needs design (decided 2026-10-28).
+- **Trains run one way first**, and both ways once passing loops exist (G14a, right after the day gate). Forks come with regions (G14b).
 - **Seeds.** A new world per career, a daily seed for the daily, and `?seed=` to replay any world. The same seed builds the same world on every machine.
 - **Hand-made maps stay** as test fixtures, golden runs and the source of set pieces.
 
@@ -119,7 +119,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 
 - **World.** Hand-made isometric maps first. Generated worlds follow: seeded loops (`?map=gen`), then an open line across a long map (`?map=line`), then an endless line with towns, built in chunks as you ride.
 - **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains enter at the start and leave past the end instead; towns get seeded timetables later. Timetables show upcoming trains so you can decide which to rob, and obtaining one costs loot. Timetables are not in the alpha prototype and may be added later. Train frequency and how many run at once are configurable tuning values.
-- **Progression.** Horse upgrades, gear and weapons, a hideout, and reputation/bounty are all after the prototype. Reputation and bounty come last.
+- **Progression.** Careers (camps and a saved career, G11) and towns with a fence, outfitter, rumours and the first upgrades (G12) come before Phase 4, so the passenger and bank trains are playtested inside a career (decided 2026-10-28). Deeper progression (more horse upgrades, gear and weapons, a hideout, reputation and bounty) comes after the prototype. Reputation and bounty come last.
 - **Wanted level.** It is the only persistence the first version needs: it raises guard counts on later trains.
 
 ## Technical and non-functional requirements
@@ -127,7 +127,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 The game logic must run independently of the renderer, so a server can host it for multiplayer and the renderer can move from 2D to 3D without a rewrite.
 
 - **Multiplayer architecture (required in the plan).** A network test comes right after Phase 3 (military payroll and combat) and is kept working as later trains are added; full online play with a gang of friends comes after the prototype (decided 2026-10-27). Until then, the simulation is a standalone module with no rendering or browser dependencies. It uses a fixed timestep, takes player input as commands, and keeps its state serializable so a server can later run it as the authority.
-- **Rendering.** 2D isometric first, with 3D as the eventual preferred way to play. The alpha camera has a fixed angle with zoom levels, and rotation comes with 3D.
+- **Rendering.** 2D isometric first, with 3D as the eventual preferred way to play. The switch to live 3D comes after Phase 3 and the network test, before G10's land and set pieces, and includes a re-check that combat still reads clearly (decided 2026-10-28). The alpha camera has a fixed angle with zoom levels, and rotation comes with 3D.
 - **Art.** Placeholder shapes first. Pixel art or low-poly 3D comes later.
 - **Input.** Desktop keyboard and mouse first, with gamepad support after the alpha. Touch controls are a possible later addition.
 - **Platform.** A browser game on desktop. Mobile is not an initial target, but the possibility stays open, so avoid choices that would rule out touch controls and small screens later. The performance target is a 30 fps floor and a 60 fps target.
@@ -144,7 +144,9 @@ The prototype includes four trains (bank, passenger, military payroll and mail/e
    - **Then a network test.** Two players on one train through a simple server, with no lobby, built once combat exists so it is tested over the network early. Phases 4 and 5 keep it working, so each new train is checked over the network as it is built (decided 2026-10-27).
 4. **Passenger hold-up.** Visual cues, inspect action and armed passengers. Gate: judging passengers is a decision, not a chore.
 5. **Bank.** Vault cracking with guard interruptions. Gate: the minigame holds up under time pressure, and each train clearly favors a different playstyle while other approaches still work.
-6. **After the prototype.** Cargo and tycoon trains, then the later trains, progression, 3D rendering and full online multiplayer.
+6. **After the prototype.** Cargo and tycoon trains, then the later trains, deeper progression and full online multiplayer.
+
+**Order of work across the phases and the G series** (decided 2026-10-28; the wiki [Roadmap](https://github.com/devlinjunker/train-robber/wiki/Roadmap) keeps the live status). After the Phase 2 gate: G7 long replays, then G8 the day clock, with the Phase 3 plan written alongside them; G9 finding trains and the day gate; G14a passing loops and trains both ways; Phase 3 and the network test; the switch to live 3D; G10 land worth riding with the first map edges; G11 camps and careers and G12 towns as places, with the career gate; Phases 4 and 5; G13 regions with telling train types apart, G14b forks and the choosing-a-train gate; G15 the daily day; full online multiplayer; G16 shared world.
 
 ## Prototype requirements and test plan
 
@@ -165,8 +167,8 @@ The alpha prototype is single-player on one map with placeholder art, and trains
 
 - Timetables and their loot cost, which may be added later.
 - Cargo and tycoon trains, and throwing crates from the train.
-- Progression: horse upgrades, gear, hideout and reputation.
-- Gamepad support, 3D rendering, multiplayer (a network test comes right after Phase 3) and mobile.
+- Deeper progression: more horse upgrades, gear, hideout and reputation. Careers and town shops (G11, G12) come before Phase 4.
+- Gamepad support, full multiplayer (a network test comes right after Phase 3) and mobile. 3D rendering arrives after the network test.
 
 **Variants to test**
 
