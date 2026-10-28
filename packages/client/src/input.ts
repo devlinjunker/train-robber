@@ -91,6 +91,8 @@ export interface MapContext {
   crouchMode: 'toggle' | 'hold';
   /** Whether the sim has the player crouched now. */
   crouched(): boolean;
+  /** Aboard, whether a ladder is in reach, so E climbs it instead of searching (sneaking PR 3). */
+  climbable?(): boolean;
 }
 
 /**
@@ -145,8 +147,10 @@ export class InputMapper {
     if (!this.eDown && (eHeld || snap.actions.includes('commit'))) {
       this.eDown = true;
       // Riding, ask the sim which train, if any, can be committed; with none, interact gets the reason.
+      // Aboard at a ladder, E climbs it.
       const target = ctx.aboard ? null : ctx.commitTarget();
-      out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: true });
+      if (ctx.aboard && ctx.climbable?.()) out.push({ type: 'climb' });
+      else out.push(target ? { type: 'startRun', trainId: target } : { type: 'interact', held: true });
     }
     if (this.eDown && !eHeld) { this.eDown = false; out.push({ type: 'interact', held: false }); }
     // C aboard crouches. Held mode sends the press and the release, like E; toggle flips on each press.

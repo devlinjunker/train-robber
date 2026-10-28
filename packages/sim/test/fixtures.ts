@@ -76,11 +76,23 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
   requireSideDoors: 'both', countdown: { baseSec: 150 }, loot: { table: 'mail', density: 0.6 }, verbs: ['search'],
 };
 
+/** The shipped roof values at 60 Hz (sneaking PR 3), switched on. */
+export const ROOF: Values['outside']['roof'] = {
+  enabled: true, ladderEnds: 'both', ladderCarShare: 1, ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
+  noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
+  edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0 }, dropStumbleTicks: 36,
+  jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480 },
+  slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60, guards: true, guardCatchTicks: 48 },
+};
+/** The roof switched off, as before sneaking PR 3. */
+export const ROOF_OFF: Values['outside']['roof'] = { ...ROOF, enabled: false };
+
 /** Like the real base config at 60 Hz; `more` replaces whole sections. */
 /** Outside values that leave the cars end to end with no ledges (the layout before sneaking PR 2). */
 export const NO_OUTSIDE: Values['outside'] = {
   ledges: false, platformDepthTiles: 0, couplingGapTiles: 0, gangwayWidthTiles: 0, ledgeWidthTiles: 0, seeThroughDoorways: false,
   platformSpeedTilesPerTick: 4 / 60, ledgeSpeedTilesPerTick: 1.2 / 60, platformNoise: 1, ledgeNoiseRadiusTiles: 0, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+  roof: ROOF_OFF,
 };
 /** The shipped outside values: one-tile platforms and gap, a three-tile coupling plate, half-tile ledges and open doorways. */
 export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true, ledgeNoiseRadiusTiles: 1.5 };
@@ -102,7 +114,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       health: { max: 100 },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownTicks: 60 },
-      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
+      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,
         alongsideRangeTiles: 3, mountRangeTiles: 4, doorReachTiles: 1.5, meter: { sweepPeriodTicks: 111, zoneWidths: [0.1, 0.25] },
@@ -128,7 +140,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.
       outside: NO_OUTSIDE,

@@ -15,7 +15,7 @@ const base = {
   },
   health: { max: 100 },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
-  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
+  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold', runOffSec: 3,
@@ -24,7 +24,7 @@ const base = {
   ai: {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
     sight: { rangeTiles: 7, ledgeRangeTiles: 30, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, suspiciousStepOutside: true, suspiciousApproach: true,
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: true, suspiciousApproach: true,
   },
   extraction: {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
@@ -34,6 +34,12 @@ const base = {
   outside: {
     ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
     platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoiseRadiusTiles: 1.5, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
+    roof: {
+      enabled: true, ladderEnds: 'both', ladderCarShare: 0.67, ladderRow: 1, ladderReachTiles: 1, climbSec: 1, speedTilesPerSec: 5,
+      noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landSec: 0.25 },
+      edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0.25 }, dropStumbleSec: 0.6,
+      jump: { airSec: 0.5, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkSec: 8 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1, guards: true, guardCatchSec: 0.8 },
+    },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
   heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
@@ -42,7 +48,7 @@ const base = {
   trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
   carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
-  hud: { showTrainNames: true },
+  hud: { showTrainNames: true, lootTotalSec: 4 },
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },

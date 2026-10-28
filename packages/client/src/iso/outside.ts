@@ -4,7 +4,7 @@
 // the far ledge, as it would.
 import type { Graphics } from 'pixi.js';
 import { carToWorld, type CarPose, type SimConfig } from '@train-robber/sim';
-import { isoPoly, shade } from './draw';
+import { drawBox, isoPoly, shade } from './draw';
 
 export type OutsideDims = Pick<SimConfig['values']['outside'], 'ledges' | 'platformDepthTiles' | 'couplingGapTiles' | 'gangwayWidthTiles' | 'ledgeWidthTiles'>;
 
@@ -48,4 +48,24 @@ export function drawCarOutside(g: Graphics, car: CarPose, dims: OutsideDims, cou
     g.poly(frameRect(car, cols + P, cols + P + G, rows / 2 - w / 2, rows / 2 + w / 2, PLATE_Z)).fill(shade(COUPLING_COLOUR, 1.3)).stroke(edge);
     g.poly(frameRect(car, cols + P - 0.2, cols + P + G + 0.2, rows / 2 - 0.18, rows / 2 + 0.18, PLATE_Z + 0.01)).fill(COUPLING_COLOUR);
   }
+}
+
+export const LADDER_COLOUR = 0x3a3a40;
+/** Rails poke this far above the roof, so a ladder reads from the roof too. */
+const LADDER_TOP = 0.45;
+
+/**
+ * A ladder up a car's end wall (sneaking PR 3), at car-frame row `row` across the car: two rails just
+ * outside the wall from the platform to above the roof, `height` tiles up, with rungs between.
+ */
+export function drawLadder(g: Graphics, car: CarPose, end: 'front' | 'rear', row: number, height: number): void {
+  const cols = car.halfLength * 2;
+  const x = end === 'front' ? -0.06 : cols + 0.06, y = Math.min(row, car.halfWidth * 2 - 1) + 0.5;
+  const box = (dy: number, halfWidth: number, z0: number, z1: number) => {
+    const c = carToWorld(car, x, y + dy);
+    drawBox(g, { x: c.x, y: c.y, ux: car.ux, uy: car.uy, halfLength: 0.04, halfWidth, z0, z1 }, LADDER_COLOUR);
+  };
+  for (let z = 0.4; z < height + 0.2; z += 0.55) box(0, 0.24, z, z + 0.07);
+  box(-0.24, 0.04, 0, height + LADDER_TOP);
+  box(0.24, 0.04, 0, height + LADDER_TOP);
 }

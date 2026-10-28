@@ -3,7 +3,7 @@
 // `world/continuous.ts` will implement the same interface with a physical horse.
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
-import { gridCell, gridWalkable, fromTrain, Space, toTrain, trainGrid, type TrainGrid } from './guards';
+import { gridCell, gridWalkable, fromTrain, onRoof, Space, toTrain, trainGrid, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
@@ -118,6 +118,8 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     walkable(state, p) {
       const f = parseCarFrame(p.frame);
       if (!f) return !isSolid(terrainAt(map, p.x, p.y));
+      // Up on a roof: anywhere over the car's body (sneaking PR 3).
+      if (p.layer === 'roof') return onRoof(trainGrid(config, trainCars(state, f.trainId)), f.car, p.x, p.y);
       return trainCellWalkable(config, trainCars(state, f.trainId), f.car, p.x, p.y);
     },
     enterTrain(state, player, entry) {
@@ -172,6 +174,8 @@ export function walkAboard(state: GameState, config: SimConfig): void {
     const f = parseCarFrame(p.placement.frame);
     if (!f) continue;
     const run = state.run?.players[p.id];
+    // On a roof, on a ladder or in the air, the roof system moves you (world/roof.ts).
+    if (p.placement.layer === 'roof' || run?.climb || run?.air) continue;
     let speed = config.values.player.speedTilesPerTick;
     if (run && run.stumbleTicks > 0) {
       speed *= config.values.boarding.landing.stumbleSpeedScale;
@@ -219,10 +223,11 @@ export function walkAboard(state: GameState, config: SimConfig): void {
   }
 }
 
-/** The outside space a player aboard stands in, or `Space.Inside`; null when not aboard. */
+/** The outside space a player aboard stands in (`Space.Roof` up on a roof), or `Space.Inside`; null when not aboard. */
 export function playerSpace(state: GameState, config: SimConfig, p: PlayerState): Space | null {
   const f = parseCarFrame(p.placement.frame);
   if (!f) return null;
+  if (p.placement.layer === 'roof') return Space.Roof;
   const t = state.world.trains.find((q) => q.id === f.trainId);
   if (!t) return null;
   const grid = trainGrid(config, t.cars);

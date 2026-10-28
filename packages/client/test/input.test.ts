@@ -27,6 +27,15 @@ describe('C: boost riding, crouch aboard', () => {
   });
 });
 
+describe('E at a ladder', () => {
+  it('aboard with a ladder in reach, E climbs instead of searching', () => {
+    const m = new InputMapper();
+    expect(m.commands(snap(['KeyE'], ['commit']), iso({ aboard: true, climbable: () => true }))).toEqual([{ type: 'climb' }]);
+    expect(m.commands(snap([]), iso({ aboard: true, climbable: () => true }))).toEqual([{ type: 'interact', held: false }]);
+    expect(m.commands(snap(['KeyE'], ['commit']), iso({ aboard: true, climbable: () => false }))).toEqual([{ type: 'interact', held: true }]);
+  });
+});
+
 describe('input mapper', () => {
   it('heading steering: A/D steer and W/S throttle on move', () => {
     const m = new InputMapper();

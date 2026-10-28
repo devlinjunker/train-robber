@@ -59,7 +59,13 @@ export type Command =
    * `ai.noise.crouchRadiusTiles` of noise, and hides you behind cover of at least
    * `ai.sight.crouchCoverMin`. The client sends it as a toggle or while C is held (?crouch=).
    */
-  | { type: 'crouch'; on: boolean };
+  | { type: 'crouch'; on: boolean }
+  /**
+   * E at a ladder (sneaking PR 3): on an end platform within `outside.roof.ladderReachTiles` of a
+   * ladder, climb onto that car's roof; on a roof by a ladder at its end, climb down to the platform.
+   * Climbing takes `outside.roof.climbSec`. Space on the roof is the gap jump (`jump`).
+   */
+  | { type: 'climb' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -95,7 +101,10 @@ export type WhistleRejection = 'not aboard' | 'cooling down' | 'horse coming';
 export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
-export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
+/** Why a climb was refused. */
+export type ClimbRejection = 'no ladder' | 'busy';
+/** `on the roof`: a drop up on a roof, mid-jump or on a ladder. */
+export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -164,10 +173,33 @@ export type SimEvent =
   /** An alert guard caught the player and threw them off the train (guardCatch `thrown-off`). */
   | { type: 'ThrownOff'; tick: number; player: PlayerId; guard: number; car: number }
   /** A trackside rock knocked the player off a ledge of car `car`: they land on the horse as if thrown off. */
-  | { type: 'FellOff'; tick: number; player: PlayerId; car: number; cause: 'rock' }
+  | { type: 'FellOff'; tick: number; player: PlayerId; car: number; cause: FallCause }
+  /** The player finished climbing a ladder of car `car`'s `end`, onto its roof or down to its platform (sneaking PR 3). */
+  | { type: 'Climbed'; tick: number; player: PlayerId; car: number; end: CarEnd; to: 'roof' | 'deck' }
+  /** Space on a roof: a jump of `distanceTiles` (speed x air time plus the push) from car `car`'s roof. */
+  | { type: 'RoofJumped'; tick: number; player: PlayerId; car: number; distanceTiles: number }
+  /**
+   * A jump or a walk off a roof's end came down on car `car`: on a roof, or short onto a platform or
+   * the coupling below (a loud, staggering drop). Off the train is `FellOff` instead.
+   */
+  | { type: 'RoofLanded'; tick: number; player: PlayerId; car: number; on: 'roof' | 'platform' | 'coupling' | 'ledge'; jumped: boolean }
+  /** A curve threw the player off balance on the roof, sliding toward side `dir` (+1 right, -1 left in the car frame); `push` is the lateral pull that did it, tiles/s². */
+  | { type: 'RoofSlipped'; tick: number; player: PlayerId; car: number; dir: 1 | -1; push: number }
+  /** The player leaned into the curve long enough to get their balance back. */
+  | { type: 'RoofRecovered'; tick: number; player: PlayerId; car: number }
+  /** A guard started up (`roof`) or down (`deck`) a ladder of car `car`. */
+  | { type: 'GuardClimbing'; tick: number; guard: number; car: number; to: 'roof' | 'deck' }
+  /** A guard on a roof slipped on a curve (`outside.roof.slip.guards`); it slides outward and catches itself. */
+  | { type: 'GuardSlipped'; tick: number; guard: number; car: number; dir: 1 | -1 }
+  /** A guard on a roof jumped the gap toward car `toCar` (`outside.roof.guardJump`); `short` lands it on the platform instead. */
+  | { type: 'GuardJumped'; tick: number; guard: number; car: number; toCar: number; short: boolean }
   | { type: 'HorseBoosted'; tick: number; player: PlayerId };
 
 export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
+/** What knocked a player off the train: a trackside rock on a ledge, a bad roof jump, or a slip on a curve. */
+export type FallCause = 'rock' | 'jump' | 'slip';
+/** A car's front or rear end, where its end platform and ladder are. */
+export type CarEnd = 'front' | 'rear';
 
 /**
  * A guard aboard the committed train (phase 2 M3: perception, no combat). Positions are in its
@@ -200,10 +232,19 @@ export interface GuardState {
    * gives up the chase: still alert, it walks to where it last knew the player was and looks round.
    */
   lostTicks: number;
-  /** Where it last saw or heard the player (car frame), or null. */
-  lastKnown: { car: number; x: number; y: number } | null;
+  /** Where it last saw or heard the player (car frame; `roof` when they were on the roof), or null. */
+  lastKnown: { car: number; x: number; y: number; roof: boolean } | null;
+  /** Up on a car's roof (car `car`, at x, y on it); false on the deck: inside, a platform, a ledge or the coupling. */
+  roof: boolean;
+  /** Climbing a ladder of car `car`'s `end`: ticks left, then it is at the other end of it. */
+  climb: { ticks: number; car: number; end: CarEnd } | null;
   /** Set once it has spotted the player since it was last unaware, so the heat comes once per sighting. */
   spotted: boolean;
+  /** Slipping on a roof on a curve: sliding toward side `dir` for `ticks` more, then it has caught itself; `cooldown` ticks before the next. */
+  slip: { dir: 1 | -1; ticks: number } | null;
+  slipCooldownTicks: number;
+  /** Jumping the gap between roofs (`outside.roof.guardJump`): train x from and to over `total` ticks, landing on car `toCar`'s roof or short on the platform. */
+  jump: { ticks: number; total: number; fromLx: number; toLx: number; toRoof: boolean; toCar: number } | null;
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
@@ -237,6 +278,16 @@ export interface PlayerRunState {
   searchLatched: boolean;
   /** Crouching aboard (C): slower, quieter, hidden behind cover. Cleared on leaving the train. */
   crouched: boolean;
+  /** Climbing a ladder of car `car`'s `end` (sneaking PR 3): ticks left, then on the roof (`to: 'roof'`) or the platform. */
+  climb: { ticks: number; car: number; end: CarEnd; to: 'roof' | 'deck' } | null;
+  /** In the air after a roof jump: ticks left, and the step per tick in the takeoff car's frame. */
+  air: { ticks: number; vx: number; vy: number } | null;
+  /** Slipping on a roof on a curve: sliding toward side `dir` (car-frame y) until leaned against for `outside.roof.slip.leanSec`. */
+  slip: { dir: 1 | -1; leanTicks: number } | null;
+  /** Ticks after a recovered slip before another can start. */
+  slipCooldownTicks: number;
+  /** Ticks left of the thud of a roof landing, heard `outside.roof.noise.landRadiusTiles` away. */
+  thudTicks: number;
 }
 
 /** A loot item lying in the committed train: placed by run generation, or dropped by a player. */
@@ -448,7 +499,7 @@ export interface SimConfig {
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
     collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
-    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number };
+    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean };
     /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
     extraction: {
       /** Arrival delay range, seconds; the horse starts delay x (horse.maxSpeed - train speed) behind the last car. */
@@ -535,6 +586,7 @@ export interface SimConfig {
       loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
+      fellLootShare: number;
       suspiciousStepOutside: boolean;
       suspiciousApproach: boolean;
     };
@@ -559,6 +611,8 @@ export interface SimConfig {
       platformNoise: number;
       ledgeNoiseRadiusTiles: number;
       scrape: { glanceTiles: number; knockOff: boolean; closeDoors: boolean };
+      /** The roof (sneaking PR 3): see `RoofConfig`. */
+      roof: RoofConfig;
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
@@ -571,6 +625,39 @@ export interface SimConfig {
     lootTables: Readonly<Record<string, LootTableDef>>;
     carTemplates: Readonly<Record<string, CarTemplateDef>>;
   };
+}
+
+/**
+ * Walking on the roofs (sneaking PR 3). With `enabled`, a ladder stands on the end platform at each
+ * `ladderEnds` end of every car, at row `ladderRow`; E within `ladderReachTiles` of it climbs for
+ * `climbTicks`. Roofs walk at `speedTilesPerTick` running (walking is half; crouched is that times
+ * `player.crouch.speedScale`). Footsteps on a roof carry `noise.*` to guards in the car below and on
+ * roofs. A guard inside never sees the roof; one on a platform, the coupling or a ledge sees you within
+ * `edgeSeenTiles` (crouched `crouchEdgeSeenTiles`) of the roof edge over them. With `guardsClimb`,
+ * guards that heard or saw you up there climb up after you. Space jumps: `jump.airTicks` in the air
+ * at your speed, plus `jump.pushTiles`; short of a roof you drop to the platform (stumbling for
+ * `dropStumbleTicks`) or off the train. On a curve the pull (train speed² x curvature, tiles/s²)
+ * times your share of top roof speed past `slip.thresholdTilesPerSec2` starts a slip: you slide
+ * toward the outside at `slip.slideTilesPerTick` until you lean into the curve for `slip.leanTicks`.
+ */
+export interface RoofConfig {
+  enabled: boolean;
+  ladderEnds: 'both' | 'front' | 'rear';
+  ladderCarShare: number;
+  ladderRow: number;
+  ladderReachTiles: number;
+  climbTicks: number;
+  speedTilesPerTick: number;
+  noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; landRadiusTiles: number; landTicks: number };
+  edgeSeenTiles: number;
+  crouchEdgeSeenTiles: number;
+  guardSightTiles: number;
+  guardsClimb: boolean;
+  guardJump: { enabled: boolean; shortShare: number };
+  dropStumbleTicks: number;
+  jump: { airTicks: number; pushTiles: number; liftTiles: number };
+  fallAlert: { enabled: boolean; cars: number; checkTicks: number };
+  slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number; guards: boolean; guardCatchTicks: number };
 }
 
 export interface TrainDef {

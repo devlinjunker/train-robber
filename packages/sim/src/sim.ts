@@ -7,10 +7,11 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
-import { guardSystem } from './world/guards';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
+import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
+import { climb, roofJump, roofSystem } from './world/roof';
 
 export interface SimOptions {
   config: SimConfig;
@@ -112,7 +113,11 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
           } else if (c.type === 'quickRetry') {
             quickRetry(ctx, p);
           } else if (c.type === 'jump') {
-            jumps.add(p.id);
+            // On a roof, Space is the gap jump; anywhere else the boarding or mount jump.
+            if (state.run && (state.run.phase === 'aboard' || state.run.phase === 'extracting') && p.placement.layer === 'roof') roofJump(ctx, p, (why) => reject(ctx, p.id, 'jump', why));
+            else jumps.add(p.id);
+          } else if (c.type === 'climb') {
+            climb(ctx, p, (why) => reject(ctx, p.id, 'climb', why));
           } else if (c.type === 'debugHeat') {
             debugHeat(ctx, p, c.source);
           } else if (c.type === 'whistle') {
@@ -147,6 +152,9 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const mountJumps = aboardPhase ? jumps : new Set<PlayerId>();
       boardingSystem(ctx, aboardPhase ? new Set<PlayerId>() : jumps);
       walkAboard(state, config);
+      // 5a. Roofs: ladders, roof walking, gap jumps and slips (a bad jump or a slip is a fall).
+      const offRoof = roofSystem(ctx);
+      if (offRoof) { alertGuardsToFall(ctx, offRoof.p); throwOff(ctx, offRoof.p, null, offRoof.cause); }
       // 5b. Trackside rocks scrape a player on a ledge, or knock them off.
       const fell = ledgeRockSystem(ctx);
       if (fell) throwOff(ctx, fell, null);

@@ -48,7 +48,8 @@ export function carryRefusal(config: SimConfig, carried: readonly string[], item
 export function nearestLoot(state: GameState, p: PlayerState, maxDist: number): LootState | null {
   const f = parseCarFrame(p.placement.frame);
   const run = state.run;
-  if (!f || !run) return null;
+  // Loot is inside: none in reach from a roof.
+  if (!f || !run || p.placement.layer === 'roof') return null;
   let best: LootState | null = null, bestD = maxDist * maxDist;
   for (const l of run.loot) {
     if (l.taken || l.car !== f.car) continue;
@@ -86,6 +87,8 @@ function drop(ctx: LootCtx, p: PlayerState, rp: PlayerRunState, slot: number): v
   const run = state.run!;
   const f = parseCarFrame(p.placement.frame);
   if (!f || (run.phase !== 'aboard' && run.phase !== 'extracting')) { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'not aboard' }); return; }
+  // Nothing to put it on up on a roof (it would only roll off).
+  if (p.placement.layer === 'roof' || rp.air || rp.climb) { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'on the roof' }); return; }
   if (!Number.isInteger(slot) || slot < 0 || slot >= rp.carried.length) { ctx.emit({ type: 'CommandRejected', tick: state.tick, player: p.id, command: 'drop', reason: 'nothing to drop' }); return; }
   cancelSearch(ctx, p, rp, 'released');
   const [item] = rp.carried.splice(slot, 1) as [string];

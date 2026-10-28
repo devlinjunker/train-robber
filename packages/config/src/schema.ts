@@ -87,6 +87,11 @@ export const GameSchema = z.object({
     quickRetryGapTiles: positive,
     /** H raises heat by this much (cause `debug`), so the heat meter and drain can be playtested before loot and guards; 0 turns it off. */
     debugHeatStep: z.number().min(0),
+    /**
+     * Test setup for being seen from outside (Devlin, PR #36 playtest): the first guard stands on the
+     * left ledge of its car and the second on that car's rear platform, both on watch. Preset `roof-edge-test`.
+     */
+    edgeGuards: z.boolean(),
   }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
   /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
@@ -240,7 +245,8 @@ export const GameSchema = z.object({
     }).strict(),
   }).strict(),
   /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
-  hud: z.object({ showTrainNames: z.boolean() }).strict(),
+  /** `lootTotalSec`: how long the loot total shows in the top right after you get off the train with loot (Devlin, PR #36). */
+  hud: z.object({ showTrainNames: z.boolean(), lootTotalSec: z.number().min(0) }).strict(),
   /**
    * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
    * (1 = as before, 0 = silent); `tickVolume` multiplies `volume` for the countdown ticks. The
@@ -343,6 +349,55 @@ export const GameSchema = z.object({
     ledgeNoiseRadiusTiles: z.number().min(0),
     /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
     scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
+    /** Walking on the roofs (sneaking PR 3). */
+    roof: z.object({
+      /** Ladders and roofs are there to use (off: no ladders, so no one gets up). */
+      enabled: z.boolean(),
+      /** Which end platforms of a car with ladders have one. */
+      ladderEnds: z.enum(['both', 'front', 'rear']),
+      /** The share of a train's cars that have ladders (at least one car); which ones is fixed by the train's car list (Devlin, PR #36: 2 of 3). */
+      ladderCarShare: z.number().gt(0).max(1),
+      /** The row across the car the ladder stands at (0 is the left side; end doors are rows 2-4 of 7). */
+      ladderRow: z.number().int().min(0),
+      /** E climbs within this distance of a ladder's foot (on the platform) or its top (on the roof). */
+      ladderReachTiles: positive,
+      /** How long a climb up or down takes, for the player and for guards. */
+      climbSec: z.number().min(0),
+      /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
+      speedTilesPerSec: positive,
+      /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */
+      noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), landRadiusTiles: z.number().min(0), landSec: z.number().min(0) }).strict(),
+      /** A guard out on a platform, the coupling or a ledge sees you on a roof within this far of the edge over them (inside, never). */
+      edgeSeenTiles: z.number().min(0),
+      /** The same, crouched. */
+      crouchEdgeSeenTiles: z.number().min(0),
+      /** How far a guard up on a roof sees along the roofs (Devlin, PR #36: the whole car). */
+      guardSightTiles: positive,
+      /** Guards who heard or saw you up there climb up after you (off: they stand below and look up). */
+      guardsClimb: z.boolean(),
+      /**
+       * Guards on a roof run and jump the gap to follow you to the next car's roof, landing short on the
+       * platform this share of the time; they also climb a neighbour's ladder to reach a roof without one,
+       * and drop off a roof end when their car has no ladder down (Devlin, PR #36 playtest, 2026-10-28).
+       */
+      guardJump: z.object({ enabled: z.boolean(), shortShare: z.number().min(0).max(1) }).strict(),
+      /** A drop off a roof onto the platform or coupling (a short jump, or walking off the end) staggers you this long; it is loud, like the landing stumble. */
+      dropStumbleSec: z.number().min(0),
+      /** Space on a roof: you fly airSec at your speed, plus pushTiles; a running jump clears a gap only from near the edge. */
+      jump: z.object({ airSec: positive, pushTiles: z.number().min(0), /** How high the player is drawn at the top of a jump (view only). */ liftTiles: z.number().min(0) }).strict(),
+      /** Falling off a roof (a bad jump or a slip) brings the guards in the car you fell from and `cars` cars either side to check, for at least checkSec. */
+      fallAlert: z.object({ enabled: z.boolean(), cars: z.number().int().min(0), checkSec: z.number().min(0) }).strict(),
+      /**
+       * Slipping on curves: the curve's pull (train speed² x curvature) times your share of top roof
+       * speed at thresholdTilesPerSec2 or more starts a slip; you slide outward at slideTilesPerSec
+       * until you push the other way for leanSec; then no slip for cooldownSec.
+       */
+      slip: z.object({
+        enabled: z.boolean(), thresholdTilesPerSec2: z.number().min(0), slideTilesPerSec: z.number().min(0), leanSec: z.number().min(0), cooldownSec: z.number().min(0),
+        /** Guards on a roof slip too (Devlin, PR #36 playtest): the same pull test at their pace, sliding outward for guardCatchSec before they catch themselves; they never fall. */
+        guards: z.boolean(), guardCatchSec: z.number().min(0),
+      }).strict(),
+    }).strict(),
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({
@@ -373,6 +428,8 @@ export const GameSchema = z.object({
     catchRangeTiles: positive,
     /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
     thrownOffLootShare: z.number().min(0).max(1),
+    /** The share of carried loot lost in a fall: a rock off a ledge, a bad roof jump or a slip. */
+    fellLootShare: z.number().min(0).max(1),
     /** A suspicious guard whose sighting or sound was outside the car (platform, coupling, ledge) walks out to look there. */
     suspiciousStepOutside: z.boolean(),
     /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
