@@ -6,7 +6,7 @@ import { EXPERIMENT_NUMBERS, overridesFromSet, setParams, setupSelection, type E
 import { download, listRuns, listSessions, openDb, readLog } from './logSink';
 import pkg from '../package.json';
 import {
-  compareVersions, duration, experimentNumber, issueMarkdown, money, notesMarkdown, NUMBER_LABELS, outcomeWords, PULL_WINDOW_SEC, pullWords,
+  compareVersions, duration, experimentIssue, experimentNumber, issueMarkdown, money, notesMarkdown, NUMBER_LABELS, outcomeWords, PULL_WINDOW_SEC, pullWords,
   runVersion, sessionPull, setupKey, setupRuns, toCsv, type ExperimentReport,
 } from './playtestStats';
 import type { RunRecord } from './runTracker';
@@ -174,7 +174,8 @@ async function main() {
         <div class="actions">
           <button data-act="share" title="Copy a link that opens this experiment on anyone's Playtests page${s.repo ? '' : ' and saves it there'}">Share link</button>
           <button data-act="dup" title="Make your own editable copy">Duplicate</button>
-          <button data-act="file" title="Copy the experiment as a packages/content/playtests/*.json file">Copy as file</button>
+          <button data-act="file" title="Copy the experiment as a packages/content/playtests/*.json file${s.done ? ', marked done with its conclusion' : ''}">Copy as file</button>
+          <button data-act="gh" title="Open a GitHub issue with this experiment's results and your answers">Send to GitHub</button>
           ${s.repo ? '<button data-act="base" title="Change the base setup every setup builds on, in this browser only">Edit base</button>' : '<button data-act="edit">Edit</button><button data-act="del">Delete</button>'}
           ${s.done ? '<button data-act="reopen" title="Move it back to the open experiments">Reopen</button>' : '<button data-act="done" title="Answered: move it to Finished experiments (in this browser)">Mark done</button>'}
         </div>
@@ -229,10 +230,13 @@ async function main() {
         break;
       }
       case 'file': {
-        const text = JSON.stringify(exp, null, 2) + '\n';
+        const text = JSON.stringify(fileFor(s), null, 2) + '\n';
         void copyText(btn, text, () => download(`${exp.id}.json`, text, 'application/json'));
         break;
       }
+      case 'gh':
+        sendExperiment(s, false);
+        break;
       case 'dup': {
         const copy: Experiment = { ...structuredClone(exp), id: newExperimentId(exp.title, new Set([...repoIds, ...own.map((o) => o.id)])), title: `${exp.title} (copy)`.slice(0, 80) };
         if (s.base) copy.base = structuredClone(s.base); else delete copy.base;
@@ -262,10 +266,33 @@ async function main() {
         if (want === (exp.status ?? 'open')) delete status[exp.id];
         saveStatus(status); renderExperiments();
         if (want === 'open') flash(exp.id);
+        else if (confirm(`"${exp.title}" is done in this browser.\n\nOK: open a GitHub issue with its results, your answers and the file to commit, so it is finished for everyone.\nCancel: keep it to this browser.`)) {
+          sendExperiment({ ...s, done: true }, true);
+        }
         break;
       }
     }
   };
+  /** The experiment as a repo file: the base you play it with, and once done, `status: done` with the conclusion (your answer if it has none). */
+  function fileFor(s: Shown): Experiment {
+    const out: Experiment = structuredClone(s.exp);
+    if (s.base && Object.keys(s.base).length) out.base = structuredClone(s.base); else delete out.base;
+    if (s.done) {
+      out.status = 'done';
+      const conclusion = (s.exp.conclusion || answers[s.exp.id]?.answer || '').trim().slice(0, 400);
+      if (conclusion) out.conclusion = conclusion;
+    }
+    return out;
+  }
+  function sendExperiment(s: Shown, finishing: boolean) {
+    const rep: ExperimentReport = {
+      exp: s.exp, labels: s.exp.setups.map((setup) => selectionLabel(s.base, setup)),
+      ...(s.base && Object.keys(s.base).length ? { baseLabel: baseLabel(s.base) } : {}),
+      answers: answers[s.exp.id] ?? emptyAnswers(),
+    };
+    const { title, body } = experimentIssue(rep, visible(), getTester(), finishing ? fileFor(s) : undefined);
+    window.open(`${REPO_ISSUES}?${new URLSearchParams({ title, body, labels: 'playtest' })}`, '_blank');
+  }
   const onCardInput = (e: Event) => {
     const ta = e.target as HTMLTextAreaElement;
     const key = ta.dataset.ans as keyof Answers | undefined;

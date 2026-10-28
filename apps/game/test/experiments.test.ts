@@ -4,7 +4,7 @@ import {
   canonical, classifyIncoming, decodeExperiment, encodeExperiment, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, playQuery,
   saveAnswers, saveBases, saveOwn, shareQuery,
 } from '../src/experiments';
-import { experimentMarkdown, experimentNumber, notesMarkdown, sessionPull, issueMarkdown } from '../src/playtestStats';
+import { experimentIssue, experimentMarkdown, experimentNumber, notesMarkdown, sessionPull, issueMarkdown } from '../src/playtestStats';
 import type { RunRecord } from '../src/runTracker';
 
 const exp: Experiment = {
@@ -124,5 +124,19 @@ describe('experiment cards', () => {
     const issue = issueMarkdown([...runs, run({ exp: undefined, setup: undefined, id: 'loose' })], 6000, [rep]);
     expect(issue).toContain('### Runs outside experiments');
     expect(issue).toContain('| alpha-default ·  | 1 | 1 extracted |');
+  });
+
+  it('one experiment goes to GitHub alone, with the file to commit when it is finished', () => {
+    const rep = { exp, labels: ['a', 'b'], answers: { answer: 'Mid', next: '', prize: '', again: '' } };
+    const plain = experimentIssue(rep, runs, 'devlin');
+    expect(plain.title).toBe(`Experiment results: ${exp.title}`);
+    expect(plain.body).toMatch(/^devlin on build 0\.2\.4\./);
+    expect(plain.body).toContain('| | Tight | Mid |');
+    expect(plain.body).not.toContain('File to commit');
+    const done = experimentIssue(rep, runs, '', { ...exp, status: 'done', conclusion: 'Mid' });
+    expect(done.title).toBe(`Experiment done: ${exp.title}`);
+    expect(done.body).toContain('`packages/content/playtests/towns-abcd.json`');
+    expect(done.body).toContain('"status": "done"');
+    expect(experimentIssue(rep, runs, '', undefined, 200).body.length).toBeLessThanOrEqual(200);
   });
 });

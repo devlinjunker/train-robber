@@ -271,3 +271,19 @@ export function experimentMarkdown(rep: ExperimentReport, runs: readonly RunReco
   for (const [q, text] of answered) if (text.trim()) lines.push('', `**${q}** ${text.trim()}`);
   return lines;
 }
+
+/**
+ * A GitHub issue for one experiment: its table and answers, and when it is being finished, the
+ * experiment file to commit (with `status: done` and the conclusion) so it is done for everyone.
+ */
+export function experimentIssue(rep: ExperimentReport, runs: readonly RunRecord[], tester: string, file?: Experiment, maxChars = 7000): { title: string; body: string } {
+  const lines = [`${tester || 'A tester'} on build ${[...new Set(runs.filter((r) => r.exp === rep.exp.id).map(runVersion))].sort(compareVersions).join(', ') || '(no runs yet)'}.`, '', ...experimentMarkdown(rep, runs)];
+  if (file) {
+    lines.push('', `**File to commit** so the experiment is finished for everyone: \`packages/content/playtests/${file.id}.json\``, '', '```json', JSON.stringify(file, null, 2), '```');
+  }
+  const body = lines.join('\n');
+  return {
+    title: `${file ? 'Experiment done' : 'Experiment results'}: ${rep.exp.title}`,
+    body: body.length <= maxChars ? body : body.slice(0, maxChars - 60) + '\n\n_…cut to fit; use Copy notes for the rest._',
+  };
+}
