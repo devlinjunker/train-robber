@@ -42,6 +42,7 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 - **A day starts at camp** 300-800 tiles off the line. At dusk you pick tonight's camp from 2-3 spots near where you finished, each with a trade-off, and tomorrow starts there. Towns are where you buy and sell.
 - **Day clock.** Dawn to dusk only to start; night comes later as a twist. Dusk waits for a robbery in progress.
 - **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant.
+- **How the clocks fit together.** The day clock budgets the whole day, and riding to a train and scouting use part of it. The train clock is town spacing divided by train speed, so it sets how long one robbery can last. Train length (cars and loot) has to fit that time: too long and the train can't be finished, too short and the player is left waiting. Town spacing, train speed and cars per train are therefore tuned together, starting from the Phase 2 robbery time.
 - **Being thrown off ends that train only.** Its loot is lost and the day goes on.
 - **Telling trains apart.** By sight, plus rumours and timetables you earn, so information is worth buying.
 - **Trains run one way first**, and both ways once passing loops exist.
@@ -52,7 +53,7 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 
 ## Core loop
 
-One run is one train robbery, and a run takes either 2-5 or 8-15 minutes depending on configuration (both get playtested). On the endless line a run becomes one day, with this loop repeated for each train robbed before dusk (see World structure).
+One run is one train robbery. Phase 2 plays it as a stand-alone run and compares a short (2-5 min) and a medium (8-15 min) setup. On the endless line a robbery is one *train* inside a *day* (about 12 minutes), so the short setup is the train-sized scale and the medium setup is the day-sized one. The loop below repeats for each train robbed before dusk (see World structure).
 
 1. Pick a train from the real-time loop, using a timetable if you have bought one, and ride your horse toward it.
 2. Match speed and pull alongside the train.
@@ -105,7 +106,7 @@ You control one outlaw directly, moving mainly through the train interior.
 
 The law arrives when a base countdown reaches zero, and a heat meter shortens that countdown.
 
-- **Countdown.** A base time until the train stops and the authorities arrive. Length is configurable per train, so short and medium runs can be compared.
+- **Countdown.** A base time until the train stops and the authorities arrive. Length is configurable per train, so short and medium runs can be compared. This fixed clock, and heat's effect on it, are Phase 2 mechanisms. On the endless line the train clock (time to the next town) replaces them, so what carries forward from the Phase 2 comparison is the measured robbery time, loot value per minute and cars per train, not the countdown value.
 - **Heat.** Gunshots, alarms and being spotted, violence and kills, and time spent and loot taken all raise heat and bring the lawmen sooner. Other sources may be added.
 - **Expiry.** If the clock runs out before you extract, the run ends, the loot is lost, and you gain a wanted level. A small grace window lets you escape if you are already jumping off.
 - **Wanted level.** It makes later trains tougher by adding more guards. It starts with a few levels, and other structures such as a continuous value or named tiers stay possibilities.
@@ -138,7 +139,7 @@ The game logic must run independently of the renderer, so a server can host it f
 The prototype includes four trains (bank, passenger, military payroll and mail/express) and must prove four things: riding and boarding feel, time pressure, run length, and combat versus stealth, including that any approach is viable on any train. Built in the order below, each phase is playable on its own and ends with a playtest.
 
 1. **Riding and boarding.** One map, one blank train, the horse, the timing-meter jump and the failure rules. Gate: riding and boarding is fun before any loot exists.
-2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: compare the short and medium run configurations and pick a target length.
+2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: compare the short and medium run configurations and pick a target robbery time, recording loot value per minute and the cars per train that fit it. These are provisional inputs to G6 (town spacing and timetables) and G8 (trains per day), which re-test them on the open line.
 3. **Military payroll.** Combat, health bar and the downed-state variant. Gate: combat feels good and the health variants are compared.
    - **Then a network test.** Two players on one train through a simple server, with no lobby, built once combat exists so it is tested over the network early. Phases 4 and 5 keep it working, so each new train is checked over the network as it is built (decided 2026-10-27).
 4. **Passenger hold-up.** Visual cues, inspect action and armed passengers. Gate: judging passengers is a decision, not a chore.
