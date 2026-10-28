@@ -1,7 +1,7 @@
 {
   "name": "train-robber",
   "private": true,
-  "version": "0.2.4-chunks",
+  "version": "0.2.4",
   "type": "module",
   "workspaces": [
     "packages/*",
