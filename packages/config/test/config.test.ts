@@ -15,7 +15,7 @@ const base = {
   },
   health: { max: 100 },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
-  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
+  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold', runOffSec: 3,
@@ -38,7 +38,7 @@ const base = {
       enabled: true, ladderEnds: 'both', ladderCarShare: 0.67, ladderRow: 1, ladderReachTiles: 1, climbSec: 1, speedTilesPerSec: 5,
       noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landSec: 0.25 },
       edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, dropStumbleSec: 0.6,
-      jump: { airSec: 0.5, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkSec: 8 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1 },
+      jump: { airSec: 0.5, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkSec: 8 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1, guards: true, guardCatchSec: 0.8 },
     },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },

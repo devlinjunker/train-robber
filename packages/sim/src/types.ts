@@ -189,6 +189,8 @@ export type SimEvent =
   | { type: 'RoofRecovered'; tick: number; player: PlayerId; car: number }
   /** A guard started up (`roof`) or down (`deck`) a ladder of car `car`. */
   | { type: 'GuardClimbing'; tick: number; guard: number; car: number; to: 'roof' | 'deck' }
+  /** A guard on a roof slipped on a curve (`outside.roof.slip.guards`); it slides outward and catches itself. */
+  | { type: 'GuardSlipped'; tick: number; guard: number; car: number; dir: 1 | -1 }
   | { type: 'HorseBoosted'; tick: number; player: PlayerId };
 
 export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
@@ -236,6 +238,9 @@ export interface GuardState {
   climb: { ticks: number; car: number; end: CarEnd } | null;
   /** Set once it has spotted the player since it was last unaware, so the heat comes once per sighting. */
   spotted: boolean;
+  /** Slipping on a roof on a curve: sliding toward side `dir` for `ticks` more, then it has caught itself; `cooldown` ticks before the next. */
+  slip: { dir: 1 | -1; ticks: number } | null;
+  slipCooldownTicks: number;
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
@@ -490,7 +495,7 @@ export interface SimConfig {
     health: { max: number };
     /** Running into a train or blocked ground while on a run. */
     collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
-    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number };
+    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean };
     /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
     extraction: {
       /** Arrival delay range, seconds; the horse starts delay x (horse.maxSpeed - train speed) behind the last car. */
@@ -647,7 +652,7 @@ export interface RoofConfig {
   dropStumbleTicks: number;
   jump: { airTicks: number; pushTiles: number; liftTiles: number };
   fallAlert: { enabled: boolean; cars: number; checkTicks: number };
-  slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number };
+  slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number; guards: boolean; guardCatchTicks: number };
 }
 
 export interface TrainDef {

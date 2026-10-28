@@ -128,9 +128,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const conesMode: 'faint' | 'on' | 'off' = conesParam === 'on' || conesParam === 'off' ? conesParam : 'faint';
   // The footstep ring aboard; ?noiseRing=off hides it.
   const noiseRingOn = params.get('noiseRing') !== 'off';
-  // On a roof: the landing marker for a jump (?jumpCue=off hides it), and the guards in the car under you (?roofPeek=off hides them).
-  const jumpCueOn = params.get('jumpCue') !== 'off';
-  const roofPeekOn = params.get('roofPeek') !== 'off';
+  // On a roof: the landing marker for a jump (?jumpCue=on shows it), and the guards in the car under you
+  // (?roofPeek=on shows them). Both off by default since Devlin's PR #36 playtest (2026-10-28).
+  const jumpCueOn = params.get('jumpCue') === 'on';
+  const roofPeekOn = params.get('roofPeek') === 'on';
   // C aboard: toggle crouch on each press (default), or ?crouch=hold to crouch only while C is held.
   const crouchMode: 'toggle' | 'hold' = params.get('crouch') === 'hold' ? 'hold' : 'toggle';
   // "LOST LOOT" over your head when a good mount spills loot; ?lostLootText=off hides it.
@@ -378,10 +379,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     }
     else if (e.type === 'Climbed') show(e.to === 'roof' ? 'On the roof: guards inside cannot see you. Space jumps the gaps, E at a ladder climbs down' : 'Climbed down', 'info', e.to === 'roof' ? 3000 : 1200);
     else if (e.type === 'RoofLanded' && e.on === 'roof') { if (e.jumped) show('Clean jump', 'good', 1200); }
-    else if (e.type === 'RoofLanded') show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}`, 'warn', 2000);
+    else if (e.type === 'RoofLanded') show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}${e.jumped ? '. Run (Shift) to clear the gap' : ''}`, 'warn', 2500);
     else if (e.type === 'RoofSlipped') show('Slipping! Push away from the edge to lean into the curve', 'bad', 1500);
     else if (e.type === 'RoofRecovered') show('Caught your balance', 'good', 1200);
     else if (e.type === 'GuardClimbing' && e.to === 'roof') show('A guard is climbing up to check the roof!', 'warn', 2500);
+    else if (e.type === 'GuardSlipped') show('A guard slipped on the curve!', 'good', 1500);
     else if (e.type === 'LootLost') {
       lostOnThrow.push(itemName(e.item));
       // Thrown off with `ai.thrownOffLootShare` 1 loses everything: say so over your head (Devlin, PR #36).
@@ -540,7 +542,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         const walkR = onRoofNow ? roofCfg.noise.walkRadiusTiles : config.values.ai.noise.walkRadiusTiles;
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > walkR * 1.01, roof: onRoofNow };
       }
-      // Running on a roof: where a jump now would come down (?jumpCue=off hides it).
+      // Running on a roof: where a jump now would come down (shown with ?jumpCue=on).
       const jl = jumpCueOn && onRoofNow && frame && run ? jumpLanding(s, config, player, frame.car) : null;
       const jlCar = jl ? cars.find((c) => c.trainId === frame!.trainId && c.index === jl.car) : undefined;
       const jumpCue = jl && jlCar ? { ...carToWorld(jlCar, jl.x, jl.y), z: jl.kind === 'roof' ? CAR_HEIGHT : 0, kind: jl.kind } : null;
@@ -558,7 +560,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const seenIds = new Set<number>();
       if (runGrid && frame && runTrain && frame.trainId === runTrain.id && (onRoofNow || climbing)) {
         // Up on a roof (or a ladder) you peek at the guards in the car under you: drawn through its
-        // roof, so you can tell who might hear you (?roofPeek=off hides them).
+        // roof, so you can tell who might hear you (shown with ?roofPeek=on).
         if (roofPeekOn) for (const g of guardPoses) if (!outsideIds.has(g.id) && g.car === (climbing?.car ?? frame.car)) seenIds.add(g.id);
       } else if (runGrid && frame && runTrain && frame.trainId === runTrain.id) {
         const plx = toTrain(runGrid, frame.car, placement.x), ply = placement.y;
@@ -734,6 +736,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } : null;
       const outsideSpace = aboardPhase ? playerSpace(s, config, player) : null;
       const ladder = aboardPhase && !riding && run && !run.climb && !run.air ? ladderInReach(s, config, player) : null;
+      // Walking toward a roof end with another car beyond it: too slow to clear the gap (Devlin, PR #36 playtest).
+      const walkingAtGap = (() => {
+        if (!onRoofNow || !run || run.air || run.climb || run.slip || !runTrain) return false;
+        const f = parseCarFrame(player.placement.frame);
+        if (!f) return false;
+        const mx = player.move.x / 127, my = player.move.y / 127;
+        const n = Math.hypot(mx, my);
+        if (n < 0.05 || n > 0.75 || Math.abs(mx) < Math.abs(my)) return false;
+        const cols = trainGrid(config, runTrain.cars).carCols[f.car] ?? 0;
+        // +x on the stick is toward the front (lower car x).
+        const toEnd = mx > 0 ? player.placement.x : cols - player.placement.x;
+        const beyond = mx > 0 ? f.car > 0 : f.car < runTrain.cars.length - 1;
+        return beyond && toEnd < 3.5;
+      })();
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
         : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
@@ -745,7 +761,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
-                  : onRoofNow ? `ON THE ROOF: guards inside cannot see you, the one below can hear you. ${ladder ? 'E: climb down here' : 'Slower going; run and Space to jump the gap'}${crouched ? '  ·  crouched: quiet, low on the edges' : ''}`
+                  : onRoofNow ? `ON THE ROOF: guards inside cannot see you, the one below can hear you. ${ladder ? 'E: climb down here' : walkingAtGap ? 'Walking is too slow to clear the gap: hold Shift to run, then Space' : 'Slower going; run (Shift) and Space to jump the gap'}${crouched ? '  ·  crouched: quiet, low on the edges' : ''}`
                   : ladder ? 'E: climb the ladder to the roof'
                   : outsideSpace === Space.Ledge ? 'On the ledge: slow and quiet, but guards see you through the windows and doors. Watch for trackside rocks'
                   : outsideSpace === Space.Platform || outsideSpace === Space.Coupling ? 'On the platform: walk only, and guards see you through the end door. Through it, across the coupling, or round the corner onto a ledge'

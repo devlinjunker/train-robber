@@ -87,6 +87,11 @@ export const GameSchema = z.object({
     quickRetryGapTiles: positive,
     /** H raises heat by this much (cause `debug`), so the heat meter and drain can be playtested before loot and guards; 0 turns it off. */
     debugHeatStep: z.number().min(0),
+    /**
+     * Test setup for being seen from outside (Devlin, PR #36 playtest): the first guard stands on the
+     * left ledge of its car and the second on that car's rear platform, both on watch. Preset `roof-edge-test`.
+     */
+    edgeGuards: z.boolean(),
   }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
   /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
@@ -381,7 +386,11 @@ export const GameSchema = z.object({
        * speed at thresholdTilesPerSec2 or more starts a slip; you slide outward at slideTilesPerSec
        * until you push the other way for leanSec; then no slip for cooldownSec.
        */
-      slip: z.object({ enabled: z.boolean(), thresholdTilesPerSec2: z.number().min(0), slideTilesPerSec: z.number().min(0), leanSec: z.number().min(0), cooldownSec: z.number().min(0) }).strict(),
+      slip: z.object({
+        enabled: z.boolean(), thresholdTilesPerSec2: z.number().min(0), slideTilesPerSec: z.number().min(0), leanSec: z.number().min(0), cooldownSec: z.number().min(0),
+        /** Guards on a roof slip too (Devlin, PR #36 playtest): the same pull test at their pace, sliding outward for guardCatchSec before they catch themselves; they never fall. */
+        guards: z.boolean(), guardCatchSec: z.number().min(0),
+      }).strict(),
     }).strict(),
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */

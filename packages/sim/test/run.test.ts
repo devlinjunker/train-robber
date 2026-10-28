@@ -608,7 +608,7 @@ describe('quick retry', () => {
     }
   }
   it('is rejected when playtest.quickRetry is off', () => {
-    const sim = approach(testConfig({}, 'test0003', { playtest: { quickRetry: false, quickRetryGapTiles: 60, debugHeatStep: 10 } }));
+    const sim = approach(testConfig({}, 'test0003', { playtest: { quickRetry: false, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false } }));
     expect(rejections(step(sim, { type: 'quickRetry' }))).toEqual(['quickRetry: disabled']);
     expect(S(sim).run).not.toBeNull();
   });

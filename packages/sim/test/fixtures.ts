@@ -82,7 +82,7 @@ export const ROOF: Values['outside']['roof'] = {
   noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
   edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, dropStumbleTicks: 36,
   jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480 },
-  slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60 },
+  slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60, guards: true, guardCatchTicks: 48 },
 };
 /** The roof switched off, as before sneaking PR 3. */
 export const ROOF_OFF: Values['outside']['roof'] = { ...ROOF, enabled: false };
@@ -114,7 +114,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       health: { max: 100 },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownTicks: 60 },
-      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10 },
+      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,
         alongsideRangeTiles: 3, mountRangeTiles: 4, doorReachTiles: 1.5, meter: { sweepPeriodTicks: 111, zoneWidths: [0.1, 0.25] },

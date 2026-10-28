@@ -16,14 +16,15 @@ const CAR = asciiCar('guarded', ['#######DD#######', '#..............#', 'D.....
 });
 
 /** The shipped spacing: half-tile platforms and a one-tile gap, so roofs are 2 tiles apart. */
-function roofConfig(more: { ai?: Partial<Values['ai']>; roof?: Partial<Values['outside']['roof']>; guards?: number } = {}): SimConfig {
+function roofConfig(more: { ai?: Partial<Values['ai']>; roof?: Partial<Values['outside']['roof']>; guards?: number; cars?: number; playtest?: Partial<Values['playtest']> } = {}): SimConfig {
   const base = testConfig();
   return testConfig({}, 'roof0001', {
     outside: { ...OUTSIDE, platformDepthTiles: 0.5, couplingGapTiles: 1, roof: { ...ROOF, ...more.roof } },
     carTemplates: { ...TEST_CARS, 'roof-car': CAR },
-    trains: { ...base.values.trains, mail: { ...TEST_MAIL_TRAIN, carType: 'guarded', layouts: ['roof-car'], carCount: 1, caboose: undefined, loot: undefined, guards: { base: more.guards ?? 0 } } },
+    trains: { ...base.values.trains, mail: { ...TEST_MAIL_TRAIN, carType: 'guarded', layouts: ['roof-car'], carCount: more.cars ?? 1, caboose: undefined, loot: undefined, guards: { base: more.guards ?? 0 } } },
     trainMix: { ...base.values.trainMix, mailTrain: 'mail' },
     ai: { ...base.values.ai, ...more.ai },
+    playtest: { ...base.values.playtest, ...more.playtest },
   });
 }
 
@@ -370,5 +371,56 @@ describe("Devlin's PR #36 playtest notes", () => {
       expect(ofType([...step(sim, run, { type: 'jump' }), ...steps(sim, 30)], 'FellOff')).toHaveLength(1);
       expect(rp(sim).carried).toHaveLength(kept);
     }
+  });
+});
+
+describe("Devlin's PR #36 playtest answers (2026-10-28)", () => {
+  // Engine front at d = 159: car 1 is on the stadium's first U-turn, a right turn (see slipping on curves).
+  const D = 159;
+  const curve = { ...testMap(() => 'open', { x: 182, y: 32 }), routes: [stadium(40, 160, 50.6)] };
+  const chaser = (sim: Sim) => Object.assign(S(sim).run!.guards[0]!, {
+    car: 1, x: 12, y: 3, fx: -1, fy: 0, roof: true, state: 'alert', spotted: true, lastKnown: { car: 1, x: 2, y: 3, roof: true }, patrol: null,
+  });
+
+  it('a guard chasing along a roof on a sharp curve slips toward the outside and catches itself, never falling off', () => {
+    const sim = at(roofConfig({ guards: 1, ai: { guardCatch: 'thrown-off' } }), 2, 3, 'roof', 1, D, curve);
+    chaser(sim);
+    const ev = steps(sim, 60);
+    const slips = ofType(ev, 'GuardSlipped');
+    expect(slips[0]).toMatchObject({ guard: 0, car: 1, dir: -1 });
+    const gd = S(sim).run!.guards[0]!;
+    expect(gd.roof).toBe(true);
+    expect(gd.y).toBeGreaterThanOrEqual(0.3);
+  });
+
+  it('no guard slips on the straight, or with outside.roof.slip.guards off', () => {
+    const straight = at(roofConfig({ guards: 1, ai: { guardCatch: 'thrown-off' } }), 2, 3, 'roof', 1, 100);
+    chaser(straight);
+    expect(ofType(steps(straight, 60), 'GuardSlipped')).toEqual([]);
+    const off = at(roofConfig({ guards: 1, ai: { guardCatch: 'thrown-off' }, roof: { slip: { ...ROOF.slip, guards: false } } }), 2, 3, 'roof', 1, D, curve);
+    chaser(off);
+    expect(ofType(steps(off, 60), 'GuardSlipped')).toEqual([]);
+  });
+
+  it('playtest.edgeGuards puts the first guard on its car\'s left ledge and the second on its rear platform, on watch', () => {
+    const sim = at(roofConfig({ guards: 2, cars: 2, playtest: { edgeGuards: true } }), 8, 3, 'roof');
+    const [a, b] = S(sim).run!.guards;
+    expect(a).toMatchObject({ car: 1, x: 2, patrol: null, fx: 1 });
+    expect(a!.y).toBeLessThan(0);
+    expect(b).toMatchObject({ car: 1, x: 16.25, y: 3, patrol: null, fx: -1 });
+    steps(sim, 60);
+    expect(S(sim).run!.guards[0]).toMatchObject({ x: 2 });
+    expect(S(sim).run!.guards[1]).toMatchObject({ x: 16.25 });
+  });
+});
+
+describe('guards find their way back to their own car', () => {
+  it('an unaware guard left in the next car (after a chase) walks back to its post through the doors', () => {
+    const sim = at(roofConfig({ guards: 1, cars: 2 }), 8, 3, 'roof', 1);
+    const gd = S(sim).run!.guards[0]!;
+    const post = { ...gd.post };
+    Object.assign(gd, { car: post.car === 1 ? 2 : 1, x: 8, y: 3, state: 'unaware', patrol: null });
+    steps(sim, 60 * 20);
+    expect({ car: gd.car, x: gd.x, y: gd.y }).toEqual({ car: post.car, x: post.x, y: post.y });
   });
 });

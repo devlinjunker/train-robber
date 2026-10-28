@@ -15,7 +15,9 @@
 import { nextInt, type StreamName } from '../rng';
 import type { CarEnd, GameState, GuardAwareness, GuardState, PlayerState, SimConfig, SimEvent, TrainState } from '../types';
 import { carCatalog, carTemplate, type CarCatalog } from './cars';
+import { curvePull } from './curve';
 import { parseCarFrame } from './frames';
+import type { WorldMap } from './map';
 import { raiseHeatFor } from '../rules/heat';
 
 const GEN: StreamName = 'gen';
@@ -24,6 +26,8 @@ const GEN: StreamName = 'gen';
 export interface GuardCtx {
   state: GameState;
   config: SimConfig;
+  /** The world map, for the curve under a roof guard (guards slip with it); without one they never slip. */
+  map?: WorldMap;
   emit(ev: SimEvent): void;
 }
 
@@ -466,7 +470,7 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     [order[i], order[j]] = [order[j]!, order[i]!];
   }
   const picked = order.slice(0, take).sort((a, b) => a - b);
-  return picked.map((si, id) => {
+  const guards = picked.map((si, id) => {
     const { car, spawn } = spawns[si]!;
     const [fx, fy] = FACING[spawn.facing] ?? FACING.left!;
     const x = spawn.cell[0] + 0.5, y = spawn.cell[1] + 0.5;
@@ -482,8 +486,30 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     return {
       id, car, x, y, fx, fy, state: 'unaware' as GuardAwareness,
       post: { car, x, y, fx, fy }, patrol: route && route.length ? spawn.patrol! : null,
-      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false, roof: false, climb: null,
+      waypoint, dir, waitTicks: 0, sightTicks: 0, calmTicks: 0, lostTicks: 0, lastKnown: null, spotted: false, roof: false, climb: null, slip: null, slipCooldownTicks: 0,
     };
+  });
+  if (config.values.playtest.edgeGuards && guards.length > 0) placeEdgeGuards(config, train, guards);
+  return guards;
+}
+
+/**
+ * `playtest.edgeGuards`: the first guard stands watch on its car's left ledge, two tiles in from the
+ * front and looking toward the rear, and the second on that car's rear platform looking forward, so
+ * being seen from outside can be tried on demand (preset `roof-edge-test`).
+ */
+function placeEdgeGuards(config: SimConfig, train: TrainState, guards: GuardState[]): void {
+  const o = config.values.outside;
+  const car = guards[0]!.car;
+  const { cols, rows } = carTemplate(carCatalog(config), train.cars[car]!).size;
+  const spots = [
+    { x: 2, y: -o.ledgeWidthTiles / 2, fx: 1, fy: 0 },
+    { x: cols + o.platformDepthTiles / 2, y: rows / 2, fx: -1, fy: 0 },
+  ];
+  spots.forEach((p, i) => {
+    const g = guards[i];
+    if (!g) return;
+    Object.assign(g, { car, x: p.x, y: p.y, fx: p.fx, fy: p.fy, post: { car, ...p }, patrol: null, waypoint: 0 });
   });
 }
 
@@ -796,11 +822,12 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       const d2 = dx * dx + dy * dy;
       if (d2 < GUARD_GAP * GUARD_GAP && d2 < ox * ox + oy * oy) { w.lx = fromX; w.y = fromY; }
     }
+    if (g.roof) slipGuard(ctx, grid, train, g, w, fromX, fromY);
     // A guard on a roof stays in that car's frame; one below takes the car whose stretch it is in.
     const at = g.roof ? { car: roofCarAt(grid, w.lx) >= 0 ? roofCarAt(grid, w.lx) : g.car, x: 0 } : fromTrain(grid, w.lx);
     if (g.roof) at.x = w.lx - grid.offsets[at.car]!;
     g.car = at.car; g.x = at.x; g.y = w.y; g.fx = w.fx; g.fy = w.fy;
-    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && g.roof === target.roof && !target.air) {
+    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && !g.slip && g.roof === target.roof && !target.air) {
       const dx = target.lx - w.lx, dy = target.y - w.y;
       if (dx * dx + dy * dy <= ai.catchRangeTiles * ai.catchRangeTiles) caught = { guard: g, player: target.p };
     }
@@ -808,13 +835,44 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
   return caught;
 }
 
+/**
+ * A guard up on a roof slips on a curve as the player does (Devlin, PR #36 playtest), when the pull
+ * times its pace as a share of the top roof speed reaches `outside.roof.slip.thresholdTilesPerSec2`:
+ * it slides toward the outside for `slip.guardCatchSec` instead of moving, then has caught itself
+ * (it never falls off), and cannot catch the player meanwhile. Then no slip for `slip.cooldownSec`.
+ */
+function slipGuard(ctx: GuardCtx, grid: TrainGrid, train: TrainState, g: GuardState, w: Walker, fromX: number, fromY: number): void {
+  const rc = ctx.config.values.outside.roof, sl = rc.slip;
+  if (!ctx.map || !sl.enabled || !sl.guards) { g.slip = null; return; }
+  if (g.slipCooldownTicks > 0) g.slipCooldownTicks -= 1;
+  if (g.slip) {
+    const rows = grid.carRows[g.car] ?? 1, r = GUARD_GAP / 2;
+    w.lx = fromX;
+    w.y = Math.max(r, Math.min(rows - r, fromY + g.slip.dir * sl.slideTilesPerTick));
+    if (--g.slip.ticks <= 0) { g.slip = null; g.slipCooldownTicks = sl.cooldownTicks; }
+    return;
+  }
+  if (g.slipCooldownTicks > 0 || g.climb || !g.roof || !(rc.speedTilesPerTick > 0)) return;
+  const dx = w.lx - fromX, dy = w.y - fromY;
+  const share = Math.sqrt(dx * dx + dy * dy) / rc.speedTilesPerTick;
+  if (share <= 0) return;
+  const pull = curvePull(ctx.state, ctx.map, ctx.config, train.id, g.car);
+  if (Math.abs(pull) * share < sl.thresholdTilesPerSec2) return;
+  const dir: 1 | -1 = pull > 0 ? 1 : -1;
+  g.slip = { dir, ticks: sl.guardCatchTicks };
+  ctx.emit({ type: 'GuardSlipped', tick: ctx.state.tick, guard: g.id, car: g.car, dir });
+}
+
 /** An unaware guard walks its route (pausing at the ends of one that is not a loop), or goes back to its post and keeps watch. */
 function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values']['ai'], config: SimConfig, train: TrainState, turn: (w: Walker, x: number, y: number) => void): void {
   const route = g.patrol ? config.values.carTemplates[train.cars[g.post.car]!]?.patrols[g.patrol] : undefined;
   const off = grid.offsets[g.post.car] ?? 0;
+  // A patrol stays inside its car, but a guard left in another car (after a chase) goes back by any
+  // route: through the doors, over the platforms (Devlin, PR #36 playtest: guards forgot their routes).
+  const inside = fromTrain(grid, w.lx).car === g.post.car;
   if (!route || route.length === 0) {
     const px = off + g.post.x;
-    if (Math.abs(w.lx - px) > 1e-6 || Math.abs(w.y - g.post.y) > 1e-6) walkToward(grid, w, px, g.post.y, ai.patrolSpeedTilesPerTick, turn, true);
+    if (Math.abs(w.lx - px) > 1e-6 || Math.abs(w.y - g.post.y) > 1e-6) walkToward(grid, w, px, g.post.y, ai.patrolSpeedTilesPerTick, turn, inside);
     else turn(w, g.post.fx, g.post.fy);
     return;
   }
@@ -827,7 +885,7 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
     return;
   }
   const [c, r] = cell(g.waypoint);
-  if (!walkToward(grid, w, off + c + 0.5, r + 0.5, ai.patrolSpeedTilesPerTick, turn, true)) return;
+  if (!walkToward(grid, w, off + c + 0.5, r + 0.5, ai.patrolSpeedTilesPerTick, turn, inside)) return;
   if (route.length === 1) return;
   let next = g.waypoint + g.dir;
   if (isLoop(route)) next = (next + route.length) % route.length;

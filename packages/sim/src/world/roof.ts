@@ -5,14 +5,14 @@
 // The player's placement keeps its car frame, with `layer: 'roof'`: x along the car's roof, y across
 // it. Climbing, jumps and slips live in the run's player state, so a snapshot resumes mid-jump.
 import type { CarEnd, FallCause, GameState, PlayerRunState, PlayerState, SimConfig, SimEvent } from '../types';
-import { carCatalog, carSpacing, carTemplate } from './cars';
 import { carFrame, parseCarFrame } from './frames';
 import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import type { WorldMap } from './map';
-import { trackAt } from './track';
-import { routeOf, trainSpeed } from './trains';
+import { curvePull } from './curve';
 import { WALKER_RADIUS, walkerFits } from './separate';
+
+export { curvePull };
 
 /** What the roof systems need from the tick; `RunCtx` satisfies it. */
 export interface RoofCtx {
@@ -100,25 +100,6 @@ export function roofJump(ctx: RoofCtx, p: PlayerState, reject: (reason: 'busy' |
   ctx.emit({ type: 'RoofJumped', tick: ctx.state.tick, player: p.id, car: f.car, distanceTiles: step * air });
 }
 
-/**
- * The pull of the curve on car `car` of a train, in tiles/s² across the car frame: + pushes toward
- * the right side (+y), - toward the left. It is the train's speed squared times the curvature of the
- * track under the car, from the turn between the tangents at the car's front and rear (so no trig).
- */
-export function curvePull(state: GameState, map: WorldMap, config: SimConfig, trainId: string, car: number): number {
-  const t = state.world.trains.find((q) => q.id === trainId);
-  if (!t) return 0;
-  const { route } = routeOf(map, config, t);
-  const catalog = carCatalog(config), spacing = carSpacing(config);
-  let off = 0;
-  for (let i = 0; i < car; i++) off += carTemplate(catalog, t.cars[i]!).size.cols + spacing;
-  const len = carTemplate(catalog, t.cars[car]!).size.cols;
-  const a = trackAt(route, t.d - off), b = trackAt(route, t.d - off - len);
-  // Turning right (the front tangent clockwise of the rear one on screen) throws you to the left.
-  const cross = b.tx * a.ty - b.ty * a.tx;
-  const v = trainSpeed(config, t.type);
-  return len > 0 ? -(v * v * cross) / len : 0;
-}
 
 /**
  * Nudge a point on a platform or the coupling until a walker fits there (out of the end wall), at

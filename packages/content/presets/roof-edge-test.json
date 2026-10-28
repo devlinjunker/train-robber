@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "roof-edge-test",
+  "extends": "alpha-default",
+  "variants": {
+    "trainMix": "all-mail"
+  },
+  "values": {
+    "playtest": { "edgeGuards": true },
+    "trains": {
+      "mail-express": { "carCount": 2, "guards": { "base": 1, "perCar": 0.5 } }
+    },
+    "outside": { "roof": { "ladderCarShare": 1 } }
+  }
+}

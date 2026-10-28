@@ -30,7 +30,7 @@
       "ladderReachTiles": 1,
       "climbSec": 1,
       "speedTilesPerSec": 5,
-      "noise": { "walkRadiusTiles": 3, "runRadiusTiles": 6, "crouchRadiusTiles": 1.5, "landRadiusTiles": 6, "landSec": 0.25 },
+      "noise": { "walkRadiusTiles": 3, "runRadiusTiles": 6, "crouchRadiusTiles": 1.5, "landRadiusTiles": 8, "landSec": 1 },
       "edgeSeenTiles": 1.5,
       "crouchEdgeSeenTiles": 0.5,
       "guardSightTiles": 30,
@@ -38,7 +38,7 @@
       "dropStumbleSec": 0.6,
       "jump": { "airSec": 0.5, "pushTiles": 0.75, "liftTiles": 0.6 },
       "fallAlert": { "enabled": true, "cars": 1, "checkSec": 8 },
-      "slip": { "enabled": true, "thresholdTilesPerSec2": 0.6, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1 }
+      "slip": { "enabled": true, "thresholdTilesPerSec2": 0.9, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1, "guards": true, "guardCatchSec": 0.8 }
     }
   },
   "commit": { "rangeTiles": 12, "timerSec": 2, "closeRangeTiles": 4, "promptSwitch": true, "switchTimerSec": 3, "cancelInPlace": true, "switchRangeTiles": 30, "autoSwitch": false, "autoSwitchMarginTiles": 4 },
@@ -51,7 +51,7 @@
   },
   "health": { "max": 100 },
   "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "cooldownSec": 1 },
-  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10 },
+  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10, "edgeGuards": false },
   "extraction": {
     "arrivalDelaySec": [5, 20], "paceWindowSec": 10, "rewhistleCooldownSec": 5, "laneOffsetTiles": 2, "dropBackSec": 3,
     "alongsideRangeTiles": 3, "mountRangeTiles": 4, "doorReachTiles": 1.5,
