@@ -85,6 +85,21 @@ describe('run tracker', () => {
     ], 'T4');
     expect(p).toMatchObject({ wantedLevel: 3, practice: true, wantedAfter: 2 });
   });
+  it('M5: records the save id, and links a resumed run to the run it picked up', () => {
+    const t = createRunTracker({ ...meta, saveId: 'save42' });
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    const [first] = t.events([ev({ type: 'RunEnded', tick: 100, player: 1, outcome: 'cancelled', durationTicks: 100, boardingAttempts: 1, retry: false, countdownLeftSec: 140, heat: 0, cashOut: 0 })], 'T1');
+    expect(first).toMatchObject({ saveId: 'save42' });
+    expect(first!.resumedFrom).toBeUndefined();
+    t.events([ev({ type: 'RunStarted', tick: 200, player: 1, runNumber: 2, trainId: 'mail-1', countdownSec: 150, wantedLevel: 0, resumed: true })], 'T2');
+    const [second] = t.events([ev({ type: 'RunEnded', tick: 300, player: 1, outcome: 'expired', durationTicks: 300, boardingAttempts: 1, retry: false, countdownLeftSec: 0, heat: 0, cashOut: 0 })], 'T3');
+    expect(second).toMatchObject({ resumedFrom: first!.id, saveId: 'save42' });
+    // A fresh commit to that train later is not a resume.
+    t.events([ev({ type: 'RunStarted', tick: 400, player: 1, runNumber: 3, trainId: 'mail-1', countdownSec: 150, wantedLevel: 1 })], 'T4');
+    const [third] = t.events([ev({ type: 'RunEnded', tick: 500, player: 1, outcome: 'died', durationTicks: 100, boardingAttempts: 4, retry: false, countdownLeftSec: 100, heat: 0, cashOut: 0 })], 'T5');
+    expect(third!.resumedFrom).toBeUndefined();
+    expect(toCsv([second!]).split('\n')[1]).toContain('save42');
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);

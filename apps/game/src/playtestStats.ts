@@ -87,7 +87,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -101,7 +101,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
       ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
       notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
-      cashOut: r.cashOut, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice,
+      cashOut: r.cashOut, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, resumedFrom: r.resumedFrom,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });

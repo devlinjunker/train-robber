@@ -99,7 +99,7 @@ async function boot() {
 
   const tracker = createRunTracker({
     session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants, overrides: header.overrides,
-    seed, mapId: header.mapId, url: location.search, tickRateHz,
+    seed, mapId: header.mapId, url: location.search, tickRateHz, saveId: save.saveId,
   });
   const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };
 

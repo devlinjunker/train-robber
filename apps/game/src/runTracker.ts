@@ -19,6 +19,8 @@ export interface SessionMeta {
   mapId: string;
   url: string;
   tickRateHz: number;
+  /** The save the session played on (phase 2 M5): runs with the same id carry wanted level and bank from one to the next. Missing on older records. */
+  saveId?: string;
 }
 
 export interface RunNote { t: number; text: string }
@@ -67,11 +69,13 @@ export interface RunRecord extends SessionMeta {
   lifetimeAfter?: number;
   /** A `wanted.forceLevel` run (practice): nothing was saved. */
   practice?: boolean;
+  /** The run this one picked up after an in-place cancel (Esc on the horse, then recommitting to the same train): its record id. */
+  resumedFrom?: string;
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; practice: boolean }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; practice: boolean; resumedFrom?: string }
 
 export interface RunTracker {
   /**
@@ -92,6 +96,8 @@ export interface RunTracker {
 export function createRunTracker(meta: SessionMeta): RunTracker {
   let open: Open | null = null;
   let last: RunRecord | null = null;
+  // The last run cancelled on each train, which a resumed commit to that train picks up.
+  const cancelledOn = new Map<string, string>();
 
   const build = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => ({
     ...meta, id: `${meta.session}#${o.runNumber}`, runNumber: o.runNumber, trainId: o.trainId, startTick: o.startTick, startedAt: o.startedAt, endedAt: now,
@@ -101,7 +107,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
     lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
-    lootLost: o.lootLost, wantedLevel: o.wantedLevel, practice: o.practice,
+    lootLost: o.lootLost, wantedLevel: o.wantedLevel, practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -123,7 +129,8 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
           continue;
         }
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, practice: !!ev.practice };
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, practice: !!ev.practice,
+            ...(ev.resumed && cancelledOn.has(ev.trainId) ? { resumedFrom: cancelledOn.get(ev.trainId)! } : {}) };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
         else if (ev.type === 'RunPhaseChanged') {
@@ -142,7 +149,9 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
-          ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));
+          const rec = close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now);
+          if (ev.outcome === 'cancelled' && !ev.retry) cancelledOn.set(rec.trainId, rec.id); else cancelledOn.delete(rec.trainId);
+          ended.push(rec);
         }
       }
       return ended;

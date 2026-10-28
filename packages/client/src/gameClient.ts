@@ -868,6 +868,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },
+        // The saved bank (a replay shows the bank its log started from, as it changed).
+        bank: s.persistent.bank,
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,

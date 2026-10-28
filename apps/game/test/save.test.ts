@@ -9,14 +9,21 @@ class MemoryStorage implements KeyValueStorage {
 }
 
 const NOW = '2026-10-28T09:00:00.000Z';
-const store = (m = new MemoryStorage()) => ({ m, s: new LocalStorageStore(m, () => NOW) });
+let ids = 0;
+const store = (m = new MemoryStorage()) => ({ m, s: new LocalStorageStore(m, () => NOW, () => `id${++ids}`) });
+/** The empty save with whatever id the store gave it. */
+const fresh = (id: string) => emptySave(id);
 const entry = (score: number, date = NOW): LeaderboardEntry => ({ score, seed: 's', configHash: 'h', preset: 'alpha-default', variants: {}, date, gameVersion: '0.2.5', outcome: 'extracted', trainId: 'mail-1', mapId: 'alpha-flats', wantedLevel: 0 });
 
 describe('LocalStorageStore', () => {
   it('starts empty, saves and loads back under the versioned key', async () => {
     const { m, s } = store();
-    expect(await s.load()).toEqual({ data: emptySave() });
-    const data = { version: SAVE_VERSION, persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)] };
+    const first = await s.load();
+    expect(first).toEqual({ data: fresh(first.data.saveId) });
+    expect(first.data.saveId).toMatch(/^id\d+$/);
+    // The new save is written at once, so the next load keeps its id.
+    expect((await s.load()).data.saveId).toBe(first.data.saveId);
+    const data = { version: SAVE_VERSION, saveId: 'abc', persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)] };
     await s.save(data);
     expect(JSON.parse(m.getItem(SAVE_KEY)!).version).toBe(SAVE_VERSION);
     expect(await s.load()).toEqual({ data });
@@ -27,7 +34,10 @@ describe('LocalStorageStore', () => {
     m.setItem(SAVE_KEY, JSON.stringify({ wantedLevel: 1, bank: 50, lifetimeEarned: 75 }));
     const r = await s.load();
     expect(r.problem).toBeUndefined();
-    expect(r.data).toEqual({ version: 1, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [] });
+    expect(r.data).toEqual({ version: 1, saveId: r.data.saveId, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [] });
+    // A save without an id gets one, kept from then on.
+    expect(r.data.saveId).not.toBe('');
+    expect((await s.load()).data.saveId).toBe(r.data.saveId);
   });
 
   it.each([
@@ -43,11 +53,11 @@ describe('LocalStorageStore', () => {
     m.setItem(SAVE_KEY, text);
     const r = await s.load();
     expect(r.problem).toBe('corrupt');
-    expect(r.data).toEqual(emptySave());
+    expect(r.data).toEqual(fresh(r.data.saveId));
     expect(r.backupKey).toBe(`${BACKUP_KEY_PREFIX}${NOW}`);
     expect(m.getItem(r.backupKey!)).toBe(text);
-    // The reset save is written, so the next load is clean.
-    expect(await s.load()).toEqual({ data: emptySave() });
+    // The reset save is written, so the next load is clean and keeps the new id.
+    expect(await s.load()).toEqual({ data: r.data });
   });
 
   it('backs up and resets a save from a newer version', async () => {
@@ -61,26 +71,29 @@ describe('LocalStorageStore', () => {
   });
 
   it('drops bad leaderboard rows but keeps the rest of the save', () => {
-    const r = parseSave(JSON.stringify({ version: 1, persistent: { wantedLevel: 0, bank: 5, lifetimeEarned: 5 }, leaderboard: [entry(5), { score: 'x' }, null] }));
+    const r = parseSave(JSON.stringify({ version: 1, saveId: 's', persistent: { wantedLevel: 0, bank: 5, lifetimeEarned: 5 }, leaderboard: [entry(5), { score: 'x' }, null] }));
     expect('data' in r && r.data.leaderboard).toEqual([entry(5)]);
   });
 
   it('reset backs up the old save and starts fresh', async () => {
     const { m, s } = store();
-    await s.save({ version: 1, persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [] });
+    await s.save({ version: 1, saveId: 'old', persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [] });
     const key = await s.reset();
     expect(key).toBe(`${BACKUP_KEY_PREFIX}${NOW}`);
     expect(JSON.parse(m.getItem(key!)!).persistent.wantedLevel).toBe(4);
-    expect((await s.load()).data).toEqual(emptySave());
+    const after = (await s.load()).data;
+    expect(after).toEqual(fresh(after.saveId));
+    // A reset starts a new save: a new id.
+    expect(after.saveId).not.toBe('old');
     // Nothing saved yet: nothing to back up.
     expect(await store().s.reset()).toBeNull();
   });
 
   it('acts as empty when storage throws (blocked site data)', async () => {
     const broken: KeyValueStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => {} };
-    const s = new LocalStorageStore(broken);
-    expect(await s.load()).toEqual({ data: emptySave() });
-    await expect(s.save(emptySave())).resolves.toBeUndefined();
+    const s = new LocalStorageStore(broken, () => NOW, () => 'x');
+    expect(await s.load()).toEqual({ data: emptySave('x') });
+    await expect(s.save(emptySave('x'))).resolves.toBeUndefined();
   });
 });
 
