@@ -69,7 +69,7 @@ You reach the train on horseback, and boarding is a timing-meter jump.
 - **Riding.** Direct control of a horse. Speed and terrain matter. Handling is arcade to start, with stamina-based and speed-tier handling kept as options to playtest.
 - **Boarding.** A timing meter; better timing means a cleaner landing. Quick-time button prompts are a possible addition; playtest both to find what is most fun without being too difficult.
 - **Failure.** You lose time and take damage, the train keeps moving, and you can retry.
-- **Cancel.** You can abort a run at any point, but cancelling loses any loot you have not extracted. It carries no wanted level to start.
+- **Cancel.** You can abort a run at any point, but cancelling loses any loot you have not extracted. Like every ending, it rolls heat for a wanted level.
 - **Entry points.** These vary by train. Some trains restrict where you can board.
 
 Still to define: how long the horse can run beside the train, obstacles such as rocks and rivers, and whether the horse can be hurt.
@@ -104,14 +104,14 @@ You control one outlaw directly, moving mainly through the train interior.
 
 ## Time pressure and run end
 
-The law arrives when a base countdown reaches zero, and a heat meter shortens that countdown.
+The law arrives when the clock reaches zero. On the open line the clock is the train's time to the next town. Heat no longer shortens it (decided 2026-10-28): heat makes guards sharper and raises the chance of a wanted level.
 
 - **Countdown.** A base time until the train stops and the authorities arrive. Length is configurable per train, so short and medium runs can be compared. This fixed clock, and heat's effect on it, are Phase 2 mechanisms. On the endless line the train clock (time to the next town) replaces them, so what carries forward from the Phase 2 comparison is the measured robbery time, loot value per minute and cars per train, not the countdown value.
-- **Heat.** Gunshots, alarms and being spotted, violence and kills, and time spent and loot taken all raise heat and bring the lawmen sooner. Other sources may be added.
+- **Heat.** Gunshots, alarms and being spotted, violence and kills, and loot taken all raise heat. Higher heat makes guards more alert, quicker to chase and slower to calm down, and once combat exists more likely to shoot. Heat at the end of a robbery is the percent chance of gaining a wanted level, even after a clean getaway. Other sources may be added.
 - **Expiry.** If the clock runs out before you extract, the run ends, the loot is lost, and you gain a wanted level. A small grace window lets you escape if you are already jumping off.
 - **Wanted level.** It makes later trains tougher by adding more guards. It starts with a few levels, and other structures such as a continuous value or named tiers stay possibilities.
 
-Still to define: whether wanted level decays over time. Cancelling a run adds no wanted level to start, and is revisited if playtests show abuse. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
+Wanted level drops by one each day; paying it off comes later with careers and towns. Cancelling a run rolls heat for a wanted level like every other ending, so it can't be used to dodge one. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
 
 ## World, schedule and progression
 
@@ -139,7 +139,7 @@ The game logic must run independently of the renderer, so a server can host it f
 The prototype includes four trains (bank, passenger, military payroll and mail/express) and must prove four things: riding and boarding feel, time pressure, run length, and combat versus stealth, including that any approach is viable on any train. Built in the order below, each phase is playable on its own and ends with a playtest.
 
 1. **Riding and boarding.** One map, one blank train, the horse, the timing-meter jump and the failure rules. Gate: riding and boarding is fun before any loot exists.
-2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: compare the short and medium run configurations and pick a target robbery time, recording loot value per minute and the cars per train that fit it. These are provisional inputs to G6 (town spacing and timetables) and G8 (trains per day), which re-test them on the open line.
+2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: played on the open line, pick the town spacing (robbery time), cars per train and baseline carry that make a robbery fun enough to play three times in a row, recording loot value per minute and robberies per day. These are provisional inputs to G6 (town spacing and timetables) and G8 (trains per day), which re-test them on the open line.
 3. **Military payroll.** Combat, health bar and the downed-state variant. Gate: combat feels good and the health variants are compared.
    - **Then a network test.** Two players on one train through a simple server, with no lobby, built once combat exists so it is tested over the network early. Phases 4 and 5 keep it working, so each new train is checked over the network as it is built (decided 2026-10-27).
 4. **Passenger hold-up.** Visual cues, inspect action and armed passengers. Gate: judging passengers is a decision, not a chore.
@@ -204,7 +204,7 @@ These are the gaps found so far, grouped by where they bite.
 **Edge cases**
 
 - Dying or being downed mid-run: all loot from that run is lost, including loot already thrown off a cargo train. Whether death also costs banked loot depends on the open roguelike question.
-- Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling carries no wanted level to start; revisit if playtests show it being abused.
+- Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling rolls heat for a wanted level like every other ending (decided 2026-10-28).
 - If throwing from the train is added later: crates that land in water or a ravine, or that are never collected before the next train arrives.
 - On a loop, the train never leaves the map while you are aboard; only the clock expiring ends the run. On an open line, a train that reaches the end of the line ends the run as if the clock had expired, until towns end it there instead.
 - Close calls: if the countdown hits zero just as you jump off, a small grace window lets the player get away.
@@ -212,7 +212,6 @@ These are the gaps found so far, grouped by where they bite.
 **Open questions**
 
 - Horse handling details: speed, obstacles, how long the horse can run beside the train, and whether it can be hurt.
-- Whether wanted level decays over time, and by how much.
 - Which train frequency to start with, since it is configurable. What a timetable costs, how far ahead it looks, and whether it reveals train type, loot and guards.
 - How to balance each train so a less-favored approach is viable but not dominant, for example stealth on a military train.
 - The horse arrival range, what makes it vary, and whether it is shown to the player.
