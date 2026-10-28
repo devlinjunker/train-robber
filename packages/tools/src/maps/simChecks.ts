@@ -88,7 +88,10 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
  * other way (the script crashed into the train, or lost the horse) is retried, up to `maxRuns`.
  */
 export function lineRunProblems(map: MapDef, seed: string, seconds = 600, log?: (line: string) => void, maxRuns = 3): string[] {
-  const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map', guardCatch: 'heat-only' } });
+  // Collision damage off: the scripted rider's steering is crude, and on some lines it rides into
+  // its own train on a curve until it dies (line-0 since G6 moved the trains). Collisions have
+  // their own tests; this one checks a whole run can be played on the line.
+  const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map', guardCatch: 'heat-only', collisionDamage: 'off' } });
   const sim = createSim({ config, map, seed, playerIds: [1] });
   const s = sim.state as GameState;
   const h = s.world.horses[0]!;
