@@ -43,6 +43,7 @@ function urlNumber(name: string, fallback: number, min: number): number {
  * step, and the wheel past it); `?farDetail=<zoom>` hides them at that zoom and below. Shown at
  * every zoom by default (Devlin's PR #42 playtest: a setting to try).
  */
+const urlFlag = (name: string) => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get(name));
 const FAR_DETAIL_ZOOM = (() => {
   const raw = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('farDetail');
   if (raw === 'off') return 0.35;
@@ -329,7 +330,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   // the movers where they cover them (see overdraw.ts).
   const objects = new Container();
   objects.sortableChildren = true;
-  const land = new DepthBands();
+  // ?landBands=off keeps the land in one band (one render group), as before PR #42 round 2, to compare.
+  const land = new DepthBands(urlFlag('landBands') === 'off' ? Infinity : 48);
   land.label = 'iso-land';
   land.enableRenderGroup();
   // A generated line made without its tiles streams them chunk by chunk (tiles.ts); the rest decode once.
