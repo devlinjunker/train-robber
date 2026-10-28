@@ -584,7 +584,7 @@ export function crouch(ctx: RunCtx, p: PlayerState, on: boolean): void {
 }
 
 /**
- * C, handlingModel `arcade-boost`: start a boost on a ridden horse that is not stunned and has
+ * Shift, handlingModel `arcade-boost`: start a boost on a ridden horse that is not stunned and has
  * no boost running or cooling down. The riding system applies it.
  */
 export function boost(ctx: RunCtx, p: PlayerState): void {

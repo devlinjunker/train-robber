@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { InputMapper, WALK_AXIS, worldDirToCar, type GameAction, type MapContext } from '../src/input';
+import { actionFor, InputMapper, WALK_AXIS, worldDirToCar, type GameAction, type MapContext } from '../src/input';
 import { keyDirToWorld } from '../src/projection';
 
 const snap = (held: string[], actions: GameAction[] = []) => ({ held: new Set(held), actions });
@@ -10,18 +10,28 @@ const iso = (over: Partial<MapContext> = {}): MapContext => ({
   commitTarget: () => null, switchTarget: () => null, carriedCount: () => 0, inventoryOpen: () => false, crouchMode: 'toggle', crouched: () => false, ...over,
 });
 
-describe('C: boost riding, crouch aboard', () => {
-  it('riding, C boosts; aboard, it toggles crouch from what the sim says', () => {
+describe('Shift: boost riding; C: crouch aboard', () => {
+  it('both Shift keys are the boost and C is crouch', () => {
+    expect(actionFor('ShiftLeft', true)).toBe('boost');
+    expect(actionFor('ShiftRight', true)).toBe('boost');
+    expect(actionFor('KeyC', false)).toBe('crouch');
+    // Shift+H stays the alarm debug key.
+    expect(actionFor('KeyH', true)).toBe('alarm');
+  });
+
+  it('riding, Shift boosts and C does nothing; aboard, Shift only runs and C toggles crouch from what the sim says', () => {
     const m = new InputMapper();
-    expect(m.commands(snap([], ['boost']), iso())).toEqual([{ type: 'boost' }]);
-    expect(m.commands(snap([], ['boost']), iso({ aboard: true }))).toEqual([{ type: 'crouch', on: true }]);
-    expect(m.commands(snap([], ['boost']), iso({ aboard: true, crouched: () => true }))).toEqual([{ type: 'crouch', on: false }]);
+    expect(m.commands(snap(['ShiftLeft'], ['boost']), iso())).toEqual([{ type: 'boost' }]);
+    expect(m.commands(snap([], ['crouch']), iso())).toEqual([]);
+    expect(m.commands(snap([], ['boost']), iso({ aboard: true }))).toEqual([]);
+    expect(m.commands(snap([], ['crouch']), iso({ aboard: true }))).toEqual([{ type: 'crouch', on: true }]);
+    expect(m.commands(snap([], ['crouch']), iso({ aboard: true, crouched: () => true }))).toEqual([{ type: 'crouch', on: false }]);
   });
 
   it('?crouch=hold crouches on the press and stands on the release', () => {
     const m = new InputMapper();
     const ctx = iso({ aboard: true, crouchMode: 'hold' });
-    expect(m.commands(snap(['KeyC'], ['boost']), ctx)).toEqual([{ type: 'crouch', on: true }]);
+    expect(m.commands(snap(['KeyC'], ['crouch']), ctx)).toEqual([{ type: 'crouch', on: true }]);
     expect(m.commands(snap(['KeyC']), ctx)).toEqual([]);
     expect(m.commands(snap([]), ctx)).toEqual([{ type: 'crouch', on: false }]);
   });

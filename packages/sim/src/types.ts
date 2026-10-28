@@ -47,7 +47,7 @@ export type Command =
    * side the player is now nearest.
    */
   | { type: 'whistle' }
-  /** C, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
+  /** Shift, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
   | { type: 'boost' }
   /**
    * F, on the horse during a run (after a guard threw you off): end the run `cashedOut`, banking

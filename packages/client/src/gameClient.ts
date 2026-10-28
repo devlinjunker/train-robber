@@ -405,7 +405,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(horseCfg.boost.enabled ? ['C boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
+    ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
     'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
@@ -805,7 +805,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const boostView = !bc.enabled || !physical ? null
         : horseState.boostTicks > 0 ? { state: 'active' as const, share: horseState.boostTicks / Math.max(1, bc.durationTicks), text: 'BOOST' }
           : horseState.boostCooldownTicks > 0 ? { state: 'cooldown' as const, share: 1 - horseState.boostCooldownTicks / Math.max(1, bc.cooldownTicks), text: `boost ${(horseState.boostCooldownTicks / tickRateHz).toFixed(1)} s` }
-            : { state: 'ready' as const, share: 1, text: 'C boost ready' };
+            : { state: 'ready' as const, share: 1, text: 'Shift boost ready' };
       hud.update({
         phase,
         boost: boostView,
