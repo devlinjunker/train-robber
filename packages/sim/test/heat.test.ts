@@ -99,7 +99,7 @@ describe('countdown', () => {
   it('a death on the same tick as expiry counts as the death', () => {
     const sim = aboard();
     S(sim).run!.countdownSec = 0.001;
-    S(sim).run!.players[1]!.health = 0;
+    S(sim).players[0]!.health = 0;
     expect(of(step(sim), 'RunEnded')[0]!.outcome).toBe('died');
   });
 
