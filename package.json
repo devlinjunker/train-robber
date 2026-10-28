@@ -1,7 +1,7 @@
 {
   "name": "train-robber",
   "private": true,
-  "version": "0.2.4",
+  "version": "0.2.4-g6-towns",
   "type": "module",
   "workspaces": [
     "packages/*",

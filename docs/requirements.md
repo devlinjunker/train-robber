@@ -41,7 +41,7 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 - **The world is an endless line with towns.** One railway generated from a seed forever, with towns along it and land around it, wide enough that riding to the line and choosing where to meet a train are part of the run. An open world with a rail network can grow out of it later.
 - **A day starts at camp** 300-800 tiles off the line. At dusk you pick tonight's camp from 2-3 spots near where you finished, each with a trade-off, and tomorrow starts there. Towns are where you buy and sell.
 - **Day clock.** Dawn to dusk only to start; night comes later as a twist. Dusk waits for a robbery in progress.
-- **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant.
+- **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant (`trainClock`: `next-town`, built in G6; `fixed-countdown` is the Phase 2 clock).
 - **How the clocks fit together.** The day clock budgets the whole day, and riding to a train and scouting use part of it. The train clock is town spacing divided by train speed, so it sets how long one robbery can last. Train length (cars and loot) has to fit that time: too long and the train can't be finished, too short and the player is left waiting. Town spacing, train speed and cars per train are therefore tuned together, starting from the Phase 2 robbery time.
 - **Being thrown off ends that train only.** Its loot is lost and the day goes on.
 - **Telling trains apart.** By sight, plus rumours and timetables you earn, so information is worth buying.
@@ -118,7 +118,8 @@ Still to define: whether wanted level decays over time. Cancelling a run adds no
 The prototype uses hand-made maps with fixed track loops, and trains run on them continuously in real time. Generated maps come in stages, each ending in a playtest (see World structure for where they lead).
 
 - **World.** Hand-made isometric maps first. Generated worlds follow: seeded loops (`?map=gen`), then an open line across a long map (`?map=line`), then an endless line with towns, built in chunks as you ride.
-- **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains enter at the start and leave past the end instead; towns get seeded timetables later. Timetables show upcoming trains so you can decide which to rob, and obtaining one costs loot. Timetables are not in the alpha prototype and may be added later. Train frequency and how many run at once are configurable tuning values.
+- **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains set out from the town at the start of the line on a seeded timetable and leave past the end instead; every town has a timetable of when each train reaches it and what type it is (G6). The game knows every timetable from the start; showing one to the player (a bought timetable, or rumours) and what it costs in loot come later (G12). For now the HUD shows only when the next train is due at the next town, without its type unless train names are shown. Train frequency and how many run at once are configurable tuning values.
+- **Generated maps (G6).** Towns along the line have a name, a size (halt, village or town) and buildings, all from the seed; a town off each end of the line is where trains set out from and arrive. Each town's timetable comes from the seed alone, with trains a headway apart give or take the spread, as on the G3 line. Town spacing is still G3's (one or two towns at least 1,200 tiles apart, so about 2-4 minutes of train time between them): setting it from the Phase 2 target robbery time is left until that gate picks the time, and moving towns moves the terrain, so it will be a deliberate generator change. Buildings are only drawn for now: the horse and the player pass through them.
 - **Progression.** Horse upgrades, gear and weapons, a hideout, and reputation/bounty are all after the prototype. Reputation and bounty come last.
 - **Wanted level.** It is the only persistence the first version needs: it raises guard counts on later trains.
 
@@ -204,14 +205,14 @@ These are the gaps found so far, grouped by where they bite.
 - Dying or being downed mid-run: all loot from that run is lost, including loot already thrown off a cargo train. Whether death also costs banked loot depends on the open roguelike question.
 - Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling carries no wanted level to start; revisit if playtests show it being abused.
 - If throwing from the train is added later: crates that land in water or a ravine, or that are never collected before the next train arrives.
-- On a loop, the train never leaves the map while you are aboard; only the clock expiring ends the run. On an open line, a train that reaches the end of the line ends the run as if the clock had expired, until towns end it there instead.
+- On a loop, the train never leaves the map while you are aboard; only the clock expiring ends the run. On an open line under the next-town clock, the run expires when the train reaches the next town (the town at the end of the line at the latest). Under the fixed countdown, a train that reaches the end of the line ends the run as if the clock had expired.
 - Close calls: if the countdown hits zero just as you jump off, a small grace window lets the player get away.
 
 **Open questions**
 
 - Horse handling details: speed, obstacles, how long the horse can run beside the train, and whether it can be hurt.
 - Whether wanted level decays over time, and by how much.
-- Which train frequency to start with, since it is configurable. What a timetable costs, how far ahead it looks, and whether it reveals train type, loot and guards.
+- Which train frequency to start with, since it is configurable. Seeded timetables exist since G6; still open: what one costs, how far ahead it looks, whether it reveals train type, loot and guards, and whether trains stop at towns (G6 trains pass through).
 - How to balance each train so a less-favored approach is viable but not dominant, for example stealth on a military train.
 - The horse arrival range, what makes it vary, and whether it is shown to the player.
 - Whether the carry limit and weight slowdown survive playtesting, or are replaced by simpler looting.

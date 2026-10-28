@@ -232,7 +232,7 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null, tiles?: M
           bar.clear().roundRect(0, by0, w, BAR_H, 3).fill({ color: 0x000000, alpha: 0.5 }).stroke({ width: 1, color: 0xffffff, alpha: 0.5 });
           // The window shaded, then each town a tall sand post.
           bar.rect((x0 / cols) * w, by0, Math.max(2, (span / cols) * w), BAR_H).fill({ color: 0xffffff, alpha: 0.25 }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.9 });
-          for (const t of map.towns ?? []) bar.rect((t.x / cols) * w - 2, by0 - 3, 4, BAR_H + 6).fill(TOWN).stroke({ width: 1, color: 0x000000 });
+          for (const t of map.towns ?? []) if (!t.end) bar.rect((t.x / cols) * w - 2, by0 - 3, 4, BAR_H + 6).fill(TOWN).stroke({ width: 1, color: 0x000000 });
         }
       }
 
@@ -249,8 +249,9 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null, tiles?: M
       if (input.view.length) {
         marks.poly(input.view.flatMap((p) => toMap(mode, p.x, p.y))).stroke({ width: 1, color: 0xffffff, alpha: 0.8 });
       }
-      // Town spots: a ring round each clearing.
+      // Towns: a dot on each clearing (the towns off the ends of the line are off the map).
       for (const t of map.towns ?? []) {
+        if (t.end) continue;
         if (windowed && (t.x < x0 - t.radiusTiles || t.x > x0 + span + t.radiusTiles)) continue;
         const [x, y] = toMap(mode, t.x, t.y);
         marks.circle(x, y, 5).fill({ color: TOWN, alpha: 0.9 }).stroke({ width: 1.5, color: 0x000000 });

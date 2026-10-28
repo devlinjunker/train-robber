@@ -394,10 +394,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const rocks = createRocks(map, land, field, forest, region, sortedHooks, tiles);
   const mesas = createMesas(map, field, land, () => rocks.chunks, objects, lazyDraw, sortedHooks);
   const mud = createMud();
+  // Towns (G6): the street and platforms flat under everything, the buildings sorted in `land`.
   const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined);
-  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, towns, land, objects, zoneOverlay, markers, mesas.masks);
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, towns.flat, land, objects, zoneOverlay, markers, mesas.masks);
+  if (towns.buildings.length) land.addChild(...towns.buildings);
   overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
+  overdraw.add(towns.buildings);
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
   const dust = createDust(content.boostDust ?? 1);
   objects.addChild(mud.clods, dust.puffs);
