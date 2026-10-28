@@ -43,8 +43,11 @@ export const MapDefSchema = z.object({
   source: z.object({ file: z.string(), hash: z.string() }).strict(),
   size: z.object({ cols: z.number().int().positive(), rows: z.number().int().positive() }).strict(),
   zoneLegend: z.array(z.enum(ZONES)),
-  /** Row-major run-length encoding: [count, legend index] pairs. */
-  zones: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0)])),
+  /**
+   * Row-major run-length encoding: [count, legend index] pairs. A generated map may leave it (and
+   * `elevation`) out: its tiles then come from chunks built on demand (see MapChunks).
+   */
+  zones: z.array(z.tuple([z.number().int().positive(), z.number().int().min(0)])).optional(),
   /**
    * Optional ground height per tile, run-length encoded like `zones`: [count, level] pairs with
    * levels 0 to ELEVATION_MAX. View only: the sim stays 2D and never reads it. A step of two or
@@ -77,10 +80,23 @@ export const MapDefSchema = z.object({
   towns: z.array(z.object({ id: z.string(), route: z.string(), d: z.number().min(0), x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().positive() }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
+  /**
+   * Set on generated open lines (G4): what the map is built from. Its tiles are the same for the
+   * same generator, version, seed and settings, so `mapHash` hashes this instead of every tile, and
+   * they can be built chunk by chunk, `chunkTiles` square, from these alone.
+   */
+  generated: z.object({
+    generator: z.string(), version: z.string(), seed: z.string(),
+    settings: z.record(z.unknown()), chunkTiles: z.number().int().positive(),
+  }).strict().optional(),
 }).strict().superRefine((m, ctx) => {
-  const tiles = m.zones.reduce((n, [count]) => n + count, 0);
+  if (!m.zones) {
+    if (!m.generated) ctx.addIssue({ code: 'custom', path: ['zones'], message: 'zones are required on a map that is not generated' });
+    if (m.elevation) ctx.addIssue({ code: 'custom', path: ['elevation'], message: 'elevation without zones' });
+  }
+  const tiles = m.zones?.reduce((n, [count]) => n + count, 0) ?? m.size.cols * m.size.rows;
   if (tiles !== m.size.cols * m.size.rows) ctx.addIssue({ code: 'custom', path: ['zones'], message: `zones cover ${tiles} tiles, map has ${m.size.cols * m.size.rows}` });
-  if (m.zones.some(([, i]) => i >= m.zoneLegend.length)) ctx.addIssue({ code: 'custom', path: ['zones'], message: 'zone index outside the legend' });
+  if (m.zones?.some(([, i]) => i >= m.zoneLegend.length)) ctx.addIssue({ code: 'custom', path: ['zones'], message: 'zone index outside the legend' });
   const lifted = m.elevation?.reduce((n, [count]) => n + count, 0);
   if (lifted !== undefined && lifted !== m.size.cols * m.size.rows) ctx.addIssue({ code: 'custom', path: ['elevation'], message: `elevation covers ${lifted} tiles, map has ${m.size.cols * m.size.rows}` });
   m.towns?.forEach((t, i) => {
@@ -130,16 +146,58 @@ export function trackPieces(m: Pick<MapDef, 'routes'>): TrackPiece[] {
   return out;
 }
 
-/** Expand the run-length grid into one legend index per tile, row-major. */
-export function decodeZones(m: Pick<MapDef, 'size' | 'zones'>): Uint8Array {
+/** Side of a terrain chunk in tiles (G4). Chunk (cx, cy) covers tiles [cx, cx + 1) x [cy, cy + 1) times this. */
+export const CHUNK_TILES = 64;
+
+/** One chunk of a generated map: `tiles` x `tiles` tiles row-major (tiles off the map are blocked, level 0) and the scenery standing on them. */
+export interface MapChunk {
+  cx: number; cy: number;
+  zones: Uint8Array; heights: Uint8Array;
+  scenery: { kind: number[]; x: number[]; y: number[]; size: number[] };
+}
+
+/**
+ * Where a generated map's tiles come from when it carries no `zones`: any chunk, built from the
+ * seed, the settings and the chunk's position alone, the same every time. Not JSON: it rides along
+ * on the map object as `terrain` and is left out when the map is written out.
+ */
+export interface MapChunks {
+  readonly tiles: number;
+  chunk(cx: number, cy: number): MapChunk;
+}
+
+/** A map whose tiles may come from chunks. */
+export type ChunkedMap = MapDef & { terrain?: MapChunks };
+
+/** Copy every chunk's tiles into one whole-map grid. */
+function assemble(m: Pick<MapDef, 'size'>, terrain: MapChunks, pick: (c: MapChunk) => Uint8Array): Uint8Array {
+  const { cols, rows } = m.size, T = terrain.tiles;
+  const out = new Uint8Array(cols * rows);
+  for (let cy = 0; cy * T < rows; cy++) {
+    for (let cx = 0; cx * T < cols; cx++) {
+      const src = pick(terrain.chunk(cx, cy));
+      const w = Math.min(T, cols - cx * T);
+      for (let y = 0; y < T && cy * T + y < rows; y++) out.set(src.subarray(y * T, y * T + w), (cy * T + y) * cols + cx * T);
+    }
+  }
+  return out;
+}
+
+/** Expand the run-length grid into one legend index per tile, row-major (from the chunks on a map without one). */
+export function decodeZones(m: Pick<MapDef, 'size' | 'zones'> & { terrain?: MapChunks }): Uint8Array {
+  if (!m.zones) {
+    if (!m.terrain) throw new Error('map has neither zones nor chunks');
+    return assemble(m, m.terrain, (c) => c.zones);
+  }
   const out = new Uint8Array(m.size.cols * m.size.rows);
   let i = 0;
   for (const [count, zone] of m.zones) { out.fill(zone, i, i + count); i += count; }
   return out;
 }
 
-/** Expand the elevation grid into one level per tile, row-major; all zero when the map has none. */
-export function decodeElevation(m: Pick<MapDef, 'size' | 'elevation'>): Uint8Array {
+/** Expand the elevation grid into one level per tile, row-major; all zero when the map has none (from the chunks on a map without zones). */
+export function decodeElevation(m: Pick<MapDef, 'size' | 'elevation' | 'zones'> & { terrain?: MapChunks }): Uint8Array {
+  if (!m.zones && m.terrain) return assemble(m, m.terrain, (c) => c.heights);
   const out = new Uint8Array(m.size.cols * m.size.rows);
   let i = 0;
   for (const [count, level] of m.elevation ?? []) { out.fill(level, i, i + count); i += count; }
