@@ -3,7 +3,8 @@
 // grid give the eye something to measure speed against; mud gets darker
 // puddles with a wet glint so it reads as mud, not sand. Boulders on blocked ground are in rocks.ts.
 import { Container, Graphics } from 'pixi.js';
-import { decodeZones, trackPieces, type MapDef, type Zone } from '@train-robber/config';
+import { trackPieces, type MapDef, type Zone } from '@train-robber/config';
+import { mapTiles, type MapTiles } from '../tiles';
 import { isoPoly, shade, oval } from './draw';
 import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
@@ -68,14 +69,13 @@ export function mudPuddle(x: number, y: number): { x: number; y: number; s: numb
  * per region of `region` tiles as they come near the view (cells.ts LazyChunks); the cull returns
  * true while some near the view still wait for the frame's budget.
  */
-export function drawTerrain(map: MapDef, scenery: Container | null = null, raised?: (x: number, y: number) => boolean, region = Math.max(map.size.cols, map.size.rows)): { layer: Container; cull(view: TileBox, budget?: BuildBudget): boolean } {
+export function drawTerrain(map: MapDef, scenery: Container | null = null, raised?: (x: number, y: number) => boolean, region = Math.max(map.size.cols, map.size.rows), tiles: MapTiles = mapTiles(map, null)): { layer: Container; cull(view: TileBox, budget?: BuildBudget): boolean } {
   const layer = new Container();
   layer.label = 'iso-terrain';
   const { cols, rows } = map.size;
 
   const ground = new Graphics();
   ground.poly(isoPoly([[0, 0], [cols, 0], [cols, rows], [0, rows]])).fill(GROUND);
-  const grid = decodeZones(map);
   const zoneLayer = new Container(), spotLayer = new Container(), puddleLayer = new Container();
 
   const buildRegion = (r: TileBox): Chunk[] => {
@@ -86,9 +86,9 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
       for (let y = r.y0; y < r.y1; y++) {
         let x = r.x0;
         while (x < r.x1) {
-          const z = grid[y * cols + x]!, stop = Math.min(r.x1, (Math.floor(x / CELL) + 1) * CELL);
+          const z = tiles.zone(x, y), stop = Math.min(r.x1, (Math.floor(x / CELL) + 1) * CELL);
           let end = x + 1;
-          while (end < stop && grid[y * cols + end] === z) end++;
+          while (end < stop && tiles.zone(end, y) === z) end++;
           if (ZONE_COLOURS[map.zoneLegend[z]!] === colour) zones.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
           x = end;
         }
@@ -100,7 +100,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
     for (const [k, colour] of SPOT_COLOURS.entries()) {
       for (let y = r.y0; y < r.y1; y++) {
         for (let x = r.x0; x < r.x1; x++) {
-          if (map.zoneLegend[grid[y * cols + x]!] !== 'open' || raised?.(x, y)) continue;
+          if (map.zoneLegend[tiles.zone(x, y)] !== 'open' || raised?.(x, y)) continue;
           const spot = sandSpot(x, y);
           if (!spot || spot.k !== k) continue;
           tufts.at(spot.x, spot.y).poly(spotPoly(spot));
@@ -113,7 +113,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
     const puddles = new Cells(CELL), glints: [Graphics, number, number, number][] = [];
     for (let y = r.y0; y < r.y1; y++) {
       for (let x = r.x0; x < r.x1; x++) {
-        if (map.zoneLegend[grid[y * cols + x]!] !== 'slow' || raised?.(x, y)) continue;
+        if (map.zoneLegend[tiles.zone(x, y)] !== 'slow' || raised?.(x, y)) continue;
         const p = mudPuddle(x, y);
         if (!p) continue;
         const g = puddles.at(p.x, p.y);

@@ -53,17 +53,20 @@ export async function loadScenery(map: MapDef, files: ReadonlyMap<string, Loader
 
 export { GENERATED_MAP_ID, LINE_MAP_ID };
 
-/** A generated map (a loop for `gen`, the open line for `line`) and its scenery from the run seed and the config's `mapGen` overrides. Same inputs, same map. */
-export function generatedMap(seed: string, config: Pick<ResolvedConfig, 'values'>, id = GENERATED_MAP_ID): { map: MapDef; scenery: SceneryDef } {
+/**
+ * A generated map (a loop for `gen`, the open line for `line`) and its scenery from the run seed and the config's `mapGen` overrides. Same inputs, same map.
+ * `stream` (G5): the line is planned but not built; its chunks are built as the sim and the view first read them.
+ */
+export function generatedMap(seed: string, config: Pick<ResolvedConfig, 'values'>, id = GENERATED_MAP_ID, stream = false): { map: MapDef; scenery: SceneryDef } {
   const settings = resolveMapGen(mapGenDefaults, config.values.mapGen);
-  const { map, scenery } = id === LINE_MAP_ID ? generateLine(seed, settings) : generateMap(seed, settings);
+  const { map, scenery } = id === LINE_MAP_ID ? generateLine(seed, settings, { whole: !stream }) : generateMap(seed, settings);
   return { map, scenery };
 }
 
-/** The session's map and scenery: generated for `gen` and `line`, else the built file by id. */
+/** The session's map and scenery: generated for `gen` and `line` (the line streamed unless ?stream=off), else the built file by id. */
 export async function sessionMap(id: string, seed: string, config: Pick<ResolvedConfig, 'values'>, search = location.search): Promise<{ map: MapDef; scenery: SceneryDef | null }> {
   if (id === GENERATED_MAP_ID || id === LINE_MAP_ID) {
-    const { map, scenery } = generatedMap(seed, config, id);
+    const { map, scenery } = generatedMap(seed, config, id, new URLSearchParams(search).get('stream') !== 'off');
     return { map, scenery: new URLSearchParams(search).get('scenery') === 'off' ? null : scenery };
   }
   const map = await loadMap(id);

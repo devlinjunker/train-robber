@@ -3,10 +3,11 @@
 // world on screen. M toggles it. On an open line, far longer than it is wide, it shows a window
 // of the line around the rider instead, with a bar under it for where that is along the map.
 import { Container, Graphics, Matrix, Sprite, Texture } from 'pixi.js';
-import { decodeZones, type MapDef, type SceneryDef } from '@train-robber/config';
+import { decodeZones, SOLID_SCENERY, type MapChunk, type MapDef, type SceneryDef, type SceneryKind } from '@train-robber/config';
 import type { CarPose } from '@train-robber/sim';
 import { forestTiles } from './iso/scenery';
 import { TILE_H, TILE_W } from './projection';
+import type { MapTiles } from './tiles';
 
 /** Width of the minimap in screen pixels; its height follows the map. */
 export const MINIMAP_W = 280;
@@ -70,17 +71,105 @@ function paint(map: MapDef, scenery: SceneryDef | null): HTMLCanvasElement {
   return canvas;
 }
 
+/** A streamed map's minimap has one pixel per this many tiles each way. */
+const STREAM_SCALE = 4;
+const UNSEEN = '#3b3a33';
+
+/** Draw the track over a part of the canvas (in tiles, drawn at 1/`scale`). */
+function strokeTrack(ctx: CanvasRenderingContext2D, map: MapDef, path: Path2D) {
+  ctx.strokeStyle = TRACK;
+  ctx.lineWidth = Math.max(2, map.size.cols / 160);
+  ctx.lineJoin = 'round';
+  ctx.stroke(path);
+}
+
+/**
+ * A streamed map (tiles.ts) at one pixel per STREAM_SCALE tiles: dark until a chunk is first
+ * built for the view, then painted in, so it fills in as the line is ridden.
+ */
+function streamedPaint(map: MapDef, tiles: MapTiles, scenery: SceneryDef | null) {
+  const { cols, rows } = map.size, S = STREAM_SCALE;
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(cols / S); canvas.height = Math.ceil(rows / S);
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = UNSEEN;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const path = new Path2D();
+  for (const r of map.routes) {
+    const { x, y } = r.samples;
+    path.moveTo(x[0]!, y[0]!);
+    for (let i = 1; i < x.length; i++) path.lineTo(x[i]!, y[i]!);
+    if (r.closed) path.closePath();
+  }
+  // The whole track from the start, so the line ahead shows before its ground is painted in.
+  ctx.save();
+  ctx.scale(1 / S, 1 / S);
+  strokeTrack(ctx, map, path);
+  ctx.restore();
+  const blocked = map.zoneLegend.indexOf('blocked');
+  const queue: MapChunk[] = [];
+  const done = new Set<number>();
+  tiles.onChunk((c) => queue.push(c));
+  const paintChunk = (c: MapChunk) => {
+    const key = c.cy * 100_003 + c.cx;
+    if (done.has(key) || c.cx < 0 || c.cy < 0) return;
+    done.add(key);
+    const T = c.zones.length ** 0.5, bx = c.cx * T, by = c.cy * T;
+    // Forest: blocked tiles under or next to a tree, from this chunk's own trees.
+    const forest = new Uint8Array(T * T);
+    c.scenery.kind.forEach((k, i) => {
+      if (!scenery || !SOLID_SCENERY.has(scenery.kindLegend[k]! as SceneryKind)) return;
+      const tx = Math.floor(c.scenery.x[i]!) - bx, ty = Math.floor(c.scenery.y[i]!) - by;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const x = tx + dx, y = ty + dy;
+        if (x >= 0 && y >= 0 && x < T && y < T && c.zones[y * T + x] === blocked) forest[y * T + x] = 1;
+      }
+    });
+    // Each pixel is the tile at its middle.
+    for (let py = 0; py < T / S; py++) {
+      for (let px = 0; px < T / S; px++) {
+        const i = (py * S + (S >> 1)) * T + px * S + (S >> 1);
+        ctx.fillStyle = forest[i] ? FOREST : COLOURS[map.zoneLegend[c.zones[i]!]!] ?? COLOURS.open!;
+        ctx.fillRect(bx / S + px, by / S + py, 1, 1);
+      }
+    }
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(bx / S, by / S, T / S, T / S);
+    ctx.clip();
+    ctx.scale(1 / S, 1 / S);
+    if (scenery) {
+      ctx.fillStyle = BRIDGE;
+      for (const b of scenery.bridges) ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    strokeTrack(ctx, map, path);
+    ctx.restore();
+  };
+  return {
+    canvas,
+    /** Paint chunks built since the last call; true when any were. */
+    flush(): boolean {
+      if (!queue.length) return false;
+      for (const c of queue.splice(0)) paintChunk(c);
+      return true;
+    },
+  };
+}
+
 export interface Minimap {
   root: Container;
   update(input: MinimapInput): void;
 }
 
-export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap {
+export function createMinimap(map: MapDef, scenery: SceneryDef | null, tiles?: MapTiles): Minimap {
   const { cols, rows } = map.size;
   const root = new Container();
   root.label = 'minimap';
   const panel = new Graphics();
-  const texture = Texture.from(paint(map, scenery));
+  const streamed = tiles?.streamed ? streamedPaint(map, tiles, scenery) : null;
+  // Pixels per tile each way on the painted canvas.
+  const scale = streamed ? STREAM_SCALE : 1;
+  const texture = Texture.from(streamed ? streamed.canvas : paint(map, scenery));
   const ground = new Sprite(texture);
   const marks = new Graphics();
   const frame = new Container();
@@ -121,7 +210,7 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap 
         shown = mode; shownWidth = input.screenWidth; shownX0 = x0;
         // The sprite is one pixel per tile; its matrix is the same linear map as toMap.
         const [ox, oy] = toMap(mode, 0, 0), [ax, ay] = toMap(mode, 1, 0), [bx, by] = toMap(mode, 0, 1);
-        ground.setFromMatrix(new Matrix(ax - ox, ay - oy, bx - ox, by - oy, ox, oy));
+        ground.setFromMatrix(new Matrix((ax - ox) * scale, (ay - oy) * scale, (bx - ox) * scale, (by - oy) * scale, ox, oy));
         if (windowed) clip.clear().poly([[x0, 0], [x0 + span, 0], [x0 + span, rows], [x0, rows]].flatMap(([x, y]) => toMap(mode, x!, y!))).fill(0xffffff);
         if (resized) {
           root.position.set(input.screenWidth - w - MARGIN - PAD, TOP + PAD);
@@ -138,6 +227,8 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null): Minimap 
         }
       }
 
+      // New chunks painted in (streamed maps); only while shown, as the update runs only then.
+      if (streamed?.flush()) texture.source.update();
       marks.clear();
       // The rider on the bar: a dot that moves along the whole line.
       barRider.clear();
