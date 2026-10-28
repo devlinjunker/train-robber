@@ -19,7 +19,7 @@ Phase 2 starts from Phase 1 as merged on main (M1 to M4, PRs #4 to #7). Since th
 | Run lifecycle | `idle`, `approach`, `boarding`, `aboard`, `ended`; outcomes `died` and `cancelled` | The `extracting` phase and the `extracted` and `expired` outcomes |
 | Countdown and heat | `countdown.enabled: false`; no heat | Countdown from commit, heat 0-100 shortening it, grace window |
 | Train | One `blank` train, engine plus 3 cars generated in code (`world/cars.ts`), blank 16 x 6 interiors | A `mail-express` train with mail cars that hold walls, props, loot slots and a guard spawn |
-| Car authoring | No car pipeline; templates are code | The Tiled car pipeline (`tools build-cars`) with 3 generated starter layouts (G6) |
+| Car authoring | No car pipeline; templates are code | The Tiled car pipeline (`tools build-cars`) with 3 generated starter layouts (D6) |
 | Loot | None | Items, loot tables, the `search` verb, carry limit and weight slowdown |
 | Horse aboard | Abstract, `mode: 'away'`, never comes back | Whistle, arrival delay, pacing beside the train, mount jump on the boarding meter |
 | Persistence | `PersistentState` exists in the sim; `applyOutcome` handles died and cancelled; nothing saved by the host | `LocalStorageStore`, wanted level, bank, lifetime earned, local leaderboard |
@@ -55,7 +55,7 @@ Built in the M1 PR (branch `claude/phase-2-m1-countdown-heat`). The grace check 
 ### M2: Mail train and loot
 
 - [x] `mail-express` train config: engine, 3 mail cars, caboose, speed, `countdown.baseSec`, loot table and density, entry points
-- [x] Tiled car pipeline (`tools build-cars`, G6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
+- [x] Tiled car pipeline (`tools build-cars`, D6) and 3 generated starter mail car layouts with walls, props, loot slots and a guard spawn, for Devlin to edit
 - [x] `items.json` and `loot-tables.json` (`mail-small-items`): value, weight, category, slot tags; mostly small items plus one or two heavy prizes per train, and a drop command to swap items (G13)
 - [x] Run generation: build the committed train's cars and fill loot slots from the `gen` stream; two layouts per car type picked by seed
 - [x] Walk between cars through end doors, so the whole train is one interior (multi-car interiors were deferred to Phase 2 in the ideas list)
@@ -117,9 +117,9 @@ Built in PR [#29](https://github.com/devlinjunker/train-robber/pull/29), branch 
 
 - [ ] Golden run on the mail train, and a mid-extraction snapshot round-trip test
 - [ ] Bots over 1,000 seeds: idle bot (must expire), scripted looter (must extract sometimes); invariants for heat range and carried weight
-- [ ] `tools report` adds run length, completion rate, time to first loot, heat at end, cancels with time left
+- [ ] `tools report` adds run length, completion rate, time to first loot, heat at end, cancels with time left, and robbery time, loot value per minute and cars per train (inputs for G6 and G8)
 - [ ] Ready-made presets for the main questions (G7), linked from the wiki Playtesting page, and a playtest question comment on the PR
-- [ ] Playtest against the gate: compare short and medium runs and pick a target length
+- [ ] Playtest against the gate: compare short and medium runs and pick a target robbery time (provisional: on the open line town spacing and train speed set it, so the generated-maps G6 and G8 re-test it)
 
 ## Variants and switches by milestone
 
@@ -212,7 +212,7 @@ Every question here was answered on 2026-10-11; the G numbers point to the full 
 | Q1 | Build the continuous world mode (a physical horse beside the train) in Phase 2? | Partly. The horse is physical in Phase 2, placed behind the train on the whistle (G3, changed); the world-structure test is revisited later |
 | Q2 | Add guards in Phase 2, or leave all AI to Phase 3? | Light guards in M3, before extraction: patrol, sight cone, noise, alarm, no combat (G4, G16) |
 | Q3 | What happens when a guard catches you before combat exists? | `guardCatch` variant: `heat-only`, or `thrown-off` back onto your horse, stunned (G4, G5) |
-| Q4 | Author mail cars in Tiled, or keep generating them in code? | Tiled with `tools build-cars`; Claude generates 3 starter layouts to edit (G6) |
+| Q4 | Author mail cars in Tiled, or keep generating them in code? | Tiled with `tools build-cars`; Claude generates 3 starter layouts to edit (D6) |
 | Q5 | Keep the blank train in the loop beside the mail train? | Every train is a mail train by default; `trainMix` mixes in blank decoys (G17) |
 | Q6 | Where can you board the mail train? | Only some cars have side doors, set by each layout's `entryPoints`; a variant limits a train to layouts with doors on both sides (G21) |
 | Q7 | Countdown base and scales for short and medium runs | Base 150 s, `countdown.scale` 1 as a plain value; a medium preset sets 4 (G22, G24) |
@@ -246,7 +246,7 @@ Decisions from grilling the plan with Devlin, newest last.
 | G3 | Real horse or scripted horse for extraction? | Changed 2026-10-11 in the PR #14 review: a horse ignoring rocks looks wrong in the world view, so the Phase 2 horse is physical. It runs off and is removed when you board; the whistle places it behind the train at a seeded distance that takes 5-20 s to close, and it rides up around terrain. Whistling again switches it to your side. (Was: a scripted horse riding a lane, ignoring terrain.) | 2026-10-11 |
 | G4 | What happens when a guard spots you, before combat? | Test both as a `guardCatch` variant group: `heat-only` (spotted and alarm raise heat) and `thrown-off` (an alert guard chases you; contact throws you off the train like a failed boarding, costing time and health; changed 2026-10-18: you lose half your carried loot, `ai.thrownOffLootShare`) | 2026-10-11 |
 | G5 | Where do you land when thrown off? | Back on your horse beside the train, stunned, as after a failed boarding. Landing on foot and whistling for the horse goes on the wiki Ideas page | 2026-10-11 |
-| G6 | How do mail cars get their layouts? | Drawn in Tiled with `tools build-cars` (answers Q4). Claude generates 3 starter mail car layouts as .tmj files for Devlin to edit | 2026-10-11 |
+| D6 | How do mail cars get their layouts? | Drawn in Tiled with `tools build-cars` (answers Q4). Claude generates 3 starter mail car layouts as .tmj files for Devlin to edit | 2026-10-11 |
 | G7 | How to play through the switches? | Free play, with a few ready-made presets for the main questions (run length, train length, search pace, guard catch), linked from the wiki Playtesting page. Answers Q18: no in-game panel yet | 2026-10-11 |
 | G8 | Should wanted level follow you between presets? | One shared save, plus a config option (settable by preset or URL) that sets the wanted level a run uses, so presets can be compared from the same starting level | 2026-10-11 |
 | G9 | What does a run with a set wanted level save? | Nothing: it is practice, and leaves wanted level, bank, lifetime earned and the leaderboard untouched. The end-of-run summary says so | 2026-10-11 |
