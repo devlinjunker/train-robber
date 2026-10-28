@@ -6,7 +6,7 @@ import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type Boarding
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
-import { carHides } from './occlusion';
+import { carHides, sliceSpans } from './occlusion';
 import { createMesas } from './mesa';
 import { createSceneryLayers } from './scenery';
 import { mapTiles, type MapTiles } from '../tiles';
@@ -264,17 +264,14 @@ function drawSliceBody(g: Graphics | GraphicsContext, s: CarSlice, box: Box, col
 
 /** A car in slices along its length. */
 function carSlices(car: CarPose): CarSlice[] {
-  const n = Math.ceil((car.halfLength * 2) / SLICE_TILES);
-  const out = [];
-  for (let i = 0; i < n; i++) {
-    const a1 = car.halfLength - i * SLICE_TILES, a0 = Math.max(-car.halfLength, a1 - SLICE_TILES);
+  const spans = sliceSpans(car.halfLength, SLICE_TILES);
+  return spans.map(([a0, a1], i) => {
     const mid = (a0 + a1) / 2;
-    out.push({
+    return {
       box: { x: car.x + car.ux * mid, y: car.y + car.uy * mid, ux: car.ux, uy: car.uy, halfLength: (a1 - a0) / 2, halfWidth: car.halfWidth, z0: 0, z1: CAR_HEIGHT },
-      along0: a0, along1: a1, first: i === 0, last: i === n - 1,
-    });
-  }
-  return out;
+      along0: a0, along1: a1, first: i === 0, last: i === spans.length - 1,
+    };
+  });
 }
 
 /** Side door spans of a template, as [from, to] along the car from its centre toward the front. End doors are not drawn outside. */
@@ -525,21 +522,22 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       // behind them can still cover the ground around them, so the hole is cut through all of them.
       // Up on a roof or a ladder, the heights to keep in sight are lifted with the player.
       const playerZ = input.aboard ? figureZ(input.aboard.roof, input.aboard.climb) + (input.aboard.lift ?? 0) : 0;
-      const keepHeights = playerZ > 0 ? HIDDEN_HEIGHTS.map((h) => h + playerZ) : HIDDEN_HEIGHTS;
+      // Riding on raised ground, they are lifted with the ground under the horse.
+      const liftZ = input.aboard ? playerZ : horseZ;
+      const keepHeights = liftZ > 0 ? HIDDEN_HEIGHTS.map((h) => h + liftZ) : HIDDEN_HEIGHTS;
       // On a roof, your own train's cars are no taller than you stand, so only other trains can hide you.
       const roofTrain = input.aboard?.roof ? input.aboard.trainId : null;
-      const hidden = keep.some(([x, y]) => input.cars.some((car) => car.trainId !== roofTrain && carHides(car, CAR_HEIGHT, x, y, keepHeights)));
+      const hidden = keep.some(([x, y]) => input.cars.some((car) => car.trainId !== roofTrain && carHides(car, CAR_HEIGHT, x, y, keepHeights, SLICE_TILES)));
       // Behind a mesa, the same round hole goes through the mesa (Devlin, PR #25 playtest).
-      const actorZ = input.aboard ? playerZ : horseZ;
-      const behindMesa = actor !== null && mesas.hides(keep.flatMap(([x, y]) => HIDDEN_HEIGHTS.map((z) => [isoX(x, y), isoY(x, y, actorZ + z)] as const)), depthOf(actor.x, actor.y));
-      mesas.cut(behindMesa && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, actorZ + 1), r: CUTOUT_RADIUS * TILE_H } : null, actor ? depthOf(actor.x, actor.y) : 0);
-      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1 + (input.aboard ? playerZ : 0)), to: null } : null;
+      const behindMesa = actor !== null && mesas.hides(keep.flatMap(([x, y]) => HIDDEN_HEIGHTS.map((z) => [isoX(x, y), isoY(x, y, liftZ + z)] as const)), depthOf(actor.x, actor.y));
+      mesas.cut(behindMesa && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, liftZ + 1), r: CUTOUT_RADIUS * TILE_H } : null, actor ? depthOf(actor.x, actor.y) : 0);
+      hole = hidden && actor ? { x: isoX(actor.x, actor.y), y: isoY(actor.x, actor.y, 1 + liftZ), to: null } : null;
       // On the far side of the run's train, the hole reaches the car so the ground between shows.
       const gap = input.horse && !input.aboard ? input.gap ?? null : null;
       const gapCar = gap ? input.cars.find((c) => c.trainId === gap.trainId && c.index === gap.index) : undefined;
       if (gap && gapCar && input.horse && gap.distance <= GAP_HOLE_TILES && depthOf(input.horse.x, input.horse.y) < depthOf(gapCar.x, gapCar.y)) {
         const h = input.horse;
-        hole = { x: isoX(h.x, h.y), y: isoY(h.x, h.y, 1), to: { x: isoX(gap.x, gap.y), y: isoY(gap.x, gap.y, 0) } };
+        hole = { x: isoX(h.x, h.y), y: isoY(h.x, h.y, 1 + horseZ), to: { x: isoX(gap.x, gap.y), y: isoY(gap.x, gap.y, 0) } };
       }
       const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
       const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
