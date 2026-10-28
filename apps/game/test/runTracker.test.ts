@@ -62,6 +62,13 @@ describe('run tracker', () => {
     expect(summarize([rec!, { ...rec!, id: 'x', lootValue: 100 }, { ...rec!, id: 'old', lootValue: undefined }])[0]!.avgLoot).toBe(200);
     expect(toCsv([rec!]).split('\n')[1]).toContain(',300,1,');
   });
+  it('records the loot left on the train and the experiment tag from the Play link', () => {
+    const t = createRunTracker({ ...meta, exp: 'e1', setup: 'mid' });
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    const [rec] = t.events([ev({ type: 'RunEnded', tick: 600, player: 1, outcome: 'extracted', durationTicks: 600, boardingAttempts: 1, retry: false, countdownLeftSec: 40, heat: 5, cashOut: 0, lootLeftValue: 420, lootLeftItems: 7 })], 'T2');
+    expect(rec).toMatchObject({ exp: 'e1', setup: 'mid', lootLeftValue: 420, lootLeftItems: 7 });
+    expect(toCsv([rec!]).split('\n')[1]).toContain(',420,7,e1,mid,');
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);

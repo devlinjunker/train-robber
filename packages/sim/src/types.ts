@@ -132,13 +132,14 @@ export type SimEvent =
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
    * (a cash-out on F), else 0. `endOfLine`: on an open line, the committed train reached the end of
-   * the line (the run expires there).
+   * the line (the run expires there). `lootLeftValue` and `lootLeftItems` are the loot still in the
+   * committed train when the run ended (hidden or not), for the Playtests page.
    */
   /** Health ran out (`health.scope: day`): the day ends; `onRun` when a run was on (it also ends `died`). */
   | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died'; onRun: boolean }
   /** A new day at full health, back at the spawn. */
   | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few

@@ -22,12 +22,12 @@ describe('boarding report', () => {
       { type: 'BoardingAttempt', tick: 300, player: 1, result: 'fail', attempt: 1, meter: 0.1 },
       { type: 'BoardingAttempt', tick: 660, player: 1, result: 'good', attempt: 2, meter: 0.5 },
       { type: 'RunPhaseChanged', tick: 660, player: 1, from: 'boarding', to: 'aboard' },
-      { type: 'RunEnded', tick: 720, player: 1, outcome: 'cancelled', durationTicks: 660, boardingAttempts: 2, retry: false, countdownLeftSec: 139, heat: 0, cashOut: 0 },
+      { type: 'RunEnded', tick: 720, player: 1, outcome: 'cancelled', durationTicks: 660, boardingAttempts: 2, retry: false, countdownLeftSec: 139, heat: 0, cashOut: 0, lootLeftValue: 0, lootLeftItems: 0 },
     ]);
     const b = logOf([
       { type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'blank-1', countdownSec: 150, wantedLevel: 0 },
       { type: 'BoardingAttempt', tick: 120, player: 1, result: 'fail', attempt: 1, meter: 0.9 },
-      { type: 'RunEnded', tick: 240, player: 1, outcome: 'died', durationTicks: 240, boardingAttempts: 1, retry: false, countdownLeftSec: 146, heat: 0, cashOut: 0 },
+      { type: 'RunEnded', tick: 240, player: 1, outcome: 'died', durationTicks: 240, boardingAttempts: 1, retry: false, countdownLeftSec: 146, heat: 0, cashOut: 0, lootLeftValue: 0, lootLeftItems: 0 },
     ]);
     const r = reportFromLogs([a, b]);
     expect(r).toMatchObject({ runs: 2, boarded: 1, attempts: 3, outcomes: { cancelled: 1, died: 1 }, results: { fail: 2, good: 1 }, rejections: { 'jump: too far': 1 } });

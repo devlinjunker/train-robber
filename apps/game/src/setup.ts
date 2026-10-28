@@ -1,7 +1,7 @@
 // Picks the config and seed for a session from the URL:
 //   ?preset=alpha-default&v=boardingFailure:time-only&set=countdown.scale=4&seed=abc123
 // Each `set=<path>=<value>` is a run-time override of one config value, recorded in the log header.
-import { loadContent, overridesFromSet, resolveConfig, type ContentFile, type ResolvedConfig } from '@train-robber/config';
+import { ExperimentSchema, loadContent, overridesFromSet, resolveConfig, setEntries, type ContentFile, type Experiment, type ResolvedConfig } from '@train-robber/config';
 import base from '@train-robber/content/base/game.json';
 import cellTypes from '@train-robber/content/base/cell-types.json';
 import items from '@train-robber/content/base/items.json';
@@ -43,4 +43,63 @@ export function setupFromUrl(search = location.search): Setup {
 /** The config a logged run used, rebuilt from its header's preset, variants and overrides on this build's content. */
 export function configForHeader(h: { preset: string; variants: Record<string, string>; overrides: Record<string, unknown> }): ResolvedConfig {
   return resolveConfig(content, { preset: h.preset, variants: h.variants, overrides: h.overrides });
+}
+
+/** Preset ids, alphabetically, for the experiment editor. */
+export const presetIds = (): string[] => [...content.presets.keys()].sort();
+/** Variant ids by group, for the experiment editor. */
+export const variantGroups = (): [string, string[]][] => [...content.groups].sort(([a], [b]) => a.localeCompare(b)).map(([g, ids]) => [g, [...ids].sort()]);
+
+/** The experiments shipped in packages/content/playtests (checked by `tools validate`); a bad one is skipped with a warning. */
+export const repoExperiments: Experiment[] = Object.entries(import.meta.glob('../../../packages/content/playtests/*.json', { eager: true, import: 'default' }))
+  .flatMap(([file, data]) => {
+    const r = ExperimentSchema.safeParse(data);
+    if (!r.success) console.warn(`${file}: not a valid experiment`, r.error.issues[0]);
+    return r.success ? [r.data] : [];
+  })
+  .sort((a, b) => a.title.localeCompare(b.title));
+
+const presetVariantsCache = new Map<string, Record<string, string> | null>();
+function presetVariants(preset: string): Record<string, string> | null {
+  if (!presetVariantsCache.has(preset)) {
+    try { presetVariantsCache.set(preset, resolveConfig(content, { preset }).variants); } catch { presetVariantsCache.set(preset, null); }
+  }
+  return presetVariantsCache.get(preset)!;
+}
+
+/**
+ * A setup told as its difference from the default: the preset when it is not alpha-default, the
+ * variant picks that differ from that preset's own, then the `?set=` values. Empty for the default.
+ */
+export function diffParts(sel: { preset: string; variants: Record<string, string>; overrides?: Record<string, unknown>; map?: string }): string[] {
+  const own = presetVariants(sel.preset) ?? {};
+  return [
+    ...(sel.preset !== DEFAULT_PRESET ? [sel.preset] : []),
+    ...Object.entries(sel.variants).filter(([g, id]) => own[g] !== id).sort().map(([g, id]) => `${g}:${id}`),
+    ...setEntries(sel.overrides ?? {}).sort().map((e) => e.replace(/="([^"]*)"$/, '=$1')),
+    ...(sel.map ? [`map ${sel.map}`] : []),
+  ];
+}
+export const diffLabel = (sel: Parameters<typeof diffParts>[0]): string => diffParts(sel).join(', ') || 'default';
+
+/** Why a selection does not resolve to a config, or null when it does. */
+export function selectionError(sel: { preset: string; variants: Record<string, string>; overrides: Record<string, unknown> }): string | null {
+  try { resolveConfig(content, sel); return null; } catch (e) { return (e as Error).message; }
+}
+
+/** Maps a setup can pick: the built ones, then the generated loop and the open line. */
+export const mapChoices = (): string[] => [
+  ...Object.keys(import.meta.glob('../../../packages/content/base/maps/*.json')).map((p) => p.replace(/^.*\/|\.json$/g, '')).sort(),
+  'gen', 'line',
+];
+
+/** Every number or switch in game.json as a `?set=` path, e.g. `countdown.scale`, for the editor's suggestions. */
+export function settablePaths(): string[] {
+  const out: string[] = [];
+  const walk = (v: unknown, path: string) => {
+    if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, c] of Object.entries(v)) walk(c, path ? `${path}.${k}` : k);
+    else if (path && path !== 'schemaVersion') out.push(path);
+  };
+  walk(base, '');
+  return out.sort();
 }

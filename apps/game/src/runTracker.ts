@@ -1,5 +1,6 @@
 // Turns the sim's event stream into one summary record per run, for the Playtests page.
 // Pure: the host supplies wall-clock times and decides where records are stored.
+import type { Experiment } from '@train-robber/config';
 import type { BoardingResult, RunPhase, SimEvent } from '@train-robber/sim';
 
 /** How a run ended. `retry` is a quick retry; `abandoned` means the page closed mid-run. */
@@ -19,6 +20,14 @@ export interface SessionMeta {
   mapId: string;
   url: string;
   tickRateHz: number;
+  /** The experiment and setup the Play link tagged this session with (`?exp=&setup=`); missing when untagged. */
+  exp?: string;
+  setup?: string;
+  /**
+   * A copy of the experiment when it is a tester's own (not in the repo), so runs imported on
+   * someone else's page bring their experiment card with them.
+   */
+  experiment?: Experiment;
 }
 
 export interface RunNote { t: number; text: string }
@@ -57,11 +66,14 @@ export interface RunRecord extends SessionMeta {
   /** Whistles and mount jumps made; missing on records from before extraction. */
   whistles?: number;
   mountAttempts?: number;
+  /** Dollar value and count of the loot still in the train when the run ended; missing on records from before M6a. */
+  lootLeftValue?: number;
+  lootLeftItems?: number;
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLeftValue?: number; lootLeftItems?: number }
 
 export interface RunTracker {
   /**
@@ -91,6 +103,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
     lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
+    ...(o.lootLeftValue === undefined ? {} : { lootLeftValue: o.lootLeftValue, lootLeftItems: o.lootLeftItems }),
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -121,6 +134,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
+          if (ev.lootLeftValue !== undefined) { open.lootLeftValue = ev.lootLeftValue; open.lootLeftItems = ev.lootLeftItems; }
           ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));
         }
       }

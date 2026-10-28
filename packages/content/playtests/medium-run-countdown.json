@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "medium-run-countdown",
+  "title": "Medium run vs default countdown",
+  "question": "Does a 4x longer countdown with 4x the loot make a robbery better, or does it drag? Which length would you rather play three times in a row?",
+  "setups": [
+    { "id": "default", "name": "Default countdown" },
+    { "id": "medium", "name": "Medium run", "preset": "medium-run" }
+  ],
+  "numbers": ["outcomes", "length", "lootCarried", "lootLeft", "timeLeft", "heat"]
+}
