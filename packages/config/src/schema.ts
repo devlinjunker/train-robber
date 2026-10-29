@@ -338,7 +338,7 @@ export const GameSchema = z.object({
     throttleModel: z.enum(['hold', 'coast', 'cruise']),
     /** After boarding, the riderless horse runs off for this long and then leaves the world (U4). */
     runOffSec: z.number().min(0),
-    /** handlingModel variant group (`arcade-boost` on, `arcade` off): C gives a short burst above top speed, then a cooldown (G20). */
+    /** handlingModel variant group (`arcade-boost` on, `arcade` off): Shift gives a short burst above top speed, then a cooldown (G20). */
     boost: z.object({
       enabled: z.boolean(),
       /** How long the burst lasts. */

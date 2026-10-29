@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
@@ -340,6 +340,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
+  // What the player just hit: blocked ground beside the horse, or (on a ledge) beside the player on the car.
+  const obstacleHit = () => {
+    const p = sim.state.players[0]!, car = carOf(p.placement.frame);
+    if (car) { const at = carToWorld(car, p.placement.x, p.placement.y); return isoWorld.obstacleAt(at.x, at.y, config.values.outside.scrape.glanceTiles + 0.5); }
+    const h = sim.state.world.horses[0]!;
+    return isoWorld.obstacleAt(h.x, h.y, HORSE_RADIUS + 0.25);
+  };
   const noticeFor = (e: SimEvent) => {
     if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
@@ -350,7 +357,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // A scrape inside a crash's flash keeps the longer flash.
       const now = performance.now(), sec = e.kind === 'scrape' ? SCRAPE_FLASH_SEC : HIT_FLASH_SEC;
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
-      show(collisionNotice(e.against, e.kind, e.amount), 'bad', e.kind === 'scrape' ? 1000 : 2000);
+      show(collisionNotice(e.against, e.kind, e.amount, e.against === 'obstacle' ? obstacleHit() : undefined), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
     else if (e.type === 'RunStarted') {
       switchedAt = performance.now();
@@ -442,7 +449,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const TERRAIN_NAMES = { [Terrain.Open]: 'open', [Terrain.Slow]: 'slow', [Terrain.Blocked]: 'blocked', [Terrain.Water]: 'water', [Terrain.Deep]: 'deep' };
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
-    ...(horseCfg.boost.enabled ? ['C boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
+    ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
     'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
@@ -853,7 +860,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const boostView = !bc.enabled || !physical ? null
         : horseState.boostTicks > 0 ? { state: 'active' as const, share: horseState.boostTicks / Math.max(1, bc.durationTicks), text: 'BOOST' }
           : horseState.boostCooldownTicks > 0 ? { state: 'cooldown' as const, share: 1 - horseState.boostCooldownTicks / Math.max(1, bc.cooldownTicks), text: `boost ${(horseState.boostCooldownTicks / tickRateHz).toFixed(1)} s` }
-            : { state: 'ready' as const, share: 1, text: 'C boost ready' };
+            : { state: 'ready' as const, share: 1, text: 'Shift boost ready' };
       const debugBarDisplay = showDebug && debugBar.childElementCount > 0 ? 'flex' : 'none';
       if (debugBar.style.display !== debugBarDisplay) debugBar.style.display = debugBarDisplay;
       hud.update({

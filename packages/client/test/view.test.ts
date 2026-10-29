@@ -89,5 +89,8 @@ describe('landing and crash cues', () => {
     expect(collisionNotice('train', 'crash', 10)).toBe('Crashed into the train: -10 health');
     expect(collisionNotice('obstacle', 'crash', 10)).toBe('Crashed into a rock: -10 health');
     expect(collisionNotice('train', 'scrape', 1)).toBe('Scraped the train: -1 health');
+    expect(collisionNotice('obstacle', 'crash', 10, 'tree')).toBe('Crashed into a tree: -10 health');
+    expect(collisionNotice('obstacle', 'crash', 10, 'mesa')).toBe('Crashed into a mesa: -10 health');
+    expect(collisionNotice('obstacle', 'scrape', 1, 'tree')).toBe('Scraped a tree: -1 health');
   });
 });

@@ -1,12 +1,12 @@
 # Phase 2 implementation plan
 
-> Exported from the live [Phase 2 implementation plan](https://claude.ai/code/artifact/b87c9954-66b4-4b7d-b759-0f74a8eaf0fd) on 2026-10-11. The live doc stays the working copy while Phase 2 runs. Each Phase 2 milestone PR refreshes this file from it, and when Phase 2 ends this copy becomes the final record. Decided values still live in [technical-design.md](../technical-design.md).
+> Exported from the live [Phase 2 implementation plan](https://claude.ai/code/artifact/b87c9954-66b4-4b7d-b759-0f74a8eaf0fd) on 2026-10-11, refreshed 2026-10-28 for the M6 regrill. The live doc stays the working copy while Phase 2 runs. Each Phase 2 milestone PR refreshes this file from it, and when Phase 2 ends this copy becomes the final record. Decided values still live in [technical-design.md](../technical-design.md).
 
 Oct 10, 2026 · @Devlin
 
 ## Overview
 
-Phase 2 builds the mail/express train and with it the first full run: board, loot under a countdown and heat meter, whistle for the horse, extract and bank a score. A failed run ends with a wanted level that carries into the next one. Per the [requirements roadmap](https://github.com/devlinjunker/train-robber/blob/main/docs/requirements.md#prototype-scope-and-roadmap), the gate is to compare the short (2-5 min) and medium (8-15 min) run configurations and pick a target length.
+Phase 2 builds the mail/express train and with it the first full run: board, loot under a countdown and heat meter, whistle for the horse, extract and bank a score. A failed run ends with a wanted level that carries into the next one. Per the [requirements roadmap](https://github.com/devlinjunker/train-robber/blob/main/docs/requirements.md#prototype-scope-and-roadmap), the gate is to decide how long one train robbery on the open line should be and how much train fills it (regrilled 2026-10-28, G31-G44).
 
 In scope: countdown, heat, loot and carry limit (with weight slowdown as a variant), the whistle extraction with a variable horse delay, the grace window, wanted level saved in the browser, a banked score per run and in total, and enough of a guard to make heat and detection mean something. Out of scope: combat and the downed state (Phase 3), passengers (Phase 4) and the vault (Phase 5).
 
@@ -35,7 +35,7 @@ Phase 2 starts from Phase 1 as merged on main (M1 to M4, PRs #4 to #7). Since th
 
 ## Workstreams
 
-Six milestones, each a playable PR. M1 and M2 can run in parallel; M3 adds the guards right after the mail train, so heat and the guard catch question are playable early (G16); M4 extraction needs the mail train; M5 saving needs the outcomes from M1 and M4; M6 is the playtest against the gate.
+Six milestones, each a playable PR. M1 and M2 can run in parallel; M3 adds the guards right after the mail train, so heat and the guard catch question are playable early (G16); M4 extraction needs the mail train; M5 saving needs the outcomes from M1 and M4; M6 (three PRs: M6a, M6b, M6c) is the tests, the heat changes and the line gate.
 
 ### M1: Countdown, heat and run end
 
@@ -115,13 +115,53 @@ Built in PR [#29](https://github.com/devlinjunker/train-robber/pull/29), branch 
 
 Built in the M5 PR (branch `claude/phase-2-m5-wanted-persistence`, v0.2.5). `applyOutcome(persistent, outcome, { cashOut }, policy, maxLevel)` covers all five outcomes (cashedOut too), keeps wanted level within 0 to `wanted.maxLevel` and never lowers lifetime earned; the cash-out after being thrown off banks only what the throw left, and a good mount banks what the spill left. Every run end emits `PersistentChanged` (with its outcome), changed or not, and the host saves on it. The save lives in localStorage under `train-robber.save` (version 1; an unversioned save migrates, a corrupt or newer one is copied to `train-robber.save.backup.<time>` and reset with an on-screen notice). Wanted level adds `wanted.guardBonus` [0, 1, 1, 2, 2, 3] guards by level (Claude's pick), plus `guards.perWantedLevel` × level per train (0 on the mail train), capped by the train's guard spawns (5 to 6 on three mail cars). `?wanted=N` is short for `?set=wanted.forceLevel=N`; the `wanted-3` preset sets 3. Forced runs are practice: the HUD, the run start notice and the summary say so, and wanted level, bank, lifetime and the leaderboard stay as they were. Reset save is a button with the debug overlay (`` ` ``) and `?resetSave=1`; both confirm first and back the old save up. The summary panel shows the outcome, loot banked (or lost), loot lost on the way, items, time, heat, the wanted level change, the bank and the best runs, with Quick retry and Close (`?summary=off` hides it; it stays until closed or the next commit). After Devlin's playtest, a guard throw that leaves nothing to carry while the doors are shut ends the run `caught` (wanted +1, `outcomePolicy.caught`), so the run can't get stuck. The HUD shows the wanted level as stars next to the phase. The Playtests page has Wanted and Bank columns, a practice filter, and lost loot under Loot.
 
-### M6: Tests, tuning and playtest
+### M6: Tests, tuning and the line gate
 
-- [ ] Golden run on the mail train, and a mid-extraction snapshot round-trip test
-- [ ] Bots over 1,000 seeds: idle bot (must expire), scripted looter (must extract sometimes); invariants for heat range and carried weight
-- [ ] `tools report` adds run length, completion rate, time to first loot, heat at end, cancels with time left, and robbery time, loot value per minute and cars per train (inputs for G6 and G8)
-- [ ] Ready-made presets for the main questions (G7), linked from the wiki Playtesting page, and a playtest question comment on the PR
-- [ ] Playtest against the gate: compare short and medium runs and pick a target robbery time (provisional: on the open line town spacing and train speed set it, so the generated-maps G6 and G8 re-test it)
+M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The gate is now played on the open line, not the loop maps: it asks how long one train robbery should be and how much train fills it. The loop maps stay for automated tests only and will not be offered to players. M6 ships as three PRs in this order.
+
+**M6a: Playtests page** (no game changes; can start before M5 and G6 merge; branch `claude/phase-2-m6a-playtests-page`)
+
+- [ ] Experiments: a question plus 2-4 named setups, each with a Play link, labelled by its difference from the default ("towns gap 1,600, 4 cars") and an editable base setup (G40)
+- [ ] Repo experiments in `content/playtests/*.json`, read-only on the page; your own built on the page (preset, variant dropdowns, `?set=` rows) and saved in the browser; Duplicate, Copy as file and Share link (G41). A shared experiment is saved to the Playtests page of whoever opens it: the Share link carries the experiment in the URL, and opening it (or a Play link from it, or importing its file) adds it to that person's own experiments (Devlin, 2026-10-28)
+- [ ] Runs tagged from the Play link (`?exp=<id>&setup=<id>`), so imported runs from other testers land in the right card
+- [ ] Experiment card: setups side by side, only the 4-6 numbers its question names, notes per setup, an answer box carried by the notes export and Send to GitHub
+- [ ] Session pull on every experiment card: how often a new run starts within 30 s of the summary screen, and which outcome ended each session; every answer box also asks "What would you try next time?", "Did you see a prize or route you left behind?" and "Did you want to go again? Why?" (G45, from the wiki progression review's step 9 priority)
+- [ ] Run list split into views: Robbery (default), Boarding (the Phase 1 stats), All; about 7-8 columns each; click a run to expand seed, variants, damage, logs, Watch and notes (G39)
+- [ ] Header tidied: export, import and GitHub in one Export menu; filters on one line, version first
+- [ ] Rule from now on: a milestone adds its numbers to a view and the expanded run, never as a column everywhere (wiki Playtesting and project memory)
+
+**M6b: Heat drives guards and wanted** (needs M5, PR #46; branch `claude/phase-2-m6b-heat-wanted`)
+
+- [ ] Heat never changes the clock (already true on the line); remove `heat.heatDrainFactor` from runs and `heat.sources.timeAboardPerSec` with its `no-time-aboard-heat` preset (G34, G35)
+- [ ] Heat bands (low, mid, high) scale guards: longer alert and calm-down times, a little more sight and hearing range, faster chase, more guards patrolling instead of standing posts; one config table, switch `heatGuards` on/off to compare (G34)
+- [ ] Heat roll: at every run end, heat % is the chance of +1 wanted level, extractions included; the roll is seeded from the run so replays match; `outcomePolicy.<outcome>.heatRoll` turns it off per outcome; expired still adds +1 outright (G35, G37)
+- [ ] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day (today a day ends at death, PR #45; G8 brings the day clock); paying it off with bank comes with careers and towns (G36)
+- [ ] Summary screen and Playtests page show heat at end, the roll's chance and whether it hit
+
+**M6c: Tests and the gate** (needs G6, PR #47, and M6b; bumps to 0.2.6; branch `claude/phase-2-m6c-tests-gate`)
+
+- [ ] Loop golden fixed to loot, whistle and extract (it cancels today), plus a short line golden that boards, loots and extracts before the next town; mid-extraction snapshot round trip (G38)
+- [ ] Looter bot (loots, whistles, extracts) beside the idle bot; CI runs both over 1,000 loop seeds and 25 line seeds; invariants for heat 0-100 and carry (G38)
+- [ ] `tools report --line`: the looter over a few hundred line seeds per spacing preset, on demand, not in CI; reads exported playtest logs too
+- [ ] Robbery numbers recorded per run: time aboard, town clock left at boarding, bag fill %, loot value per minute, loot value left on the train when you got off, how it ended, heat at end and the roll
+- [ ] Line made long enough for 3+ towns in every spacing preset; presets for each gate experiment (below)
+- [ ] The gate shipped as experiment `phase-2-gate` in `content/playtests/`, with a "Phase 2 gate" section on the wiki Playtesting page: the questions, how to play each experiment, and how to customize setups on the page or with `?set=` (G42)
+- [ ] Playtest question comment on the PR, one per gate question, plus "Would you pay for the full game after this? What would make you?" (G45); experiment 7's boon pick screen after extraction if it is built (G47)
+
+**The gate questions** (G43). Played in order: experiment 1 first, then 2-6 start from the spacing it picked.
+
+| # | Question | Setups to compare | What the answer sets |
+| --- | --- | --- | --- |
+| 1 | Which town spacing makes a robbery tense without dragging? | towns-tight (\~1,100 tiles, \~2 min, 3 cars), towns-mid (\~1,600, \~3 min, 4 cars), towns-wide (\~2,200, \~4 min, 6 cars) | Town spacing for G6 |
+| 2 | Do you run out of train before the clock, or the clock before the train? | 3, 4, 6 mail cars | Cars per train |
+| 3 | Does a 10-weight bag fill at a good moment, and does "full bag, find the next train" feel good? Would +5 carry feel worth buying, or just easier? (progression: stats or options) | carry 6, 10, 15 | Baseline carry, and whether a carry upgrade is worth having |
+| 4 | Does the coming town change where and when you board, and can you read the time left? | town clock always shown, only in the last minute | Clock HUD |
+| 5 | Can you feel heat in how guards act, and is high heat too harsh? | heatGuards off, default, harsh | Heat band values |
+| 6 | Should wanted level go down on its own, and does the roll feel fair? (progression question) | no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted), each starting at wanted 3 | Wanted decay rule (G46) |
+| 7 | Optional, after 1-6. Does a build that grows between trains make the third train feel different from the first? (progression: roguelite career or arcade mastery) | three trains in a row, with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes) | Whether to lean toward a career or toward arcade mastery and co-op (G47) |
+| 8 | Measured, not asked: how many robberies fit in a 12-minute day at the chosen spacing? | from the run numbers | Trains per day for G8 |
+
+**Pass bar** (G44): no numeric threshold; Devlin judges by playing. It passes when a full robbery on the line (find, board, loot, get off before the town) is fun enough to play three times in a row. If it fails, tune and replay before G7 and the Phase 3 plan start. The answers go into the technical design and G6's town spacing.
 
 ## Variants and switches by milestone
 
@@ -182,7 +222,7 @@ These are copied from [docs/technical-design.md](https://github.com/devlinjunker
 
 ## Testing and acceptance
 
-Phase 2 is done when a full mail run can be played from commit to banked score at both the short and the medium countdown, and the playtest picks a target length.
+Phase 2 is done when a full mail run can be played from commit to banked score on the open line, and the gate experiments pick town spacing and train length (G31-G44).
 
 **Automated, in `npm run check` and CI**
 
@@ -203,7 +243,7 @@ Phase 2 is done when a full mail run can be played from commit to banked score a
 - Wanted level survives a reload and adds guards on the next run
 - Frame time on the reference machine stays above 30 fps in Chrome and Safari
 
-**Gate:** compare short and medium runs and pick a target length. As in Phase 1, there is no numeric threshold; Devlin judges by playing, with `tools report` numbers (run length, completion rate, time to first loot) as support.
+**Gate (changed 2026-10-28, G31-G44):** played on the open line as six experiments on the Playtests page (see M6), to pick town spacing, cars per train and baseline carry, and to check heat and wanted. As in Phase 1, there is no numeric threshold: it passes when a full robbery on the line is fun enough to play three times in a row. `tools report --line` and the Playtests page numbers (time aboard, bag fill, loot per minute, how it ended) are support.
 
 ## Questions and answers
 
@@ -273,6 +313,24 @@ Decisions from grilling the plan with Devlin, newest last.
 | G28 | How do you reset your save? (Q14) | A Reset save button in the debug overlay and ?resetSave=1 in the URL, both confirming before wiping | 2026-10-11 |
 | G29 | Build the roof route in Phase 2? (Q15) | Not in Phase 2; it fits Phase 3. Recorded for later: side ladders as entry points beside doors, so you can board straight onto the roof from the horse. Mail car layouts mark roof access so nothing needs redoing | 2026-10-11 |
 | G30 | Should high heat make boarding harder later? (Q17) | Add the hook now: heat.boardingResistanceAt (off by default) in M1; the shooting itself comes with combat in Phase 3 | 2026-10-11 |
+| G31 | What does the Phase 2 gate decide? (M6 regrill) | How long one train robbery should be and how much train fills it, tested across a range of town spacings, not short vs medium runs. Item weights and carry also bound how long a train can be looted; carry can become a progression stat later (careers) | 2026-10-28 |
+| G32 | What should end a good robbery: the clock or the bag? | Both pull: a starting bag fills about when the clock gets tight, and a train holds more than you can carry. A bag filling early is fine: you get off and rob the next train that day. The clock should suddenly matter as the next town nears and shape where you board | 2026-10-28 |
+| G33 | Where is the gate played? | On the open line with the next-town clock. Loop maps are for automated tests only and long term are not offered to players. The gate's dial is town spacing, not countdown.scale | 2026-10-28 |
+| G34 | What does heat do now? | Heat never changes the clock. It drives guards, by band: alert and calm-down last longer, sight and hearing grow a little, chase gets faster, more guards patrol (shooting waits for Phase 3). Built in M6 with a heatGuards switch | 2026-10-28 |
+| G35 | Does heat affect wanted level? | Yes: heat at run end is the % chance of +1 wanted, even on a clean extraction. Time-aboard heat (heat.sources.timeAboardPerSec and its no-time-aboard-heat preset) is removed | 2026-10-28 |
+| G36 | How does wanted come back down? (U11 said never) | Decay now: wanted.decayPerDay 1 at each new day. Paying it off with bank comes later with careers and towns | 2026-10-28 |
+| G37 | Which outcomes roll on heat? | All of them. Expired still adds +1 outright. Died and cancelled roll too (a cancel that didn't roll would dodge wanted); outcomePolicy.<outcome>.heatRoll turns it off per outcome | 2026-10-28 |
+| G38 | Where do the golden runs and bots run? | Loop golden fixed to extract, plus a short line golden. CI: idle and looter bots over 1,000 loop seeds and 25 line seeds. tools report --line runs a few hundred line seeds per preset on demand. The gate answer comes from Devlin's playtest logs | 2026-10-28 |
+| G39 | The Playtests page is too busy. How should it be organized? | Experiments as the backbone, plus the run list split into views (Robbery, Boarding, All) with click-to-expand rows. New numbers go into a view, never as a column everywhere | 2026-10-28 |
+| G40 | What is an experiment? | A question plus 2-4 named setups, each with a Play link, shown as a diff from default, with an editable base setup and an answer box carried into the notes export | 2026-10-28 |
+| G41 | Where do experiments live? | Local plus repo: repo ones in content/playtests/*.json (read-only on the page); your own saved in the browser, with Duplicate, Copy as file and Share link. Opening a shared link, a Play link from it, or its file saves the experiment to that person's Playtests page (Devlin, 2026-10-28) | 2026-10-28 |
+| G42 | How does M6 ship? | Three PRs: M6a Playtests page (can start now), M6b heat drives guards and wanted (after M5), M6c tests and the gate (after G6 and M6b, 0.2.6). The gate guide, including how to customize setups, is a section on the wiki Playtesting page | 2026-10-28 |
+| G43 | What are the gate questions? | Six experiments played in order, each starting from the spacing experiment 1 picks: town spacing, train length, the bag, reading the clock, heat and guards, wanted roll and decay; plus robberies per 12-minute day, measured for G8 | 2026-10-28 |
+| G44 | What counts as passing? | No numeric threshold. A full robbery on the line (find, board, loot, get off before the town) is fun enough to play three times in a row; if not, tune and replay before G7 and the Phase 3 plan | 2026-10-28 |
+| G45 | How does M6 measure reasons to keep playing? (progression doc) | Every experiment card shows session pull (a new run within 30 s of the summary, and which outcome ended each session), and every answer box asks "What would you try next time?", "Did you see a prize or route you left behind?" and "Did you want to go again? Why?" (the wiki progression review's step 9 priority). Runs also record the loot value left on the train. The gate comment also asks "Would you pay for the full game after this? What would make you?" | 2026-10-28 |
+| G46 | Should wanted level go down on its own? (progression doc open question) | Not settled by the 1 per day default (Devlin). Experiment 6 tests it: no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted). Paying it off with bank waits for careers | 2026-10-28 |
+| G47 | Roguelite career or arcade mastery? (progression doc open question) | Optional experiment 7 after the six gate experiments: three trains in a row with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes). If the third train doesn't feel different, lean toward arcade mastery and co-op | 2026-10-28 |
+| G48 | How does the Roadmap show M6? | Row 9 splits into 9a M6a, 9b M6b, 9c M6c and 9d the Phase 2 gate (its own bold row); later step numbers stay the same | 2026-10-28 |
 
 **Wiki Ideas page additions** (pushed to the wiki on 2026-10-11 with a rank per idea, except where marked)
 
