@@ -11,6 +11,8 @@ export interface RunSummary {
    * (or 0); it banks only when the outcome's policy has `bankRunLoot`.
    */
   cashOut: number;
+  /** Wanted levels the run picked up on the way (`wanted.perThrowOff` per guard throw-off), added to the outcome's `wantedDelta`. */
+  wantedBonus?: number;
 }
 
 export interface OutcomeResult {
@@ -28,7 +30,7 @@ export interface OutcomeResult {
 export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, summary: RunSummary, policy: OutcomePolicy, maxWantedLevel: number): OutcomeResult {
   const next = { ...persistent };
   const p = policy[outcome];
-  next.wantedLevel = Math.max(0, Math.min(maxWantedLevel, next.wantedLevel + p.wantedDelta));
+  next.wantedLevel = Math.max(0, Math.min(maxWantedLevel, next.wantedLevel + p.wantedDelta + (summary.wantedBonus ?? 0)));
   const banked = p.bankRunLoot ? Math.max(0, Math.floor(summary.cashOut)) : 0;
   next.bank += banked;
   next.lifetimeEarned += banked;

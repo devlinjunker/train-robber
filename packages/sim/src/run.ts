@@ -123,7 +123,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   const guards = generateGuards(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
-    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0,
+    countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0, thrownOffs: 0,
     heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
@@ -239,7 +239,7 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
   const practice = isPractice(ctx.config);
   const before = state.persistent;
-  const result = applyOutcome(before, outcome, { cashOut }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
+  const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
   const after = practice ? before : result.persistent;
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
@@ -519,7 +519,10 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
   rp.crouched = false;
   Object.assign(rp, freshRoofState());
   if (guard === null) ctx.emit({ type: 'FellOff', tick: state.tick, player: p.id, car: f.car, cause: fall });
-  else ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+  else {
+    ctx.emit({ type: 'ThrownOff', tick: state.tick, player: p.id, guard, car: f.car });
+    run.thrownOffs++;
+  }
   const cause = guard === null ? 'fell' as const : 'thrownOff' as const;
   // Some of what you carry goes over the side with you: a share, picked at random (the `ai` stream).
   const share = guard === null ? config.values.ai.fellLootShare : config.values.ai.thrownOffLootShare;
@@ -538,10 +541,10 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
     p.health = Math.max(0, p.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause });
   }
-  // Caught (Devlin, PR #46 playtest): thrown off by a guard with nothing left to cash out and the
-  // doors shut behind you, there is nothing more to do on this run, so it ends here (`outcomePolicy.caught`,
-  // a wanted level by default). With loot left, F still gets away with it. A throw that kills is a death.
-  if (guard !== null && p.health > 0 && rp.carried.length === 0 && train.doorsClosed) endRun(ctx, p, 'caught', false);
+  // Caught (Devlin, PR #46 playtest): thrown off by a guard with the doors shut behind you, the run
+  // ends here with `cashOut.shutDoorsEndRun` (`outcomePolicy.caught`; the throw itself adds
+  // `wanted.perThrowOff`, at any run end). Otherwise the run goes on. A throw that kills is a death.
+  if (guard !== null && p.health > 0 && train.doorsClosed && config.values.cashOut.shutDoorsEndRun) endRun(ctx, p, 'caught', false);
 }
 
 /**

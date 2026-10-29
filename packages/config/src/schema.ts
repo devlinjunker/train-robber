@@ -292,6 +292,8 @@ export const GameSchema = z.object({
     maxLevel: z.number().int().min(0),
     guardBonus: z.array(z.number().int().min(0)).min(1),
     forceLevel: z.number().int().min(0).nullable().optional(),
+    /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
+    perThrowOff: z.number().int().min(0),
   }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     died: z.object({
@@ -306,7 +308,7 @@ export const GameSchema = z.object({
     extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
     cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
-    /** A guard threw you off with nothing left and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. */
+    /** A guard threw you off and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. The throw's own wanted level is `wanted.perThrowOff`. */
     caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   /**
@@ -316,7 +318,9 @@ export const GameSchema = z.object({
    * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
    * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
    */
-  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(),
+    /** A guard throw that shuts the doors ends the run `caught` (Devlin, PR #46 playtest). Off for later, when outside ladders give a way back on. */
+    shutDoorsEndRun: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,

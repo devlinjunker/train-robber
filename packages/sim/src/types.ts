@@ -331,6 +331,8 @@ export interface RunState {
   clockTo?: string;
   /** Ticks expiry has waited in the grace window so far (U3), up to `countdown.graceTicks`. */
   graceTicks: number;
+  /** Times a guard threw the player off this run; each adds `wanted.perThrowOff` at the run's end. */
+  thrownOffs: number;
   /** 0 to `heat.maxHeat`; only raiseHeat changes it. */
   heat: number;
   /** Time-aboard heat not yet added: it builds up per tick and is raised a whole point at a time, so each gain is one event. */
@@ -558,7 +560,7 @@ export interface SimConfig {
       boardingResistanceAt?: number | null;
     };
     /** Wanted level 0 to `maxLevel` (phase 2 M5). `forceLevel` set: practice runs at that level that save nothing. */
-    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null };
+    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
@@ -572,7 +574,7 @@ export interface SimConfig {
      * train's doors, and with `closeDoorsOnThrownOff` being thrown off does; a shut train cannot be
      * boarded, committed or switched to for `doorsReopenTicks` (0: never).
      */
-    cashOut: { enabled: boolean; closeDoors: boolean; closeDoorsOnThrownOff: boolean; doorsReopenTicks: number };
+    cashOut: { enabled: boolean; closeDoors: boolean; closeDoorsOnThrownOff: boolean; shutDoorsEndRun: boolean; doorsReopenTicks: number };
     horse: {
       /** Tiles per second. */
       maxSpeed: number;
