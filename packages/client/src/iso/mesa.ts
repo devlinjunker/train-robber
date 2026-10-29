@@ -41,6 +41,13 @@ export interface MesaLayer {
   hides(points: readonly (readonly [number, number])[], depth: number): boolean;
   /** Cut a round hole (iso pixels) through every piece in front of `depth` near it, or clear it with null. */
   cut(hole: { x: number; y: number; r: number } | null, depth: number): void;
+  /**
+   * The pieces the hole is cut through now, with their sort depth and screen box (iso pixels).
+   * They sit in the sorted container while cut, which draws over all the static land, so the
+   * static pieces in front of them must be copied over them like over a mover (overdraw.ts), or a
+   * cut boulder on a mesa top shows through the cliff face in front of it (Devlin, PR #50).
+   */
+  cutPieces(): { zIndex: number; minX: number; minY: number; maxX: number; maxY: number }[];
 }
 
 interface Piece extends Chunk {
@@ -381,6 +388,15 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
         }
         if (want) maskedNow.add(p); else maskedNow.delete(p);
       }
+    },
+    cutPieces() {
+      const out = [];
+      for (const p of maskedNow) {
+        if (p.g.destroyed || !p.g.parent) continue;
+        const b = p.g.getLocalBounds();
+        out.push({ zIndex: p.g.zIndex, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY });
+      }
+      return out;
     },
   };
 }

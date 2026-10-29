@@ -112,8 +112,8 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
       },
-      health: { max: 100 },
-      collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownTicks: 60 },
+      health: { max: 100, scope: 'day' },
+      collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },
       playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,
@@ -122,14 +122,16 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
+      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
         cancelled: { bankRunLoot: false, wantedDelta: 0 },
         expired: { bankRunLoot: false, wantedDelta: 1 },
         extracted: { bankRunLoot: true, wantedDelta: 0 },
         cashedOut: { bankRunLoot: true, wantedDelta: 0 },
+        caught: { bankRunLoot: true, wantedDelta: 0 },
       },
-      cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenTicks: 0 },
+      cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, shutDoorsEndRun: true, doorsReopenTicks: 0 },
       horse: {
         maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10, slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25,
         turnRateCosPerTick: Math.cos(rad), turnRateSinPerTick: Math.sin(rad), steering: 'heading', throttleModel: 'hold', runOffTicks: 180,

@@ -13,8 +13,8 @@ const base = {
     failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
   },
-  health: { max: 100 },
-  collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, cooldownSec: 1 },
+  health: { max: 100, scope: 'day' },
+  collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },
   playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
@@ -51,14 +51,16 @@ const base = {
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
   hud: { showTrainNames: true, lootTotalSec: 4 },
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
+  wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
     expired: { bankRunLoot: false, wantedDelta: 1 },
     extracted: { bankRunLoot: true, wantedDelta: 0 },
     cashedOut: { bankRunLoot: true, wantedDelta: 0 },
+    caught: { bankRunLoot: true, wantedDelta: 0 },
   },
-  cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenSec: 0 },
+  cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, shutDoorsEndRun: true, doorsReopenSec: 0 },
 };
 
 const variant = (group: string, id: string, patch: object) =>

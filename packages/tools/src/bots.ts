@@ -60,8 +60,8 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
   for (const p of s.players) {
     const h = s.world.horses.find((q) => q.id === p.horseId)!;
     const rp = run?.players[p.id];
+    if (!(p.health > 0 && p.health <= v.health.max)) return `player ${p.id} health ${p.health} after a tick`;
     if (rp) {
-      if (!(rp.health > 0 && rp.health <= v.health.max)) return `player ${p.id} health ${rp.health} in a live run`;
       if (rp.meter.phase < 0 || rp.meter.phase >= 1 || rp.meter.zoneCentre < 0 || rp.meter.zoneCentre > 1) return `player ${p.id} meter ${JSON.stringify(rp.meter)}`;
     }
     if (p.placement.frame === WORLD_FRAME) {

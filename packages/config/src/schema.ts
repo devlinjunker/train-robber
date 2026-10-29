@@ -63,8 +63,15 @@ export const GameSchema = z.object({
      */
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
   }).strict(),
-  health: z.object({ max: positive }).strict(),
-  /** Running into a train or blocked ground on a run (water and the map edge never hurt). */
+  health: z.object({
+    max: positive,
+    /**
+     * `day` (Devlin, 2026-10-28): one health bar for the whole day; committing doesn't refill it and
+     * dying ends the day, starting the next at full health back at the spawn. `run`: refilled at every commit.
+     */
+    scope: z.enum(['day', 'run']),
+  }).strict(),
+  /** Running into a train or blocked ground (water and the map edge never hurt). */
   collision: z.object({
     /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */
     damageFraction: fraction,
@@ -76,6 +83,11 @@ export const GameSchema = z.object({
     minImpactTilesPerSec: z.number().min(0),
     /** Impact at and above which a crash costs the full damageFraction; between the two it scales up from the scrape damage. */
     fullImpactTilesPerSec: z.number().min(0),
+    /**
+     * Off a run with `health.scope: day` (Devlin, 2026-10-28): a crash only hurts from this impact,
+     * then costs what the same crash would on a run; slower touches and scrapes are free.
+     */
+    offRunMinImpactTilesPerSec: z.number().min(0),
     /** After a crash, further crashes are free for this long, so one crash costs health once. */
     cooldownSec: z.number().min(0),
   }).strict().refine((c) => c.fullImpactTilesPerSec >= c.minImpactTilesPerSec, { message: 'full impact must not be below min impact', path: ['fullImpactTilesPerSec'] }),
@@ -199,7 +211,10 @@ export const GameSchema = z.object({
     /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
     /** `rounds`: this train type's own mix of guards walking between cars, over `ai.rounds`. */
     guards: z.object({
-      base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional(),
+      base: z.number().int().min(0).optional(),
+      perCar: z.number().min(0).optional(),
+      /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
+      perWantedLevel: z.number().min(0).optional(),
       rounds: z.object({ share: z.number().min(0).max(1), reachCars: z.number().int().min(0), walkerChance: z.number().min(0).max(1) }).partial().strict().optional(),
     }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
@@ -269,6 +284,19 @@ export const GameSchema = z.object({
   items: z.record(ItemSchema),
   lootTables: z.record(LootTableSchema),
   carTemplates: z.record(CarTemplateSchema),
+  /**
+   * Wanted level (phase 2 M5, U11): 0 to `maxLevel`, read only when a run is generated. Each level
+   * adds `guardBonus[level]` guards to every train (the last entry covers higher levels), plus the
+   * train's `guards.perWantedLevel` x level. `forceLevel` (preset or `?wanted=`) sets the level a run
+   * uses; such runs are practice and save nothing (G8, G9). Null or absent: the saved level.
+   */
+  wanted: z.object({
+    maxLevel: z.number().int().min(0),
+    guardBonus: z.array(z.number().int().min(0)).min(1),
+    forceLevel: z.number().int().min(0).nullable().optional(),
+    /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
+    perThrowOff: z.number().int().min(0),
+  }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     died: z.object({
       bankRunLoot: z.boolean(),
@@ -282,6 +310,8 @@ export const GameSchema = z.object({
     extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
     cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** A guard threw you off and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. The throw's own wanted level is `wanted.perThrowOff`. */
+    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   /**
    * F on the horse during a run (after a guard throws you off) ends the run and banks what you
@@ -290,7 +320,9 @@ export const GameSchema = z.object({
    * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
    * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
    */
-  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(),
+    /** A guard throw that shuts the doors ends the run `caught` (Devlin, PR #46 playtest). Off for later, when outside ladders give a way back on. */
+    shutDoorsEndRun: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,
@@ -312,7 +344,7 @@ export const GameSchema = z.object({
     throttleModel: z.enum(['hold', 'coast', 'cruise']),
     /** After boarding, the riderless horse runs off for this long and then leaves the world (U4). */
     runOffSec: z.number().min(0),
-    /** handlingModel variant group (`arcade-boost` on, `arcade` off): C gives a short burst above top speed, then a cooldown (G20). */
+    /** handlingModel variant group (`arcade-boost` on, `arcade` off): Shift gives a short burst above top speed, then a cooldown (G20). */
     boost: z.object({
       enabled: z.boolean(),
       /** How long the burst lasts. */

@@ -16,7 +16,7 @@ const CAR = asciiCar('guarded', ['#######DD#######', '#..............#', 'D.....
 });
 
 /** The shipped spacing: half-tile platforms and a one-tile gap, so roofs are 2 tiles apart. */
-function roofConfig(more: { ai?: Partial<Values['ai']>; roof?: Partial<Values['outside']['roof']>; guards?: number; cars?: number; playtest?: Partial<Values['playtest']> } = {}): SimConfig {
+function roofConfig(more: { ai?: Partial<Values['ai']>; roof?: Partial<Values['outside']['roof']>; guards?: number; cars?: number; playtest?: Partial<Values['playtest']>; cashOut?: Partial<Values['cashOut']> } = {}): SimConfig {
   const base = testConfig();
   return testConfig({}, 'roof0001', {
     outside: { ...OUTSIDE, platformDepthTiles: 0.5, couplingGapTiles: 1, roof: { ...ROOF, ...more.roof } },
@@ -25,6 +25,7 @@ function roofConfig(more: { ai?: Partial<Values['ai']>; roof?: Partial<Values['o
     trainMix: { ...base.values.trainMix, mailTrain: 'mail' },
     ai: { ...base.values.ai, ...more.ai },
     playtest: { ...base.values.playtest, ...more.playtest },
+    cashOut: { ...base.values.cashOut, ...more.cashOut },
   });
 }
 
@@ -431,7 +432,8 @@ describe('guards jumping between roofs', () => {
   });
 
   it('a guard chasing you on the next roof runs to the end and jumps the gap onto it', () => {
-    const sim = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' } }), 8, 3, 'roof', 2);
+    // Doors left open after the throw keep the run going (shut, it would end caught).
+    const sim = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' }, cashOut: { closeDoorsOnThrownOff: false } }), 8, 3, 'roof', 2);
     alertOn(sim, 1, true, { car: 2, x: 8 });
     const ev = steps(sim, 60 * 4);
     expect(ofType(ev, 'GuardJumped')).toEqual([expect.objectContaining({ car: 1, toCar: 2, short: false })]);

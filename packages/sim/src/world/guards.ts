@@ -13,6 +13,7 @@
 // is the column across the whole train (car offset + x) and y is the row. End doors join the
 // cars, so a guard can chase through them and see along a corridor that does not pass a door.
 import { nextInt, type StreamName } from '../rng';
+import { runWantedLevel } from '../rules/outcome';
 import type { CarEnd, GameState, GuardAwareness, GuardState, PlayerState, SimConfig, SimEvent, TrainState } from '../types';
 import { carCatalog, carTemplate, type CarCatalog } from './cars';
 import { curvePull } from './curve';
@@ -47,12 +48,15 @@ export function guardCount(config: SimConfig, trainType: string, wantedLevel: nu
 }
 
 /**
- * Extra guards for the wanted level. Phase 2 M5 adds `wanted.guardBonus` (indexed by level) and
- * `trains.<id>.guards.perWantedLevel`; until then the wanted level adds none.
+ * Extra guards for the wanted level (phase 2 M5): `wanted.guardBonus[level]` (the last entry covers
+ * higher levels) plus the train's `guards.perWantedLevel` x level, rounded.
  */
 export function wantedGuardBonus(config: SimConfig, trainType: string, wantedLevel: number): number {
-  void config; void trainType; void wantedLevel;
-  return 0;
+  const level = Math.max(0, Math.floor(wantedLevel));
+  if (level === 0) return 0;
+  const table = config.values.wanted.guardBonus;
+  const perLevel = config.values.trains[trainType]?.guards?.perWantedLevel ?? 0;
+  return (table[Math.min(level, table.length - 1)] ?? 0) + Math.round(perLevel * level);
 }
 
 const FACING: Record<string, readonly [number, number]> = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
@@ -458,7 +462,7 @@ export function isSearching(g: GuardState, config: SimConfig): boolean {
 export function generateGuards(state: GameState, config: SimConfig, train: TrainState): GuardState[] {
   const catalog = carCatalog(config);
   const guarded = train.cars.filter((id) => carTemplate(catalog, id).guardSpawns.length > 0).length;
-  const n = guardCount(config, train.type, state.persistent.wantedLevel, guarded);
+  const n = guardCount(config, train.type, runWantedLevel(state, config), guarded);
   if (n <= 0) return [];
   const spawns: { car: number; spawn: ReturnType<typeof carTemplate>['guardSpawns'][number] }[] = [];
   train.cars.forEach((id, car) => { for (const spawn of carTemplate(catalog, id).guardSpawns) spawns.push({ car, spawn }); });
