@@ -27,13 +27,14 @@ const COVER_CAR = asciiCar('guarded', ['#######DD#######', '#..............#', '
   guardSpawns: [{ cell: [12, 2], facing: 'left' }],
 });
 
-function guardConfig(more: { ai?: Partial<Values['ai']>; train?: Partial<Values['trains'][string]>; horse?: Partial<Values['horse']> } = {}): SimConfig {
+function guardConfig(more: { ai?: Partial<Values['ai']>; train?: Partial<Values['trains'][string]>; horse?: Partial<Values['horse']>; cashOut?: Partial<Values['cashOut']> } = {}): SimConfig {
   const base = testConfig(more.horse ?? {});
   return testConfig(more.horse ?? {}, 'guard001', {
     carTemplates: { ...TEST_CARS, 'guard-car': GUARD_CAR, 'watch-car': WATCH_CAR, 'cover-car': COVER_CAR },
     trains: { ...base.values.trains, mail: { ...TEST_MAIL_TRAIN, carType: 'guarded', layouts: ['guard-car'], carCount: 1, loot: undefined, guards: { base: 1 }, ...more.train } },
     trainMix: { ...base.values.trainMix, mailTrain: 'mail' },
     ai: { ...base.values.ai, ...more.ai },
+    ...(more.cashOut ? { cashOut: { ...base.values.cashOut, ...more.cashOut } } : {}),
   });
 }
 
@@ -93,16 +94,52 @@ describe('guard spawns', () => {
     expect(S(committed(guardConfig({ train: { guards: undefined } }))).run!.guards).toEqual([]);
   });
 
-  it('reads the count through guardCount, which adds no wanted level bonus until M5', () => {
+  it('reads the count through guardCount, with no wanted level bonus at level 0', () => {
     const cfg = guardConfig({ train: { guards: { base: 3 } } });
     expect(guardCount(cfg, 'mail', 0)).toBe(3);
-    expect(guardCount(cfg, 'mail', 4)).toBe(3);
-    expect(guardCount(cfg, 'blank', 2)).toBe(0);
+    expect(guardCount(cfg, 'blank', 0)).toBe(0);
     // perCar: about 2 guards for every 3 guarded cars, rounded.
     const per = guardConfig({ train: { carCount: 3, guards: { base: 0, perCar: 0.67 } } });
     expect(guardCount(per, 'mail', 0)).toBe(2);
     expect(guardCount(per, 'mail', 0, 6)).toBe(4);
     expect(guardCount(per, 'mail', 0, 1)).toBe(1);
+  });
+});
+
+describe('wanted level guards (phase 2 M5)', () => {
+  const table = (perWantedLevel?: number) => guardConfig({ train: { carCount: 3, guards: { base: 0, perCar: 0.67, ...(perWantedLevel === undefined ? {} : { perWantedLevel }) } } });
+
+  it('adds wanted.guardBonus[level] at each level 0 to 5, and the last entry past the end', () => {
+    const cfg = table();
+    // wanted.guardBonus [0, 1, 1, 2, 2, 3] on top of the 2 guards at level 0.
+    expect([0, 1, 2, 3, 4, 5, 6].map((l) => guardCount(cfg, 'mail', l))).toEqual([2, 3, 3, 4, 4, 5, 5]);
+    // A train with no guards still gets the wanted bonus: wanted level means more guards everywhere.
+    expect(guardCount(cfg, 'blank', 3)).toBe(2);
+  });
+
+  it('adds trains.<id>.guards.perWantedLevel x level, rounded', () => {
+    const cfg = table(0.5);
+    expect([0, 1, 2, 3, 4, 5].map((l) => guardCount(cfg, 'mail', l))).toEqual([2, 4, 4, 6, 6, 8]);
+  });
+
+  it('spawns more guards at a higher saved level, and wanted.forceLevel overrides the save', () => {
+    const base = guardConfig({ train: { carCount: 3, guards: { base: 1 } } });
+    const at = (level: number, force: number | null = null) => {
+      const cfg = testConfig({}, 'guardw01', { ...base.values, wanted: { ...base.values.wanted, forceLevel: force } });
+      const sim = createSim({ config: cfg, map, seed: 'wanted', playerIds: [1], persistent: { wantedLevel: level, bank: 0, lifetimeEarned: 0 } });
+      S(sim).world.trains[0]!.d = 100;
+      step(sim, { type: 'startRun', trainId: S(sim).world.trains[0]!.id });
+      return S(sim).run!.guards.length;
+    };
+    // Three guarded cars with one spawn each: level 0 has 1 guard, level 1 adds 1, level 3 adds 2.
+    expect(at(0)).toBe(1);
+    expect(at(1)).toBe(2);
+    expect(at(3)).toBe(3);
+    // More guards than spawns: capped at the spawns.
+    expect(at(5)).toBe(3);
+    // A forced level wins over the saved one.
+    expect(at(0, 1)).toBe(2);
+    expect(at(3, 0)).toBe(1);
   });
 });
 
@@ -223,7 +260,8 @@ describe('noise', () => {
 
 describe('guardCatch thrown-off', () => {
   it('an alert guard chases, and contact throws the player off beside the car, stunned and hurt, losing half their loot', () => {
-    const cfg = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
+    // Doors left open, so the run goes on after the throw (shut, it ends caught: see below).
+    const cfg = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0.5 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
     const sim = aboardAt(cfg, 5.5, 2.5);
     S(sim).run!.players[1]!.carried = ['letter', 'letter', 'letter'];
     placeGuard(sim, 12.5, 2.5, -1, 0);
@@ -239,35 +277,87 @@ describe('guardCatch thrown-off', () => {
     // Half of three, rounded up: two (picked at random) go over the side, one is kept.
     expect(s.run!.players[1]!.carried).toEqual(['letter']);
     expect(ofType(ev, 'LootLost').map((e) => [e.item, e.cause])).toEqual([['letter', 'thrownOff'], ['letter', 'thrownOff']]);
-    expect(s.run!.players[1]!.health).toBe(100 - 25);
+    expect(s.players[0]!.health).toBe(100 - 25);
     // The stun passes and the approach resumes.
     steps(sim, cfg.values.boarding.failure.stunTicks + 2);
     expect(s.run!.phase).toBe('approach');
   });
 });
 
-describe('F after being thrown off (cash out)', () => {
+// With the doors shut behind a throw (the default) the run ends caught, so F after a throw needs them left open.
+describe('F after being thrown off (cash out, closeDoorsOnThrownOff off)', () => {
   const thrownOff = (cashOut: Partial<Values['cashOut']> = {}) => {
     const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } });
-    const cfg = { ...base, values: { ...base.values, cashOut: { ...base.values.cashOut, ...cashOut } } };
+    const cfg = { ...base, values: { ...base.values, cashOut: { ...base.values.cashOut, closeDoorsOnThrownOff: false, ...cashOut } } };
     const sim = aboardAt(cfg, 5.5, 2.5);
     S(sim).run!.players[1]!.carried = ['letter', 'letter'];
     placeGuard(sim, 12.5, 2.5, -1, 0);
+    const trainId = S(sim).run!.trainId;
     expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
-    return { sim, value: 2 * cfg.values.items.letter!.value, trainId: S(sim).run!.trainId };
+    return { sim, value: 2 * cfg.values.items.letter!.value, trainId };
   };
-  it('ends the run cashedOut, banking the loot carried, and the train shuts its doors', () => {
+  it('ends the run cashedOut, banking the loot carried, wanted +1 for the throw, and the train shuts its doors', () => {
     const { sim, value, trainId } = thrownOff();
     expect(value).toBeGreaterThan(0);
     const ev = step(sim, { type: 'cashOut' });
     expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: value });
-    expect(ofType(ev, 'PersistentChanged')[0]!.after).toMatchObject({ bank: value, lifetimeEarned: value });
+    expect(ofType(ev, 'PersistentChanged')[0]!.after).toMatchObject({ wantedLevel: 1, bank: value, lifetimeEarned: value });
     expect(S(sim).run).toBeNull();
     expect(S(sim).players[0]!.placement.frame).toBe('world');
     // The doors stay shut: committing to that train is refused.
     const again = step(sim, { type: 'startRun', trainId });
     expect(ofType(again, 'CommandRejected')[0]).toMatchObject({ command: 'startRun', reason: 'doors closed' });
     expect(S(sim).run).toBeNull();
+  });
+  it('banks only what is left after the throw took its share (thrownOffLootShare), through applyOutcome', () => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0.5 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
+    const sim = aboardAt(base, 5.5, 2.5);
+    S(sim).persistent = { wantedLevel: 1, bank: 10, lifetimeEarned: 100 };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter', 'letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    const lost = ofType(steps(sim, 60 * 6), 'LootLost');
+    expect(lost).toHaveLength(2);
+    const left = 2 * base.values.items.letter!.value;
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: left });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'cashedOut', before: { wantedLevel: 1, bank: 10, lifetimeEarned: 100 }, after: { wantedLevel: 2, bank: 10 + left, lifetimeEarned: 100 + left } });
+  });
+  it('thrown off with the doors shut ends the run caught, wanted +1, banking what the guard left (PR #46 playtest)', () => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0.5 }, train: { layouts: ['watch-car'] } });
+    const sim = aboardAt(base, 5.5, 2.5);
+    S(sim).persistent = { wantedLevel: 1, bank: 10, lifetimeEarned: 10 };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    const ev = steps(sim, 60 * 6);
+    expect(ofType(ev, 'LootLost')).toHaveLength(1);
+    const left = base.values.items.letter!.value;
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'caught', cashOut: left });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'caught', after: { wantedLevel: 2, bank: 10 + left, lifetimeEarned: 10 + left } });
+    expect(S(sim).run).toBeNull();
+    // The rider stays on the horse beside the track, not sent back to the spawn.
+    expect(S(sim).players[0]!.placement.frame).toBe('world');
+    // With the doors left open the run goes on, and the throw's wanted level lands when it ends.
+    const cfg = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 1 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
+    const sim2 = aboardAt(cfg, 5.5, 2.5);
+    placeGuard(sim2, 12.5, 2.5, -1, 0);
+    expect(ofType(steps(sim2, 60 * 6), 'RunEnded')).toHaveLength(0);
+    expect(S(sim2).run!.thrownOffs).toBe(1);
+    const esc = step(sim2, { type: 'cancelRun' });
+    expect(ofType(esc, 'PersistentChanged')[0]).toMatchObject({ outcome: 'cancelled', before: { wantedLevel: 0 }, after: { wantedLevel: 1 } });
+  });
+  it('a wanted.forceLevel run is practice: RunEnded says what it would bank, but the save stays as it was (G9)', () => {
+    const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
+    const cfg = { ...base, values: { ...base.values, wanted: { ...base.values.wanted, forceLevel: 2 } } };
+    const sim = aboardAt(cfg, 5.5, 2.5);
+    const saved = { wantedLevel: 0, bank: 10, lifetimeEarned: 100 };
+    S(sim).persistent = { ...saved };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    steps(sim, 60 * 6);
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: 2 * cfg.values.items.letter!.value, practice: true });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ practice: true, before: saved, after: saved });
+    expect(S(sim).persistent).toEqual(saved);
   });
   it('with doorsReopenTicks the doors open again after that long; without closeDoors they never shut', () => {
     const { sim, trainId } = thrownOff({ doorsReopenTicks: 30 });
@@ -280,17 +370,22 @@ describe('F after being thrown off (cash out)', () => {
     step(open.sim, { type: 'cashOut' });
     expect(S(open.sim).world.trains.find((q) => q.id === open.trainId)!.doorsClosed).toBeUndefined();
   });
-  it('being thrown off shuts the doors (closeDoorsOnThrownOff): no jump back on, the meter parks', () => {
-    const { sim, trainId } = thrownOff();
+  it('being thrown off shuts the doors (closeDoorsOnThrownOff), which ends the run caught; off, they stay open', () => {
+    const { sim, trainId } = thrownOff({ closeDoorsOnThrownOff: true });
     expect(S(sim).world.trains.find((q) => q.id === trainId)!.doorsClosed).toEqual({ untilTick: null });
-    steps(sim, 200);
-    expect(S(sim).run!.phase).toBe('approach');
-    const ev = step(sim, { type: 'jump' });
-    expect(ofType(ev, 'CommandRejected')[0]).toMatchObject({ command: 'jump', reason: 'doors closed' });
-    expect(S(sim).run!.players[1]!.meter.phase).toBe(0);
-    // Off, the doors stay open after a throw.
-    const open = thrownOff({ closeDoorsOnThrownOff: false });
+    expect(S(sim).run).toBeNull();
+    // Committing to it again is refused.
+    expect(ofType(step(sim, { type: 'startRun', trainId }), 'CommandRejected')[0]).toMatchObject({ reason: 'doors closed' });
+    const open = thrownOff();
     expect(S(open.sim).world.trains.find((q) => q.id === open.trainId)!.doorsClosed).toBeUndefined();
+    // shutDoorsEndRun off (for outside ladders later): the doors shut but the run goes on, and the
+    // meter parks at a shut door.
+    const goesOn = thrownOff({ closeDoorsOnThrownOff: true, shutDoorsEndRun: false });
+    expect(S(goesOn.sim).world.trains.find((q) => q.id === goesOn.trainId)!.doorsClosed).toEqual({ untilTick: null });
+    steps(goesOn.sim, 200);
+    expect(S(goesOn.sim).run!.phase).toBe('approach');
+    expect(ofType(step(goesOn.sim, { type: 'jump' }), 'CommandRejected')[0]).toMatchObject({ command: 'jump', reason: 'doors closed' });
+    expect(S(goesOn.sim).run!.players[1]!.meter.phase).toBe(0);
   });
   it('is refused aboard, with nothing carried, and when disabled; Esc still banks nothing', () => {
     const aboard = aboardAt(guardConfig({ train: { layouts: ['watch-car'] } }), 5.5, 2.5);
@@ -310,11 +405,13 @@ describe('F after being thrown off (cash out)', () => {
 describe('thrownOffLootShare', () => {
   it('0 keeps everything, 1 loses everything', () => {
     for (const [share, kept] of [[0, 2], [1, 0]] as const) {
-      const cfg = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: share }, train: { layouts: ['watch-car'] } });
+      const cfg = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: share }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
       const sim = aboardAt(cfg, 5.5, 2.5);
       S(sim).run!.players[1]!.carried = ['letter', 'letter'];
       placeGuard(sim, 12.5, 2.5, -1, 0);
-      expect(ofType(steps(sim, 60 * 6), 'ThrownOff')).toHaveLength(1);
+      const ev = steps(sim, 60 * 6);
+      expect(ofType(ev, 'ThrownOff')).toHaveLength(1);
+      expect(ofType(ev, 'LootLost')).toHaveLength(2 - kept);
       expect(S(sim).run!.players[1]!.carried).toHaveLength(kept);
     }
   });
@@ -380,7 +477,8 @@ describe('crouching and cover', () => {
   it('crouch is refused off the train and cleared when you leave it', () => {
     const sim = committed(cfg);
     expect(ofType(step(sim, { type: 'crouch', on: true }), 'CommandRejected')[0]).toMatchObject({ command: 'crouch', reason: 'not aboard' });
-    const thrown = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] } });
+    // Doors left open after the throw keep the run going, so its state can be read.
+    const thrown = guardConfig({ ai: { guardCatch: 'thrown-off' }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } });
     const aboard = aboardAt(thrown, 5.5, 2.5);
     placeGuard(aboard, 12.5, 2.5, -1, 0);
     // Seen standing, then crouched in the open: the guard still sees and catches.

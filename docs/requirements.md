@@ -44,8 +44,8 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 - **Train clock.** Once aboard, the clock is the time until the train reaches the next town, where the law gets on, so town spacing sets run length. This replaces the fixed countdown as a variant (`trainClock`: `next-town`, built in G6; `fixed-countdown` is the Phase 2 clock).
 - **How the clocks fit together.** The day clock budgets the whole day, and riding to a train and scouting use part of it. The train clock is town spacing divided by train speed, so it sets how long one robbery can last. Train length (cars and loot) has to fit that time: too long and the train can't be finished, too short and the player is left waiting. Town spacing, train speed and cars per train are therefore tuned together, starting from the Phase 2 robbery time.
 - **Being thrown off ends that train only.** Its loot is lost and the day goes on.
-- **Telling trains apart.** By sight, plus rumours and timetables you earn, so information is worth buying.
-- **Trains run one way first**, and both ways once passing loops exist.
+- **Finding and telling trains apart.** Finding a train while the day clock runs (smoke, whistles, telegraph poles) comes first, with mail trains alone (G9). Telling train types apart by sight comes once there are several types and 3D graphics, with regions (G13), plus rumours and timetables you earn, so information is worth buying. The spyglass still needs design (decided 2026-10-28).
+- **Trains run one way first**, and both ways once passing loops exist (G14a, right after the day gate). Forks come with regions (G14b).
 - **Seeds.** A new world per career, a daily seed for the daily, and `?seed=` to replay any world. The same seed builds the same world on every machine.
 - **Hand-made maps stay** as test fixtures, golden runs and the source of set pieces.
 
@@ -69,7 +69,7 @@ You reach the train on horseback, and boarding is a timing-meter jump.
 - **Riding.** Direct control of a horse. Speed and terrain matter. Handling is arcade to start, with stamina-based and speed-tier handling kept as options to playtest.
 - **Boarding.** A timing meter; better timing means a cleaner landing. Quick-time button prompts are a possible addition; playtest both to find what is most fun without being too difficult.
 - **Failure.** You lose time and take damage, the train keeps moving, and you can retry.
-- **Cancel.** You can abort a run at any point, but cancelling loses any loot you have not extracted. It carries no wanted level to start.
+- **Cancel.** You can abort a run at any point, but cancelling loses any loot you have not extracted. Like every ending, it rolls heat for a wanted level.
 - **Entry points.** These vary by train. Some trains restrict where you can board.
 
 Still to define: how long the horse can run beside the train, obstacles such as rocks and rivers, and whether the horse can be hurt.
@@ -104,14 +104,14 @@ You control one outlaw directly, moving mainly through the train interior.
 
 ## Time pressure and run end
 
-The law arrives when a base countdown reaches zero, and a heat meter shortens that countdown.
+The law arrives when the clock reaches zero. On the open line the clock is the train's time to the next town. Heat no longer shortens it (decided 2026-10-28): heat makes guards sharper and raises the chance of a wanted level.
 
 - **Countdown.** A base time until the train stops and the authorities arrive. Length is configurable per train, so short and medium runs can be compared. This fixed clock, and heat's effect on it, are Phase 2 mechanisms. On the endless line the train clock (time to the next town) replaces them, so what carries forward from the Phase 2 comparison is the measured robbery time, loot value per minute and cars per train, not the countdown value.
-- **Heat.** Gunshots, alarms and being spotted, violence and kills, and time spent and loot taken all raise heat and bring the lawmen sooner. Other sources may be added.
+- **Heat.** Gunshots, alarms and being spotted, violence and kills, and loot taken all raise heat. Higher heat makes guards more alert, quicker to chase and slower to calm down, and once combat exists more likely to shoot. Heat at the end of a robbery is the percent chance of gaining a wanted level, even after a clean getaway. Other sources may be added.
 - **Expiry.** If the clock runs out before you extract, the run ends, the loot is lost, and you gain a wanted level. A small grace window lets you escape if you are already jumping off.
 - **Wanted level.** It makes later trains tougher by adding more guards. It starts with a few levels, and other structures such as a continuous value or named tiers stay possibilities.
 
-Still to define: whether wanted level decays over time. Cancelling a run adds no wanted level to start, and is revisited if playtests show abuse. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
+Whether wanted level drops on its own (each day, only after a quiet day, or never) is tested in the Phase 2 gate; paying it off comes later with careers and towns. Cancelling a run rolls heat for a wanted level like every other ending, so it can't be used to dodge one. Possibilities to explore later: bounty hunters who chase you on the map and on trains, and heat that fades if you lay low or pay it off.
 
 ## World, schedule and progression
 
@@ -120,7 +120,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 - **World.** Hand-made isometric maps first. Generated worlds follow: seeded loops (`?map=gen`), then an open line across a long map (`?map=line`), then an endless line with towns, built in chunks as you ride.
 - **Schedule.** A real-time loop. You choose which train to chase, and a missed train comes back around. On an open line, trains set out from the town at the start of the line on a seeded timetable and leave past the end instead; every town has a timetable of when each train reaches it and what type it is (G6). The game knows every timetable from the start; showing one to the player (a bought timetable, or rumours) and what it costs in loot come later (G12). For now the HUD shows only when the next train is due at the next town, without its type unless train names are shown. Train frequency and how many run at once are configurable tuning values.
 - **Generated maps (G6).** Towns along the line have a name, a size (halt, village or town) and buildings, all from the seed; a town off each end of the line is where trains set out from and arrive. Each town's timetable comes from the seed alone, with trains a headway apart give or take the spread, as on the G3 line. Town spacing is still G3's (one or two towns at least 1,200 tiles apart, so about 2-4 minutes of train time between them): setting it from the Phase 2 target robbery time is left until that gate picks the time, and moving towns moves the terrain, so it will be a deliberate generator change. Buildings are only drawn for now: the horse and the player pass through them.
-- **Progression.** Horse upgrades, gear and weapons, a hideout, and reputation/bounty are all after the prototype. Reputation and bounty come last.
+- **Progression.** Camps at dusk (G11a) come right after finding trains, as part of the day. Saved careers (G11b) and towns with a fence, outfitter, rumours and the first upgrades (G12) come before Phase 4, so the passenger and bank trains are playtested inside a career (decided 2026-10-28). Deeper progression (more horse upgrades, gear and weapons, a hideout, reputation and bounty) comes after the prototype. Reputation and bounty come last.
 - **Wanted level.** It is the only persistence the first version needs: it raises guard counts on later trains.
 
 ## Technical and non-functional requirements
@@ -128,7 +128,7 @@ The prototype uses hand-made maps with fixed track loops, and trains run on them
 The game logic must run independently of the renderer, so a server can host it for multiplayer and the renderer can move from 2D to 3D without a rewrite.
 
 - **Multiplayer architecture (required in the plan).** A network test comes right after Phase 3 (military payroll and combat) and is kept working as later trains are added; full online play with a gang of friends comes after the prototype (decided 2026-10-27). Until then, the simulation is a standalone module with no rendering or browser dependencies. It uses a fixed timestep, takes player input as commands, and keeps its state serializable so a server can later run it as the authority.
-- **Rendering.** 2D isometric first, with 3D as the eventual preferred way to play. The alpha camera has a fixed angle with zoom levels, and rotation comes with 3D.
+- **Rendering.** 2D isometric first, with 3D as the eventual preferred way to play. The switch to live 3D comes after Phase 3 and the network test, before G10's land and set pieces, and includes a re-check that combat still reads clearly (decided 2026-10-28). The alpha camera has a fixed angle with zoom levels, and rotation comes with 3D.
 - **Art.** Placeholder shapes first. Pixel art or low-poly 3D comes later.
 - **Input.** Desktop keyboard and mouse first, with gamepad support after the alpha. Touch controls are a possible later addition.
 - **Platform.** A browser game on desktop. Mobile is not an initial target, but the possibility stays open, so avoid choices that would rule out touch controls and small screens later. The performance target is a 30 fps floor and a 60 fps target.
@@ -140,12 +140,14 @@ The game logic must run independently of the renderer, so a server can host it f
 The prototype includes four trains (bank, passenger, military payroll and mail/express) and must prove four things: riding and boarding feel, time pressure, run length, and combat versus stealth, including that any approach is viable on any train. Built in the order below, each phase is playable on its own and ends with a playtest.
 
 1. **Riding and boarding.** One map, one blank train, the horse, the timing-meter jump and the failure rules. Gate: riding and boarding is fun before any loot exists.
-2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: compare the short and medium run configurations and pick a target robbery time, recording loot value per minute and the cars per train that fit it. These are provisional inputs to G6 (town spacing and timetables) and G8 (trains per day), which re-test them on the open line.
+2. **Mail/express.** The first full run: countdown, heat, loot, carry limit, extraction and wanted level. Gate: played on the open line, pick the town spacing (robbery time), cars per train and baseline carry that make a robbery fun enough to play three times in a row, recording loot value per minute and robberies per day. These are provisional inputs to G6 (town spacing and timetables) and G8 (trains per day), which re-test them on the open line.
 3. **Military payroll.** Combat, health bar and the downed-state variant. Gate: combat feels good and the health variants are compared.
    - **Then a network test.** Two players on one train through a simple server, with no lobby, built once combat exists so it is tested over the network early. Phases 4 and 5 keep it working, so each new train is checked over the network as it is built (decided 2026-10-27).
 4. **Passenger hold-up.** Visual cues, inspect action and armed passengers. Gate: judging passengers is a decision, not a chore.
 5. **Bank.** Vault cracking with guard interruptions. Gate: the minigame holds up under time pressure, and each train clearly favors a different playstyle while other approaches still work.
-6. **After the prototype.** Cargo and tycoon trains, then the later trains, progression, 3D rendering and full online multiplayer.
+6. **After the prototype.** Cargo and tycoon trains, then the later trains, deeper progression and full online multiplayer.
+
+**Order of work across the phases and the G series** (decided 2026-10-28; the wiki [Roadmap](https://github.com/devlinjunker/train-robber/wiki/Roadmap) keeps the live status). After the Phase 2 gate: G7 long replays, then G8 the day clock, with the Phase 3 plan written alongside them; G9 finding trains, G11a camps at dusk and the day gate; G14a passing loops and trains both ways; Phase 3 and the network test; the switch to live 3D; G10 land worth riding with the first map edges; G11b saved careers and G12 towns as places, with the career gate; Phases 4 and 5; G13 regions with telling train types apart, G14b forks and the choosing-a-train gate; G15 the daily day; full online multiplayer; G16 shared world.
 
 ## Prototype requirements and test plan
 
@@ -166,8 +168,8 @@ The alpha prototype is single-player on one map with placeholder art, and trains
 
 - Timetables and their loot cost, which may be added later.
 - Cargo and tycoon trains, and throwing crates from the train.
-- Progression: horse upgrades, gear, hideout and reputation.
-- Gamepad support, 3D rendering, multiplayer (a network test comes right after Phase 3) and mobile.
+- Deeper progression: more horse upgrades, gear, hideout and reputation. Camps (G11a) come with the day; saved careers and town shops (G11b, G12) come before Phase 4.
+- Gamepad support, full multiplayer (a network test comes right after Phase 3) and mobile. 3D rendering arrives after the network test.
 
 **Variants to test**
 
@@ -203,7 +205,7 @@ These are the gaps found so far, grouped by where they bite.
 **Edge cases**
 
 - Dying or being downed mid-run: all loot from that run is lost, including loot already thrown off a cargo train. Whether death also costs banked loot depends on the open roguelike question.
-- Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling carries no wanted level to start; revisit if playtests show it being abused.
+- Cancelling a run: loot only counts once you extract, so cancelling loses it. Cancelling rolls heat for a wanted level like every other ending (decided 2026-10-28).
 - If throwing from the train is added later: crates that land in water or a ravine, or that are never collected before the next train arrives.
 - On a loop, the train never leaves the map while you are aboard; only the clock expiring ends the run. On an open line under the next-town clock, the run expires when the train reaches the next town (the town at the end of the line at the latest). Under the fixed countdown, a train that reaches the end of the line ends the run as if the clock had expired.
 - Close calls: if the countdown hits zero just as you jump off, a small grace window lets the player get away.
@@ -211,7 +213,6 @@ These are the gaps found so far, grouped by where they bite.
 **Open questions**
 
 - Horse handling details: speed, obstacles, how long the horse can run beside the train, and whether it can be hurt.
-- Whether wanted level decays over time, and by how much.
 - Which train frequency to start with, since it is configurable. Seeded timetables exist since G6; still open: what one costs, how far ahead it looks, whether it reveals train type, loot and guards, and whether trains stop at towns (G6 trains pass through).
 - How to balance each train so a less-favored approach is viable but not dominant, for example stealth on a military train.
 - The horse arrival range, what makes it vary, and whether it is shown to the player.

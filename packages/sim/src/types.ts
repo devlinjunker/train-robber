@@ -47,7 +47,7 @@ export type Command =
    * side the player is now nearest.
    */
   | { type: 'whistle' }
-  /** C, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
+  /** Shift, mounted: a burst above top speed for `horse.boost.durationSec`, then a cooldown (handlingModel `arcade-boost`). */
   | { type: 'boost' }
   /**
    * F, on the horse during a run (after a guard threw you off): end the run `cashedOut`, banking
@@ -71,7 +71,8 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 
 /** `idle` means no run; the others are `RunState.phase`. */
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting' | 'ended';
-export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut';
+/** `caught`: a guard threw you off with nothing left to carry and the train shut its doors (Devlin, PR #46 playtest). */
+export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut' | 'caught';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -111,7 +112,8 @@ export type LootRefusal = 'too heavy' | 'too many items';
 export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
   /** `resumed`: the commit picked up a run cancelled in place on this train (clock, heat, health and meter carried over). */
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; resumed?: true }
+  /** `wantedLevel` is the level the run uses; `practice` marks a run at `wanted.forceLevel`, which saves nothing (G9). */
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; day: number; resumed?: true; practice?: true }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
@@ -127,15 +129,20 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
+  /** Health ran out (`health.scope: day`): the day ends; `onRun` when a run was on (it also ends `died`). */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died'; onRun: boolean }
+  /** A new day at full health, back at the spawn. */
+  | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
    * left on the clock (kept for cancels too, so cancelling to dodge expiry is measurable, U6;
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
    * (a cash-out on F), else 0. `endOfLine`: on an open line under the fixed countdown, the committed
    * train reached the end of the line (the run expires there). `town`: under trainClock `next-town`,
-   * the town the train pulled into when the run expired.
+   * the town the train pulled into when the run expired. `practice`: a `wanted.forceLevel` run, so `cashOut` is what the
+   * outcome would have banked, but nothing was saved (G9).
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; town?: string }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; practice?: true; town?: string }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few
@@ -154,7 +161,11 @@ export type SimEvent =
   | { type: 'MountAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   /** A good mount spilled loot (mountSpill): the items lost, and the value lost with them. */
   | { type: 'LootSpilled'; tick: number; player: PlayerId; items: string[]; value: number; rule: MountSpill }
-  | { type: 'PersistentChanged'; tick: number; before: PersistentState; after: PersistentState }
+  /**
+   * Emitted at every run end, changed or not (phase 2 M5): the host saves `after`. `outcome` is how
+   * the run ended. `practice`: a `wanted.forceLevel` run, so `after` equals `before` and nothing is saved.
+   */
+  | { type: 'PersistentChanged'; tick: number; outcome: RunOutcome; before: PersistentState; after: PersistentState; practice?: true }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** A search finished but taking the item would break a carry cap, so it stays. */
@@ -262,15 +273,10 @@ export interface MeterState {
 }
 
 export interface PlayerRunState {
-  health: number;
   meter: MeterState;
   boardingAttempts: number;
   /** Ticks of good-landing stumble left; walk speed is scaled while above 0. */
   stumbleTicks: number;
-  /** Ticks before another collision can hurt, so one crash costs health once. */
-  hitCooldownTicks: number;
-  /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
-  lastHitDamage: number;
   /** Item ids carried, in pickup order; a `drop` slot indexes this. */
   carried: string[];
   /** The search in progress: which loot and how many ticks E has been held on it. */
@@ -327,6 +333,8 @@ export interface RunState {
   clockTo?: string;
   /** Ticks expiry has waited in the grace window so far (U3), up to `countdown.graceTicks`. */
   graceTicks: number;
+  /** Times a guard threw the player off this run; each adds `wanted.perThrowOff` at the run's end. */
+  thrownOffs: number;
   /** 0 to `heat.maxHeat`; only raiseHeat changes it. */
   heat: number;
   /** Time-aboard heat not yet added: it builds up per tick and is raised a whole point at a time, so each gain is one event. */
@@ -418,6 +426,17 @@ export interface PlayerState {
    * left off, so Esc cannot reset the clock or reroll the meter. Cleared when a run ends any other way (Esc aboard, quick retry, escape, death, expiry).
    */
   resumeRuns: ResumeRun[];
+  /**
+   * Health. With `health.scope: day` (the default) it lasts the whole day: runs don't refill it and
+   * dying starts a new day at full health. With `run` each commit refills it, as before.
+   */
+  health: number;
+  /** The day number, from 1; dying ends the day (`DayEnded`) and starts the next. */
+  day: number;
+  /** Ticks before another collision can hurt, so one crash costs health once. */
+  hitCooldownTicks: number;
+  /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
+  lastHitDamage: number;
 }
 
 export interface HorseState {
@@ -498,9 +517,13 @@ export interface SimConfig {
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
     };
-    health: { max: number };
-    /** Running into a train or blocked ground while on a run. */
-    collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; cooldownTicks: number };
+    /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
+    health: { max: number; scope: 'day' | 'run' };
+    /**
+     * Running into a train or blocked ground. On a run, from `minImpactTilesPerSec`; off a run (day
+     * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.
+     */
+    collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; offRunMinImpactTilesPerSec: number; cooldownTicks: number };
     playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean };
     /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
     extraction: {
@@ -538,19 +561,22 @@ export interface SimConfig {
       /** Off when null or absent. */
       boardingResistanceAt?: number | null;
     };
+    /** Wanted level 0 to `maxLevel` (phase 2 M5). `forceLevel` set: practice runs at that level that save nothing. */
+    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
       expired: { bankRunLoot: boolean; wantedDelta: number };
       extracted: { bankRunLoot: boolean; wantedDelta: number };
       cashedOut: { bankRunLoot: boolean; wantedDelta: number };
+      caught: { bankRunLoot: boolean; wantedDelta: number };
     };
     /**
      * F on the horse mid-run: end the run and bank the loot. With `closeDoors` a cash-out shuts that
      * train's doors, and with `closeDoorsOnThrownOff` being thrown off does; a shut train cannot be
      * boarded, committed or switched to for `doorsReopenTicks` (0: never).
      */
-    cashOut: { enabled: boolean; closeDoors: boolean; closeDoorsOnThrownOff: boolean; doorsReopenTicks: number };
+    cashOut: { enabled: boolean; closeDoors: boolean; closeDoorsOnThrownOff: boolean; shutDoorsEndRun: boolean; doorsReopenTicks: number };
     horse: {
       /** Tiles per second. */
       maxSpeed: number;
@@ -677,7 +703,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base?: number; perCar?: number };
+  guards?: { base?: number; perCar?: number; perWantedLevel?: number };
   verbs: readonly string[];
 }
 

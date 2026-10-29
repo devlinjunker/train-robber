@@ -33,7 +33,7 @@ async function main() {
   }
 
   function renderFilters() {
-    const keys = ['version', 'tester', 'outcome', 'mapId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
+    const keys = ['version', 'tester', 'outcome', 'mapId', 'practice', 'saveId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
     const box = $('filters');
     box.innerHTML = '';
     for (const k of keys) {
@@ -59,15 +59,26 @@ async function main() {
     const rs = visible();
     const sum = summarize(rs);
     $('summary').innerHTML = sum.length === 0 ? `<tr><td class="empty">No runs yet. Commit to a train with E and play; each run shows up here when it ends.</td></tr>` :
-      `<tr><th>Setup</th><th class="num">Runs</th><th class="num">Testers</th><th class="num">Extracted</th><th class="num">Died</th><th class="num">Cancelled</th><th class="num">Expired</th><th class="num">Cashed out</th><th class="num">Retry</th><th class="num">Abandoned</th><th class="num">Avg length</th><th class="num">Avg jumps</th><th class="num">Perfect / good / fail</th><th class="num">Got aboard</th><th class="num">Median to board</th><th class="num">Avg loot</th><th class="num">Notes</th></tr>` +
-      sum.map((s) => `<tr>${setupCell(s.setup)}<td class="num">${s.runs}</td><td class="num">${s.testers}</td><td class="num">${s.outcomes.extracted ?? 0}</td><td class="num">${s.outcomes.died}</td><td class="num">${s.outcomes.cancelled}</td><td class="num">${s.outcomes.expired ?? 0}</td><td class="num">${s.outcomes.cashedOut ?? 0}</td><td class="num">${s.outcomes.retry}</td><td class="num">${s.outcomes.abandoned}</td><td class="num">${s.avgSec.toFixed(1)} s</td><td class="num">${s.avgAttempts.toFixed(1)}</td><td class="num">${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)}</td><td class="num">${pct(s.aboard)}</td><td class="num">${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`}</td><td class="num">${money(s.avgLoot)}</td><td class="num">${s.notes}</td></tr>`).join('');
+      `<tr><th>Setup</th><th class="num">Runs</th><th class="num">Testers</th><th class="num">Extracted</th><th class="num">Died</th><th class="num">Cancelled</th><th class="num">Expired</th><th class="num">Cashed out</th><th class="num">Caught</th><th class="num">Retry</th><th class="num">Abandoned</th><th class="num">Avg length</th><th class="num">Avg jumps</th><th class="num">Perfect / good / fail</th><th class="num">Got aboard</th><th class="num">Median to board</th><th class="num">Avg loot</th><th class="num">Notes</th></tr>` +
+      sum.map((s) => `<tr>${setupCell(s.setup)}<td class="num">${s.runs}</td><td class="num">${s.testers}</td><td class="num">${s.outcomes.extracted ?? 0}</td><td class="num">${s.outcomes.died}</td><td class="num">${s.outcomes.cancelled}</td><td class="num">${s.outcomes.expired ?? 0}</td><td class="num">${s.outcomes.cashedOut ?? 0}</td><td class="num">${s.outcomes.caught ?? 0}</td><td class="num">${s.outcomes.retry}</td><td class="num">${s.outcomes.abandoned}</td><td class="num">${s.avgSec.toFixed(1)} s</td><td class="num">${s.avgAttempts.toFixed(1)}</td><td class="num">${pct(s.perfect)} / ${pct(s.good)} / ${pct(s.fail)}</td><td class="num">${pct(s.aboard)}</td><td class="num">${s.medianToAboardSec === null ? '–' : `${s.medianToAboardSec.toFixed(1)} s`}</td><td class="num">${money(s.avgLoot)}</td><td class="num">${s.notes}</td></tr>`).join('');
     $('runs').innerHTML = rs.length === 0 ? '' :
-      `<tr><th>When</th><th>Version</th><th>Tester</th><th>Setup</th><th>Seed</th><th>Map</th><th>Train</th><th>Outcome</th><th class="num">Length</th><th class="num">Jumps (P/G/F)</th><th>Furthest</th><th class="num">Damage</th><th class="num">Time left</th><th class="num">Heat</th><th class="num">Loot</th><th>Notes</th><th class="actions">Logs</th></tr>` +
-      rs.map((r) => `<tr><td>${esc(new Date(r.startedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(runVersion(r))}</td><td>${esc(r.tester || '–')}</td>${setupCell(setupKey(r))}<td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="num">${r.countdownLeftSec == null ? '–' : `${r.countdownLeftSec.toFixed(1)} s`}</td><td class="num">${r.heatAtEnd ?? '–'}</td><td class="num">${r.lootValue === undefined ? '–' : `${money(r.lootValue)} (${r.lootItems ?? 0})`}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td class="actions">${stored.has(r.session) ? `<a class="watch" href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
+      `<tr><th>When</th><th>Version</th><th>Tester</th><th>Setup</th><th>Seed</th><th>Map</th><th>Train</th><th>Outcome</th><th class="num">Length</th><th class="num">Jumps (P/G/F)</th><th>Furthest</th><th class="num">Damage</th><th class="num">Time left</th><th class="num">Heat</th><th class="num">Loot</th><th class="num">Wanted</th><th class="num">Bank</th><th>Save</th><th>Notes</th><th class="actions">Logs</th></tr>` +
+      rs.map((r) => `<tr data-id="${esc(r.id)}"><td>${esc(new Date(r.startedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(runVersion(r))}</td><td>${esc(r.tester || '–')}</td>${setupCell(setupKey(r))}<td>${esc(r.seed)}</td><td>${esc(r.mapId)}</td><td>${esc(r.trainId)}</td><td class="${r.outcome}">${r.outcome}${resumedCell(r)}</td><td class="num">${r.durationSec.toFixed(1)} s</td><td class="num">${r.boardingAttempts} (${r.boarding.perfect}/${r.boarding.good}/${r.boarding.fail})</td><td>${r.furthestPhase}</td><td class="num">${r.damageTaken}</td><td class="num">${r.countdownLeftSec == null ? '–' : `${r.countdownLeftSec.toFixed(1)} s`}</td><td class="num">${r.heatAtEnd ?? '–'}</td><td class="num">${r.lootValue === undefined ? '–' : `${money(r.lootValue)} (${r.lootItems ?? 0})`}${r.lootLost ? `<div class="muted">lost ${money(r.lootLost)}</div>` : ''}</td><td class="num">${wantedCell(r)}</td><td class="num">${r.bankAfter === undefined || r.practice ? '–' : money(r.bankAfter)}</td><td>${r.saveId ? `<a href="#" data-save="${esc(r.saveId)}" title="Show only the runs on this save">${esc(r.saveId.slice(0, 6))}</a>` : '–'}${r.day !== undefined ? ` <span class="muted" title="Day of this play session (dying starts the next)">· day ${r.day}</span>` : ''}</td><td class="notes">${r.notes.map((n) => esc(n.text)).join('<br>')}</td><td class="actions">${stored.has(r.session) ? `<a class="watch" href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">.log</button>` : '<span class="muted">pruned</span>'}</td></tr>`).join('');
   }
 
   $('runs').addEventListener('click', async (e) => {
-    const session = (e.target as HTMLElement).dataset.logs;
+    const t = e.target as HTMLElement;
+    // A save link, or a resumed run's link to the run it picked up: filter to that save, or jump to that row.
+    if (t.dataset.save) { e.preventDefault(); filters.set('saveId', filters.get('saveId') === t.dataset.save ? ALL : t.dataset.save); renderFilters(); render(); return; }
+    if (t.dataset.run) {
+      e.preventDefault();
+      const row = document.querySelector<HTMLElement>(`tr[data-id="${CSS.escape(t.dataset.run)}"]`);
+      row?.scrollIntoView({ block: 'center' });
+      row?.classList.add('flash');
+      setTimeout(() => row?.classList.remove('flash'), 1200);
+      return;
+    }
+    const session = t.dataset.logs;
     if (!session) return;
     const stamp = session.replace(/[:.]/g, '-');
     for (const log of ['commands', 'events'] as const) {
@@ -121,6 +132,20 @@ async function main() {
   await load();
 }
 
+/** A run picked up after an in-place cancel links to the run it continued. */
+function resumedCell(r: RunRecord): string {
+  if (!r.resumedFrom) return '';
+  const n = r.resumedFrom.split('#').pop();
+  return `<div class="muted"><a href="#" data-run="${esc(r.resumedFrom)}">resumes run ${esc(n)}</a></div>`;
+}
+
+/** The run's wanted level and what the outcome did to it: `1 → 2`, `3 practice`, or – before M5. */
+function wantedCell(r: RunRecord): string {
+  if (r.wantedLevel === undefined) return '–';
+  if (r.practice) return `${r.wantedLevel} <span class="muted">practice</span>`;
+  return r.wantedAfter === undefined || r.wantedAfter === r.wantedLevel ? String(r.wantedLevel) : `${r.wantedLevel} → ${r.wantedAfter}`;
+}
+
 /** The game page in replay mode, opened at the run's commit when the record knows it. */
 function watchUrl(r: RunRecord): string {
   const q = new URLSearchParams({ replay: r.session });
@@ -131,6 +156,7 @@ function watchUrl(r: RunRecord): string {
 function filterValue(r: RunRecord, key: string): string {
   if (key === 'version') return runVersion(r);
   if (key.startsWith('v:')) return r.variants[key.slice(2)] ?? '–';
+  if (key === 'practice') return r.practice ? 'practice' : r.wantedLevel === undefined ? '–' : 'saved';
   return String(r[key as keyof RunRecord] ?? '') || '–';
 }
 

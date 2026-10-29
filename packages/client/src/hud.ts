@@ -12,8 +12,8 @@ export interface ClockView { sec: number; total: number; rate: number; to?: stri
 
 export interface HudState {
   phase: string;
-  /** Health while a run is active, else null. */
-  health: { now: number; max: number } | null;
+  /** Health: always with `health.scope: day` (with the day number), else while a run is active, else null. */
+  health: { now: number; max: number; day?: number } | null;
   /** What the player carries while a run is active: value, weight against the limit, items, and the walk speed it leaves. */
   carry: { value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number } | null;
   /** The open inventory strip (I) along the bottom: a title and one entry per item, or null when it is closed. */
@@ -38,6 +38,10 @@ export interface HudState {
   eta?: string | null;
   /** Heat while a run is active, else null. */
   heat: { now: number; max: number } | null;
+  /** The wanted level runs use now (0 to `max`); `practice` when `wanted.forceLevel` sets it. Null hides it. */
+  wanted?: { level: number; max: number; practice: boolean } | null;
+  /** The saved bank, shown beside the wanted level; null hides it. */
+  bank?: number | null;
   /** Recent heat gains, newest last, e.g. `+10 heat: debug key`. */
   heatNotices: readonly string[];
   /** True for a moment after an alarm: the screen edge pulses red. */
@@ -55,6 +59,11 @@ const CSS = `
 .tr-hud .top { position: absolute; top: 40px; right: 8px; display: flex; gap: 14px; align-items: center;
   background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
 .tr-hud .phase { font-weight: 700; letter-spacing: .06em; }
+.tr-hud .clock-head { display: flex; gap: 12px; align-items: baseline; }
+.tr-hud .wanted { font-weight: 700; color: #ffcf7a; letter-spacing: .04em; }
+.tr-hud .wanted.zero { color: #aaa; }
+.tr-hud .wanted.practice { color: #9ecbff; }
+.tr-hud .bank { font-weight: 700; color: #6bd88a; letter-spacing: .04em; }
 .tr-hud .side { position: absolute; top: 80px; right: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 /* On narrow screens the countdown panel spans the top, so health and carry drop below it. */
 @media (max-width: 1000px) { .tr-hud .top { top: 118px; } .tr-hud .side { top: 158px; } }
@@ -143,7 +152,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const root = document.createElement('div');
   root.className = 'tr-hud';
   root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
-    <div class="clock calm"><span class="phase"></span><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div><span class="eta"></span>
+    <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div><span class="eta"></span>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
@@ -156,6 +165,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
     lootEl = q('.loot-total'), lootTitle = q('.lt-title'), lootDetail = q('.lt-detail'),
     hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const eta = q('.eta');
+  const wantedEl = q('.wanted'), bankEl = q('.bank');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
@@ -168,13 +178,21 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   return {
     update(s) {
       set(phase, s.phase.toUpperCase());
+      bankEl.style.display = s.bank == null ? 'none' : '';
+      if (s.bank != null) set(bankEl, `BANK $${Math.round(s.bank)}`);
+      wantedEl.style.display = s.wanted ? '' : 'none';
+      if (s.wanted) {
+        const w = s.wanted;
+        set(wantedEl, `WANTED ${'★'.repeat(w.level)}${'☆'.repeat(Math.max(0, w.max - w.level))}${w.practice ? ' practice' : ''}`);
+        setClass(wantedEl, `wanted${w.practice ? ' practice' : w.level === 0 ? ' zero' : ''}`);
+      }
       const hasHp = s.health !== null;
       top.style.display = hasHp ? '' : 'none';
       if (last.hit !== s.hit) top.classList.toggle('hit-on', s.hit);
       if (s.health) {
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
         bar.style.width = `${pct}%`;
-        set(hpText, `${s.health.now}/${s.health.max}`);
+        set(hpText, `${s.health.now}/${s.health.max}${s.health.day !== undefined ? `  day ${s.health.day}` : ''}`);
       }
       boostEl.style.display = s.boost ? '' : 'none';
       if (s.boost) {

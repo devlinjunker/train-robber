@@ -2,7 +2,7 @@
 // outcome, the grace hook, and what RunStarted and RunEnded carry.
 import { describe, it, expect } from 'vitest';
 import {
-  applyOutcome, boardingResistanceActive, createSim, drainRate, entryPointWorld, raiseHeat, raiseHeatFor, restoreSim,
+  boardingResistanceActive, createSim, drainRate, entryPointWorld, raiseHeat, raiseHeatFor, restoreSim,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap } from './fixtures';
@@ -99,7 +99,7 @@ describe('countdown', () => {
   it('a death on the same tick as expiry counts as the death', () => {
     const sim = aboard();
     S(sim).run!.countdownSec = 0.001;
-    S(sim).run!.players[1]!.health = 0;
+    S(sim).players[0]!.health = 0;
     expect(of(step(sim), 'RunEnded')[0]!.outcome).toBe('died');
   });
 
@@ -118,10 +118,6 @@ describe('countdown', () => {
     const sim = aboard();
     S(sim).run!.countdownSec = 0.001;
     expect(of(step(sim), 'RunEnded')[0]!.outcome).toBe('expired');
-  });
-
-  it('applyOutcome adds outcomePolicy.expired.wantedDelta', () => {
-    expect(applyOutcome({ wantedLevel: 2, bank: 50, lifetimeEarned: 90 }, 'expired', config.values.outcomePolicy)).toEqual({ wantedLevel: 3, bank: 50, lifetimeEarned: 90 });
   });
 });
 

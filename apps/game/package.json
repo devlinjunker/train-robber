@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.4-g6-towns",
+  "version": "0.2.5-g6-towns",
   "private": true,
   "type": "module",
   "scripts": {
