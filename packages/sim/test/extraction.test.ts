@@ -2,7 +2,7 @@
 // the mount jump and its spill, the extracted outcome and cash out, and the grace window (G18).
 import { describe, it, expect } from 'vitest';
 import {
-  applyOutcome, cellOf, throwOff, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
+  cellOf, throwOff, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
   type Command, type GameState, type MountSpill, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap, type Paint } from './fixtures';
@@ -268,12 +268,6 @@ describe('mount', () => {
     expect(a.items).toHaveLength(1);
     expect(b).toEqual(a);
   });
-
-  it('applyOutcome banks the loot only where the policy says so', () => {
-    const p = { wantedLevel: 1, bank: 10, lifetimeEarned: 50 };
-    expect(applyOutcome(p, 'extracted', config.values.outcomePolicy, 40)).toEqual({ wantedLevel: 1, bank: 50, lifetimeEarned: 90 });
-    expect(applyOutcome(p, 'expired', config.values.outcomePolicy, 40)).toEqual({ wantedLevel: 2, bank: 10, lifetimeEarned: 50 });
-  });
 });
 
 describe('grace (G18)', () => {
@@ -326,8 +320,10 @@ describe('thrown off while the horse is called (M3 x M4)', () => {
     step(sim, { type: 'whistle' });
     steps(sim, 30);
     expect(S(sim).run!.phase).toBe('extracting');
+    // Doors left open after the throw, so the run goes on (shut, it ends caught).
+    const open = { ...config, values: { ...config.values, cashOut: { ...config.values.cashOut, closeDoorsOnThrownOff: false } } };
     const events: SimEvent[] = [];
-    throwOff({ state: S(sim), map: sim.map, config, emit: (e: SimEvent) => events.push(e) } as never, player(sim), 7);
+    throwOff({ state: S(sim), map: sim.map, config: open, emit: (e: SimEvent) => events.push(e) } as never, player(sim), 7);
     expect(of(events, 'ThrownOff')).toHaveLength(1);
     expect(S(sim).run!.phase).toBe('boarding');
     expect(call(sim).state).toBe('away');

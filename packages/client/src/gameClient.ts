@@ -4,6 +4,7 @@ import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  isPractice, runWantedLevel,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -24,6 +25,7 @@ import { createMinimap } from './minimap';
 import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
+import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -84,6 +86,8 @@ export interface GameClient {
   releaseKeys(): void;
   /** The sim jumped (a replay seek): drop interpolation and notices so nothing slides from the old tick. */
   reset(): void;
+  /** Show a notice from the host (a save that could not be read, a reset save). */
+  notify(text: string, kind: NoticeKind, ms: number): void;
 }
 
 export interface GameClientOptions {
@@ -101,6 +105,10 @@ export interface GameClientOptions {
    * controls line shows `replayControls` in place of the game keys.
    */
   replayControls?: string;
+  /** The host's local leaderboard, best first, for the end-of-run summary. */
+  bestRuns?(): readonly BestRun[];
+  /** Buttons shown with the debug overlay (`), e.g. Reset save. */
+  debugActions?: readonly { label: string; run(): void }[];
 }
 
 export async function createApp(): Promise<Application> {
@@ -300,6 +308,26 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Heat gains get their own small list under the heat meter, so each one is readable.
   let heatNotices: { text: string; until: number }[] = [], alarmAt = -Infinity;
   const wantedOnExpiry = config.values.outcomePolicy.expired.wantedDelta;
+  const wantedCfg = config.values.wanted;
+  // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
+  let queued: Command[] = [];
+  // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
+  const summaryTracker = createSummaryTracker();
+  const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
+    tickRateHz, maxWantedLevel: wantedCfg.maxLevel, quickRetry: config.values.playtest.quickRetry,
+    onRetry: () => { queued.push({ type: 'quickRetry' }); }, bestRuns: opts.bestRuns,
+  });
+  // Debug overlay buttons from the host (Reset save), shown with the debug readout.
+  const debugBar = document.createElement('div');
+  debugBar.style.cssText = 'position:fixed;left:8px;bottom:8px;display:none;gap:6px;z-index:2';
+  for (const a of replay ? [] : opts.debugActions ?? []) {
+    const b = document.createElement('button');
+    b.textContent = a.label;
+    b.style.cssText = 'font:12px monospace;padding:4px 8px';
+    b.addEventListener('click', (ev) => { keyboard.release(); a.run(); (ev.currentTarget as HTMLButtonElement).blur(); });
+    debugBar.appendChild(b);
+  }
+  document.body.appendChild(debugBar);
   // Hoofbeats: when the next one is due (performance.now ms) and where in the rhythm it is.
   let hoofAt = 0, hoofStep = 0;
   const sideName = (side: string) => side === 'left' ? 'left' : 'right';
@@ -310,7 +338,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
   let spilled: { detail: string; at: number; title?: string } | null = null;
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
-  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
+  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0, caughtBanked = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
   // What the player just hit: blocked ground beside the horse, or (on a ledge) beside the player on the car.
   const obstacleHit = () => {
@@ -331,7 +359,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
       show(collisionNotice(e.against, e.kind, e.amount, e.against === 'obstacle' ? obstacleHit() : undefined), 'bad', e.kind === 'scrape' ? 1000 : 2000);
     }
-    else if (e.type === 'RunStarted') { switchedAt = performance.now(); if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000); }
+    else if (e.type === 'RunStarted') {
+      switchedAt = performance.now();
+      summary?.hide();
+      if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000);
+      else if (e.practice) show(`Practice run at wanted level ${e.wantedLevel}: nothing is saved`, 'info', 2500);
+    }
     else if (e.type === 'TrainSwitched') { switchedAt = performance.now(); show(config.values.commit.autoSwitch ? 'Switched to the closer train' : 'Switched train', 'info', 1500); }
     else if (e.type === 'HeatChanged') {
       const now = performance.now();
@@ -340,15 +373,22 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
       const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
-      show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}` : ''}`, 'bad', 3500);
+      show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') {
-      show(`Extracted! $${e.cashOut} banked`, 'good', 3500);
+      show(`Extracted! $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}`, 'good', 3500);
       if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `extracted with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
     }
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
       if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `got away with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
       const c = config.values.cashOut;
-      show(`Got away: $${e.cashOut} banked${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
+      show(`Got away: $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
+    }
+    // The caught notice waits for PersistentChanged (right after), which has the wanted change.
+    else if (e.type === 'RunEnded' && e.outcome === 'caught') caughtBanked = e.cashOut;
+    else if (e.type === 'PersistentChanged' && e.outcome === 'caught') {
+      const d = e.after.wantedLevel - e.before.wantedLevel;
+      const kept = caughtBanked > 0 ? `, $${caughtBanked} ${e.practice ? 'kept (practice: not banked)' : 'banked'}` : ', loot lost';
+      show(`Caught: thrown off and the doors shut. Run over${kept}${e.practice ? ' (practice: nothing saved)' : d ? `, wanted level ${d > 0 ? '+' : ''}${d}` : ''}`, 'bad', 3500);
     }
     else if (e.type === 'DayStarted') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
@@ -430,7 +470,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     app,
     releaseKeys: () => keyboard.release(),
     // A replay still drains the keyboard so pressed game keys do not pile up.
-    poll: () => { const snap = keyboard.poll(); return replay ? [] : mapper.commands(snap, ctx); },
+    poll: () => {
+      const snap = keyboard.poll();
+      if (replay) return [];
+      const out = [...queued, ...mapper.commands(snap, ctx)];
+      queued = [];
+      return out;
+    },
+    notify: (text, kind, ms) => show(text, kind, ms),
     reset() {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
@@ -438,7 +485,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     },
     afterTick(events) {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
-      for (const e of events) noticeFor(e);
+      for (const e of events) {
+        noticeFor(e);
+        const done = summaryTracker.event(e);
+        if (done) summary?.show(done);
+      }
     },
     render(alpha, host) {
       const now = performance.now();
@@ -813,6 +864,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         : horseState.boostTicks > 0 ? { state: 'active' as const, share: horseState.boostTicks / Math.max(1, bc.durationTicks), text: 'BOOST' }
           : horseState.boostCooldownTicks > 0 ? { state: 'cooldown' as const, share: 1 - horseState.boostCooldownTicks / Math.max(1, bc.cooldownTicks), text: `boost ${(horseState.boostCooldownTicks / tickRateHz).toFixed(1)} s` }
             : { state: 'ready' as const, share: 1, text: 'Shift boost ready' };
+      const debugBarDisplay = showDebug && debugBar.childElementCount > 0 ? 'flex' : 'none';
+      if (debugBar.style.display !== debugBarDisplay) debugBar.style.display = debugBarDisplay;
       hud.update({
         phase,
         boost: boostView,
@@ -830,6 +883,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         controls,
         clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
+        wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },
+        // The saved bank (a replay shows the bank its log started from, as it changed).
+        bank: s.persistent.bank,
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,
@@ -841,7 +897,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           `map ${map.id} ${map.size.cols}x${map.size.rows}${/^(gen|line):/.test(map.source.file) ? `  (${map.source.file})` : ''}  route ${routeText}`,
           `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseState.boostTicks > 0 ? ' BOOST' : ''}${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
-          `run: ${phase.toUpperCase()}  wanted ${s.persistent.wantedLevel}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
+          `run: ${phase.toUpperCase()}  wanted ${runWantedLevel(s, config)}${isPractice(config) ? ' (forced: practice)' : ''}  saved: wanted ${s.persistent.wantedLevel} bank $${s.persistent.bank} lifetime $${s.persistent.lifetimeEarned}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,
           check ? `boarding: ${check.state.toUpperCase()}  ${check.side} side  door ${Number.isFinite(check.distance) ? check.distance.toFixed(1) : '-'} tiles (range ${b.rangeTiles})  speed vs train ${check.speedDelta >= 0 ? '+' : ''}${check.speedDelta.toFixed(2)} (±${b.speedToleranceTilesPerSec})  in zone ${zoneSec.toFixed(1)} s, best ${bestZoneSec.toFixed(1)} s` : 'boarding: -',
           rs ? `countdown ${rs.countdownSec.toFixed(1)}/${rs.countdownTotalSec.toFixed(0)} s${rs.clockRunning ? '' : ' (waiting to start)'}  drain ×${rate.toFixed(2)}  heat ${rs.heat.toFixed(1)}/${config.values.heat.maxHeat}  grace ${rs.graceTicks}/${config.values.countdown.graceTicks} ticks  boarding resistance ${config.values.heat.boardingResistanceAt == null ? 'off' : boardingResistanceActive(rs, config.values.heat) ? 'ACTIVE' : `at ${config.values.heat.boardingResistanceAt}`}  audio ${audio.muted ? 'muted (M)' : 'on (M)'}` : '',
           meter ? `meter ${meter.position.toFixed(2)}${!meter.sweeping ? ' (parked: ride within range of a door)' : meter.matched ? ' (speed matched: slow)' : ' (speed off: fast)'}  good ${meter.good[0].toFixed(2)}-${meter.good[1].toFixed(2)}  perfect ${meter.perfect[0].toFixed(2)}-${meter.perfect[1].toFixed(2)}` : '',
