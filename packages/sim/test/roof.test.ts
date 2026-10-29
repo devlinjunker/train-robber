@@ -433,6 +433,8 @@ describe('guards jumping between roofs', () => {
   it('a guard chasing you on the next roof runs to the end and jumps the gap onto it', () => {
     const sim = at(roofConfig({ guards: 1, cars: 2, ai: { guardCatch: 'thrown-off' } }), 8, 3, 'roof', 2);
     alertOn(sim, 1, true, { car: 2, x: 8 });
+    // Loot left after a throw keeps the run going (with nothing left it would end caught).
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
     const ev = steps(sim, 60 * 4);
     expect(ofType(ev, 'GuardJumped')).toEqual([expect.objectContaining({ car: 1, toCar: 2, short: false })]);
     expect(S(sim).run!.guards[0]).toMatchObject({ car: 2, roof: true });

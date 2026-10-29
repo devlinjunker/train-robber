@@ -320,6 +320,8 @@ describe('thrown off while the horse is called (M3 x M4)', () => {
     step(sim, { type: 'whistle' });
     steps(sim, 30);
     expect(S(sim).run!.phase).toBe('extracting');
+    // Something left to cash out after the throw, so the run goes on (with nothing left it ends caught).
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
     const events: SimEvent[] = [];
     throwOff({ state: S(sim), map: sim.map, config, emit: (e: SimEvent) => events.push(e) } as never, player(sim), 7);
     expect(of(events, 'ThrownOff')).toHaveLength(1);

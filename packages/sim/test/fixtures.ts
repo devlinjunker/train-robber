@@ -129,6 +129,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         expired: { bankRunLoot: false, wantedDelta: 1 },
         extracted: { bankRunLoot: true, wantedDelta: 0 },
         cashedOut: { bankRunLoot: true, wantedDelta: 0 },
+        caught: { bankRunLoot: false, wantedDelta: 1 },
       },
       cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenTicks: 0 },
       horse: {

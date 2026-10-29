@@ -25,12 +25,9 @@ export interface RunSummaryView {
 }
 
 const TITLES: Record<RunOutcome, string> = {
-  extracted: 'EXTRACTED', cashedOut: 'GOT AWAY', expired: 'RUN EXPIRED', died: 'YOU DIED', cancelled: 'RUN CANCELLED',
+  extracted: 'EXTRACTED', cashedOut: 'GOT AWAY', expired: 'RUN EXPIRED', died: 'YOU DIED', cancelled: 'RUN CANCELLED', caught: 'CAUGHT',
 };
-const KIND: Record<RunOutcome, 'good' | 'bad' | 'info'> = { extracted: 'good', cashedOut: 'good', expired: 'bad', died: 'bad', cancelled: 'info' };
-
-/** A cancel's summary goes by itself after this long; the others stay until the next run or Close. */
-export const CANCEL_SUMMARY_MS = 4000;
+const KIND: Record<RunOutcome, 'good' | 'bad' | 'info'> = { extracted: 'good', cashedOut: 'good', expired: 'bad', died: 'bad', cancelled: 'info', caught: 'bad' };
 
 const CSS = `
 .tr-summary { position: fixed; left: 50%; top: 22%; transform: translateX(-50%); z-index: 2; min-width: 320px; max-width: min(460px, calc(100vw - 32px));
@@ -96,11 +93,9 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
   root.className = 'tr-summary';
   root.style.display = 'none';
   parent.appendChild(root);
-  let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
   const hide = () => {
     root.style.display = 'none';
-    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
   };
   const button = (text: string, onClick: () => void) => {
     const b = document.createElement('button');
@@ -144,7 +139,6 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
       buttons.append(button('Close', hide));
       root.append(buttons);
       root.style.display = '';
-      if (v.outcome === 'cancelled') hideTimer = setTimeout(hide, CANCEL_SUMMARY_MS);
     },
     hide,
   };

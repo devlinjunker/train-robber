@@ -57,6 +57,7 @@ const base = {
     expired: { bankRunLoot: false, wantedDelta: 1 },
     extracted: { bankRunLoot: true, wantedDelta: 0 },
     cashedOut: { bankRunLoot: true, wantedDelta: 0 },
+    caught: { bankRunLoot: false, wantedDelta: 1 },
   },
   cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, doorsReopenSec: 0 },
 };

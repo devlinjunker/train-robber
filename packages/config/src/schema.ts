@@ -306,6 +306,8 @@ export const GameSchema = z.object({
     extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
     cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** A guard threw you off with nothing left and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. */
+    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   /**
    * F on the horse during a run (after a guard throws you off) ends the run and banks what you

@@ -71,7 +71,8 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 
 /** `idle` means no run; the others are `RunState.phase`. */
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting' | 'ended';
-export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut';
+/** `caught`: a guard threw you off with nothing left to carry and the train shut its doors (Devlin, PR #46 playtest). */
+export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut' | 'caught';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -564,6 +565,7 @@ export interface SimConfig {
       expired: { bankRunLoot: boolean; wantedDelta: number };
       extracted: { bankRunLoot: boolean; wantedDelta: number };
       cashedOut: { bankRunLoot: boolean; wantedDelta: number };
+      caught: { bankRunLoot: boolean; wantedDelta: number };
     };
     /**
      * F on the horse mid-run: end the run and bank the loot. With `closeDoors` a cash-out shuts that

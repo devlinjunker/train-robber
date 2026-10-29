@@ -538,6 +538,10 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
     p.health = Math.max(0, p.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause });
   }
+  // Caught (Devlin, PR #46 playtest): thrown off by a guard with nothing left to cash out and the
+  // doors shut behind you, there is nothing more to do on this run, so it ends here (`outcomePolicy.caught`,
+  // a wanted level by default). With loot left, F still gets away with it. A throw that kills is a death.
+  if (guard !== null && p.health > 0 && rp.carried.length === 0 && train.doorsClosed) endRun(ctx, p, 'caught', false);
 }
 
 /**

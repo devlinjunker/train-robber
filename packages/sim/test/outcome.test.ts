@@ -19,6 +19,7 @@ const TABLE: Row[] = [
   { name: 'cashedOut banks the loot, wanted +0', outcome: 'cashedOut', cashOut: 25, after: { wantedLevel: 2, bank: 125, lifetimeEarned: 325 }, banked: 25 },
   { name: 'expired loses the loot, wanted +1', outcome: 'expired', cashOut: 40, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
   { name: 'died loses the loot, wanted +0', outcome: 'died', cashOut: 40, after: START, banked: 0 },
+  { name: 'caught loses the loot, wanted +1', outcome: 'caught', cashOut: 0, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
   { name: 'cancelled loses the loot, wanted +0', outcome: 'cancelled', cashOut: 40, after: START, banked: 0 },
   // Nothing carried.
   { name: 'extracted with nothing banks nothing', outcome: 'extracted', cashOut: 0, after: START, banked: 0 },

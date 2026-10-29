@@ -376,6 +376,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const c = config.values.cashOut;
       show(`Got away: $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
     }
+    else if (e.type === 'RunEnded' && e.outcome === 'caught') {
+      const d = config.values.outcomePolicy.caught.wantedDelta;
+      show(`Caught: thrown off with nothing left and the doors shut. Run over${d ? `, wanted level ${d > 0 ? '+' : ''}${d}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
+    }
     else if (e.type === 'DayStarted') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
