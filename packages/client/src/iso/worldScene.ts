@@ -680,6 +680,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         const b = g.getLocalBounds();
         movers.push({ zIndex: g.zIndex, minX: b.minX - pad, minY: b.minY - pad, maxX: b.maxX + pad, maxY: b.maxY + pad });
       }
+      // Mesa and boulder pieces with the hole cut in them draw in the sorted container, over the static land: what is in front of them is copied over them too.
+      movers.push(...mesas.cutPieces());
       overdraw.update(movers);
 
       // Debug zones: the boarding range around every entry point (B toggles).
