@@ -63,6 +63,8 @@ export interface RunRecord extends SessionMeta {
   lootLost?: number;
   /** The wanted level the run was played at; missing on records from before M5. */
   wantedLevel?: number;
+  /** The day (per-day health, from 1 each page load) the run started on; missing on older records. */
+  day?: number;
   /** The saved wanted level, bank and lifetime earned after the outcome (PersistentChanged). */
   wantedAfter?: number;
   bankAfter?: number;
@@ -75,7 +77,7 @@ export interface RunRecord extends SessionMeta {
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; practice: boolean; resumedFrom?: string }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string }
 
 export interface RunTracker {
   /**
@@ -108,7 +110,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
     lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
-    lootLost: o.lootLost, wantedLevel: o.wantedLevel, practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
+    lootLost: o.lootLost, wantedLevel: o.wantedLevel, ...(o.day !== undefined ? { day: o.day } : {}), practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -130,7 +132,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
           continue;
         }
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, practice: !!ev.practice,
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
             ...(ev.resumed && cancelledOn.has(ev.trainId) ? { resumedFrom: cancelledOn.get(ev.trainId)! } : {}) };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;

@@ -113,7 +113,7 @@ export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
   /** `resumed`: the commit picked up a run cancelled in place on this train (clock, heat, health and meter carried over). */
   /** `wantedLevel` is the level the run uses; `practice` marks a run at `wanted.forceLevel`, which saves nothing (G9). */
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; resumed?: true; practice?: true }
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; day: number; resumed?: true; practice?: true }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }

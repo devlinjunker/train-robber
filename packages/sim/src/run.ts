@@ -139,7 +139,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   }
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
-    countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: runWantedLevel(state, config), ...(resume ? { resumed: true as const } : {}),
+    countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: runWantedLevel(state, config), day: p.day, ...(resume ? { resumed: true as const } : {}),
     ...(isPractice(config) ? { practice: true as const } : {}),
   });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
