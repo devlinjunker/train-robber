@@ -18,7 +18,8 @@ export function replayText(text: string): ReplayReport {
   // Logs from before M2 carry no map; they were played on the default one.
   const mapId = h.mapId ?? DEFAULT_MAP;
   const map = loadMapDef(mapId);
-  const warnings = headerWarnings(h, { config, gameVersion: gameVersion(), mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
+  // Retired keys and presets (M6b) load with a warning, not an error.
+  const warnings = [...config.warnings, ...headerWarnings(h, { config, gameVersion: gameVersion(), mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz })];
   if (!h.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
   const sim = createSim({ config, map, seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
   const notes = log.lines.flatMap((l) => (l.k === 'note' ? [{ t: l.t, text: l.text }] : []));

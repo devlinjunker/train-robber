@@ -32,8 +32,8 @@ const TABLE: Row[] = [
   { name: 'a negative cash out banks nothing', outcome: 'extracted', cashOut: -5, after: START, banked: 0 },
   // Wanted level stays within 0 to maxLevel.
   { name: 'expired at the top level stays at maxLevel', outcome: 'expired', cashOut: 0, start: { wantedLevel: MAX, bank: 0, lifetimeEarned: 0 }, after: { wantedLevel: MAX, bank: 0, lifetimeEarned: 0 }, banked: 0 },
-  { name: 'a negative wantedDelta stops at 0', outcome: 'cancelled', cashOut: 0, start: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, policy: { ...POLICY, cancelled: { bankRunLoot: false, wantedDelta: -1 } }, after: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, banked: 0 },
-  { name: 'cancelWantedDelta-style policy: cancel costs a level', outcome: 'cancelled', cashOut: 0, policy: { ...POLICY, cancelled: { bankRunLoot: false, wantedDelta: 1 } }, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
+  { name: 'a negative wantedDelta stops at 0', outcome: 'cancelled', cashOut: 0, start: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, policy: { ...POLICY, cancelled: { bankRunLoot: false, wantedDelta: -1, heatRoll: false } }, after: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, banked: 0 },
+  { name: 'cancelWantedDelta-style policy: cancel costs a level', outcome: 'cancelled', cashOut: 0, policy: { ...POLICY, cancelled: { bankRunLoot: false, wantedDelta: 1, heatRoll: false } }, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
   // Death policies (standard and roguelike presets).
   { name: 'died with bankLossFraction takes a share of the bank, never lifetime earned', outcome: 'died', cashOut: 40, policy: withDied({ bankLossFraction: 0.25 }), after: { wantedLevel: 2, bank: 75, lifetimeEarned: 300 }, banked: 0 },
   { name: 'died with reset wipes the named fields', outcome: 'died', cashOut: 0, policy: withDied({ reset: ['wantedLevel', 'bank'] }), after: { wantedLevel: 0, bank: 0, lifetimeEarned: 300 }, banked: 0 },
@@ -41,7 +41,7 @@ const TABLE: Row[] = [
   { name: 'died with bankRunLoot banks first, then the loss applies', outcome: 'died', cashOut: 100, policy: withDied({ bankRunLoot: true, bankLossFraction: 0.5 }), after: { wantedLevel: 2, bank: 100, lifetimeEarned: 400 }, banked: 100 },
   // Lifetime earned never decreases, even under a policy that names it in reset.
   { name: 'lifetime earned never decreases, even when reset names it', outcome: 'died', cashOut: 0, policy: withDied({ reset: ['lifetimeEarned', 'upgrades'] }), after: START, banked: 0 },
-  { name: 'expired with bankRunLoot on banks', outcome: 'expired', cashOut: 30, policy: { ...POLICY, expired: { bankRunLoot: true, wantedDelta: 1 } }, after: { wantedLevel: 3, bank: 130, lifetimeEarned: 330 }, banked: 30 },
+  { name: 'expired with bankRunLoot on banks', outcome: 'expired', cashOut: 30, policy: { ...POLICY, expired: { bankRunLoot: true, wantedDelta: 1, heatRoll: false } }, after: { wantedLevel: 3, bank: 130, lifetimeEarned: 330 }, banked: 30 },
 ];
 
 describe('applyOutcome (outcome policy table)', () => {

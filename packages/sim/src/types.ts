@@ -65,7 +65,12 @@ export type Command =
    * ladder, climb onto that car's roof; on a roof by a ladder at its end, climb down to the platform.
    * Climbing takes `outside.roof.climbSec`. Space on the roof is the gap jump (`jump`).
    */
-  | { type: 'climb' };
+  | { type: 'climb' }
+  /**
+   * K, off a run, while `playtest.endDayKey` is on (phase 2 M6b, G56): end the day as death does,
+   * without the death: full health, day + 1, and the `wanted.decay` rule runs.
+   */
+  | { type: 'endDay' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -73,13 +78,14 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting' | 'ended';
 /** `caught`: a guard threw you off with nothing left to carry and the train shut its doors (Devlin, PR #46 playtest). */
 export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut' | 'caught';
-/**
- * What raised heat: an event-based source from `heat.sources`, time spent aboard
- * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
- */
-export type HeatCause = 'shotFired' | 'alarmRaised' | 'playerSpotted' | 'actorKilled' | 'lootTaken' | 'timeAboard' | 'debug';
-/** Event-based heat sources in `heat.sources` (time aboard is per second instead). */
-export type HeatSource = Exclude<HeatCause, 'timeAboard' | 'debug'>;
+/** What raised heat: an event-based source from `heat.sources`, or the playtest debug key. (Time-aboard heat was removed in M6b.) */
+export type HeatCause = 'shotFired' | 'alarmRaised' | 'playerSpotted' | 'actorKilled' | 'lootTaken' | 'debug';
+/** Event-based heat sources in `heat.sources`. */
+export type HeatSource = Exclude<HeatCause, 'debug'>;
+/** The heat band a run is in: 0 low, 1 mid, 2 high (`heat.bandEdgeShares`). */
+export type HeatBandIndex = 0 | 1 | 2;
+/** `wanted.decay`: how wanted comes down at each new day. */
+export type WantedDecay = 'none' | 'per-day' | 'per-quiet-day';
 export type BoardingResult = 'perfect' | 'good' | 'fail';
 /** A side of the train, relative to its direction of travel. */
 export type TrainSide = 'left' | 'right';
@@ -129,8 +135,16 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
-  /** Health ran out (`health.scope: day`): the day ends; `onRun` when a run was on (it also ends `died`). */
-  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died'; onRun: boolean }
+  /**
+   * The day ends: health ran out (`died`; `onRun` when a run was on, which also ends `died`), or the
+   * debug End day key (`endDay`, off a run only).
+   */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'endDay'; onRun: boolean }
+  /**
+   * At a new day the `wanted.decay` rule took wanted from `from` to `to` (phase 2 M6b). `practice`:
+   * the in-session level of a `wanted.practiceMoves` session, so nothing is saved.
+   */
+  | { type: 'WantedDecayed'; tick: number; player: PlayerId; day: number; rule: WantedDecay; from: number; to: number; practice?: true }
   /** A new day at full health, back at the spawn. */
   | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
@@ -139,9 +153,11 @@ export type SimEvent =
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
    * (a cash-out on F), else 0. `endOfLine`: on an open line, the committed train reached the end of
    * the line (the run expires there). `practice`: a `wanted.forceLevel` run, so `cashOut` is what the
-   * outcome would have banked, but nothing was saved (G9).
+   * outcome would have banked, but nothing was saved (G9). `heatRoll` (phase 2 M6b): the chance of
+   * +`wanted.perHeatRoll` wanted (heat as a share of max), the roll drawn (0 to 1, a hit when below
+   * the chance) and whether it hit; null when the outcome's `heatRoll` is off.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; practice?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; heatRoll?: HeatRoll | null; endOfLine?: true; practice?: true }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few
@@ -206,6 +222,9 @@ export type SimEvent =
   | { type: 'GuardJumped'; tick: number; guard: number; car: number; toCar: number; short: boolean }
   | { type: 'HorseBoosted'; tick: number; player: PlayerId };
 
+/** A run end's heat roll: `hit` when `roll` < `chance`. */
+export interface HeatRoll { chance: number; roll: number; hit: boolean }
+
 export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
 /** What knocked a player off the train: a trackside rock on a ledge, a bad roof jump, or a slip on a curve. */
 export type FallCause = 'rock' | 'jump' | 'slip';
@@ -256,6 +275,8 @@ export interface GuardState {
   slipCooldownTicks: number;
   /** Jumping the gap between roofs (`outside.roof.guardJump`): train x from and to over `total` ticks, landing on car `toCar`'s roof or short on the platform. */
   jump: { ticks: number; total: number; fromLx: number; toLx: number; toRoof: boolean; toCar: number } | null;
+  /** Set once it has gone alert this run with `ai.guardMemory` on: it remembers you (more sight and hearing) until the run ends. */
+  remembers?: true;
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
@@ -317,7 +338,7 @@ export interface RunState {
   phase: Exclude<RunPhase, 'idle'>;
   /**
    * Seconds left on the clock: the train's `countdown.baseSec` x `countdown.scale` at commit,
-   * drained each tick at `1 + heatDrainFactor x heat/100` while `clockRunning` (U1, U2).
+   * drained one second a second while `clockRunning` (U1; heat no longer speeds it up, G34).
    */
   countdownSec: number;
   /** The whole countdown the run started with, for the HUD's bar. */
@@ -333,10 +354,8 @@ export interface RunState {
   graceTicks: number;
   /** Times a guard threw the player off this run; each adds `wanted.perThrowOff` at the run's end. */
   thrownOffs: number;
-  /** 0 to `heat.maxHeat`; only raiseHeat changes it. */
+  /** 0 to `heat.maxHeat`; only raiseHeat changes it, and it only goes up (G52). */
   heat: number;
-  /** Time-aboard heat not yet added: it builds up per tick and is raised a whole point at a time, so each gain is one event. */
-  pendingHeat: number;
   /** Integer keys only, so key order is stable. */
   players: Record<PlayerId, PlayerRunState>;
   /** Loot in the committed train, by ascending id. */
@@ -395,7 +414,6 @@ export interface ResumeRun {
   clockTo?: string;
   graceTicks: number;
   heat: number;
-  pendingHeat: number;
   health: number;
   meter: MeterState;
   boardingAttempts: number;
@@ -435,6 +453,8 @@ export interface PlayerState {
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
   lastHitDamage: number;
+  /** Set when a run end added wanted today, so `wanted.decay: per-quiet-day` skips the next day's decay; cleared at each new day. */
+  wantedGainedToday?: true;
 }
 
 export interface HorseState {
@@ -522,7 +542,7 @@ export interface SimConfig {
      * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.
      */
     collision: { damageFraction: number; obstacleDamageFraction: number; scrapeDamageFraction: number; minImpactTilesPerSec: number; fullImpactTilesPerSec: number; offRunMinImpactTilesPerSec: number; cooldownTicks: number };
-    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean };
+    playtest: { quickRetry: boolean; quickRetryGapTiles: number; debugHeatStep: number; edgeGuards: boolean; endDayKey: boolean };
     /** The whistle, the riderless horse and the mount jump (U4, G3, G11, G12, G14, G15, G24). */
     extraction: {
       /** Arrival delay range, seconds; the horse starts delay x (horse.maxSpeed - train speed) behind the last car. */
@@ -554,20 +574,23 @@ export interface SimConfig {
     countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; lineClock?: 'town' | 'fixed' };
     heat: {
       maxHeat: number;
-      heatDrainFactor: number;
-      sources: { shotFired: number; alarmRaised: number; playerSpotted: number; actorKilled: number; lootTaken: number; timeAboardPerTick: number };
+      /** Low / mid / high band edges as shares of maxHeat. */
+      bandEdgeShares: readonly number[];
+      sources: { shotFired: number; alarmRaised: number; playerSpotted: number; actorKilled: number; lootTaken: number };
       /** Off when null or absent. */
       boardingResistanceAt?: number | null;
     };
     /** Wanted level 0 to `maxLevel` (phase 2 M5). `forceLevel` set: practice runs at that level that save nothing. */
-    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number };
+    /** `perHeatRoll`, `decay`, `decayPerDay` and `practiceMoves`: phase 2 M6b. */
+    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number; perHeatRoll: number; decay: WantedDecay; decayPerDay: number; practiceMoves: boolean };
+    /** `heatRoll`: the run end rolls heat for +`wanted.perHeatRoll` wanted (G37). */
     outcomePolicy: {
-      died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
-      cancelled: { bankRunLoot: boolean; wantedDelta: number };
-      expired: { bankRunLoot: boolean; wantedDelta: number };
-      extracted: { bankRunLoot: boolean; wantedDelta: number };
-      cashedOut: { bankRunLoot: boolean; wantedDelta: number };
-      caught: { bankRunLoot: boolean; wantedDelta: number };
+      died: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
+      cancelled: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean };
+      expired: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean };
+      extracted: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean };
+      cashedOut: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean };
+      caught: { bankRunLoot: boolean; wantedDelta: number; heatRoll: boolean };
     };
     /**
      * F on the horse mid-run: end the run and bank the loot. With `closeDoors` a cash-out shuts that
@@ -615,6 +638,18 @@ export interface SimConfig {
       fellLootShare: number;
       suspiciousStepOutside: boolean;
       suspiciousApproach: boolean;
+      /** Per heat band, low / mid / high (phase 2 M6b): see the game.json schema. `roundsBonusShare` is a hook nothing reads until guard rounds. */
+      heatGuards: {
+        enabled: boolean;
+        sightBonusTiles: readonly number[];
+        calmBonusTicks: readonly number[];
+        searchBonusTicks: readonly number[];
+        hearingScale: readonly number[];
+        chaseBonusTilesPerTick: readonly number[];
+        roundsBonusShare: readonly number[];
+      };
+      /** A guard that went alert: more in-car sight and hearing for the rest of the run. */
+      guardMemory: { enabled: boolean; sightBonusTiles: number; hearingScale: number };
     };
     /**
      * Outside the cars (sneaking PR 2): an end platform `platformDepthTiles` deep at each end of every
@@ -738,6 +773,8 @@ export interface GameState {
   trainCount: number;
   rng: RngState;
   persistent: PersistentState;
+  /** With `wanted.forceLevel` and `wanted.practiceMoves`: the session's practice wanted level once a run end or new day moved it (unset: still `forceLevel`). Never saved. */
+  practiceWanted?: number;
   run: RunState | null;
   world: WorldState;
   players: PlayerState[];

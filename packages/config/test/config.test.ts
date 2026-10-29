@@ -15,7 +15,7 @@ const base = {
   },
   health: { max: 100, scope: 'day' },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },
-  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
+  playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false, endDayKey: true },
   horse: {
     maxSpeed: 14, accel: 8, brake: 12, dragTilesPerSec2: 4, cruiseTargetRateTilesPerSec2: 10,
     slowZoneSpeedScale: 0.5, waterSpeedScale: 0.25, turnRateDegPerSec: 120, steering: 'screen', throttleModel: 'hold', runOffSec: 3,
@@ -25,6 +25,8 @@ const base = {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
     sight: { rangeTiles: 7, ledgeRangeTiles: 30, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
     alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: true, suspiciousApproach: true,
+    heatGuards: { enabled: true, sightBonusTiles: [0, 2, 4], calmBonusSec: [0, 1, 2], searchBonusSec: [0, 1, 2], hearingScale: [1, 1.15, 1.3], chaseBonusTilesPerSec: [0, 0.5, 1], roundsBonusShare: [0, 0.25, 0.5] },
+    guardMemory: { enabled: true, sightBonusTiles: 5, hearingScale: 1.25 },
   },
   extraction: {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
@@ -42,7 +44,7 @@ const base = {
     },
   },
   countdown: { enabled: true, startsAt: 'commit', scale: 1, graceSec: 3 },
-  heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerSec: 0 }, boardingResistanceAt: null },
+  heat: { maxHeat: 100, bandEdgeShares: [0.3333, 0.6667], sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 2 }, boardingResistanceAt: null },
   loot: { densityScale: 1 },
   trains: { blank: { name: 'Blank', route: 'main', speedTilesPerSec: 9, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
   trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
@@ -50,14 +52,14 @@ const base = {
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
   hud: { showTrainNames: true, lootTotalSec: 4 },
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
-  wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
+  wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, perHeatRoll: 1, decay: 'per-day', decayPerDay: 1, practiceMoves: false },
   outcomePolicy: {
-    died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
-    cancelled: { bankRunLoot: false, wantedDelta: 0 },
-    expired: { bankRunLoot: false, wantedDelta: 1 },
-    extracted: { bankRunLoot: true, wantedDelta: 0 },
-    cashedOut: { bankRunLoot: true, wantedDelta: 0 },
-    caught: { bankRunLoot: true, wantedDelta: 0 },
+    died: { bankRunLoot: false, wantedDelta: 0, heatRoll: true, bankLossFraction: 0, reset: [] },
+    cancelled: { bankRunLoot: false, wantedDelta: 0, heatRoll: true },
+    expired: { bankRunLoot: false, wantedDelta: 1, heatRoll: true },
+    extracted: { bankRunLoot: true, wantedDelta: 0, heatRoll: true },
+    cashedOut: { bankRunLoot: true, wantedDelta: 0, heatRoll: true },
+    caught: { bankRunLoot: true, wantedDelta: 0, heatRoll: true },
   },
   cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, shutDoorsEndRun: true, doorsReopenSec: 0 },
 };
@@ -156,10 +158,13 @@ describe('resolveConfig', () => {
     const c = content({ variants: [{ file: 'variants/bad.json', data: { schemaVersion: 2 } }] });
     expect(() => loadContent(c)).toThrow(/^variants\/bad.json at schemaVersion/);
   });
-  it('derives the grace window and time-aboard heat per tick', () => {
-    const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: { heat: { sources: { timeAboardPerSec: 0.6 } } } });
+  it('derives the grace window and the heat bands\' guard timers per tick (M6b)', () => {
+    const r = resolveConfig(loadContent(content()), { preset: 'p' });
     expect(r.values.countdown.graceTicks).toBe(180);
-    expect(r.values.heat.sources.timeAboardPerTick).toBeCloseTo(0.01, 12);
+    expect(r.values.ai.heatGuards.calmBonusTicks).toEqual([0, 60, 120]);
+    expect(r.values.ai.heatGuards.searchBonusTicks).toEqual([0, 60, 120]);
+    expect(r.values.ai.heatGuards.chaseBonusTilesPerTick[2]).toBeCloseTo(1 / 60, 12);
+    expect(r.warnings).toEqual([]);
     expect(r.values.trains.blank!.countdown.baseTicks).toBe(9000);
   });
 
@@ -215,8 +220,8 @@ describe('presets that build on others', () => {
 
 describe('?set= overrides', () => {
   it('turn dotted paths into a nested tree, reading values as JSON', () => {
-    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.timeAboardPerSec=0.2', 'commit.timerSec=null', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
-      .toEqual({ countdown: { scale: 4 }, heat: { sources: { timeAboardPerSec: 0.2 }, boardingResistanceAt: null }, commit: { timerSec: null }, horse: { steering: 'screen' } });
+    expect(overridesFromSet(['countdown.scale=4', 'heat.sources.lootTaken=3', 'commit.timerSec=null', 'heat.boardingResistanceAt=null', 'horse.steering=screen']))
+      .toEqual({ countdown: { scale: 4 }, heat: { sources: { lootTaken: 3 }, boardingResistanceAt: null }, commit: { timerSec: null }, horse: { steering: 'screen' } });
   });
   it('keep the last value for a path and skip anything aimed at a prototype', () => {
     expect(overridesFromSet(['countdown.scale=2', 'countdown.scale=3', '__proto__.polluted=1', 'a.constructor.b=1', '=5'])).toEqual({ countdown: { scale: 3 } });
@@ -229,6 +234,20 @@ describe('?set= overrides', () => {
     const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: overridesFromSet(['countdown.scale=4']) });
     expect(r.values.countdown.scale).toBe(4);
     expect(r.overrides).toEqual({ countdown: { scale: 4 } });
+  });
+  it('drop retired keys with a warning instead of failing (M6b: old logs and saved experiments)', () => {
+    const sets = ['heat.heatDrainFactor=2', 'heat.sources.timeAboardPerSec=0.33', 'heat.sources.lootTaken=3'];
+    const r = resolveConfig(loadContent(content()), { preset: 'p', overrides: overridesFromSet(sets) });
+    expect(r.values.heat.sources.lootTaken).toBe(3);
+    expect(r.overrides).toEqual({ heat: { sources: { lootTaken: 3 } } });
+    expect(r.warnings).toEqual(['heat.heatDrainFactor was removed from the config and is ignored', 'heat.sources.timeAboardPerSec was removed from the config and is ignored']);
+  });
+  it('load a removed preset as its replacement, with a warning', () => {
+    const c = content();
+    c.presets.push({ file: 'presets/alpha-default.json', data: { schemaVersion: 1, id: 'alpha-default', extends: 'p', variants: {} } });
+    const r = resolveConfig(loadContent(c), { preset: 'no-time-aboard-heat' });
+    expect(r.preset).toBe('alpha-default');
+    expect(r.warnings).toEqual(['preset no-time-aboard-heat was removed; using alpha-default']);
   });
 });
 

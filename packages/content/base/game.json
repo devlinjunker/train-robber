@@ -16,7 +16,13 @@
     "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 55, "crouchCoverMin": 0.25 },
     "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3, "stumbleRadiusTiles": 5 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
-    "thrownOffLootShare": 1, "fellLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
+    "thrownOffLootShare": 1, "fellLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true,
+    "heatGuards": {
+      "enabled": true,
+      "sightBonusTiles": [0, 2, 4], "calmBonusSec": [0, 1, 2], "searchBonusSec": [0, 1, 2],
+      "hearingScale": [1, 1.15, 1.3], "chaseBonusTilesPerSec": [0, 0.5, 1], "roundsBonusShare": [0, 0.25, 0.5]
+    },
+    "guardMemory": { "enabled": true, "sightBonusTiles": 5, "hearingScale": 1.25 }
   },
   "outside": {
     "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,
@@ -52,7 +58,7 @@
   },
   "health": { "max": 100, "scope": "day" },
   "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "offRunMinImpactTilesPerSec": 6, "cooldownSec": 1 },
-  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10, "edgeGuards": false },
+  "playtest": { "quickRetry": true, "quickRetryGapTiles": 60, "debugHeatStep": 10, "edgeGuards": false, "endDayKey": true },
   "extraction": {
     "arrivalDelaySec": [5, 20], "paceWindowSec": 10, "rewhistleCooldownSec": 5, "laneOffsetTiles": 2, "dropBackSec": 3,
     "alongsideRangeTiles": 3, "mountRangeTiles": 4, "doorReachTiles": 1.5,
@@ -63,8 +69,8 @@
   "countdown": { "enabled": true, "startsAt": "commit", "scale": 1, "graceSec": 3 },
   "heat": {
     "maxHeat": 100,
-    "heatDrainFactor": 1.0,
-    "sources": { "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5, "actorKilled": 8, "lootTaken": 1, "timeAboardPerSec": 0.33 },
+    "bandEdgeShares": [0.3333, 0.6667],
+    "sources": { "shotFired": 2, "alarmRaised": 15, "playerSpotted": 5, "actorKilled": 8, "lootTaken": 2 },
     "boardingResistanceAt": null
   },
   "loot": { "densityScale": 1 },
@@ -101,14 +107,14 @@
   "verbs": { "search": { "searchTimeSec": 1.2, "hiddenSearchTimeSec": 1.8, "timeScale": 1, "walkSpeedScale": 0.3, "cancelRangeTiles": 1.5, "reachTiles": 1.2, "hiddenLoot": true } },
   "hud": { "showTrainNames": false, "lootTotalSec": 4 },
   "audio": { "volume": 1, "tickVolume": 0.6, "tickEverySec": 30, "finalCountdownSec": 30, "finalTickEverySec": 1 },
-  "wanted": { "maxLevel": 5, "guardBonus": [0, 1, 1, 2, 2, 3], "forceLevel": null, "perThrowOff": 1 },
+  "wanted": { "maxLevel": 5, "guardBonus": [0, 1, 1, 2, 2, 3], "forceLevel": null, "perThrowOff": 1, "perHeatRoll": 1, "decay": "per-day", "decayPerDay": 1, "practiceMoves": false },
   "outcomePolicy": {
-    "died": { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [] },
-    "cancelled": { "bankRunLoot": false, "wantedDelta": 0 },
-    "expired": { "bankRunLoot": false, "wantedDelta": 1 },
-    "extracted": { "bankRunLoot": true, "wantedDelta": 0 },
-    "cashedOut": { "bankRunLoot": true, "wantedDelta": 0 },
-    "caught": { "bankRunLoot": true, "wantedDelta": 0 }
+    "died": { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [], "heatRoll": true },
+    "cancelled": { "bankRunLoot": false, "wantedDelta": 0, "heatRoll": true },
+    "expired": { "bankRunLoot": false, "wantedDelta": 1, "heatRoll": true },
+    "extracted": { "bankRunLoot": true, "wantedDelta": 0, "heatRoll": true },
+    "cashedOut": { "bankRunLoot": true, "wantedDelta": 0, "heatRoll": true },
+    "caught": { "bankRunLoot": true, "wantedDelta": 0, "heatRoll": true }
   },
   "cashOut": { "enabled": true, "closeDoors": true, "closeDoorsOnThrownOff": true, "shutDoorsEndRun": true, "doorsReopenSec": 0 }
 }

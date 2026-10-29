@@ -6,6 +6,8 @@ import { CarTemplateSchema, CellTypeSchema, ItemSchema, LootTableSchema } from '
 
 const positive = z.number().positive();
 const fraction = z.number().min(0).max(1);
+/** One value per heat band: low, mid, high. */
+const band = (n: z.ZodNumber) => z.tuple([n, n, n]);
 
 export const GameSchema = z.object({
   schemaVersion: z.literal(1),
@@ -104,6 +106,8 @@ export const GameSchema = z.object({
      * left ledge of its car and the second on that car's rear platform, both on watch. Preset `roof-edge-test`.
      */
     edgeGuards: z.boolean(),
+    /** K, off a run (phase 2 M6b, G56): end the day as death does (full health, day + 1, wanted decay), as a sim command so replays match. */
+    endDayKey: z.boolean(),
   }).strict(),
   world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
   /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
@@ -158,24 +162,30 @@ export const GameSchema = z.object({
     graceSec: z.number().min(0),
     /**
      * Open lines only: `town` (the default) makes the clock the committed train's time to reach the
-     * next town (or the end of the line), and heat no longer speeds it up; `fixed` keeps the
-     * train's baseSec clock that heat drains, as on loops (Devlin, PR #34).
+     * next town (or the end of the line); `fixed` keeps the train's baseSec clock, as on loops
+     * (Devlin, PR #34). Heat never changes either clock (G34).
      */
     lineClock: z.enum(['town', 'fixed']).optional(),
   }).strict(),
-  /** Heat 0 to maxHeat speeds up the countdown (U2). Every gain goes through raiseHeat with one of these sources. */
+  /**
+   * Heat 0 to maxHeat: the record of this robbery (phase 2 M6b). It only rises within a run, never
+   * changes the clock, drives the guards by band (`ai.heatGuards`) and is the chance of +1 wanted at
+   * the run's end (`wanted.perHeatRoll`). Every gain goes through raiseHeat with one of these sources.
+   */
   heat: z.object({
     maxHeat: positive,
-    /** Countdown drain rate is 1 + heatDrainFactor x heat/100. */
-    heatDrainFactor: z.number().min(0),
-    /** Heat added per event; timeAboardPerSec is added per second aboard instead (0.33 by default since the M1 playtest, G26). */
+    /**
+     * Where the low / mid / high bands meet, as shares of maxHeat (G52): below the first is low,
+     * below the second mid, else high. The guards and the HUD's meter both read them.
+     */
+    bandEdgeShares: z.tuple([fraction, fraction]).refine(([a, b]) => a <= b, { message: 'band edges must not go down' }),
+    /** Heat added per event. */
     sources: z.object({
       shotFired: z.number().min(0),
       alarmRaised: z.number().min(0),
       playerSpotted: z.number().min(0),
       actorKilled: z.number().min(0),
       lootTaken: z.number().min(0),
-      timeAboardPerSec: z.number().min(0),
     }).strict(),
     /** Heat from which guards resist boarding once combat exists (G30); null or absent is off. A hook only in phase 2. */
     boardingResistanceAt: z.number().min(0).nullable().optional(),
@@ -294,22 +304,37 @@ export const GameSchema = z.object({
     forceLevel: z.number().int().min(0).nullable().optional(),
     /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
     perThrowOff: z.number().int().min(0),
+    /** Wanted levels a heat roll that hits adds: at a run's end, heat as a share of maxHeat is the chance (G35, outcomePolicy.<outcome>.heatRoll). */
+    perHeatRoll: z.number().int().min(0),
+    /**
+     * How wanted comes down at each new day (G36, G46; experiment 6): `none`, `per-day` (by
+     * `decayPerDay` every day) or `per-quiet-day` (only after a day where no run added wanted).
+     */
+    decay: z.enum(['none', 'per-day', 'per-quiet-day']),
+    decayPerDay: z.number().int().min(0),
+    /**
+     * With `forceLevel` set: the forced level is only where the session starts, and outcomes, heat
+     * rolls and decay move it for the rest of the session, still saving nothing (experiment 6).
+     * Off: every run uses `forceLevel` as it is.
+     */
+    practiceMoves: z.boolean(),
   }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     died: z.object({
       bankRunLoot: z.boolean(),
       wantedDelta: z.number().int(),
       bankLossFraction: fraction,
+      heatRoll: z.boolean(),
       /** Persistent fields a death wipes (roguelike presets). */
       reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
     }).strict(),
-    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
-    expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
-    extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), heatRoll: z.boolean() }).strict(),
+    expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), heatRoll: z.boolean() }).strict(),
+    extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), heatRoll: z.boolean() }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
-    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), heatRoll: z.boolean() }).strict(),
     /** A guard threw you off and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. The throw's own wanted level is `wanted.perThrowOff`. */
-    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int(), heatRoll: z.boolean() }).strict(),
   }).strict(),
   /**
    * F on the horse during a run (after a guard throws you off) ends the run and banks what you
@@ -468,6 +493,29 @@ export const GameSchema = z.object({
     suspiciousStepOutside: z.boolean(),
     /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
     suspiciousApproach: z.boolean(),
+    /**
+     * Heat bands scale every guard on the train (phase 2 M6b, G34, G49, G53): one entry per band,
+     * low / mid / high (`heat.bandEdgeShares`), added to or multiplying the values above. In-car
+     * sight `sight.rangeTiles` + sightBonusTiles (ledge range and cone angle unchanged); `calmSec` +
+     * calmBonusSec (a suspicious guard's calm-down); `alertCalmSec` + searchBonusSec (an alert guard
+     * that lost you searches this much longer before it gives up, 3 / 4 / 5 s with the defaults);
+     * hearing (how far your noise reaches it) x hearingScale; chase speed + chaseBonusTilesPerSec. `roundsBonusShare` is a hook for guard rounds (PR #51): nothing reads it yet.
+     */
+    heatGuards: z.object({
+      enabled: z.boolean(),
+      sightBonusTiles: band(z.number().min(0)),
+      calmBonusSec: band(z.number().min(0)),
+      searchBonusSec: band(z.number().min(0)),
+      hearingScale: band(positive),
+      chaseBonusTilesPerSec: band(z.number().min(0)),
+      roundsBonusShare: band(z.number().min(0)),
+    }).strict(),
+    /**
+     * A guard that goes alert remembers you for the rest of the run, that guard only (G49, G50): its
+     * in-car sight gets sightBonusTiles more and its hearing x hearingScale, on top of the band. No
+     * change to chase. A new train (Tab) brings fresh guards.
+     */
+    guardMemory: z.object({ enabled: z.boolean(), sightBonusTiles: z.number().min(0), hearingScale: positive }).strict(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

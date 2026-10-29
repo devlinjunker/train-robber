@@ -1,6 +1,6 @@
 // How the countdown and heat read on the HUD and sound through the AudioBus: pure functions of
 // sim state, so they can be tested without a page.
-import type { HeatCause } from '@train-robber/sim';
+import { heatBandIndex, type HeatCause, type SimConfig } from '@train-robber/sim';
 
 /** The countdown bar's colour step for the share of time left (0 to 1). */
 export type ClockStep = 'calm' | 'low' | 'critical';
@@ -12,17 +12,15 @@ export function clockStep(share: number): ClockStep {
   return share < CRITICAL_SHARE ? 'critical' : share < LOW_SHARE ? 'low' : 'calm';
 }
 
-/** Three heat bands for the meter; the upper edges as a share of max heat. */
+/**
+ * Three heat bands for the meter: low, mid and high in the sim (`heat.bandEdgeShares`, which the
+ * guards read too since M6b), named cool, warm and hot on the HUD.
+ */
 export type HeatBand = 'cool' | 'warm' | 'hot';
-export const HEAT_BANDS: readonly { band: HeatBand; upTo: number }[] = [
-  { band: 'cool', upTo: 1 / 3 },
-  { band: 'warm', upTo: 2 / 3 },
-  { band: 'hot', upTo: 1 },
-];
+export const HEAT_BAND_NAMES: readonly HeatBand[] = ['cool', 'warm', 'hot'];
 
-export function heatBand(heat: number, maxHeat: number): HeatBand {
-  const share = maxHeat > 0 ? heat / maxHeat : 0;
-  return HEAT_BANDS.find((b) => share < b.upTo)?.band ?? 'hot';
+export function heatBand(heat: number, cfg: SimConfig['values']['heat']): HeatBand {
+  return HEAT_BAND_NAMES[heatBandIndex(heat, cfg)]!;
 }
 
 /** `m:ss` for the countdown, rounding up so 0:00 only shows at zero. */
@@ -31,16 +29,14 @@ export function clockText(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** The drain rate as the bar shows it, e.g. `×1.6`. */
-export const drainText = (rate: number) => `×${rate.toFixed(1)}`;
 
 /** Readable names for heat causes in the per-gain notices. */
 export const HEAT_CAUSE_TEXT: Readonly<Record<HeatCause, string>> = {
   shotFired: 'shot fired', alarmRaised: 'alarm raised', playerSpotted: 'spotted', actorKilled: 'killed someone',
-  lootTaken: 'loot taken', timeAboard: 'lingering aboard', debug: 'debug key',
+  lootTaken: 'loot taken', debug: 'debug key',
 };
 
-export const heatNotice = (delta: number, cause: HeatCause) => `+${Number.isInteger(delta) ? delta : delta.toFixed(1)} heat: ${HEAT_CAUSE_TEXT[cause]}`;
+export const heatNotice = (delta: number, cause: HeatCause) => `+${Number.isInteger(delta) ? delta : delta.toFixed(1)} heat: ${HEAT_CAUSE_TEXT[cause] ?? cause}`;
 
 /** When the countdown ticks (`audio` in game.json): every `tickEverySec` countdown seconds, then every `finalTickEverySec` in the last `finalCountdownSec`. 0 turns that part off. */
 export interface TickPlan { tickEverySec: number; finalCountdownSec: number; finalTickEverySec: number }

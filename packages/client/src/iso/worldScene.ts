@@ -328,6 +328,14 @@ export function drawEar(g: Graphics, x: number, y: number, colour: number, s = 1
     .stroke({ width: 2 * s, color: 0x111111, cap: 'round' });
 }
 
+/** A red eye in a small dark badge, in screen pixels centred on (x, y): this guard went alert and remembers you for the rest of the run (M6b). */
+export function drawEye(g: Graphics, x: number, y: number, s = 1): void {
+  g.circle(x, y, 8 * s).fill({ color: 0x1b1b1b }).stroke({ width: 1.5 * s, color: 0xff3b30 });
+  g.moveTo(x - 6 * s, y).bezierCurveTo(x - 3 * s, y - 4.5 * s, x + 3 * s, y - 4.5 * s, x + 6 * s, y)
+    .bezierCurveTo(x + 3 * s, y + 4.5 * s, x - 3 * s, y + 4.5 * s, x - 6 * s, y).fill({ color: 0xffffff });
+  g.circle(x, y, 2.4 * s).fill({ color: 0xff3b30 });
+}
+
 /** A guard: a dark uniform turned the way it faces, a hat with a brim toward its face, and its shadow. */
 function drawGuard(g: Graphics, v: GuardView): void {
   const z = figureZ(v.roof, v.climb);
@@ -731,11 +739,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       }
       for (const v of input.throughGuards ?? []) drawGuard(markers, v);
 
-      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert, a red ? when it lost you.
+      // Above each guard in view: an ear when it just heard you, an amber ● when suspicious, a red ! when alert, a red ? when it lost you;
+      // beside it, a lasting red eye on a guard that remembers you (M6b).
       for (const v of [...guardsShown, ...(input.throughGuards ?? [])]) {
+        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3 + figureZ(v.roof, v.climb));
+        if (v.remembers) drawEye(markers, v.state === 'unaware' && !v.heard ? x : x + 18, y);
         if (v.state === 'unaware' && !v.heard) continue;
         const col = GUARD_STATE_COLOURS[v.state];
-        const x = isoX(v.x, v.y), y = isoY(v.x, v.y, 2.3 + figureZ(v.roof, v.climb));
         if (v.heard && v.state !== 'alert') drawEar(markers, x, y, GUARD_STATE_COLOURS.suspicious);
         else if (v.searching) drawQuestion(markers, x, y, col);
         else if (v.state === 'alert') {

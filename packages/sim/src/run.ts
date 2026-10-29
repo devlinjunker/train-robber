@@ -1,9 +1,9 @@
 // The run lifecycle (idle, approach, boarding, aboard, extracting, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
-import { applyOutcome, isPractice, runWantedLevel } from './rules/outcome';
-import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
-import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
+import { applyOutcome, decayWanted, isPractice, runWantedLevel } from './rules/outcome';
+import { countdownExpired, HEAT_SOURCES, heatRollChance, heatRollValue, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
+import type { Command, FallCause, GameState, HeatRoll, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
 import { Space, toTrain, trainGrid } from './world/guards';
@@ -124,14 +124,14 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0, thrownOffs: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
+    heat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
   const resume = p.resumeRuns.find((r) => r.trainId === id);
   if (resume) {
     p.resumeRuns = p.resumeRuns.filter((r) => r !== resume);
-    const { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat } = resume;
-    Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat, pendingHeat });
+    const { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat } = resume;
+    Object.assign(state.run, { startedTick, countdownSec: sec, countdownTotalSec, clockRunning, graceTicks, heat });
     // The train kept going while you were off it: the line clock is where it is now.
     if (resume.clockTo !== undefined) Object.assign(state.run, { clockTo: resume.clockTo, countdownSec: lineClockSec(map, config, train, resume.clockTo) });
     Object.assign(rp, { meter: { ...resume.meter }, boardingAttempts: resume.boardingAttempts });
@@ -203,13 +203,17 @@ export function remount(state: GameState, p: PlayerState, x: number, y: number, 
 }
 
 /**
- * Health ran out: the day ends and the next starts at full health (the rider is already back at
- * the spawn). With `health.scope: run` the next commit would refill it anyway; the day still counts.
- * Saved runs from in-place cancels belong to the day that ended.
+ * The day ends (health ran out, or the debug End day key) and the next starts at full health (the
+ * rider is already back at the spawn after a death). With `health.scope: run` the next commit would
+ * refill it anyway; the day still counts. Saved runs from in-place cancels belong to the day that
+ * ended. Then the `wanted.decay` rule runs for the new day (phase 2 M6b).
  */
-function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
-  const tick = ctx.state.tick;
-  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause: 'died', onRun });
+function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean, cause: 'died' | 'endDay' = 'died'): void {
+  const { state, config } = ctx;
+  const tick = state.tick;
+  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause, onRun });
+  const quiet = !p.wantedGainedToday;
+  delete p.wantedGainedToday;
   p.day += 1;
   p.health = ctx.config.values.health.max;
   p.hitCooldownTicks = 0;
@@ -218,6 +222,37 @@ function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
   p.commitHold = null;
   p.commitTimer = null;
   ctx.emit({ type: 'DayStarted', tick, player: p.id, day: p.day, health: p.health });
+  const w = config.values.wanted;
+  const practice = isPractice(config);
+  // A forced level only moves in a `practiceMoves` session; otherwise practice leaves it be.
+  if (practice && !w.practiceMoves) return;
+  const from = runWantedLevel(state, config);
+  const to = decayWanted(from, w.decay, w.decayPerDay, quiet);
+  if (to === from) return;
+  if (practice) state.practiceWanted = to;
+  else state.persistent = { ...state.persistent, wantedLevel: to };
+  ctx.emit({ type: 'WantedDecayed', tick, player: p.id, day: p.day, rule: w.decay, from, to, ...(practice ? { practice: true as const } : {}) });
+}
+
+/**
+ * K, off a run, with `playtest.endDayKey` on (phase 2 M6b, G56): end the day where you are, as
+ * death does but without dying: full health, day + 1, and the wanted decay rule runs.
+ */
+export function endDay(ctx: RunCtx, p: PlayerState): void {
+  if (!ctx.config.values.playtest.endDayKey) return reject(ctx, p.id, 'endDay', 'disabled');
+  if (ctx.state.run) return reject(ctx, p.id, 'endDay', 'run active');
+  newDay(ctx, p, false, 'endDay');
+}
+
+/**
+ * The run end's heat roll (G35, G37): with the outcome's `heatRoll` on, heat as a share of max is
+ * the chance of +`wanted.perHeatRoll` wanted, drawn from the run's own seed so a replay rolls the same.
+ */
+export function rollHeat(state: GameState, config: SimConfig, outcome: RunOutcome, heat: number, runNumber: number): HeatRoll | null {
+  if (!config.values.outcomePolicy[outcome].heatRoll) return null;
+  const chance = heatRollChance(heat, config.values.heat);
+  const roll = heatRollValue(state.seed, runNumber);
+  return { chance, roll, hit: roll < chance };
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
@@ -238,13 +273,21 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   setPhase(ctx, p.id, 'ended');
   // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
   const practice = isPractice(ctx.config);
+  const w = ctx.config.values.wanted;
   const before = state.persistent;
-  const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
+  const heatRoll = rollHeat(state, ctx.config, outcome, run.heat, run.runNumber);
+  const wantedBonus = run.thrownOffs * w.perThrowOff + (heatRoll?.hit ? w.perHeatRoll : 0);
+  // In practice the outcome works on the level the run used, so a `practiceMoves` session can carry it on.
+  const base = practice ? { ...before, wantedLevel: runWantedLevel(state, ctx.config) } : before;
+  const result = applyOutcome(base, outcome, { cashOut, wantedBonus }, ctx.config.values.outcomePolicy, w.maxLevel);
   const after = practice ? before : result.persistent;
+  if (practice && w.practiceMoves) state.practiceWanted = result.persistent.wantedLevel;
+  // A day where a run added wanted is not quiet (`wanted.decay: per-quiet-day`).
+  if (ctx.config.values.outcomePolicy[outcome].wantedDelta + wantedBonus > 0) p.wantedGainedToday = true;
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
-    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
+    countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked, heatRoll,
     ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
   });
   // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
@@ -274,7 +317,7 @@ export function cancelRun(ctx: RunCtx, p: PlayerState): void {
   const rp = run.players[p.id];
   const resume: ResumeRun | null = inPlace && rp ? {
     trainId: left, startedTick: run.startedTick, countdownSec: run.countdownSec, countdownTotalSec: run.countdownTotalSec,
-    clockRunning: run.clockRunning, ...(run.clockTo !== undefined ? { clockTo: run.clockTo } : {}), graceTicks: run.graceTicks, heat: run.heat, pendingHeat: run.pendingHeat,
+    clockRunning: run.clockRunning, ...(run.clockTo !== undefined ? { clockTo: run.clockTo } : {}), graceTicks: run.graceTicks, heat: run.heat,
     health: p.health, meter: { ...rp.meter }, boardingAttempts: rp.boardingAttempts,
   } : null;
   const saved = p.resumeRuns;

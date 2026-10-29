@@ -55,7 +55,7 @@ describe('golden replay', () => {
 
 describe('?set= overrides in the log', () => {
   it('a run played with overrides and a preset that builds on another replays in sync, and expires', () => {
-    const overrides = overridesFromSet(['countdown.scale=0.05', 'heat.heatDrainFactor=2']);
+    const overrides = overridesFromSet(['countdown.scale=0.05', 'heat.sources.lootTaken=3']);
     const config = loadConfig({ preset: 'medium-run', overrides });
     expect(config.values.countdown.scale).toBe(0.05);
     const map = loadMapDef();

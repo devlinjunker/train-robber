@@ -114,22 +114,23 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       health: { max: 100, scope: 'day' },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },
-      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false },
+      playtest: { quickRetry: true, quickRetryGapTiles: 60, debugHeatStep: 10, edgeGuards: false, endDayKey: true },
       extraction: {
         arrivalDelaySec: [5, 20], paceWindowTicks: 600, rewhistleCooldownTicks: 300, laneOffsetTiles: 2, dropBackTicks: 180,
         alongsideRangeTiles: 3, mountRangeTiles: 4, doorReachTiles: 1.5, meter: { sweepPeriodTicks: 111, zoneWidths: [0.1, 0.25] },
         mountSpill: 'random', spillShare: 0.3, pathCellTiles: 3, stuckTicks: 180, passThroughBeyondTiles: 30, goodMountStunTicks: 60,
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
-      heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
-      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
+      heat: { maxHeat: 100, bandEdgeShares: [0.3333, 0.6667], sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1 }, boardingResistanceAt: null },
+      // Heat rolls and decay are off here so earlier tests keep their wanted levels; the M6b tests turn them on.
+      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, perHeatRoll: 1, decay: 'none', decayPerDay: 1, practiceMoves: false },
       outcomePolicy: {
-        died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
-        cancelled: { bankRunLoot: false, wantedDelta: 0 },
-        expired: { bankRunLoot: false, wantedDelta: 1 },
-        extracted: { bankRunLoot: true, wantedDelta: 0 },
-        cashedOut: { bankRunLoot: true, wantedDelta: 0 },
-        caught: { bankRunLoot: true, wantedDelta: 0 },
+        died: { bankRunLoot: false, wantedDelta: 0, heatRoll: false, bankLossFraction: 0, reset: [] },
+        cancelled: { bankRunLoot: false, wantedDelta: 0, heatRoll: false },
+        expired: { bankRunLoot: false, wantedDelta: 1, heatRoll: false },
+        extracted: { bankRunLoot: true, wantedDelta: 0, heatRoll: false },
+        cashedOut: { bankRunLoot: true, wantedDelta: 0, heatRoll: false },
+        caught: { bankRunLoot: true, wantedDelta: 0, heatRoll: false },
       },
       cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, shutDoorsEndRun: true, doorsReopenTicks: 0 },
       horse: {
@@ -143,6 +144,12 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
         alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
+        // Off here so earlier guard tests keep their numbers; the M6b tests turn them on.
+        heatGuards: {
+          enabled: false, sightBonusTiles: [0, 2, 4], calmBonusTicks: [0, 60, 120], searchBonusTicks: [0, 60, 120],
+          hearingScale: [1, 1.15, 1.3], chaseBonusTilesPerTick: [0, 0.5 / 60, 1 / 60], roundsBonusShare: [0, 0.25, 0.5],
+        },
+        guardMemory: { enabled: false, sightBonusTiles: 5, hearingScale: 1.25 },
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.
       outside: NO_OUTSIDE,

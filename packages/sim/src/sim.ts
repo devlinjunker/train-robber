@@ -7,7 +7,7 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, endDay, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
 import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
@@ -119,6 +119,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             else jumps.add(p.id);
           } else if (c.type === 'climb') {
             climb(ctx, p, (why) => reject(ctx, p.id, 'climb', why));
+          } else if (c.type === 'endDay') {
+            endDay(ctx, p);
           } else if (c.type === 'debugHeat') {
             debugHeat(ctx, p, c.source);
           } else if (c.type === 'whistle') {

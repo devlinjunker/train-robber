@@ -1,5 +1,5 @@
 // The only code that writes PersistentState: apply a run's outcome under `outcomePolicy` (phase 2 M5).
-import type { GameState, PersistentState, RunOutcome, SimConfig } from '../types';
+import type { GameState, PersistentState, RunOutcome, SimConfig, WantedDecay } from '../types';
 
 export type OutcomePolicy = SimConfig['values']['outcomePolicy'];
 
@@ -48,8 +48,21 @@ export function isPractice(config: SimConfig): boolean {
   return config.values.wanted.forceLevel != null;
 }
 
-/** The wanted level a run generated now uses: `wanted.forceLevel` if set, else the saved level, within 0 to `maxLevel`. */
-export function runWantedLevel(state: Pick<GameState, 'persistent'>, config: SimConfig): number {
+/**
+ * The wanted level a run generated now uses: `wanted.forceLevel` if set (or, with
+ * `wanted.practiceMoves`, where the session has moved it since), else the saved level, within 0 to `maxLevel`.
+ */
+export function runWantedLevel(state: Pick<GameState, 'persistent' | 'practiceWanted'>, config: SimConfig): number {
   const w = config.values.wanted;
-  return Math.max(0, Math.min(w.maxLevel, w.forceLevel ?? state.persistent.wantedLevel));
+  const forced = w.forceLevel == null ? null : w.practiceMoves && state.practiceWanted !== undefined ? state.practiceWanted : w.forceLevel;
+  return Math.max(0, Math.min(w.maxLevel, forced ?? state.persistent.wantedLevel));
+}
+
+/**
+ * The wanted level after a new day's decay (phase 2 M6b, G36, G46): `none` keeps it, `per-day`
+ * takes `perDay` off, `per-quiet-day` only when the day that ended was `quiet` (no run added wanted). Never below 0.
+ */
+export function decayWanted(level: number, rule: WantedDecay, perDay: number, quiet: boolean): number {
+  if (rule === 'none' || (rule === 'per-quiet-day' && !quiet)) return level;
+  return Math.max(0, level - perDay);
 }

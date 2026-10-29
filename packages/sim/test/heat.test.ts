@@ -2,7 +2,7 @@
 // outcome, the grace hook, and what RunStarted and RunEnded carry.
 import { describe, it, expect } from 'vitest';
 import {
-  boardingResistanceActive, createSim, drainRate, entryPointWorld, raiseHeat, raiseHeatFor, restoreSim,
+  boardingResistanceActive, createSim, entryPointWorld, raiseHeat, raiseHeatFor, restoreSim,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap } from './fixtures';
@@ -122,15 +122,12 @@ describe('countdown', () => {
 });
 
 describe('heat', () => {
-  it('drains the countdown at 1 + heatDrainFactor x heat/100', () => {
-    expect(drainRate(0, heatCfg())).toBe(1);
-    expect(drainRate(60, heatCfg())).toBeCloseTo(1.6, 12);
-    expect(drainRate(100, heatCfg({ heatDrainFactor: 2 }))).toBe(3);
+  it('heat never changes the countdown (M6b, G34): a second a second at any heat', () => {
     const sim = committed();
-    S(sim).run!.heat = 50;
+    S(sim).run!.heat = 100;
     const t0 = S(sim).run!.countdownSec;
     steps(sim, 60);
-    expect(t0 - S(sim).run!.countdownSec).toBeCloseTo(1.5, 9);
+    expect(t0 - S(sim).run!.countdownSec).toBeCloseTo(1, 9);
   });
 
   it('raiseHeat clamps at maxHeat and emits HeatChanged with what was added and why', () => {
@@ -166,19 +163,9 @@ describe('heat', () => {
     expect(of(step(off, { type: 'debugHeat' }), 'CommandRejected')[0]).toMatchObject({ command: 'debugHeat', reason: 'disabled' });
   });
 
-  it('time aboard adds no heat by default', () => {
+  it('time aboard adds no heat (time-aboard heat was removed in M6b)', () => {
     const sim = aboard();
     expect(of(steps(sim, 600), 'HeatChanged')).toEqual([]);
-  });
-
-  it('heat.sources.timeAboardPerSec adds heat a whole point at a time while aboard only', () => {
-    const cfg = withValues({ heat: heatCfg({}, { timeAboardPerTick: 0.2 / 60 }) });
-    const approaching = committed(cfg);
-    expect(of(steps(approaching, 600), 'HeatChanged')).toEqual([]);
-    const sim = aboard(cfg);
-    const gains = of(steps(sim, 60 * 10 + 5), 'HeatChanged');
-    expect(gains.map((g) => [g.delta, g.cause])).toEqual([[1, 'timeAboard'], [1, 'timeAboard']]);
-    expect(S(sim).run!.heat).toBe(2);
   });
 
   it('boardingResistanceAt is a hook that is off by default', () => {

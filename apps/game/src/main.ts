@@ -163,6 +163,8 @@ async function boot() {
   if (loaded.problem) {
     client.notify(`Your save ${loaded.problem === 'newer' ? 'is from a newer version of the game' : 'could not be read'}: it was backed up (${loaded.backupKey}) and reset`, 'bad', 8000);
   } else if (wasReset) client.notify('Save reset: wanted level, bank and leaderboard are back to 0', 'info', 4000);
+  // Retired config keys or presets in the URL (M6b) load with a warning instead of failing.
+  if (config.warnings.length) client.notify(`Config: ${config.warnings.join('; ')}`, 'info', 6000);
 
   // Save at each run end (PersistentChanged). Practice runs (wanted.forceLevel) save nothing (G9).
   let saving = true;
@@ -182,6 +184,10 @@ async function boot() {
         }
         banked = null;
         save = { ...save, persistent: { ...e.after }, leaderboard };
+        void store.save(save);
+      } else if (e.type === 'WantedDecayed' && !e.practice && saving) {
+        // A new day's wanted decay (M6b) is saved too.
+        save = { ...save, persistent: { ...save.persistent, wantedLevel: e.to } };
         void store.save(save);
       }
     }

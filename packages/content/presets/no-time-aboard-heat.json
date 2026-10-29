@@ -1,7 +1,0 @@
-{
-  "schemaVersion": 1,
-  "id": "no-time-aboard-heat",
-  "extends": "alpha-default",
-  "variants": {},
-  "values": { "heat": { "sources": { "timeAboardPerSec": 0 } } }
-}

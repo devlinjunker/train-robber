@@ -19,7 +19,7 @@ import { carCatalog, carTemplate, type CarCatalog } from './cars';
 import { curvePull } from './curve';
 import { parseCarFrame } from './frames';
 import type { WorldMap } from './map';
-import { raiseHeatFor } from '../rules/heat';
+import { heatBandIndex, raiseHeatFor } from '../rules/heat';
 
 const GEN: StreamName = 'gen';
 
@@ -359,11 +359,51 @@ export function sightReach(g: TrainGrid, ax: number, ay: number, dx: number, dy:
 }
 
 /**
- * How far a guard at (gx, gy) sees: `ai.sight.rangeTiles`, or `ledgeRangeTiles` out on a ledge,
- * where nothing is in the way along the car's side (Devlin, 2026-10-21).
+ * What heat and memory make of one guard this tick (phase 2 M6b). With `ai.heatGuards` on, the heat
+ * band adds in-car sight, calm-down and chase time and speed, and scales hearing; with
+ * `ai.guardMemory` on, a guard that `remembers` you (it went alert this run) adds its own sight and
+ * hearing on top. Off, this is the plain `ai` values. Chasing starts and stops as before
+ * (`ai.loseSightSec`); the band makes the search after it last longer.
  */
-export function sightRange(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number): number {
-  return spaceAt(g, gx, gy) === Space.Ledge ? cfg.sight.ledgeRangeTiles : cfg.sight.rangeTiles;
+export interface GuardTuning {
+  /** Tiles added to `ai.sight.rangeTiles` (in-car sight only: ledge range, cone and roof sight stay). */
+  sightBonusTiles: number;
+  /** Multiplies how far the player's noise reaches this guard. */
+  hearingScale: number;
+  /** A suspicious guard with no sign of the player this long calms down. */
+  calmTicks: number;
+  /** An alert guard with no sign of the player this long gives up searching and drops back to suspicious: the search after `ai.loseSightTicks` lasts the rest. */
+  alertCalmTicks: number;
+  chaseSpeedTilesPerTick: number;
+}
+
+/** The tuning for a guard at run heat `heat`; `remembers` adds `ai.guardMemory` when that is on. */
+export function guardTuning(config: SimConfig, heat: number, remembers = false): GuardTuning {
+  const ai = config.values.ai, hg = ai.heatGuards, mem = ai.guardMemory;
+  const band = hg.enabled ? heatBandIndex(heat, config.values.heat) : -1;
+  const at = (xs: readonly number[], none: number) => (band < 0 ? none : xs[Math.min(band, xs.length - 1)] ?? none);
+  const memory = mem.enabled && remembers;
+  return {
+    sightBonusTiles: at(hg.sightBonusTiles, 0) + (memory ? mem.sightBonusTiles : 0),
+    hearingScale: at(hg.hearingScale, 1) * (memory ? mem.hearingScale : 1),
+    calmTicks: ai.calmTicks + at(hg.calmBonusTicks, 0),
+    alertCalmTicks: ai.alertCalmTicks + at(hg.searchBonusTicks, 0),
+    chaseSpeedTilesPerTick: ai.chaseSpeedTilesPerTick + at(hg.chaseBonusTilesPerTick, 0),
+  };
+}
+
+/** The tuning for guard `g` of the run (its heat and whether it remembers you). */
+export function tuningFor(config: SimConfig, run: { heat: number } | null | undefined, g: Pick<GuardState, 'remembers'>): GuardTuning {
+  return guardTuning(config, run?.heat ?? 0, g.remembers === true);
+}
+
+/**
+ * How far a guard at (gx, gy) sees: `ai.sight.rangeTiles` plus `bonus` (heat band and memory), or
+ * `ledgeRangeTiles` out on a ledge, where nothing is in the way along the car's side (Devlin,
+ * 2026-10-21); the bonus never reaches the ledge range (G51).
+ */
+export function sightRange(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, bonus = 0): number {
+  return spaceAt(g, gx, gy) === Space.Ledge ? cfg.sight.ledgeRangeTiles : cfg.sight.rangeTiles + bonus;
 }
 
 /**
@@ -371,10 +411,10 @@ export function sightRange(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: num
  * a dot product, so no trig), and with a clear line between them. A crouched player also hides
  * behind any cell with at least `ai.sight.crouchCoverMin` cover on that line.
  */
-export function canSee(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, fx: number, fy: number, px: number, py: number, crouched = false): boolean {
+export function canSee(g: TrainGrid, cfg: SimConfig['values']['ai'], gx: number, gy: number, fx: number, fy: number, px: number, py: number, crouched = false, bonus = 0): boolean {
   const dx = px - gx, dy = py - gy;
   const d2 = dx * dx + dy * dy;
-  const r = sightRange(g, cfg, gx, gy);
+  const r = sightRange(g, cfg, gx, gy, bonus);
   if (d2 > r * r) return false;
   const d = Math.sqrt(d2);
   if (d > 1e-9 && fx * dx + fy * dy < cfg.sight.coneCos * d) return false;
@@ -400,9 +440,9 @@ export interface SightTarget { lx: number; y: number; roof: boolean; car: number
  * `outside.roof.edgeSeenTiles` (crouched `crouchEdgeSeenTiles`) of the edge on that guard's side:
  * a ledge's long side, or the end a platform is beyond. Within range and cone, open air between.
  */
-export function guardSees(g: TrainGrid, config: SimConfig, gx: number, gy: number, gRoof: boolean, fx: number, fy: number, t: SightTarget): boolean {
+export function guardSees(g: TrainGrid, config: SimConfig, gx: number, gy: number, gRoof: boolean, fx: number, fy: number, t: SightTarget, bonus = 0): boolean {
   const ai = config.values.ai;
-  if (!gRoof && !t.roof) return canSee(g, ai, gx, gy, fx, fy, t.lx, t.y, t.crouched);
+  if (!gRoof && !t.roof) return canSee(g, ai, gx, gy, fx, fy, t.lx, t.y, t.crouched, bonus);
   if (gRoof) return t.roof && seesInOpen(ai, config.values.outside.roof.guardSightTiles, gx, gy, fx, fy, t.lx, t.y);
   const space = spaceAt(g, gx, gy);
   if (space === Space.Inside || space === Space.None) return false;
@@ -412,7 +452,7 @@ export function guardSees(g: TrainGrid, config: SimConfig, gx: number, gy: numbe
   const onEdge = space === Space.Ledge
     ? (gy < 0 ? t.y < edge : t.y > rows - edge)
     : (gx < off && t.x < edge) || (gx >= off + cols && t.x > cols - edge);
-  return onEdge && seesInOpen(ai, sightRange(g, ai, gx, gy), gx, gy, fx, fy, t.lx, t.y);
+  return onEdge && seesInOpen(ai, sightRange(g, ai, gx, gy, bonus), gx, gy, fx, fy, t.lx, t.y);
 }
 
 /** A searching guard turns on one tick in this many (a third of its turn rate), sweeping each way for this many ticks. */
@@ -609,8 +649,11 @@ function setState(ctx: GuardCtx, g: GuardState, to: GuardAwareness, cause: 'sigh
   g.calmTicks = 0;
   g.lostTicks = 0;
   if (to === 'unaware') { g.spotted = false; g.lastKnown = null; }
-  // Going alert raises the alarm.
-  if (to === 'alert') raiseHeatFor(ctx, 'alarmRaised');
+  // Going alert raises the alarm, and with `ai.guardMemory` the guard remembers you for the rest of the run (G50).
+  if (to === 'alert') {
+    if (ctx.config.values.ai.guardMemory.enabled) g.remembers = true;
+    raiseHeatFor(ctx, 'alarmRaised');
+  }
 }
 
 /**
@@ -793,14 +836,17 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
   let caught: { guard: GuardState; player: PlayerState } | null = null;
   for (const g of run.guards) {
     const w: Walker = { lx: toTrain(grid, g.car, g.x), y: g.y, fx: g.fx, fy: g.fy };
+    // Heat band and memory (M6b), read before this tick's awareness changes.
+    const tune = tuningFor(config, run, g);
     // Perception.
     let sees = false, hears = false;
     if (target) {
-      sees = guardSees(grid, config, w.lx, w.y, g.roof, w.fx, w.fy, target);
+      sees = guardSees(grid, config, w.lx, w.y, g.roof, w.fx, w.fy, target, tune.sightBonusTiles);
       if (!sees && target.noise > 0) {
         const dx = target.lx - w.lx, dy = target.y - w.y;
+        const reach = target.noise * tune.hearingScale;
         // Footsteps on a roof only carry down into the car under them.
-        hears = dx * dx + dy * dy <= target.noise * target.noise && (!target.roof || g.roof || fromTrain(grid, w.lx).car === target.car);
+        hears = dx * dx + dy * dy <= reach * reach && (!target.roof || g.roof || fromTrain(grid, w.lx).car === target.car);
       }
       if (sees || hears) {
         const at = fromTrain(grid, target.lx);
@@ -825,13 +871,13 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
         // On its way up to check the roof, it does not calm down until it is up there.
         const goingUp = !g.roof && g.lastKnown?.roof === true && config.values.outside.roof.enabled && config.values.outside.roof.guardsClimb;
         if (hears || goingUp) g.calmTicks = 0;
-        else if (++g.calmTicks >= ai.calmTicks) setState(ctx, g, 'unaware', 'calm');
+        else if (++g.calmTicks >= tune.calmTicks) setState(ctx, g, 'unaware', 'calm');
       }
     } else if (sees || hears) { g.calmTicks = 0; g.lostTicks = 0; }
     else {
       // Alert with no sign of the player: after `loseSightTicks` a chasing guard gives up and searches.
       if (++g.lostTicks === ai.loseSightTicks && ai.guardCatch === 'thrown-off') ctx.emit({ type: 'GuardLostTrack', tick: state.tick, guard: g.id });
-      if (++g.calmTicks >= ai.alertCalmTicks) setState(ctx, g, 'suspicious', 'calm');
+      if (++g.calmTicks >= tune.alertCalmTicks) setState(ctx, g, 'suspicious', 'calm');
     }
     const searching = isSearching(g, config);
 
@@ -861,8 +907,8 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       }
     } else if (g.state === 'alert' && ai.guardCatch === 'thrown-off' && known) {
       // Chase: to the player while in sight, else to where they were last seen or heard.
-      if (sees && target) moveGuard(m, g, w, target.lx, target.y, target.roof, ai.chaseSpeedTilesPerTick);
-      else moveGuard(m, g, w, known.lx, known.y, known.roof, ai.chaseSpeedTilesPerTick);
+      if (sees && target) moveGuard(m, g, w, target.lx, target.y, target.roof, tune.chaseSpeedTilesPerTick);
+      else moveGuard(m, g, w, known.lx, known.y, known.roof, tune.chaseSpeedTilesPerTick);
       if (sees && target) turn(w, target.lx - w.lx, target.y - w.y);
     } else if (g.state === 'suspicious' && known && (known.roof ? config.values.outside.roof.guardsClimb : spaceAt(grid, known.lx, known.y) === Space.Inside ? ai.suspiciousApproach : ai.suspiciousStepOutside)) {
       // Saw or heard something: walk over to look, out by a door if it was outside, say through a

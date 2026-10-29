@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-guards-off",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "ai": { "heatGuards": { "enabled": false }, "guardMemory": { "enabled": false } } }
+}

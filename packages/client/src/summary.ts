@@ -1,6 +1,6 @@
 // The end-of-run summary (phase 2 M5): outcome, loot banked, time, heat, the wanted level change,
 // and the bank, with a quick retry. Built from the sim's events only, so it never decides anything.
-import type { PersistentState, RunOutcome, SimEvent } from '@train-robber/sim';
+import type { HeatRoll, PersistentState, RunOutcome, SimEvent } from '@train-robber/sim';
 
 /** One run on the host's local leaderboard, as the summary shows it. */
 export interface BestRun { score: number; date: string }
@@ -10,6 +10,10 @@ export interface RunSummaryView {
   /** Ticks from commit to the end. */
   durationTicks: number;
   heat: number;
+  /** The run end's heat roll for +wanted (M6b), or null when this outcome does not roll. */
+  heatRoll: HeatRoll | null;
+  /** Wanted levels a hit adds (`wanted.perHeatRoll`). */
+  perHeatRoll?: number;
   /** What the outcome banked (or, in practice, would have banked). */
   banked: number;
   /** Loot value lost on the way: thrown off, falls and mount spills. */
@@ -45,6 +49,13 @@ const CSS = `
 `;
 
 const money = (v: number) => `$${Math.round(v)}`;
+
+/** The heat roll as the summary shows it: `34% chance: hit, wanted +1`, `34% chance: missed`, or `off`. */
+export function heatRollText(roll: HeatRoll | null, perHit = 1): string {
+  if (!roll) return '<span class="muted">off for this outcome</span>';
+  const pct = `${Math.round(roll.chance * 100)}% chance`;
+  return roll.hit ? `${pct}: <span class="up">hit, wanted +${perHit}</span>` : `${pct}: missed`;
+}
 const stars = (level: number, max: number) => '★'.repeat(level) + '☆'.repeat(Math.max(0, max - level));
 
 /** Follows the events and builds a summary when a run ends (quick retries get none). */
@@ -66,7 +77,7 @@ export function createSummaryTracker() {
         ended = null;
         if (r.retry) return null;
         return {
-          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, banked: r.cashOut, lost, picked,
+          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, heatRoll: r.heatRoll ?? null, banked: r.cashOut, lost, picked,
           before: e.before, after: e.after, wantedLevel, practice: practice || !!e.practice, endOfLine: !!r.endOfLine,
         };
       }
@@ -78,6 +89,8 @@ export function createSummaryTracker() {
 export interface SummaryPanelOptions {
   tickRateHz: number;
   maxWantedLevel: number;
+  /** `wanted.perHeatRoll`: what a heat roll that hits adds. */
+  perHeatRoll?: number;
   /** Quick retry is on (`playtest.quickRetry`). */
   quickRetry: boolean;
   onRetry(): void;
@@ -122,6 +135,7 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
         ['Items picked up', String(v.picked)],
         ['Time', time],
         ['Heat at end', String(Math.round(v.heat))],
+        ['Heat roll', heatRollText(v.heatRoll, opts.perHeatRoll ?? 1)],
         ['Wanted level', wantedText],
         ...(v.practice ? [] : [['Bank', `${money(v.after.bank)} <span class="muted">lifetime ${money(v.after.lifetimeEarned)}</span>`] as [string, string]]),
       ];
