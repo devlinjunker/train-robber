@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "wanted-3",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "wanted": { "forceLevel": 3 } }
+}

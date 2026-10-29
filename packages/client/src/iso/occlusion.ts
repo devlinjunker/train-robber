@@ -27,14 +27,38 @@ export function insideConvex(hull: readonly Pt[], q: Pt): boolean {
 }
 
 /**
- * True when the car, `height` tiles tall, is nearer the viewer than the point (x, y) and covers it
- * on screen at any of the heights `zs`. Depth is compared at the car's centre, so a horse beside
- * the near side is never counted as hidden.
+ * The stretches along a car, [from, to] in tiles from its centre toward the front, that it is cut
+ * into for drawing: `sliceTiles` long each, front first, the last one shorter when the length
+ * doesn't divide. Each slice sorts on its own in the view, so occlusion is judged per slice too.
  */
-export function carHides(car: Footprint, height: number, x: number, y: number, zs: readonly number[]): boolean {
-  if (depthOf(x, y) >= depthOf(car.x, car.y)) return false;
-  const hull = screenHull(car, height);
-  return zs.some((z) => insideConvex(hull, [isoX(x, y), isoY(x, y, z)]));
+export function sliceSpans(halfLength: number, sliceTiles: number): [number, number][] {
+  const n = Math.max(1, Math.ceil((halfLength * 2) / sliceTiles - 1e-9));
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const a1 = halfLength - i * sliceTiles;
+    out.push([Math.max(-halfLength, a1 - sliceTiles), a1]);
+  }
+  return out;
+}
+
+/**
+ * True when the car, `height` tiles tall, has a slice nearer the viewer than the point (x, y) that
+ * covers it on screen at any of the heights `zs`. Depth is compared slice by slice, as the view
+ * sorts them: on angled track one end of a long car can be in front of a horse that is behind its
+ * middle (riding along the far side near an end). A horse beside the near side is never counted
+ * as hidden. `sliceTiles` 0 judges the car whole.
+ */
+export function carHides(car: Footprint, height: number, x: number, y: number, zs: readonly number[], sliceTiles = 0): boolean {
+  const d = depthOf(x, y);
+  const spans: [number, number][] = sliceTiles > 0 ? sliceSpans(car.halfLength, sliceTiles) : [[-car.halfLength, car.halfLength]];
+  for (const [a0, a1] of spans) {
+    const mid = (a0 + a1) / 2;
+    const slice = { x: car.x + car.ux * mid, y: car.y + car.uy * mid, ux: car.ux, uy: car.uy, halfLength: (a1 - a0) / 2, halfWidth: car.halfWidth };
+    if (d >= depthOf(slice.x, slice.y)) continue;
+    const hull = screenHull(slice, height);
+    if (zs.some((z) => insideConvex(hull, [isoX(x, y), isoY(x, y, z)]))) return true;
+  }
+  return false;
 }
 
 /** The outline a footprint `height` tiles tall covers on screen, in unzoomed iso pixels. */
@@ -44,8 +68,8 @@ export function screenHull(car: Footprint, height: number): Pt[] {
 }
 
 /** True when any of the cars hides the point; see `carHides`. */
-export function hiddenByCars(cars: readonly CarPose[], height: number, x: number, y: number, zs: readonly number[]): boolean {
-  return cars.some((car) => carHides(car, height, x, y, zs));
+export function hiddenByCars(cars: readonly CarPose[], height: number, x: number, y: number, zs: readonly number[], sliceTiles = 0): boolean {
+  return cars.some((car) => carHides(car, height, x, y, zs, sliceTiles));
 }
 
 /** The point on a car's ground rectangle nearest (x, y), and how far away it is (0 inside). */

@@ -3,6 +3,7 @@
   "id": "steering",
   "title": "Steering on the horse",
   "question": "From Phase 1 M2: is riding easier with heading steering (arrows turn the horse) or screen steering (arrows pick a screen direction)?",
+  "pr": 5,
   "setups": [
     {
       "id": "heading",

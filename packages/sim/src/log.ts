@@ -32,6 +32,8 @@ export interface RunHeader {
   /** The playtest experiment and setup a Play link tagged the session with (`?exp=&setup=`); missing when untagged. */
   exp?: string;
   setup?: string;
+  /** The pull request whose link opened the session (`?pr=`), so its results can go back there. */
+  pr?: number;
 }
 
 export interface HeaderLine extends RunHeader { k: 'header'; log: LogKind; logVersion: number }

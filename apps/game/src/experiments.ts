@@ -125,7 +125,7 @@ export function mergeIncoming(e: Experiment, own: readonly Experiment[], repoIds
  * `exp` and `setup`. `carry` adds the whole experiment (`xp`) so the link saves it for whoever
  * opens it; repo experiments don't need it.
  */
-export function playQuery(e: Experiment, setupId: string, base: ExperimentBase | undefined, carry: boolean): string {
+export function playQuery(e: Experiment, setupId: string, base: ExperimentBase | undefined, carry: boolean, pr?: number): string {
   const setup = e.setups.find((s) => s.id === setupId);
   if (!setup) throw new Error(`experiment ${e.id} has no setup ${setupId}`);
   const sel = setupSelection(base, setup);
@@ -136,6 +136,7 @@ export function playQuery(e: Experiment, setupId: string, base: ExperimentBase |
   if (sel.map) q.set('map', sel.map);
   q.set('exp', e.id);
   q.set('setup', setupId);
+  if (pr) q.set('pr', String(pr));
   if (carry) q.set('xp', encodeExperiment(base === e.base ? e : { ...e, ...(base ? { base } : {}) }));
   return `?${q}`;
 }
@@ -143,6 +144,12 @@ export function playQuery(e: Experiment, setupId: string, base: ExperimentBase |
 /** The Playtests page link that opens (and saves) an experiment: by id for a repo one, carried whole otherwise. */
 export function shareQuery(e: Experiment, isRepo: boolean): string {
   return isRepo ? `?exp=${encodeURIComponent(e.id)}` : `?xp=${encodeExperiment(e)}`;
+}
+
+/** A `?pr=` value as a PR number, or undefined when it is missing or not a positive whole number. */
+export function linkedPr(v: string | null | undefined): number | undefined {
+  const n = Number(v);
+  return v && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
 const STATUS_KEY = 'train-robber-experiment-status';

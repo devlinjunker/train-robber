@@ -3,6 +3,7 @@
   "id": "medium-run-countdown",
   "title": "Run length now that trains have loot",
   "question": "Phase 2 M1 found 2:30 right and 10:00 too long, but that was before loot (PR #16: recheck in M2). With loot and guards, does the medium run (4x countdown, 4x loot) make a better robbery, or does it still drag?",
+  "pr": 16,
   "setups": [
     {
       "id": "default",

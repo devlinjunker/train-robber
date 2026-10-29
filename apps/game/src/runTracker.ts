@@ -4,7 +4,7 @@ import type { Experiment } from '@train-robber/config';
 import type { BoardingResult, RunPhase, SimEvent } from '@train-robber/sim';
 
 /** How a run ended. `retry` is a quick retry; `abandoned` means the page closed mid-run. */
-export type TrackedOutcome = 'extracted' | 'died' | 'cancelled' | 'expired' | 'cashedOut' | 'retry' | 'abandoned';
+export type TrackedOutcome = 'extracted' | 'died' | 'cancelled' | 'expired' | 'cashedOut' | 'caught' | 'retry' | 'abandoned';
 
 /** What the session knows about itself, copied into every run it plays. */
 export interface SessionMeta {
@@ -23,11 +23,15 @@ export interface SessionMeta {
   /** The experiment and setup the Play link tagged this session with (`?exp=&setup=`); missing when untagged. */
   exp?: string;
   setup?: string;
+  /** The pull request whose link the session came from (`?pr=`). */
+  pr?: number;
   /**
    * A copy of the experiment when it is a tester's own (not in the repo), so runs imported on
    * someone else's page bring their experiment card with them.
    */
   experiment?: Experiment;
+  /** The save the session played on (phase 2 M5): runs with the same id carry wanted level and bank from one to the next. Missing on older records. */
+  saveId?: string;
 }
 
 export interface RunNote { t: number; text: string }
@@ -69,11 +73,25 @@ export interface RunRecord extends SessionMeta {
   /** Dollar value and count of the loot still in the train when the run ended; missing on records from before M6a. */
   lootLeftValue?: number;
   lootLeftItems?: number;
+  /** Loot value lost on the way (thrown off, falls, mount spills); missing on records from before M5. */
+  lootLost?: number;
+  /** The wanted level the run was played at; missing on records from before M5. */
+  wantedLevel?: number;
+  /** The day (per-day health, from 1 each page load) the run started on; missing on older records. */
+  day?: number;
+  /** The saved wanted level, bank and lifetime earned after the outcome (PersistentChanged). */
+  wantedAfter?: number;
+  bankAfter?: number;
+  lifetimeAfter?: number;
+  /** A `wanted.forceLevel` run (practice): nothing was saved. */
+  practice?: boolean;
+  /** The run this one picked up after an in-place cancel (Esc on the horse, then recommitting to the same train): its record id. */
+  resumedFrom?: string;
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLeftValue?: number; lootLeftItems?: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
 
 export interface RunTracker {
   /**
@@ -83,10 +101,11 @@ export interface RunTracker {
    */
   events(events: readonly SimEvent[], now: string): RunRecord[];
   /**
-   * Attach a note to the run in progress. Returns null when it was attached there, or else the
-   * last finished run with the note added, for the host to store again (null if none yet).
+   * Attach a note to the run in progress, or else to the last finished run. Returns the record to
+   * store again: the run in progress as a provisional `abandoned` record up to `tick` (so the note
+   * survives a closed tab), or the finished run with the note added; null if there is no run yet.
    */
-  note(tick: number, text: string): RunRecord | null;
+  note(tick: number, text: string, now: string): RunRecord | null;
   /** The page is closing: the run in progress, if any, ends as abandoned. */
   abandon(tick: number, now: string): RunRecord | null;
 }
@@ -94,6 +113,8 @@ export interface RunTracker {
 export function createRunTracker(meta: SessionMeta): RunTracker {
   let open: Open | null = null;
   let last: RunRecord | null = null;
+  // The last run cancelled on each train, which a resumed commit to that train picks up.
+  const cancelledOn = new Map<string, string>();
 
   const build = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => ({
     ...meta, id: `${meta.session}#${o.runNumber}`, runNumber: o.runNumber, trainId: o.trainId, startTick: o.startTick, startedAt: o.startedAt, endedAt: now,
@@ -104,6 +125,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
     lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
     ...(o.lootLeftValue === undefined ? {} : { lootLeftValue: o.lootLeftValue, lootLeftItems: o.lootLeftItems }),
+    lootLost: o.lootLost, wantedLevel: o.wantedLevel, ...(o.day !== undefined ? { day: o.day } : {}), practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
   });
   const close = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => {
     const rec = build(o, outcome, durationTicks, now);
@@ -116,8 +138,17 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     events(events, now) {
       const ended: RunRecord[] = [];
       for (const ev of events) {
+        // PersistentChanged follows its RunEnded: add the saved state to the run just closed and store it again.
+        if (ev.type === 'PersistentChanged') {
+          if (last && !open && last.wantedAfter === undefined) {
+            last = { ...last, wantedAfter: ev.after.wantedLevel, bankAfter: ev.after.bank, lifetimeAfter: ev.after.lifetimeEarned, practice: last.practice || !!ev.practice };
+            ended.push(last);
+          }
+          continue;
+        }
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0 };
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
+            ...(ev.resumed && cancelledOn.has(ev.trainId) ? { resumedFrom: cancelledOn.get(ev.trainId)! } : {}) };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
         else if (ev.type === 'RunPhaseChanged') {
@@ -129,19 +160,23 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'HeatChanged') open.heat = ev.heat;
         else if (ev.type === 'LootPickedUp') { open.lootValue += ev.value; open.lootItems++; }
         else if (ev.type === 'LootDropped') { open.lootValue -= ev.value; open.lootItems--; }
-        else if (ev.type === 'LootSpilled') { open.lootValue -= ev.value; open.lootItems -= ev.items.length; }
+        else if (ev.type === 'LootSpilled') { open.lootValue -= ev.value; open.lootItems -= ev.items.length; open.lootLost += ev.value; }
+        // Thrown off or a fall: the items are gone (M5 wires these into the run's loot).
+        else if (ev.type === 'LootLost') { open.lootValue -= ev.value; open.lootItems--; open.lootLost += ev.value; }
         else if (ev.type === 'HorseWhistled' || ev.type === 'HorseSideChanged') open.whistles++;
         else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
           if (ev.lootLeftValue !== undefined) { open.lootLeftValue = ev.lootLeftValue; open.lootLeftItems = ev.lootLeftItems; }
-          ended.push(close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now));
+          const rec = close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now);
+          if (ev.outcome === 'cancelled' && !ev.retry) cancelledOn.set(rec.trainId, rec.id); else cancelledOn.delete(rec.trainId);
+          ended.push(rec);
         }
       }
       return ended;
     },
-    note(tick, text) {
-      if (open) { open.notes.push({ t: tick, text }); return null; }
+    note(tick, text, now) {
+      if (open) { open.notes.push({ t: tick, text }); return build(open, 'abandoned', tick - open.startTick, now); }
       if (!last) return null;
       last = { ...last, notes: [...last.notes, { t: tick, text }] };
       return last;

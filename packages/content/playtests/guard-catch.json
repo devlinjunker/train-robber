@@ -3,6 +3,7 @@
   "id": "guard-catch",
   "title": "What happens when a guard catches you",
   "question": "From PR #28 (question 1): which makes guards a threat without being frustrating, being thrown off the train or heat only?",
+  "pr": 28,
   "setups": [
     {
       "id": "thrown-off",

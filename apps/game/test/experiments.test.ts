@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Experiment } from '@train-robber/config';
 import {
+  linkedPr,
   canonical, classifyIncoming, decodeExperiment, encodeExperiment, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, playQuery,
   saveAnswers, saveBases, saveOwn, shareQuery,
 } from '../src/experiments';
@@ -52,6 +53,23 @@ describe('experiments in the browser', () => {
     const repo = new URLSearchParams(playQuery(exp, 'tight', { preset: 'medium-run' }, false));
     expect([repo.get('preset'), repo.getAll('set'), repo.get('map'), repo.has('xp')]).toEqual(['medium-run', ['countdown.scale=2'], null, false]);
     expect(() => playQuery(exp, 'nope', undefined, false)).toThrow(/no setup nope/);
+    // A page opened from a PR link passes the PR on, so the runs are tagged with it.
+    expect(new URLSearchParams(playQuery(exp, 'tight', undefined, false, 46)).get('pr')).toBe('46');
+    expect(new URLSearchParams(playQuery(exp, 'tight', undefined, false)).has('pr')).toBe(false);
+  });
+
+  it('?pr= is a PR number only when it is a positive whole number', () => {
+    expect([linkedPr('55'), linkedPr(null), linkedPr(''), linkedPr('0'), linkedPr('-3'), linkedPr('4.5'), linkedPr('abc')]).toEqual([55, undefined, undefined, undefined, undefined, undefined, undefined]);
+  });
+
+  it('M5 numbers: wanted start and after (practice keeps its level), and loot lost', () => {
+    const rs = [
+      { wantedLevel: 1, wantedAfter: 2, lootLost: 40 },
+      { wantedLevel: 3, wantedAfter: 0, practice: true, lootLost: 0 },
+    ] as unknown as RunRecord[];
+    expect(experimentNumber('wanted', rs)).toBe('2.0 → 2.5');
+    expect(experimentNumber('lootLost', rs)).toBe('$20');
+    expect(experimentNumber('wanted', [{ wantedLevel: 2, wantedAfter: 2 }] as unknown as RunRecord[])).toBe('2.0');
   });
 
   it('an incoming experiment is added once, asks on a clash, and a repo one stays put', () => {

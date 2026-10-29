@@ -209,7 +209,12 @@ export const GameSchema = z.object({
     loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
     /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
     /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
-    guards: z.object({ base: z.number().int().min(0).optional(), perCar: z.number().min(0).optional() }).strict().optional(),
+    guards: z.object({
+      base: z.number().int().min(0).optional(),
+      perCar: z.number().min(0).optional(),
+      /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
+      perWantedLevel: z.number().min(0).optional(),
+    }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
   }).strict()).refine((t) => Object.keys(t).length > 0, { message: 'at least one train' }),
@@ -277,6 +282,19 @@ export const GameSchema = z.object({
   items: z.record(ItemSchema),
   lootTables: z.record(LootTableSchema),
   carTemplates: z.record(CarTemplateSchema),
+  /**
+   * Wanted level (phase 2 M5, U11): 0 to `maxLevel`, read only when a run is generated. Each level
+   * adds `guardBonus[level]` guards to every train (the last entry covers higher levels), plus the
+   * train's `guards.perWantedLevel` x level. `forceLevel` (preset or `?wanted=`) sets the level a run
+   * uses; such runs are practice and save nothing (G8, G9). Null or absent: the saved level.
+   */
+  wanted: z.object({
+    maxLevel: z.number().int().min(0),
+    guardBonus: z.array(z.number().int().min(0)).min(1),
+    forceLevel: z.number().int().min(0).nullable().optional(),
+    /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
+    perThrowOff: z.number().int().min(0),
+  }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     died: z.object({
       bankRunLoot: z.boolean(),
@@ -290,6 +308,8 @@ export const GameSchema = z.object({
     extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
     cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** A guard threw you off and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. The throw's own wanted level is `wanted.perThrowOff`. */
+    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
   }).strict(),
   /**
    * F on the horse during a run (after a guard throws you off) ends the run and banks what you
@@ -298,7 +318,9 @@ export const GameSchema = z.object({
    * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
    * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
    */
-  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
+  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(),
+    /** A guard throw that shuts the doors ends the run `caught` (Devlin, PR #46 playtest). Off for later, when outside ladders give a way back on. */
+    shutDoorsEndRun: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,
@@ -320,7 +342,7 @@ export const GameSchema = z.object({
     throttleModel: z.enum(['hold', 'coast', 'cruise']),
     /** After boarding, the riderless horse runs off for this long and then leaves the world (U4). */
     runOffSec: z.number().min(0),
-    /** handlingModel variant group (`arcade-boost` on, `arcade` off): C gives a short burst above top speed, then a cooldown (G20). */
+    /** handlingModel variant group (`arcade-boost` on, `arcade` off): Shift gives a short burst above top speed, then a cooldown (G20). */
     boost: z.object({
       enabled: z.boolean(),
       /** How long the burst lasts. */

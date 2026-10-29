@@ -3,6 +3,7 @@
   "id": "time-aboard-heat",
   "title": "Heat from time aboard",
   "question": "From PR #16: should heat build up just from being aboard, or only from what you do?",
+  "pr": 16,
   "setups": [
     {
       "id": "default",

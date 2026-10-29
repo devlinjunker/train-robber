@@ -13,11 +13,14 @@ import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
 import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
-  playQuery, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
+  linkedPr, playQuery, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
 import { diffLabel, mapChoices, presetIds, repoExperiments, selectionError, settablePaths, variantGroups } from './setup';
 
-const REPO_ISSUES = 'https://github.com/devlinjunker/train-robber/issues/new';
+const REPO = 'https://github.com/devlinjunker/train-robber';
+const REPO_ISSUES = `${REPO}/issues/new`;
+const prUrl = (n: number) => `${REPO}/pull/${n}`;
+const PR_KEY = 'train-robber-linked-pr';
 const ALL = '';
 const VIEW_KEY = 'train-robber-playtests-view';
 
@@ -34,7 +37,7 @@ interface Shown { exp: Experiment; repo: boolean; base: ExperimentBase | undefin
 interface Column { head: string; num?: boolean; cell: (r: RunRecord) => string }
 type View = 'robbery' | 'boarding' | 'all';
 const VIEWS: Record<View, { name: string; help: string }> = {
-  robbery: { name: 'Robbery', help: 'How each robbery went: what you carried off, what you left on the train, and the clock and heat at the end.' },
+  robbery: { name: 'Robbery', help: 'How each robbery went: what you carried off (and lost), what you left on the train, your wanted level and bank. Click a save to see only its runs; time left and heat are in the totals and the expanded run.' },
   boarding: { name: 'Boarding', help: 'The Phase 1 numbers: jumps, how far each run got, time from commit to aboard, damage.' },
   all: { name: 'All', help: 'Who played what, on which build and map. Click a run for every number it recorded.' },
 };
@@ -44,7 +47,11 @@ function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
   const n = (k: ExperimentNumber) => experimentNumber(k, rs);
   const count = (f: (r: RunRecord) => string) => String(new Set(rs.map(f)).size);
   const head: [string, string][] = [['Runs', String(rs.length)]];
-  if (view === 'robbery') return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')]];
+  if (view === 'robbery') {
+    // The bank as the newest saved run left it (runs are newest first).
+    const bank = rs.find((r) => r.bankAfter !== undefined && !r.practice)?.bankAfter;
+    return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg lost', n('lootLost')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')], ['Wanted (start → after)', n('wanted')], ['Bank now', money(bank)]];
+  }
   if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
   const pull = sessionPull(rs);
   return [...head, ['Testers', count((r) => r.tester || '?')], ['Sessions', String(pull.sessions)], ['Versions', count(runVersion)], ['Maps', count((r) => r.mapId)], ['Notes', String(rs.reduce((k, r) => k + r.notes.length, 0))], [`Went again within ${PULL_WINDOW_SEC} s`, pullWords(pull)]];
@@ -70,6 +77,37 @@ async function main() {
   let view: View = 'robbery';
   try { const v = localStorage.getItem(VIEW_KEY); if (v && v in VIEWS) view = v as View; } catch { /* default view */ }
   const expanded = new Set<string>();
+  // The PR a link from GitHub opened the page for (`?pr=N`): every card can send its results there,
+  // and Play links pass it on so the runs are tagged with it. Kept until Unlink.
+  let pr = linkedPr(new URLSearchParams(location.search).get('pr'));
+  try { if (pr) localStorage.setItem(PR_KEY, String(pr)); else pr = linkedPr(localStorage.getItem(PR_KEY)); } catch { /* this page only */ }
+  const cardPr = (s: Shown) => pr ?? s.exp.pr;
+  // `?exp=<id>` focuses the page on one experiment: only its card, and only its runs, until Show all.
+  let focus: string | undefined;
+  function renderPr() {
+    const box = $('prLink');
+    box.hidden = !pr;
+    box.innerHTML = pr ? `Linked to <a href="${prUrl(pr)}" target="_blank" rel="noopener">PR #${pr} ↗</a> <button id="prUnlink" title="Stop sending results to this PR">Unlink</button>` : '';
+    $('prNotes').hidden = !pr;
+    $('prNotes').textContent = pr ? `Send notes to PR #${pr}` : '';
+  }
+  $('prLink').addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id !== 'prUnlink') return;
+    pr = undefined;
+    try { localStorage.removeItem(PR_KEY); } catch { /* this page only */ }
+    const q = new URLSearchParams(location.search); q.delete('pr');
+    history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}${location.hash}`);
+    renderPr(); renderExperiments();
+  });
+  /** Copy Markdown and open the PR in a new tab to paste it as a comment (GitHub has no prefilled PR comment link). */
+  async function sendToPr(btn: HTMLButtonElement, n: number, text: string, file: string) {
+    let copied = true;
+    try { await navigator.clipboard.writeText(text); } catch { copied = false; download(file, text, 'text/markdown'); }
+    window.open(`${prUrl(n)}#new_comment_field`, '_blank', 'noopener');
+    const label = btn.textContent;
+    btn.textContent = copied ? 'Copied: paste it in the PR comment box' : 'Saved as a file: paste it on the PR';
+    setTimeout(() => { btn.textContent = label; }, 4000);
+  }
   const repoIds = new Set(repoExperiments.map((e) => e.id));
 
   $('build').textContent = pkg.version;
@@ -127,7 +165,7 @@ async function main() {
   // ---------- Filters ----------
 
   function renderFilters() {
-    const keys = ['version', 'tester', 'outcome', 'experiment', 'mapId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
+    const keys = ['version', 'tester', 'outcome', 'experiment', 'mapId', 'pr', 'practice', 'saveId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
     const box = $('filters');
     box.innerHTML = '';
     // Variant groups go in a More filters menu, so the row stays short however many groups there are.
@@ -139,10 +177,10 @@ async function main() {
       // Version is always offered, so notes can be exported for one version; other filters only when they would split the runs.
       if (k !== 'version' && values.length < 2 && !filters.get(k)) continue;
       const sel = document.createElement('select');
-      sel.innerHTML = `<option value="">all</option>` + values.map((v) => `<option value="${esc(v)}"${filters.get(k) === v ? ' selected' : ''}>${esc(k === 'experiment' ? findShown(v)?.exp.title ?? v : v)}</option>`).join('');
+      sel.innerHTML = `<option value="">all</option>` + values.map((v) => `<option value="${esc(v)}"${filters.get(k) === v ? ' selected' : ''}>${esc(k === 'experiment' ? findShown(v)?.exp.title ?? v : k === 'saveId' && v !== '–' ? v.slice(0, 6) : v)}</option>`).join('');
       sel.addEventListener('change', () => { filters.set(k, sel.value); if (k.startsWith('v:')) renderFilters(); renderExperiments(); renderRuns(); });
       const label = document.createElement('label');
-      label.append(k.startsWith('v:') ? k.slice(2) : k === 'mapId' ? 'map' : k, sel);
+      label.append(k.startsWith('v:') ? k.slice(2) : k === 'mapId' ? 'map' : k === 'saveId' ? 'save' : k === 'pr' ? 'PR' : k, sel);
       (k.startsWith('v:') ? moreBox : box).append(label);
     }
     if (moreBox.children.length) {
@@ -166,15 +204,17 @@ async function main() {
       const ns = c.flatMap((r) => r.notes.map((n) => `<li>${esc(n.text)} <span class="muted">(${esc(r.tester || 'run')} ${r.runNumber}, ${esc(r.outcome)})</span></li>`));
       return ns.length ? `<ul>${ns.join('')}</ul>` : '<span class="muted">–</span>';
     };
-    const href = (setupId: string) => `./${playQuery(exp, setupId, s.base, !s.repo)}`;
+    const target = cardPr(s);
+    const href = (setupId: string) => `./${playQuery(exp, setupId, s.base, !s.repo, pr)}`;
     const base = s.base && Object.keys(s.base).length ? baseLabel(s.base) : 'default';
     return `<article class="card" id="exp-${esc(exp.id)}" data-exp="${esc(exp.id)}">
       <div class="card-head">
-        <div><h3>${esc(exp.title)}<span class="tag">${s.repo ? 'repo' : 'yours'}</span></h3></div>
+        <div><h3>${esc(exp.title)}<span class="tag">${s.repo ? 'repo' : 'yours'}</span>${exp.pr ? `<a class="tag" href="${prUrl(exp.pr)}" target="_blank" rel="noopener" title="The pull request this question came from">PR #${exp.pr} ↗</a>` : ''}</h3></div>
         <div class="actions">
           <button data-act="share" title="Copy a link that opens this experiment on anyone's Playtests page${s.repo ? '' : ' and saves it there'}">Share link</button>
           <button data-act="dup" title="Make your own editable copy">Duplicate</button>
           <button data-act="file" title="Copy the experiment as a packages/content/playtests/*.json file${s.done ? ', marked done with its conclusion' : ''}">Copy as file</button>
+          ${target ? `<button data-act="pr" title="Copy this experiment's results and your answers, and open PR #${target} in a new tab to paste them as a comment">Send to PR #${target}</button>` : ''}
           <button data-act="gh" title="Open a GitHub issue with this experiment's results and your answers">Send to GitHub</button>
           ${s.repo ? '<button data-act="base" title="Change the base setup every setup builds on, in this browser only">Edit base</button>' : '<button data-act="edit">Edit</button><button data-act="del">Delete</button>'}
           ${s.done ? '<button data-act="reopen" title="Move it back to the open experiments">Reopen</button>' : '<button data-act="done" title="Answered: move it to Finished experiments (in this browser)">Mark done</button>'}
@@ -202,6 +242,13 @@ async function main() {
 
   function renderExperiments() {
     const rs = visible();
+    const focused = focus ? findShown(focus) : undefined;
+    if (focused) {
+      $('experiments').innerHTML = `<div class="focus muted">Showing one experiment and its runs. <button id="showAll">Show all experiments</button></div>${card(focused, rs)}`;
+      $('experiments').querySelectorAll<HTMLDetailsElement>('details.results').forEach((d) => { d.open = true; });
+      $('finished').hidden = true;
+      return;
+    }
     const list = shown();
     const open = list.filter((s) => !s.done), done = list.filter((s) => s.done);
     $('experiments').innerHTML = open.length ? open.map((s) => card(s, rs)).join('') : '<div class="empty">No open experiments. Press New experiment to compare a few setups.</div>';
@@ -225,7 +272,7 @@ async function main() {
     const { exp } = s;
     switch (btn.dataset.act) {
       case 'share': {
-        const url = `${location.origin}${location.pathname}${shareQuery(exp, s.repo)}`;
+        const url = `${location.origin}${location.pathname}${shareQuery(exp, s.repo)}${pr ? `&pr=${pr}` : ''}`;
         void copyText(btn, url, () => prompt('Copy this link:', url));
         break;
       }
@@ -237,6 +284,13 @@ async function main() {
       case 'gh':
         sendExperiment(s, false);
         break;
+      case 'pr': {
+        // GitHub has no prefilled PR comment link, so the results go on the clipboard and the PR opens to paste them.
+        const { title, body } = experimentIssue(report(s), visible(), getTester());
+        const text = `## ${title}\n\n${body}`;
+        void sendToPr(btn, cardPr(s)!, text, `${exp.id}-results.md`);
+        break;
+      }
       case 'dup': {
         const copy: Experiment = { ...structuredClone(exp), id: newExperimentId(exp.title, new Set([...repoIds, ...own.map((o) => o.id)])), title: `${exp.title} (copy)`.slice(0, 80) };
         if (s.base) copy.base = structuredClone(s.base); else delete copy.base;
@@ -284,13 +338,15 @@ async function main() {
     }
     return out;
   }
-  function sendExperiment(s: Shown, finishing: boolean) {
-    const rep: ExperimentReport = {
+  function report(s: Shown): ExperimentReport {
+    return {
       exp: s.exp, labels: s.exp.setups.map((setup) => selectionLabel(s.base, setup)),
       ...(s.base && Object.keys(s.base).length ? { baseLabel: baseLabel(s.base) } : {}),
       answers: answers[s.exp.id] ?? emptyAnswers(),
     };
-    const { title, body } = experimentIssue(rep, visible(), getTester(), finishing ? fileFor(s) : undefined);
+  }
+  function sendExperiment(s: Shown, finishing: boolean) {
+    const { title, body } = experimentIssue(report(s), visible(), getTester(), finishing ? fileFor(s) : undefined);
     window.open(`${REPO_ISSUES}?${new URLSearchParams({ title, body, labels: 'playtest' })}`, '_blank');
   }
   const onCardInput = (e: Event) => {
@@ -319,15 +375,16 @@ async function main() {
   const furthest = (r: RunRecord) => r.furthestPhase;
   const loot = (v: number | undefined, n: number | undefined) => (v === undefined ? '–' : `${money(v)} (${n ?? 0})`);
   const COLS: Record<View, Column[]> = {
+    // Time left and heat are in the totals strip and the expanded run; the save sits under When.
     robbery: [
-      { head: 'When', cell: (r) => esc(when(r.startedAt)) },
+      { head: 'When', cell: (r) => `${esc(when(r.startedAt))}${saveCell(r)}` },
       { head: 'Setup', cell: (r) => esc(runSetup(r)) },
-      { head: 'Outcome', cell: (r) => `<span class="${r.outcome}">${r.outcome}</span>` },
+      { head: 'Outcome', cell: (r) => `<span class="${r.outcome}">${r.outcome}</span>${resumedCell(r)}` },
       { head: 'Length', num: true, cell: (r) => duration(r.durationSec) },
-      { head: 'Carried', num: true, cell: (r) => loot(r.lootValue, r.lootItems) },
+      { head: 'Carried', num: true, cell: (r) => `${loot(r.lootValue, r.lootItems)}${r.lootLost ? `<div class="muted">lost ${money(r.lootLost)}</div>` : ''}` },
       { head: 'Left on train', num: true, cell: (r) => loot(r.lootLeftValue, r.lootLeftItems) },
-      { head: 'Time left', num: true, cell: (r) => duration(r.countdownLeftSec) },
-      { head: 'Heat', num: true, cell: (r) => String(r.heatAtEnd ?? '–') },
+      { head: 'Wanted', num: true, cell: (r) => wantedCell(r) },
+      { head: 'Bank', num: true, cell: (r) => (r.bankAfter === undefined || r.practice ? '–' : money(r.bankAfter)) },
     ],
     boarding: [
       { head: 'When', cell: (r) => esc(when(r.startedAt)) },
@@ -361,7 +418,10 @@ async function main() {
       ['Setup (vs default)', diffLabel(r)], ['Preset', r.preset], ['Variants', Object.entries(r.variants).map(([g, id]) => `${g}:${id}`).join(' ')],
       ['?set= values', setupKey(r).split(' · set ')[1] ?? '–'],
       ['Outcome', r.outcome], ['Length', duration(r.durationSec)], ['Started', when(r.startedAt)],
-      ['Carried at end', loot(r.lootValue, r.lootItems)], ['Banked', money(r.cashOut)], ['Left on train', loot(r.lootLeftValue, r.lootLeftItems)],
+      ['Carried at end', loot(r.lootValue, r.lootItems)], ['Banked', money(r.cashOut)], ['Left on train', loot(r.lootLeftValue, r.lootLeftItems)], ['Lost on the way', money(r.lootLost)],
+      ['Wanted', r.wantedLevel === undefined ? '–' : r.practice ? `${r.wantedLevel} (practice: nothing saved)` : `${r.wantedLevel} at start, ${r.wantedAfter ?? '–'} after`],
+      ['Bank after', r.practice ? '– (practice)' : money(r.bankAfter)], ['Lifetime earned after', r.practice ? '– (practice)' : money(r.lifetimeAfter)],
+      ['Save', r.saveId ? `${r.saveId}${r.day !== undefined ? `, day ${r.day}` : ''}` : '–'], ['Resumes', r.resumedFrom ?? '–'],
       ['Time left', duration(r.countdownLeftSec)], ['Heat at end', String(r.heatAtEnd ?? '–')],
       ['Jumps (perfect / good / fail)', `${r.boardingAttempts} (${r.boarding.perfect} / ${r.boarding.good} / ${r.boarding.fail})`], ['Furthest', r.furthestPhase],
       ['Commit to aboard', duration(r.commitToAboardSec)], ['Damage taken', String(r.damageTaken)],
@@ -406,6 +466,17 @@ async function main() {
       }
       return;
     }
+    if (el.dataset.save) { e.preventDefault(); filters.set('saveId', filters.get('saveId') === el.dataset.save ? ALL : el.dataset.save); renderFilters(); renderExperiments(); renderRuns(); return; }
+    if (el.dataset.goto) {
+      e.preventDefault();
+      expanded.add(el.dataset.goto);
+      renderRuns();
+      const target = document.querySelector<HTMLElement>(`tr.run[data-run="${CSS.escape(el.dataset.goto)}"]`);
+      target?.scrollIntoView({ block: 'center' });
+      target?.classList.add('flash');
+      setTimeout(() => target?.classList.remove('flash'), 1200);
+      return;
+    }
     if (el.closest('a, button')) return;
     const row = el.closest<HTMLElement>('tr.run');
     if (!row?.dataset.run) return;
@@ -432,6 +503,7 @@ async function main() {
     return `playtest-notes-${v && v !== ALL ? v : 'all'}-${stamp()}.md`;
   };
   $('notesCopy').addEventListener('click', () => void copyText($<HTMLButtonElement>('notesCopy'), notes(), () => download(notesName(), notes(), 'text/markdown')));
+  $('prNotes').addEventListener('click', () => { if (pr) void sendToPr($<HTMLButtonElement>('prNotes'), pr, notes(), notesName()); });
   $('notesDownload').addEventListener('click', () => download(notesName(), notes(), 'text/markdown'));
   $('csv').addEventListener('click', () => download(`playtests-${stamp()}.csv`, toCsv(visible()), 'text/csv'));
   $('json').addEventListener('click', () => download(`playtests-${stamp()}.json`, JSON.stringify(visible(), null, 1), 'application/json'));
@@ -495,7 +567,8 @@ async function main() {
     dlg.innerHTML = `<form method="dialog">
       <h3>${full ? 'Experiment' : `Base setup for "${esc(draft.title)}"`}</h3>
       ${full ? `<div class="row"><label style="flex:1">Title<input class="wide" data-f="title" value="${esc(draft.title)}" maxlength="80" placeholder="Town spacing" /></label></div>
-      <div class="row"><label style="flex:1">Question<textarea class="wide" data-f="question" rows="2" maxlength="400" placeholder="Which town spacing makes a robbery tense without dragging?">${esc(draft.question)}</textarea></label></div>`
+      <div class="row"><label style="flex:1">Question<textarea class="wide" data-f="question" rows="2" maxlength="400" placeholder="Which town spacing makes a robbery tense without dragging?">${esc(draft.question)}</textarea></label></div>
+      <div class="row"><label>From PR (optional)<input data-f="pr" type="number" min="1" step="1" style="width:90px" value="${draft.pr ?? ''}" placeholder="#" title="The pull request the question came from: the card links to it and Send to PR posts results there" /></label></div>`
         : '<div class="muted">Every setup builds on the base. This change stays in this browser; Reset on the card puts the repo base back.</div>'}
       <fieldset data-base><legend>Base (shared by every setup)</legend>${selection(draft.base ?? {}, 'default')}</fieldset>
       ${full ? `<div data-setups>${draft.setups.map(setupBlock).join('')}</div><button type="button" data-add-setup>Add setup</button>
@@ -539,7 +612,7 @@ async function main() {
         const v = (name: string) => dlg.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[data-f="${name}"]`)?.value.trim() ?? '';
         const base = readSelection(dlg.querySelector('[data-base]')!);
         const next: Experiment = full ? {
-          schemaVersion: 1, id: draft.id, title: v('title'), question: v('question'),
+          schemaVersion: 1, id: draft.id, title: v('title'), question: v('question'), ...(v('pr') ? { pr: Number(v('pr')) } : {}),
           ...(Object.keys(base).length ? { base } : {}),
           setups: Array.from(dlg.querySelectorAll<HTMLElement>('[data-setup]')).map((fs) => ({ id: fs.dataset.setup!, name: fs.querySelector<HTMLInputElement>('[data-f="name"]')!.value.trim(), ...readSelection(fs) })),
           numbers: (Object.keys(EXPERIMENT_NUMBERS) as ExperimentNumber[]).filter((n) => dlg.querySelector<HTMLInputElement>(`[data-num="${n}"]`)?.checked),
@@ -584,11 +657,41 @@ async function main() {
   }
 
   addEventListener('focus', () => { own = loadOwn(); bases = loadBases(); status = loadStatus(); void load(); });
+  renderPr();
+  if (target) { focus = target; filters.set('experiment', target); }
+  $('experiments').addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).id !== 'showAll') return;
+    focus = undefined;
+    filters.set('experiment', ALL);
+    const u = new URLSearchParams(location.search); u.delete('exp');
+    history.replaceState(null, '', `${location.pathname}${u.toString() ? `?${u}` : ''}${location.hash}`);
+    renderFilters(); renderExperiments(); renderRuns();
+  });
   await load();
   if (target) {
     if (findShown(target)) flash(target);
     else alert(`This page has no experiment "${target}". It may come from a newer build.`);
   }
+}
+
+/** A run picked up after an in-place cancel links to the run it continued. */
+function resumedCell(r: RunRecord): string {
+  if (!r.resumedFrom) return '';
+  const n = r.resumedFrom.split('#').pop();
+  return `<div class="muted"><a href="#" data-goto="${esc(r.resumedFrom)}">resumes run ${esc(n)}</a></div>`;
+}
+
+/** The save a run was played on (first 6 characters; click to show only that save's runs) and its day. */
+function saveCell(r: RunRecord): string {
+  if (!r.saveId) return '';
+  return `<div class="muted"><a href="#" data-save="${esc(r.saveId)}" title="Show only the runs on this save">save ${esc(r.saveId.slice(0, 6))}</a>${r.day !== undefined ? ` · day ${r.day}` : ''}</div>`;
+}
+
+/** The run's wanted level and what the outcome did to it: `1 → 2`, `3 practice`, or – before M5. */
+function wantedCell(r: RunRecord): string {
+  if (r.wantedLevel === undefined) return '–';
+  if (r.practice) return `${r.wantedLevel} <span class="muted">practice</span>`;
+  return r.wantedAfter === undefined || r.wantedAfter === r.wantedLevel ? String(r.wantedLevel) : `${r.wantedLevel} → ${r.wantedAfter}`;
 }
 
 /** The game page in replay mode, opened at the run's commit when the record knows it. */
@@ -602,6 +705,7 @@ function filterValue(r: RunRecord, key: string): string {
   if (key === 'version') return runVersion(r);
   if (key === 'experiment') return r.exp ?? '–';
   if (key.startsWith('v:')) return r.variants[key.slice(2)] ?? '–';
+  if (key === 'practice') return r.practice ? 'practice' : r.wantedLevel === undefined ? '–' : 'saved';
   return String(r[key as keyof RunRecord] ?? '') || '–';
 }
 

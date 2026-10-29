@@ -2,11 +2,12 @@
   "schemaVersion": 1,
   "id": "horse-boost",
   "title": "Horse boost",
-  "question": "From PR #28: does the C boost help you catch the train from the spawn and fix a bad approach? Do 1.5 s, +40% and the 6 s cooldown feel right, and is C a good key?",
+  "question": "From PR #28: does the boost (now Shift, moved from C in PR #54) help you catch the train from the spawn and fix a bad approach? Do 1.5 s, +40% and the 6 s cooldown feel right?",
+  "pr": 28,
   "setups": [
     {
       "id": "boost",
-      "name": "Boost (C)"
+      "name": "Boost (Shift)"
     },
     {
       "id": "no-boost",

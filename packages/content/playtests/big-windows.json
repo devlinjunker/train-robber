@@ -3,6 +3,7 @@
   "id": "big-windows",
   "title": "Big-window cars",
   "question": "From PR #35 (questions 6 and 17): is being spotted through windows and open doors fair, and can you tell from outside which wall cells are windows? Should every car have big windows, or keep a mix?",
+  "pr": 35,
   "setups": [
     {
       "id": "mix",

@@ -21,7 +21,7 @@ function playOne() {
     ev({ type: 'RunPhaseChanged', tick: 40, player: 1, from: 'boarding', to: 'aboard' }),
     ev({ type: 'CommandRejected', tick: 45, player: 1, command: 'jump', reason: 'aboard' }),
   ], 'T1');
-  expect(t.note(50, 'felt fine')).toBeNull();
+  expect(t.note(50, 'felt fine', 'T1')).toMatchObject({ id: 's1#1', outcome: 'abandoned', durationTicks: 40, notes: [{ t: 50, text: 'felt fine' }] });
   const [rec] = t.events([
     ev({ type: 'RunPhaseChanged', tick: 130, player: 1, from: 'aboard', to: 'ended' }),
     ev({ type: 'RunEnded', tick: 130, player: 1, outcome: 'cancelled', durationTicks: 120, boardingAttempts: 2, retry: true }),
@@ -69,9 +69,47 @@ describe('run tracker', () => {
     expect(rec).toMatchObject({ exp: 'e1', setup: 'mid', lootLeftValue: 420, lootLeftItems: 7 });
     expect(toCsv([rec!]).split('\n')[1]).toContain(',420,7,e1,mid,');
   });
+  it('M5: subtracts lost loot, records the wanted level, the day and the saved state after the outcome', () => {
+    const t = createRunTracker(meta);
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 2, day: 3 })], 'T0');
+    t.events([
+      ev({ type: 'LootPickedUp', tick: 10, player: 1, item: 'cash-bundle', value: 40, weight: 1, car: 1, loot: 0 }),
+      ev({ type: 'LootPickedUp', tick: 20, player: 1, item: 'letter', value: 5, weight: 0.1, car: 1, loot: 1 }),
+      ev({ type: 'LootLost', tick: 30, player: 1, item: 'letter', value: 5, weight: 0.1, cause: 'thrownOff' }),
+    ], 'T1');
+    const recs = t.events([
+      ev({ type: 'RunEnded', tick: 600, player: 1, outcome: 'cashedOut', durationTicks: 600, boardingAttempts: 1, retry: false, countdownLeftSec: 100, heat: 5, cashOut: 40 }),
+      ev({ type: 'PersistentChanged', tick: 600, outcome: 'cashedOut', before: { wantedLevel: 2, bank: 0, lifetimeEarned: 0 }, after: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 } }),
+    ], 'T2');
+    // The record is stored at RunEnded and again with the saved state.
+    expect(recs).toHaveLength(2);
+    expect(recs[1]).toMatchObject({ id: recs[0]!.id, lootValue: 40, lootItems: 1, lootLost: 5, cashOut: 40, wantedLevel: 2, day: 3, wantedAfter: 2, bankAfter: 40, lifetimeAfter: 40, practice: false });
+    // A practice run says so.
+    t.events([ev({ type: 'RunStarted', tick: 700, player: 1, runNumber: 2, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 3, practice: true })], 'T3');
+    const [, p] = t.events([
+      ev({ type: 'RunEnded', tick: 800, player: 1, outcome: 'expired', durationTicks: 100, boardingAttempts: 0, retry: false, countdownLeftSec: 0, heat: 0, cashOut: 0, practice: true }),
+      ev({ type: 'PersistentChanged', tick: 800, outcome: 'expired', before: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 }, after: { wantedLevel: 2, bank: 40, lifetimeEarned: 40 }, practice: true }),
+    ], 'T4');
+    expect(p).toMatchObject({ wantedLevel: 3, practice: true, wantedAfter: 2 });
+  });
+  it('M5: records the save id, and links a resumed run to the run it picked up', () => {
+    const t = createRunTracker({ ...meta, saveId: 'save42' });
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    const [first] = t.events([ev({ type: 'RunEnded', tick: 100, player: 1, outcome: 'cancelled', durationTicks: 100, boardingAttempts: 1, retry: false, countdownLeftSec: 140, heat: 0, cashOut: 0 })], 'T1');
+    expect(first).toMatchObject({ saveId: 'save42' });
+    expect(first!.resumedFrom).toBeUndefined();
+    t.events([ev({ type: 'RunStarted', tick: 200, player: 1, runNumber: 2, trainId: 'mail-1', countdownSec: 150, wantedLevel: 0, resumed: true })], 'T2');
+    const [second] = t.events([ev({ type: 'RunEnded', tick: 300, player: 1, outcome: 'expired', durationTicks: 300, boardingAttempts: 1, retry: false, countdownLeftSec: 0, heat: 0, cashOut: 0 })], 'T3');
+    expect(second).toMatchObject({ resumedFrom: first!.id, saveId: 'save42' });
+    // A fresh commit to that train later is not a resume.
+    t.events([ev({ type: 'RunStarted', tick: 400, player: 1, runNumber: 3, trainId: 'mail-1', countdownSec: 150, wantedLevel: 1 })], 'T4');
+    const [third] = t.events([ev({ type: 'RunEnded', tick: 500, player: 1, outcome: 'died', durationTicks: 100, boardingAttempts: 4, retry: false, countdownLeftSec: 100, heat: 0, cashOut: 0 })], 'T5');
+    expect(third!.resumedFrom).toBeUndefined();
+    expect(toCsv([second!]).split('\n')[1]).toContain('save42');
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
-    expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);
+    expect(t.note(200, 'later', 'T3')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);
   });
   it('an open run is abandoned when the page closes', () => {
     const t = createRunTracker(meta);
@@ -88,7 +126,7 @@ describe('playtest stats', () => {
   it('groups runs by setup', () => {
     const [a, b] = summarize([rec, died, other]);
     expect(a).toMatchObject({ setup: 'alpha-default · steering:heading throttleModel:coast', runs: 2, testers: 1, aboard: 0.5, notes: 1 });
-    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, expired: 0, extracted: 0, cashedOut: 0, retry: 1, abandoned: 0 });
+    expect(a!.outcomes).toEqual({ died: 1, cancelled: 0, expired: 0, extracted: 0, cashedOut: 0, caught: 0, retry: 1, abandoned: 0 });
     expect(a!.perfect).toBe(0.25);
     expect(a!.medianToAboardSec).toBe(0.5);
     expect(b).toMatchObject({ runs: 1, setup: 'alpha-default · steering:screen throttleModel:coast' });

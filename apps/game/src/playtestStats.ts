@@ -70,7 +70,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
   return [...groups].map(([setup, rs]) => {
-    const outcomes: Record<TrackedOutcome, number> = { extracted: 0, died: 0, cancelled: 0, expired: 0, cashedOut: 0, retry: 0, abandoned: 0 };
+    const outcomes: Record<TrackedOutcome, number> = { extracted: 0, died: 0, cancelled: 0, expired: 0, cashedOut: 0, caught: 0, retry: 0, abandoned: 0 };
     for (const r of rs) outcomes[r.outcome]++;
     const attempts = rs.reduce((n, r) => n + r.boardingAttempts, 0);
     const share = (k: 'perfect' | 'good' | 'fail') => (attempts ? rs.reduce((n, r) => n + r.boarding[k], 0) / attempts : 0);
@@ -88,7 +88,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -102,7 +102,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
       ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
       notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
-      cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup,
+      cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });
@@ -189,7 +189,7 @@ export function sessionPull(runs: readonly RunRecord[]): SessionPull {
   return out;
 }
 
-const OUTCOME_WORDS: Record<TrackedOutcome, string> = { extracted: 'extracted', died: 'died', cancelled: 'cancelled', expired: 'expired', cashedOut: 'cashed out', retry: 'retry', abandoned: 'closed' };
+const OUTCOME_WORDS: Record<TrackedOutcome, string> = { extracted: 'extracted', died: 'died', cancelled: 'cancelled', expired: 'expired', cashedOut: 'cashed out', caught: 'caught', retry: 'retry', abandoned: 'closed' };
 /** Outcome counts as words, most common first, e.g. `2 extracted, 1 died`. */
 export function outcomeWords(counts: Partial<Record<TrackedOutcome, number>>): string {
   return Object.entries(counts).filter(([, n]) => n).sort(([, a], [, b]) => b! - a!).map(([k, n]) => `${n} ${OUTCOME_WORDS[k as TrackedOutcome]}`).join(', ') || '–';
@@ -216,6 +216,13 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
     case 'lootCarried': return money(avgOf(rs, (r) => r.lootValue));
     case 'banked': return money(avgOf(rs, (r) => r.cashOut));
     case 'lootLeft': return money(avgOf(rs, (r) => r.lootLeftValue));
+    case 'lootLost': return money(avgOf(rs, (r) => r.lootLost));
+    case 'wanted': {
+      // Practice runs save nothing, so they count at their level with no change.
+      const at = avgOf(rs, (r) => r.wantedLevel);
+      const after = avgOf(rs, (r) => (r.practice ? r.wantedLevel : r.wantedAfter ?? r.wantedLevel));
+      return at == null ? '–' : after == null || after.toFixed(1) === at.toFixed(1) ? at.toFixed(1) : `${at.toFixed(1)} → ${after.toFixed(1)}`;
+    }
     case 'timeLeft': return duration(avgOf(rs, (r) => r.countdownLeftSec));
     case 'heat': { const h = avgOf(rs, (r) => r.heatAtEnd); return h == null ? '–' : h.toFixed(0); }
     case 'aboard': return pct(rs.filter((r) => r.furthestPhase === 'aboard' || r.furthestPhase === 'extracting').length / rs.length);
@@ -231,7 +238,7 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
 
 /** Short names for the card's row labels. */
 export const NUMBER_LABELS: Record<ExperimentNumber, string> = {
-  outcomes: 'Ended', length: 'Avg length', lootCarried: 'Avg carried', banked: 'Avg banked', lootLeft: 'Avg left on train',
+  outcomes: 'Ended', length: 'Avg length', lootCarried: 'Avg carried', banked: 'Avg banked', lootLeft: 'Avg left on train', lootLost: 'Avg lost on the way', wanted: 'Wanted (start → after)',
   timeLeft: 'Avg time left', heat: 'Avg heat', aboard: 'Got aboard', toBoard: 'Median to board', jumps: 'Jumps (P / G / F)',
   damage: 'Avg damage', whistles: 'Avg whistles',
 };

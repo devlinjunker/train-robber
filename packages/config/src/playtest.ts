@@ -14,6 +14,8 @@ export const EXPERIMENT_NUMBERS = {
   lootCarried: 'Average loot carried at the end',
   banked: 'Average loot banked',
   lootLeft: 'Average loot left on the train',
+  lootLost: 'Average loot lost on the way (thrown off, falls, spills)',
+  wanted: 'Average wanted level at the start and after the outcome',
   timeLeft: 'Average countdown left',
   heat: 'Average heat at the end',
   aboard: 'Share of runs that got aboard',
@@ -57,6 +59,8 @@ export const ExperimentSchema = z.object({
   title: z.string().min(1).max(80),
   /** The question the setups answer. */
   question: z.string().min(1).max(400),
+  /** The pull request the question came from: the card links to it, and Send to PR posts results there. */
+  pr: z.number().int().positive().optional(),
   /** Shared by every setup; on the page each tester can change it (e.g. to the spacing an earlier experiment picked). */
   base: ExperimentBaseSchema.optional(),
   setups: z.array(ExperimentSetupSchema).min(2).max(4),

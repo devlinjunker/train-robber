@@ -6,15 +6,16 @@ import type { Command, Steering } from '@train-robber/sim';
 /** One-shot actions, queued on key press. Game actions go to the sim; view actions stay in the client. */
 /** 1 to 9 drop that item from the open inventory (I). */
 export type SlotAction = `slot${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
-export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'heat' | 'alarm' | 'boost' | 'cashOut' | SlotAction;
+export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'heat' | 'alarm' | 'boost' | 'crouch' | 'cashOut' | SlotAction;
 export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'toggleInventory' | 'exportLogs' | 'addNote' | 'toggleMute';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
 export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyE: 'commit', Space: 'jump', Escape: 'cancel', KeyR: 'retry', Tab: 'switch', KeyX: 'drop',
-  // C: the horse boost (handlingModel arcade-boost) when riding, crouch aboard. F: whistle for the horse aboard (M4), cash out on the horse mid-run.
-  KeyC: 'boost', KeyF: 'cashOut',
+  // Shift: the horse boost (handlingModel arcade-boost) when riding; aboard it is held to run instead.
+  // C: crouch aboard. F: whistle for the horse aboard (M4), cash out on the horse mid-run.
+  ShiftLeft: 'boost', ShiftRight: 'boost', KeyC: 'crouch', KeyF: 'cashOut',
   KeyQ: 'zoomOut', Minus: 'zoomOut', KeyZ: 'zoomIn', Equal: 'zoomIn',
   KeyV: 'toggleView', KeyO: 'toggleMapOverlay', KeyB: 'toggleZones', KeyM: 'toggleMinimap', Backquote: 'toggleDebug', KeyL: 'exportLogs', KeyN: 'addNote',
   // Playtest debug: H raises heat by a step, Shift+H raises an alarm's worth (see actionFor).
@@ -24,7 +25,7 @@ export const BINDINGS: Readonly<Record<string, Action>> = {
   ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, `slot${i + 1}` as SlotAction])),
 };
 const SLOT_ACTIONS = Array.from({ length: 9 }, (_, i) => `slot${i + 1}` as SlotAction);
-const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'heat', 'alarm', 'boost', 'cashOut', ...SLOT_ACTIONS]);
+const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'heat', 'alarm', 'boost', 'crouch', 'cashOut', ...SLOT_ACTIONS]);
 
 /** The action a key press means; Shift+H is the alarm debug key. */
 export function actionFor(code: string, shift: boolean): Action | undefined {
@@ -156,7 +157,7 @@ export class InputMapper {
     // C aboard crouches. Held mode sends the press and the release, like E; toggle flips on each press.
     if (ctx.aboard && ctx.crouchMode === 'hold') {
       const cHeld = k.has('KeyC');
-      if (!this.cDown && (cHeld || snap.actions.includes('boost'))) { this.cDown = true; out.push({ type: 'crouch', on: true }); }
+      if (!this.cDown && (cHeld || snap.actions.includes('crouch'))) { this.cDown = true; out.push({ type: 'crouch', on: true }); }
       if (this.cDown && !cHeld) { this.cDown = false; out.push({ type: 'crouch', on: false }); }
     } else this.cDown = false;
     for (const a of snap.actions) {
@@ -170,9 +171,10 @@ export class InputMapper {
       }
       else if (a === 'heat') out.push({ type: 'debugHeat' });
       else if (a === 'alarm') out.push({ type: 'debugHeat', source: 'alarmRaised' });
-      else if (a === 'boost') {
-        if (!ctx.aboard) out.push({ type: 'boost' });
-        else if (ctx.crouchMode === 'toggle') out.push({ type: 'crouch', on: !ctx.crouched() });
+      // Shift boosts only on the horse (aboard it runs); C only crouches aboard.
+      else if (a === 'boost') { if (!ctx.aboard) out.push({ type: 'boost' }); }
+      else if (a === 'crouch') {
+        if (ctx.aboard && ctx.crouchMode === 'toggle') out.push({ type: 'crouch', on: !ctx.crouched() });
       } else if (a === 'cashOut') {
         // F: aboard it whistles for the horse (M4); on the horse mid-run it cashes out.
         out.push(ctx.aboard ? { type: 'whistle' } : { type: 'cashOut' });
