@@ -21,7 +21,7 @@ function playOne() {
     ev({ type: 'RunPhaseChanged', tick: 40, player: 1, from: 'boarding', to: 'aboard' }),
     ev({ type: 'CommandRejected', tick: 45, player: 1, command: 'jump', reason: 'aboard' }),
   ], 'T1');
-  expect(t.note(50, 'felt fine')).toBeNull();
+  expect(t.note(50, 'felt fine', 'T1')).toMatchObject({ id: 's1#1', outcome: 'abandoned', durationTicks: 40, notes: [{ t: 50, text: 'felt fine' }] });
   const [rec] = t.events([
     ev({ type: 'RunPhaseChanged', tick: 130, player: 1, from: 'aboard', to: 'ended' }),
     ev({ type: 'RunEnded', tick: 130, player: 1, outcome: 'cancelled', durationTicks: 120, boardingAttempts: 2, retry: true }),
@@ -102,7 +102,7 @@ describe('run tracker', () => {
   });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
-    expect(t.note(200, 'later')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);
+    expect(t.note(200, 'later', 'T3')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);
   });
   it('an open run is abandoned when the page closes', () => {
     const t = createRunTracker(meta);

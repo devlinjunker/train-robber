@@ -85,10 +85,11 @@ export interface RunTracker {
    */
   events(events: readonly SimEvent[], now: string): RunRecord[];
   /**
-   * Attach a note to the run in progress. Returns null when it was attached there, or else the
-   * last finished run with the note added, for the host to store again (null if none yet).
+   * Attach a note to the run in progress, or else to the last finished run. Returns the record to
+   * store again: the run in progress as a provisional `abandoned` record up to `tick` (so the note
+   * survives a closed tab), or the finished run with the note added; null if there is no run yet.
    */
-  note(tick: number, text: string): RunRecord | null;
+  note(tick: number, text: string, now: string): RunRecord | null;
   /** The page is closing: the run in progress, if any, ends as abandoned. */
   abandon(tick: number, now: string): RunRecord | null;
 }
@@ -156,8 +157,8 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
       }
       return ended;
     },
-    note(tick, text) {
-      if (open) { open.notes.push({ t: tick, text }); return null; }
+    note(tick, text, now) {
+      if (open) { open.notes.push({ t: tick, text }); return build(open, 'abandoned', tick - open.startTick, now); }
       if (!last) return null;
       last = { ...last, notes: [...last.notes, { t: tick, text }] };
       return last;

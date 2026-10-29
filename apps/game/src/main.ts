@@ -11,6 +11,7 @@ import { getTester } from './tester';
 import { installLogDrop, replaySourceFromUrl } from './logDrop';
 import { bootReplay } from './replay';
 import { addToLeaderboard, LocalStorageStore, type KeyValueStorage, type LoadResult, type SaveData } from './save';
+import { installLeaveNotes, leaveNotesEnabled, type LeaveNotes } from './leaveNotes';
 
 const MAX_CATCHUP = 5;
 
@@ -115,9 +116,13 @@ async function boot() {
   };
   addEventListener('pagehide', endLogs);
   // Comments go into both logs at the current tick, so they travel with whichever file is shared.
+  const saveNote = (text: string) => {
+    cmdLog.note(simTick, text); evLog.note(simTick, text); saveRun(tracker.note(simTick, text, new Date().toISOString()));
+    leave?.noted();
+  };
   const note = (question: string) => {
     const text = prompt(question)?.trim();
-    if (text) { cmdLog.note(simTick, text); evLog.note(simTick, text); saveRun(tracker.note(simTick, text)); }
+    if (text) saveNote(text);
   };
   const addNote = () => note(`Note at tick ${simTick}:`);
   const exportLogs = () => {
@@ -140,6 +145,9 @@ async function boot() {
   history.target = '_blank';
   history.style.cssText = 'position:fixed;top:8px;right:110px;font:12px monospace;padding:4px 8px;z-index:1;background:#eee;color:#111;text-decoration:none;border:1px solid #888';
   document.body.appendChild(history);
+
+  // Closing the tab after a run asks for notes (?leaveNotes=off turns it off).
+  const leave: LeaveNotes | null = leaveNotesEnabled(location.search) ? installLeaveNotes(saveNote, () => client.releaseKeys()) : null;
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
   const resetSave = () => {
@@ -195,6 +203,7 @@ async function boot() {
       if (res.events.length) {
         persist(res.events);
         for (const run of tracker.events(res.events, new Date().toISOString())) saveRun(run);
+        if (res.events.some((e) => e.type === 'RunStarted')) leave?.runStarted();
       }
       client.afterTick(res.events);
       acc -= STEP_MS; steps++;
