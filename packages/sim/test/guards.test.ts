@@ -322,7 +322,7 @@ describe('F after being thrown off (cash out, closeDoorsOnThrownOff off)', () =>
     expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: left });
     expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'cashedOut', before: { wantedLevel: 1, bank: 10, lifetimeEarned: 100 }, after: { wantedLevel: 2, bank: 10 + left, lifetimeEarned: 100 + left } });
   });
-  it('thrown off with the doors shut ends the run caught, wanted +1, losing what is left (PR #46 playtest)', () => {
+  it('thrown off with the doors shut ends the run caught, wanted +1, banking what the guard left (PR #46 playtest)', () => {
     const base = guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0.5 }, train: { layouts: ['watch-car'] } });
     const sim = aboardAt(base, 5.5, 2.5);
     S(sim).persistent = { wantedLevel: 1, bank: 10, lifetimeEarned: 10 };
@@ -330,8 +330,9 @@ describe('F after being thrown off (cash out, closeDoorsOnThrownOff off)', () =>
     placeGuard(sim, 12.5, 2.5, -1, 0);
     const ev = steps(sim, 60 * 6);
     expect(ofType(ev, 'LootLost')).toHaveLength(1);
-    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'caught', cashOut: 0 });
-    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'caught', after: { wantedLevel: 2, bank: 10, lifetimeEarned: 10 } });
+    const left = base.values.items.letter!.value;
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'caught', cashOut: left });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'caught', after: { wantedLevel: 2, bank: 10 + left, lifetimeEarned: 10 + left } });
     expect(S(sim).run).toBeNull();
     // The rider stays on the horse beside the track, not sent back to the spawn.
     expect(S(sim).players[0]!.placement.frame).toBe('world');

@@ -542,9 +542,9 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause });
   }
   // Caught (Devlin, PR #46 playtest): thrown off by a guard with the doors shut behind you, the run
-  // ends here with `cashOut.shutDoorsEndRun` (`outcomePolicy.caught`; the throw itself adds
+  // ends here with `cashOut.shutDoorsEndRun`, banking what the guard left (`outcomePolicy.caught`; the throw itself adds
   // `wanted.perThrowOff`, at any run end). Otherwise the run goes on. A throw that kills is a death.
-  if (guard !== null && p.health > 0 && train.doorsClosed && config.values.cashOut.shutDoorsEndRun) endRun(ctx, p, 'caught', false);
+  if (guard !== null && p.health > 0 && train.doorsClosed && config.values.cashOut.shutDoorsEndRun) endRun(ctx, p, 'caught', false, carriedValue(config, rp.carried));
 }
 
 /**

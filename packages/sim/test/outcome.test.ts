@@ -4,7 +4,7 @@ import { applyOutcome, isPractice, runWantedLevel, type OutcomePolicy, type Pers
 import { testConfig } from './fixtures';
 
 const config = testConfig();
-/** The shipped policy (base/game.json): only extracted and cashedOut bank; only expired raises wanted (throw-offs add theirs through wantedBonus). */
+/** The shipped policy (base/game.json): only extracted, cashedOut and caught bank; only expired raises wanted (throw-offs add theirs through wantedBonus). */
 const POLICY = config.values.outcomePolicy;
 const MAX = config.values.wanted.maxLevel;
 const START: PersistentState = { wantedLevel: 2, bank: 100, lifetimeEarned: 300 };
@@ -19,7 +19,7 @@ const TABLE: Row[] = [
   { name: 'cashedOut banks the loot, wanted +0', outcome: 'cashedOut', cashOut: 25, after: { wantedLevel: 2, bank: 125, lifetimeEarned: 325 }, banked: 25 },
   { name: 'expired loses the loot, wanted +1', outcome: 'expired', cashOut: 40, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
   { name: 'died loses the loot, wanted +0', outcome: 'died', cashOut: 40, after: START, banked: 0 },
-  { name: 'caught loses the loot, wanted +0 of its own (the throw adds it)', outcome: 'caught', cashOut: 0, after: START, banked: 0 },
+  { name: 'caught banks what the guard left, wanted +0 of its own (the throw adds it)', outcome: 'caught', cashOut: 20, after: { wantedLevel: 2, bank: 120, lifetimeEarned: 320 }, banked: 20 },
   // Wanted picked up on the way (wanted.perThrowOff per throw-off) adds to any outcome's delta.
   { name: 'caught after one throw-off: wanted +1', outcome: 'caught', cashOut: 0, wantedBonus: 1, after: { wantedLevel: 3, bank: 100, lifetimeEarned: 300 }, banked: 0 },
   { name: 'cashedOut after two throw-offs banks, wanted +2', outcome: 'cashedOut', cashOut: 25, wantedBonus: 2, after: { wantedLevel: 4, bank: 125, lifetimeEarned: 325 }, banked: 25 },

@@ -338,7 +338,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
   let spilled: { detail: string; at: number; title?: string } | null = null;
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
-  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
+  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0, caughtBanked = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
   // What the player just hit: blocked ground beside the horse, or (on a ledge) beside the player on the car.
   const obstacleHit = () => {
@@ -383,9 +383,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const c = config.values.cashOut;
       show(`Got away: $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
     }
-    else if (e.type === 'RunEnded' && e.outcome === 'caught') {
-      const d = config.values.outcomePolicy.caught.wantedDelta;
-      show(`Caught: thrown off and the doors shut. Run over${d ? `, wanted level ${d > 0 ? '+' : ''}${d}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
+    // The caught notice waits for PersistentChanged (right after), which has the wanted change.
+    else if (e.type === 'RunEnded' && e.outcome === 'caught') caughtBanked = e.cashOut;
+    else if (e.type === 'PersistentChanged' && e.outcome === 'caught') {
+      const d = e.after.wantedLevel - e.before.wantedLevel;
+      const kept = caughtBanked > 0 ? `, $${caughtBanked} ${e.practice ? 'kept (practice: not banked)' : 'banked'}` : ', loot lost';
+      show(`Caught: thrown off and the doors shut. Run over${kept}${e.practice ? ' (practice: nothing saved)' : d ? `, wanted level ${d > 0 ? '+' : ''}${d}` : ''}`, 'bad', 3500);
     }
     else if (e.type === 'DayStarted') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);

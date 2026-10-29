@@ -249,14 +249,14 @@ interface PersistentState {
 }
 ```
 
-The only code that writes `PersistentState` is `rules/applyOutcome(persistent, outcome, summary, policy, maxWantedLevel)`, a pure function driven by an `outcomePolicy` block in config. `summary.cashOut` is the loot value the run carried out (after a mount spill, or after a throw or fall took its share); it banks only when the outcome's policy has `bankRunLoot`. The wanted level stays within 0 to `wanted.maxLevel`, and lifetime earned never decreases whatever the policy says. Every guard throw-off adds `wanted.perThrowOff` (1) to the run's wanted change at its end, whatever the outcome (`summary.wantedBonus`, counted in `RunState.thrownOffs`). `caught` is a guard throwing you off when the doors shut behind you (`cashOut.closeDoorsOnThrownOff`): with `cashOut.shutDoorsEndRun` (on) the run ends there, losing what is left, so its own `wantedDelta` is 0 and the throw's +1 is the cost. `shutDoorsEndRun` can go off once outside ladders give a way back on (Devlin's PR #46 playtest):
+The only code that writes `PersistentState` is `rules/applyOutcome(persistent, outcome, summary, policy, maxWantedLevel)`, a pure function driven by an `outcomePolicy` block in config. `summary.cashOut` is the loot value the run carried out (after a mount spill, or after a throw or fall took its share); it banks only when the outcome's policy has `bankRunLoot`. The wanted level stays within 0 to `wanted.maxLevel`, and lifetime earned never decreases whatever the policy says. Every guard throw-off adds `wanted.perThrowOff` (1) to the run's wanted change at its end, whatever the outcome (`summary.wantedBonus`, counted in `RunState.thrownOffs`). `caught` is a guard throwing you off when the doors shut behind you (`cashOut.closeDoorsOnThrownOff`): with `cashOut.shutDoorsEndRun` (on) the run ends there and banks whatever the guard left you (nothing at the default `ai.thrownOffLootShare` 1, half with 0.5), so its own `wantedDelta` is 0 and the throw's +1 is the cost. `shutDoorsEndRun` can go off once outside ladders give a way back on (Devlin's PR #46 playtest):
 
 ```json
 "outcomePolicy": {
   "extracted": { "bankRunLoot": true,  "wantedDelta": 0 },
   "cashedOut": { "bankRunLoot": true,  "wantedDelta": 0 },
   "expired":   { "bankRunLoot": false, "wantedDelta": 1 },
-  "caught":    { "bankRunLoot": false, "wantedDelta": 0 },
+  "caught":    { "bankRunLoot": true,  "wantedDelta": 0 },
   "died":      { "bankRunLoot": false, "wantedDelta": 0, "bankLossFraction": 0, "reset": [] },
   "cancelled": { "bankRunLoot": false, "wantedDelta": 0 }
 }
