@@ -37,6 +37,7 @@
   .finished .card { opacity:.85; }
   .finished #finishedCards { grid-template-columns:repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
   details.results > summary { cursor:pointer; color:var(--accent); font-size:12px; margin:4px 0; }
+  .focus { grid-column:1 / -1; display:flex; gap:8px; align-items:center; }
   .conclusion { margin:6px 0; padding:6px 8px; border-left:3px solid var(--ok); background:var(--panel2); font-size:13px; }
   .stats { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
   .stats:empty { display:none; }
@@ -75,6 +76,7 @@
   #runs tr.run { cursor:pointer; }
   #runs tr.run:hover td { background:var(--panel); }
   #runs tr.run.open td { background:var(--panel2); }
+  #runs tr.run.flash td { background:#4a3f22; transition:background .3s; }
   #runs tr.detail > td { white-space:normal; background:var(--panel2); }
   .detail dl { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 16px; margin:0 0 8px; }
   .detail dl div { min-width:0; }
@@ -82,7 +84,7 @@
   .detail dd { margin:0; overflow-wrap:anywhere; }
   .detail .notes { margin:6px 0; }
   .detail .bar { margin:4px 0 0; }
-  .extracted { color:#6bd88a; } .died, .expired { color:var(--died); } .cancelled, .retry { color:var(--accent); } .cashedOut { color:var(--ok); } .abandoned { color:var(--muted); }
+  .extracted { color:#6bd88a; } .died, .expired, .caught { color:var(--died); } .cancelled, .retry { color:var(--accent); } .cashedOut { color:var(--ok); } .abandoned { color:var(--muted); }
   .empty { padding:24px; text-align:center; color:var(--muted); white-space:normal !important; }
   /* Experiment editor */
   dialog { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:16px; }
@@ -99,8 +101,8 @@
   dialog .setrow input:first-child { width:220px; } dialog .setrow input:nth-child(2) { width:90px; }
   dialog .foot { display:flex; gap:8px; justify-content:flex-end; }
   @media (max-width: 600px) { main { padding:16px 16px; } .card { padding:10px; } }
-</style>  <script type="module" crossorigin src="./assets/playtests-CDApcf7F.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/tester-BuNCGqPT.js">
+</style>  <script type="module" crossorigin src="./assets/playtests-BDSxRIb-.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/tester-C21v09uY.js">
 </head>
 <body><main>
   <div class="head">
@@ -109,11 +111,13 @@
       <div class="muted">Build <b id="build"></b> (0.phase.milestone). Every run played in this browser is recorded here. Experiments compare a few setups on one question: press Play on a setup, play a few runs, then write your answer.</div>
     </div>
     <div class="bar">
+      <span id="prLink" class="muted" hidden></span>
       <label>Your name <input id="tester" placeholder="for runs from now on" size="22" /></label>
       <details class="menu" id="exportMenu">
         <summary>Export ▾</summary>
         <div>
           <button id="notesCopy">Copy notes (Markdown for a PR comment)</button>
+          <button id="prNotes" hidden></button>
           <button id="notesDownload">Download notes</button>
           <button id="github">Send to GitHub</button>
           <div class="sep"></div>
