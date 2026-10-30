@@ -2,6 +2,8 @@
 
 > Exported from the live [Phase 2 implementation plan](https://claude.ai/code/artifact/b87c9954-66b4-4b7d-b759-0f74a8eaf0fd) on 2026-10-11, refreshed 2026-10-28 for the M6 regrill. The live doc stays the working copy while Phase 2 runs. Each Phase 2 milestone PR refreshes this file from it, and when Phase 2 ends this copy becomes the final record. Decided values still live in [technical-design.md](../technical-design.md).
 
+M1 values and earlier decisions below are retained as history, not current configuration. M6b's current design is under review in PR #58: heat does not affect the clock or rise just for being aboard; it sharpens guards by band, loot heat is 2 per item, and heat at run end is the chance of +1 wanted. The PR also tests no decay, per-day and per-quiet-day wanted decay; the gate must select the rule.
+
 Oct 10, 2026 · @Devlin
 
 ## Overview
@@ -132,10 +134,15 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 
 **M6b: Heat drives guards and wanted** (needs M5, PR #46; branch `claude/phase-2-m6b-heat-wanted`)
 
-- [ ] Heat never changes the clock (already true on the line); remove `heat.heatDrainFactor` from runs and `heat.sources.timeAboardPerSec` with its `no-time-aboard-heat` preset (G34, G35)
-- [ ] Heat bands (low, mid, high) scale guards: longer alert and calm-down times, a little more sight and hearing range, faster chase, more guards patrolling instead of standing posts; one config table, switch `heatGuards` on/off to compare (G34)
+- [ ] Heat never changes the clock (already true on the line). Delete `heat.heatDrainFactor`, `heat.sources.timeAboardPerSec` and the `no-time-aboard-heat` preset rather than setting them to 0; old logs and saved experiments that name them load with a warning (G34, G35, G55)
+- [ ] Heat only rises within a run: it is the record of this robbery, so a clean run stays easier than going in loud. Loot heat `heat.sources.lootTaken` goes from 1 to 2 per item. The heat band edges (a third and two-thirds of max heat) move from the HUD into game config so guards and the HUD share them (G52)
+- [ ] `heatGuards` (on by default): heat bands low / mid / high scale every guard on the train. In-car sight range +0 / +2 / +4 tiles (10 / 12 / 14; ledge range and cone angle unchanged), calm-down 4 / 5 / 6 s, searching before giving up 3 / 4 / 5 s, hearing ×1 / ×1.15 / ×1.3, chase 4 / 4.5 / 5 tiles/s, guards walking rounds instead of standing posts +0 / +25% / +50% (rounds need guard rounds, PR #51; added after if it isn't merged) (G34, G49, G53)
+- [ ] `guardMemory` (on by default): a guard that goes alert (not just suspicious) remembers you for the rest of the run, for that guard only: in-car sight +5 tiles and hearing ×1.25 on top of the band (15 / 17 / 19 tiles), no change to chase. A lasting red-eye badge marks it (`?remembers=off` hides it); faint cones draw at the real length; the footstep ring stays the base radius (G49, G50, G54)
+- [ ] Every number above is config, changeable with `?set=` (G51)
 - [ ] Heat roll: at every run end, heat % is the chance of +1 wanted level, extractions included; the roll is seeded from the run so replays match; `outcomePolicy.<outcome>.heatRoll` turns it off per outcome; expired still adds +1 outright (G35, G37)
-- [ ] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day (today a day ends at death, PR #45; G8 brings the day clock); paying it off with bank comes with careers and towns (G36)
+- [ ] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day; paying it off with bank comes with careers and towns (G36)
+- [ ] Debug End day key K (off a run only, a sim command so replays match): the same day end as death today (full health, day +1, the wanted decay rule runs). No stop-gap day logic before G8's day clock: no runs-per-day and no saving the day across reloads (G56)
+- [ ] Wanted level does not raise heat or guard alertness; it only adds guards (M5) (G57)
 - [ ] Summary screen and Playtests page show heat at end, the roll's chance and whether it hit
 
 **M6c: Tests and the gate** (needs G6, PR #47, and M6b; bumps to 0.2.6; branch `claude/phase-2-m6c-tests-gate`)
@@ -156,8 +163,8 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 | 2 | Do you run out of train before the clock, or the clock before the train? | 3, 4, 6 mail cars | Cars per train |
 | 3 | Does a 10-weight bag fill at a good moment, and does "full bag, find the next train" feel good? Would +5 carry feel worth buying, or just easier? (progression: stats or options) | carry 6, 10, 15 | Baseline carry, and whether a carry upgrade is worth having |
 | 4 | Does the coming town change where and when you board, and can you read the time left? | town clock always shown, only in the last minute | Clock HUD |
-| 5 | Can you feel heat in how guards act, and is high heat too harsh? | heatGuards off, default, harsh | Heat band values |
-| 6 | Should wanted level go down on its own, and does the roll feel fair? (progression question) | no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted), each starting at wanted 3 | Wanted decay rule (G46) |
+| 5 | Can you feel heat in how guards act, and is high heat too harsh? | off (`heatGuards` and `guardMemory` off), bands only (`guardMemory` off), default, harsh (loot heat 3, alert bonus +8 sight and ×1.5 hearing) | Heat band values |
+| 6 | Should wanted level go down on its own, and does the roll feel fair? (progression question) | no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted), each starting at wanted 3, with the End day key (K) to end days | Wanted decay rule (G46) |
 | 7 | Optional, after 1-6. Does a build that grows between trains make the third train feel different from the first? (progression: roguelite career or arcade mastery) | three trains in a row, with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes) | Whether to lean toward a career or toward arcade mastery and co-op (G47) |
 | 8 | Measured, not asked: how many robberies fit in a 12-minute day at the chosen spacing? | from the run numbers | Trains per day for G8 |
 
@@ -318,7 +325,7 @@ Decisions from grilling the plan with Devlin, newest last.
 | G33 | Where is the gate played? | On the open line with the next-town clock. Loop maps are for automated tests only and long term are not offered to players. The gate's dial is town spacing, not countdown.scale | 2026-10-28 |
 | G34 | What does heat do now? | Heat never changes the clock. It drives guards, by band: alert and calm-down last longer, sight and hearing grow a little, chase gets faster, more guards patrol (shooting waits for Phase 3). Built in M6 with a heatGuards switch | 2026-10-28 |
 | G35 | Does heat affect wanted level? | Yes: heat at run end is the % chance of +1 wanted, even on a clean extraction. Time-aboard heat (heat.sources.timeAboardPerSec and its no-time-aboard-heat preset) is removed | 2026-10-28 |
-| G36 | How does wanted come back down? (U11 said never) | Decay now: wanted.decayPerDay 1 at each new day. Paying it off with bank comes later with careers and towns | 2026-10-28 |
+| G36 | How does wanted come back down? (U11 said never) | Start with `wanted.decayPerDay` 1 at each new day; experiment 6 compares no decay, per-day and per-quiet-day decay before the gate selects a rule. Paying it off with bank comes later with careers and towns | 2026-10-28 |
 | G37 | Which outcomes roll on heat? | All of them. Expired still adds +1 outright. Died and cancelled roll too (a cancel that didn't roll would dodge wanted); outcomePolicy.<outcome>.heatRoll turns it off per outcome | 2026-10-28 |
 | G38 | Where do the golden runs and bots run? | Loop golden fixed to extract, plus a short line golden. CI: idle and looter bots over 1,000 loop seeds and 25 line seeds. tools report --line runs a few hundred line seeds per preset on demand. The gate answer comes from Devlin's playtest logs | 2026-10-28 |
 | G39 | The Playtests page is too busy. How should it be organized? | Experiments as the backbone, plus the run list split into views (Robbery, Boarding, All) with click-to-expand rows. New numbers go into a view, never as a column everywhere | 2026-10-28 |
@@ -331,6 +338,15 @@ Decisions from grilling the plan with Devlin, newest last.
 | G46 | Should wanted level go down on its own? (progression doc open question) | Not settled by the 1 per day default (Devlin). Experiment 6 tests it: no decay, 1 per day, 1 per quiet day (only after a day where no robbery added wanted). Paying it off with bank waits for careers | 2026-10-28 |
 | G47 | Roguelite career or arcade mastery? (progression doc open question) | Optional experiment 7 after the six gate experiments: three trains in a row with or without a pick of 1 of 3 boons between them (+1 carry, quieter steps, faster whistle, as config changes). If the third train doesn't feel different, lean toward arcade mastery and co-op | 2026-10-28 |
 | G48 | How does the Roadmap show M6? | Row 9 splits into 9a M6a, 9b M6b, 9c M6c and 9d the Phase 2 gate (its own bold row); later step numbers stay the same | 2026-10-28 |
+| G49 | Which guards see farther as heat rises? (Devlin's playtest idea) | Both: every guard gets a small sight bump by heat band (heatGuards), and a guard who has noticed you gets a bigger one (guardMemory) | 2026-10-29 |
+| G50 | When has a guard noticed you, and for how long? | Once it goes alert (not just suspicious). It remembers you for the rest of the run, that guard only; a new train (Tab) brings fresh guards | 2026-10-29 |
+| G51 | What grows, and by how much? | In-car sight range only, not cone angle; ledge range unchanged. Starting values 10 / 12 / 14 tiles by band, +5 for a guard who went alert (15 / 17 / 19). All config, changeable with ?set= | 2026-10-29 |
+| G52 | Does heat come back down during a run? | No: heat only rises in a run, the record of the robbery, so a clean run stays easier than going in loud. Loot heat goes from 1 to 2 per item (3 tested in experiment 5). Band edges move into game config | 2026-10-29 |
+| G53 | Which other guard changes do heat bands make? | All four from the plan, low / mid / high: calm-down 4 / 5 / 6 s, searching 3 / 4 / 5 s, hearing x1 / x1.15 / x1.3, chase 4 / 4.5 / 5 tiles/s (you run at 8); rounds +0 / +25% / +50% once guard rounds (PR #51) is in. A guard who went alert also hears x1.25 on top; it does not chase faster | 2026-10-29 |
+| G54 | How do you tell which guards remember you? | A lasting red-eye badge after a guard's first alert, plus cones drawn at their real length; ?remembers=off hides the badge. The footstep ring stays the base radius | 2026-10-29 |
+| G55 | Delete time-aboard heat or keep it at 0? | Delete heat.sources.timeAboardPerSec, heat.heatDrainFactor and the no-time-aboard-heat preset; old logs and experiments that name them load with a warning | 2026-10-29 |
+| G56 | When does a day end for wanted decay before G8's day clock? | No stop-gap logic (no runs per day, no saving the day across reloads). A debug End day key (K, off a run only) does what death does to the day: full health, day +1, decay runs. It also tests healing | 2026-10-29 |
+| G57 | Does wanted level raise starting heat or alertness? | No. Heat is this robbery's record and wanted only adds guards, so a clean run stays easier and stars don't snowball | 2026-10-29 |
 
 **Wiki Ideas page additions** (pushed to the wiki on 2026-10-11 with a rank per idea, except where marked)
 
