@@ -2,8 +2,8 @@
 // beside their car the horse rides to, and whether a mount jump (or the grace window) applies.
 // The client reads these too; the decisions stay in the sim.
 import type { GameState, PlayerState, SimConfig, TrainSide } from '../types';
-import { carBoardingTargets } from './boarding';
 import { carCatalog, carTemplate, entryPointWorld, type CarPose } from './cars';
+import { carPlatformTargets } from './platforms';
 import { parseCarFrame } from './frames';
 import type { WorldMap } from './map';
 import { carPosesOf } from './trains';
@@ -59,8 +59,8 @@ export function mountDoor(state: GameState, map: WorldMap, config: SimConfig, p:
   // by its corner on the horse's side.
   const car = carPosesOf(state, map, config, f.trainId)[f.car];
   if (car) {
-    for (const tg of carBoardingTargets(config, car, train.cars)) {
-      if (tg.kind !== 'platform' || tg.side !== side) continue;
+    for (const tg of carPlatformTargets(config, car, train.cars)) {
+      if (tg.side !== side) continue;
       const dx = tg.land.x - p.placement.x, dy = tg.land.y - p.placement.y, reach = Math.sqrt(dx * dx + dy * dy);
       if (reach > config.values.extraction.doorReachTiles || (best && reach >= best.reach)) continue;
       best = { car: f.car, entry: tg.id, reach, x: tg.x, y: tg.y };

@@ -5,7 +5,10 @@ import type { BoardingResult, BoardingTargetKind, CommitRejection, GameState, Ho
 import { carCatalog, carTemplate, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
 import { trainSideLadders } from './guards';
+import { carPlatformTargets, type BoardingTarget } from './platforms';
 import type { WorldMap } from './map';
+
+export { carPlatformTargets, type BoardingTarget } from './platforms';
 import { carPosesOf, trainSpeed } from './trains';
 
 /**
@@ -34,26 +37,9 @@ export interface BoardingCheck {
   speedDelta: number;
 }
 
-/** A place on a car a jump from the horse can land (issue #60). */
-export interface BoardingTarget {
-  kind: BoardingTargetKind;
-  id: string;
-  side: Side;
-  /** World position: the door, the platform's side edge or the ladder, on the car's outside. */
-  x: number;
-  y: number;
-  /** Where a landing there puts you, in the car's frame. */
-  land: { x: number; y: number };
-}
-
 /** Which side of a car the point is on: left of travel is (uy, -ux), as in `entryPointWorld`. */
 export function sideOf(car: CarPose, x: number, y: number): Side {
   return (x - car.x) * car.uy - (y - car.y) * car.ux >= 0 ? 'left' : 'right';
-}
-
-/** How far out from the end wall a platform landing stands: as a ladder's foot, clear of the wall for a walker. */
-function platformStand(depth: number): number {
-  return Math.max(depth / 2, Math.min(depth - 0.01, 0.35));
 }
 
 /** How far outside the long wall a rider on a side ladder hangs, in tiles: beyond the ladder's rails, so the view sorts them in front of it on the near side and behind it on the far side. */
@@ -72,9 +58,9 @@ export function targetZoneWidths(config: SimConfig, target: BoardingTargetKind |
  * says which car is last and which have ladders.
  */
 export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: readonly string[], doorsShut = false): BoardingTarget[] {
-  const t = config.values.boarding.targets, P = config.values.outside.platformDepthTiles;
+  const t = config.values.boarding.targets;
   const tmpl = carTemplate(carCatalog(config), car.template);
-  const cols = tmpl.size.cols, rows = tmpl.size.rows, hl = car.halfLength;
+  const rows = tmpl.size.rows, hl = car.halfLength;
   const out: BoardingTarget[] = [];
   const add = (kind: BoardingTargetKind, id: string, side: Side, along: number, land: { x: number; y: number }) => {
     const w = entryPointWorld(car, { side, along });
@@ -83,15 +69,7 @@ export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: r
   if (t.doors && !doorsShut) {
     for (const ep of tmpl.sideEntries) add('door', ep.id, ep.side, ep.along, { x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5 });
   }
-  if (t.platforms !== 'none' && P > 0) {
-    // `caboose`: only the train's last car when it is a caboose (Devlin PR #65); `train-end`: the last car whatever it is.
-    const d = platformStand(P), last = car.index === trainCars.length - 1 && (t.platforms !== 'caboose' || tmpl.carType === 'caboose');
-    for (const side of ['left', 'right'] as const) {
-      const y = side === 'left' ? 0.5 : rows - 0.5;
-      if (t.platforms === 'all' && car.index > 0) add('platform', 'platform-front', side, hl + d, { x: -d, y });
-      if (t.platforms === 'all' || last) add('platform', 'platform-rear', side, hl - cols - d, { x: cols + d, y });
-    }
-  }
+  out.push(...carPlatformTargets(config, car, trainCars));
   for (const l of trainSideLadders(config, trainCars)) {
     if (l.car !== car.index) continue;
     add('ladder', `ladder-${l.side}`, l.side, hl - l.x, { x: l.x, y: l.side === 'left' ? -SIDE_LADDER_OUT : rows + SIDE_LADDER_OUT });
