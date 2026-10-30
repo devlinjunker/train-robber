@@ -168,3 +168,39 @@ export function settingWords(info: SettingInfo | null): string {
     default: return `a value${n}`;
   }
 }
+
+/**
+ * The doc comment on each game.json setting, by `?set=` path, read from the source of schema.ts
+ * (the `/** … *\/` line or block just above a key inside `GameSchema`). Paths under records use `*`.
+ */
+export function settingDocs(schemaSource: string): Map<string, string> {
+  const out = new Map<string, string>();
+  const start = schemaSource.indexOf('export const GameSchema = z.object({');
+  if (start < 0) return out;
+  const lines = schemaSource.slice(start).split('\n').slice(1);
+  const stack: { key: string; indent: number }[] = [];
+  let doc: string[] | null = null;
+  let inDoc = false;
+  for (const line of lines) {
+    if (/^\}\)/.test(line)) break; // the end of GameSchema
+    const t = line.trim();
+    if (inDoc || t.startsWith('/**')) {
+      const body = t.replace(/^\/\*\*/, '').replace(/\*\/$/, '').replace(/^\*\s?/, '').trim();
+      if (!inDoc) doc = [];
+      if (body) doc!.push(body);
+      inDoc = !t.endsWith('*/');
+      continue;
+    }
+    const m = /^(\s*)['"]?([\w-]+)['"]?\s*:/.exec(line);
+    if (!m) { if (t && !t.startsWith('//')) doc = null; continue; }
+    const indent = m[1]!.length;
+    while (stack.length && stack[stack.length - 1]!.indent >= indent) stack.pop();
+    const key = m[2]!;
+    const path = [...stack.map((s) => s.key), key].join('.');
+    if (doc?.length) out.set(path, doc.join(' '));
+    doc = null;
+    const opens = (line.match(/[({]/g) ?? []).length, closes = (line.match(/[)}]/g) ?? []).length;
+    if (opens > closes) stack.push({ key: /z\.record\(/.test(line) ? `${key}.*` : key, indent });
+  }
+  return out;
+}

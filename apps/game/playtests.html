@@ -100,6 +100,9 @@
   dialog input.wide, dialog textarea.wide { width:100%; }
   dialog .vars { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 8px; margin:6px 0; }
   dialog .vars label { flex-direction:column; align-items:stretch; min-width:0; } dialog .vars select { width:100%; min-width:0; }
+  dialog .setrow { flex-wrap:wrap; }
+  dialog .setdoc { flex-basis:100%; font-size:11px; color:var(--muted); line-height:1.35; }
+  dialog .setdoc:empty { display:none; }
   dialog .vhelp { font-size:11px; color:var(--muted); line-height:1.3; }
   dialog fieldset[data-setup] { position:relative; }
   dialog .setup-actions { position:absolute; top:-2px; right:8px; display:flex; gap:4px; }

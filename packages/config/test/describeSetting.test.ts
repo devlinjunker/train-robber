@@ -12,3 +12,17 @@ describe('describeSetting', () => {
     expect(describeSetting('ai.fellLootShare')?.kind).toMatch(/number/);
   });
 });
+
+import { readFileSync } from 'node:fs';
+import { settingDocs } from '../src/playtest';
+
+describe('settingDocs', () => {
+  it('reads each setting\'s doc comment from schema.ts by path', () => {
+    const docs = settingDocs(readFileSync(new URL('../src/schema.ts', import.meta.url), 'utf8'));
+    expect(docs.get('commit.rangeTiles')).toMatch(/free train this close/);
+    expect(docs.get('commit.timerSec')).toMatch(/Staying in range/);
+    expect(docs.get('boarding.meter.sweepPeriodSec')).toMatch(/back and forth/);
+    expect(docs.get('logging.events')).toBe('Event allowlist for the events log.');
+    expect(docs.size).toBeGreaterThan(60);
+  });
+});

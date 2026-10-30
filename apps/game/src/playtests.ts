@@ -15,7 +15,7 @@ import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
   linkedPr, loadExcluded, playQuery, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
-import { diffLabel, diffReadable, mapChoices, type VariantGroupInfo, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
+import { diffLabel, diffReadable, mapChoices, settingDoc, settingName, type VariantGroupInfo, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
 
 const REPO = 'https://github.com/devlinjunker/train-robber';
 const REPO_ISSUES = `${REPO}/issues/new`;
@@ -63,6 +63,12 @@ function selectionLabel(base: ExperimentBase | undefined, setup: ExperimentSetup
   return diffLabel({ preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)), ...(sel.map ? { map: sel.map } : {}) });
 }
 /** A setup's difference as lines for its card header, variants in words with their help on hover. */
+/** A `?set=` row's explanation: the setting in words, then its doc comment from the schema. */
+function setDoc(path: string): string {
+  if (!path) return '';
+  const doc = settingDoc(path);
+  return `<b>${esc(settingName(path))}</b>${doc ? ` · ${esc(doc)}` : ''}`;
+}
 /** The help line under a variant pick: what the chosen option does, or where an unpicked one comes from. */
 function variantHelp(g: VariantGroupInfo, id: string | undefined, inherit: string): string {
   const o = id ? g.options.find((x) => x.id === id) : undefined;
@@ -593,7 +599,8 @@ async function main() {
     const setRow = (path = '', value: unknown = '') => {
       const list = `setChoices${rows++}`;
       return `<div class="row setrow"><input list="setPaths" placeholder="countdown.scale" value="${esc(path)}" data-path /><input placeholder="value" list="${list}" value="${esc(typeof value === 'string' ? value : JSON.stringify(value))}" /><button type="button" data-del-set title="Remove">×</button>
-        <datalist id="${list}">${settingChoices(path).map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="muted hint" data-hint>${esc(settingHint(path))}</span></div>`;
+        <datalist id="${list}">${settingChoices(path).map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="muted hint" data-hint>${esc(settingHint(path))}</span>
+        <div class="setdoc" data-doc>${setDoc(path)}</div></div>`;
     };
     const selection = (sel: ExperimentBase, inherit: string) => {
       const changed = Object.keys(sel.variants ?? {}).length;
@@ -621,7 +628,7 @@ async function main() {
       ${full ? `<div data-setups>${draft.setups.map(setupBlock).join('')}</div><button type="button" data-add-setup>Add setup</button>
       <fieldset><legend>Numbers to compare (up to 6)</legend><div class="numbers">${(Object.keys(EXPERIMENT_NUMBERS) as ExperimentNumber[]).map((n) =>
         `<label><input type="checkbox" data-num="${n}"${draft.numbers.includes(n) ? ' checked' : ''} /> ${esc(EXPERIMENT_NUMBERS[n])}</label>`).join('')}</div></fieldset>` : ''}
-      <datalist id="setPaths">${settablePaths().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <datalist id="setPaths">${settablePaths().map((p) => `<option value="${esc(p)}" label="${esc(`${settingName(p)}${settingDoc(p) ? ` · ${settingDoc(p).slice(0, 90)}` : ''}`)}">`).join('')}</datalist>
       <div class="error" data-error></div>
       <div class="foot"><button type="button" data-cancel>Cancel</button><button type="button" class="primary" data-save>Save</button></div>
     </form>`;
@@ -692,6 +699,7 @@ async function main() {
       if (!t.matches('[data-path]')) return;
       const row = t.closest('.setrow')!;
       row.querySelector('[data-hint]')!.textContent = settingHint(t.value.trim());
+      row.querySelector('[data-doc]')!.innerHTML = setDoc(t.value.trim());
       row.querySelector('datalist')!.innerHTML = settingChoices(t.value.trim()).map((c) => `<option value="${esc(c)}">`).join('');
     };
     dlg.showModal();
