@@ -25,4 +25,22 @@ describe('settingDocs', () => {
     expect(docs.get('logging.events')).toBe('Event allowlist for the events log.');
     expect(docs.size).toBeGreaterThan(60);
   });
+
+  it('has a doc comment for every setting in base/game.json, so the experiment editor can explain it', () => {
+    const docs = settingDocs(readFileSync(new URL('../src/schema.ts', import.meta.url), 'utf8'));
+    const base = JSON.parse(readFileSync(new URL('../../content/base/game.json', import.meta.url), 'utf8')) as unknown;
+    const paths: string[] = [];
+    const walk = (v: unknown, p: string): void => {
+      if (v && typeof v === 'object' && !Array.isArray(v)) for (const [k, c] of Object.entries(v)) walk(c, p ? `${p}.${k}` : k);
+      else if (p && p !== 'schemaVersion') paths.push(p);
+    };
+    walk(base, '');
+    // Record entries (trains.<id>.x) are documented once as trains.*.x.
+    const has = (path: string): boolean => {
+      const parts = path.split('.');
+      return docs.has(path) || parts.some((_, i) => docs.has([...parts.slice(0, i), '*', ...parts.slice(i + 1)].join('.')));
+    };
+    expect(paths.length).toBeGreaterThan(200);
+    expect(paths.filter((path) => !has(path))).toEqual([]);
+  });
 });

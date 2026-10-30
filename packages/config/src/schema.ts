@@ -9,16 +9,24 @@ const fraction = z.number().min(0).max(1);
 
 export const GameSchema = z.object({
   schemaVersion: z.literal(1),
-  sim: z.object({ tickRateHz: z.number().int().positive() }).strict(),
+  sim: z.object({
+    /** Simulation steps per second; every Sec value in this file is turned into ticks at this rate. */
+    tickRateHz: z.number().int().positive(),
+  }).strict(),
   logging: z.object({
+    /** How often the command log writes a state hash line, so a replay can check it stays in step. */
     hashEverySec: positive,
     /** Event allowlist for the events log. */
     events: z.array(z.string()),
   }).strict(),
   player: z.object({
+    /** The player's running speed aboard a car (walking is half). */
     speedTilesPerSec: positive,
-    /** Crouching aboard (C): the one speed you creep at, as a share of speedTilesPerSec (running; walking is half), whatever the move axes say. */
-    crouch: z.object({ speedScale: z.number().gt(0).max(1) }).strict(),
+    /** Crouching aboard (C). */
+    crouch: z.object({
+      /** The one speed you creep at, as a share of speedTilesPerSec (running; walking is half), whatever the move axes say. */
+      speedScale: z.number().gt(0).max(1),
+    }).strict(),
   }).strict(),
   commit: z.object({
     /** A free train this close (nearest car body) brings up the commit prompt, and E commits. */
@@ -41,7 +49,9 @@ export const GameSchema = z.object({
     autoSwitchMarginTiles: positive,
   }).strict(),
   boarding: z.object({
+    /** The boarding meter shows when the horse is this close to a side door of the committed train. */
     rangeTiles: positive,
+    /** The horse's speed within this much of the train's counts as matched (the slower, easier meter). */
     speedToleranceTilesPerSec: positive,
     meter: z.object({
       /** One full back and forth while in range but not speed matched: fast, so a mismatched jump is a long shot. */
@@ -52,7 +62,9 @@ export const GameSchema = z.object({
       zoneWidths: z.tuple([fraction, fraction]),
     }).strict().refine((m) => m.zoneWidths[0] <= m.zoneWidths[1], { message: 'perfect zone must not be wider than good zone', path: ['zoneWidths'] }),
     failure: z.object({
+      /** A failed jump stuns you on the horse this long: no steering or throttle. */
       stunSec: z.number().min(0),
+      /** Health lost by a failed jump, as a fraction of max. */
       damageFraction: fraction,
       /** The horse's speed is scaled by this when a jump fails, and held there during the stun. */
       horseSpeedScale: fraction,
@@ -61,9 +73,17 @@ export const GameSchema = z.object({
      * A good landing stumbles: walk speed is scaled for a moment after boarding, and the player
      * staggers `goodStumbleInTiles` in from the door, out in the open. A perfect landing stays in the doorway.
      */
-    landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
+    landing: z.object({
+      /** How long the stumble after a good landing lasts. */
+      stumbleSec: z.number().min(0),
+      /** Walk speed during the stumble, as a share of normal. */
+      stumbleSpeedScale: fraction,
+      /** How far in from the door a good landing staggers you. */
+      goodStumbleInTiles: z.number().min(0),
+    }).strict(),
   }).strict(),
   health: z.object({
+    /** Full health; damage values elsewhere are fractions of this. */
     max: positive,
     /**
      * `day` (Devlin, 2026-10-28): one health bar for the whole day; committing doesn't refill it and
@@ -105,7 +125,10 @@ export const GameSchema = z.object({
      */
     edgeGuards: z.boolean(),
   }).strict(),
-  world: z.object({ mode: z.enum(['separate', 'continuous']) }).strict(),
+  world: z.object({
+    /** How boarding moves the player: `separate` (the only one built) keeps the train's own map apart from the ground; `continuous` is not built yet. */
+    mode: z.enum(['separate', 'continuous']),
+  }).strict(),
   /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
   extraction: z.object({
     /** Arrival delay [min, max] drawn from the horse stream at each whistle; it sets how far behind the last car the horse starts. */
@@ -126,7 +149,9 @@ export const GameSchema = z.object({
     doorReachTiles: positive,
     /** The mount meter: one back and forth, and perfect and good zone widths (G24: 3% and 15% at 1.85 s). */
     meter: z.object({
+      /** One full back and forth of the mount meter. */
       sweepPeriodSec: positive,
+      /** Perfect and good zone widths as fractions of the meter track. */
       zoneWidths: z.tuple([fraction, fraction]),
     }).strict().refine((m) => m.zoneWidths[0] <= m.zoneWidths[1], { message: 'perfect zone must not be wider than good zone', path: ['zoneWidths'] }),
     /** mountSpill variant group (G15): what a good mount spills. */
@@ -165,27 +190,38 @@ export const GameSchema = z.object({
   }).strict(),
   /** Heat 0 to maxHeat speeds up the countdown (U2). Every gain goes through raiseHeat with one of these sources. */
   heat: z.object({
+    /** The top of the heat meter; heat gains stop here. */
     maxHeat: positive,
     /** Countdown drain rate is 1 + heatDrainFactor x heat/100. */
     heatDrainFactor: z.number().min(0),
     /** Heat added per event; timeAboardPerSec is added per second aboard instead (0.33 by default since the M1 playtest, G26). */
     sources: z.object({
+      /** Heat per shot fired (no guns until phase 3). */
       shotFired: z.number().min(0),
+      /** Heat when a guard goes alert and raises the alarm. */
       alarmRaised: z.number().min(0),
+      /** Heat when a guard first notices the player (goes suspicious). */
       playerSpotted: z.number().min(0),
+      /** Heat per guard or player killed (no combat until phase 3). */
       actorKilled: z.number().min(0),
+      /** Heat per loot item taken. */
       lootTaken: z.number().min(0),
+      /** Heat per second spent aboard the train. */
       timeAboardPerSec: z.number().min(0),
     }).strict(),
     /** Heat from which guards resist boarding once combat exists (G30); null or absent is off. A hook only in phase 2. */
     boardingResistanceAt: z.number().min(0).nullable().optional(),
   }).strict(),
-  /** Loot density is each train's loot.density x densityScale (U7); read once loot exists (phase 2 M2). */
-  loot: z.object({ densityScale: positive }).strict(),
+  loot: z.object({
+    /** Loot density is each train's loot.density x densityScale (U7): 2 fills twice as many slots. */
+    densityScale: positive,
+  }).strict(),
   trains: z.record(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes'), z.object({
+    /** Shown on the HUD and the off-screen arrows. */
     name: z.string(),
     /** Route id in the map the train runs on. */
     route: z.string(),
+    /** The train's steady speed along its route. */
     speedTilesPerSec: positive,
     /** Template of the engine at the front. */
     engine: z.string(),
@@ -204,13 +240,21 @@ export const GameSchema = z.object({
     requireSideDoors: z.enum(['both', 'one', 'off']),
     /** At most this many cars get side doors: extra door cars swap to doorless layouts (long trains). */
     maxSideDoorCars: z.number().int().min(0).optional(),
-    countdown: z.object({ baseSec: positive }).strict(),
-    /** Loot table and the share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
-    loot: z.object({ table: z.string(), density: fraction }).strict().optional(),
-    /** Guards placed on the layouts' guard spawns at commit (at most one per spawn): `base`, plus the wanted level bonus from phase 2 M5. */
-    /** Guards at wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
+    countdown: z.object({
+      /** The run's clock on this train before countdown.scale and heat (open lines use the time to the next town instead). */
+      baseSec: positive,
+    }).strict(),
+    loot: z.object({
+      /** Loot table (from loot-tables.json) the train's loot is drawn from. */
+      table: z.string(),
+      /** The share of each car's eligible loot slots filled (times loot.densityScale, at most all of them). */
+      density: fraction,
+    }).strict().optional(),
+    /** Guards placed on the layouts' guard spawns at commit (at most one per spawn). At wanted level 0: `base` plus `perCar` for each car with guard spawns, rounded. */
     guards: z.object({
+      /** Guards on every train of this type, however long. */
       base: z.number().int().min(0).optional(),
+      /** Extra guards per car with guard spawns, rounded (Devlin 2026-10-17: about 2 per 3 cars to start). */
       perCar: z.number().min(0).optional(),
       /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
       perWantedLevel: z.number().min(0).optional(),
@@ -225,15 +269,22 @@ export const GameSchema = z.object({
    * `blankTrain`, keeping at least one mail train.
    */
   trainMix: z.object({
+    /** `map`: the map's own trains; `all-mail`, `mixed`, `mostly-blank`: every slot a mail train, about half blank, or most blank. */
     mode: z.enum(['map', 'all-mail', 'mixed', 'mostly-blank']),
+    /** Train id (from `trains`) that carries loot. */
     mailTrain: z.string(),
+    /** Train id with nothing worth taking. */
     blankTrain: z.string(),
+    /** How many train slots when the map lists none. */
     trainCount: z.number().int().positive(),
+    /** About this share of the slots become blank trains (at least one mail train stays). */
     blankShare: fraction,
   }).strict(),
   /** Carrying (lootCarry variant group switches the two flags): a hard limit and a weight slowdown. */
   carry: z.object({
+    /** Refuse pickups over maxWeight or maxItems. */
     limitEnabled: z.boolean(),
+    /** Walk slower as carried weight goes up from slowdownFromWeight. */
     slowdownEnabled: z.boolean(),
     /** Weight units; a pickup that would go over is refused while the limit is on. */
     maxWeight: positive,
@@ -241,11 +292,13 @@ export const GameSchema = z.object({
     maxItems: z.number().int().positive(),
     /** Walking slows from this weight, linearly down to minSpeedScale at maxWeight. */
     slowdownFromWeight: z.number().min(0),
+    /** Walk speed at maxWeight, as a share of normal. */
     minSpeedScale: z.number().gt(0).max(1),
   }).strict().refine((c) => c.slowdownFromWeight <= c.maxWeight, { message: 'slowdown must start at or below the max', path: ['slowdownFromWeight'] }),
   verbs: z.object({
     /** Hold E on a loot slot for searchTimeSec (or the item's own searchTimeSec) x timeScale to take what is there. */
     search: z.object({
+      /** How long a search takes when the item does not set its own time. */
       searchTimeSec: positive,
       /** Holding E on a hidden stash this long (x timeScale) reveals its item, which is then searched like visible loot. */
       hiddenSearchTimeSec: positive,
@@ -261,9 +314,13 @@ export const GameSchema = z.object({
       hiddenLoot: z.boolean(),
     }).strict(),
   }).strict(),
-  /** HUD options that presets may set. `showTrainNames: false` hides train names on the off-screen arrows. */
-  /** `lootTotalSec`: how long the loot total shows in the top right after you get off the train with loot (Devlin, PR #36). */
-  hud: z.object({ showTrainNames: z.boolean(), lootTotalSec: z.number().min(0) }).strict(),
+  /** HUD options that presets may set. */
+  hud: z.object({
+    /** Show train names on the off-screen arrows. */
+    showTrainNames: z.boolean(),
+    /** How long the loot total shows in the top right after you get off the train with loot (Devlin, PR #36). */
+    lootTotalSec: z.number().min(0),
+  }).strict(),
   /**
    * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
    * (1 = as before, 0 = silent); `tickVolume` multiplies `volume` for the countdown ticks. The
@@ -271,10 +328,15 @@ export const GameSchema = z.object({
    * last `finalCountdownSec` (Devlin, 2026-10-19). Any of the three at 0 turns that part off.
    */
   audio: z.object({
+    /** Master volume for every sound (1 = normal, 0 = silent). */
     volume: z.number().min(0),
+    /** Countdown tick loudness, times `volume`. */
     tickVolume: z.number().min(0),
+    /** The countdown ticks every this many countdown seconds (0: no regular ticks). */
     tickEverySec: z.number().min(0),
+    /** The last this many countdown seconds tick faster (0: no final ticks). */
     finalCountdownSec: z.number().min(0),
+    /** Tick spacing in the final countdown. */
     finalTickEverySec: z.number().min(0),
   }).strict(),
   /** Catalogs merged in from cell-types.json, items.json, loot-tables.json and car-templates.json. */
@@ -289,27 +351,62 @@ export const GameSchema = z.object({
    * uses; such runs are practice and save nothing (G8, G9). Null or absent: the saved level.
    */
   wanted: z.object({
+    /** The highest wanted level. */
     maxLevel: z.number().int().min(0),
+    /** Extra guards on every train at each wanted level, from level 0 (a list: set it in a preset). */
     guardBonus: z.array(z.number().int().min(0)).min(1),
+    /** Play every run at this wanted level as practice, saving nothing; null: the saved level. */
     forceLevel: z.number().int().min(0).nullable().optional(),
     /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
     perThrowOff: z.number().int().min(0),
   }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
+    /** Dying (health 0). */
     died: z.object({
+      /** Bank the loot carried when you die. */
       bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) by dying. */
       wantedDelta: z.number().int(),
+      /** The share of the bank a death takes. */
       bankLossFraction: fraction,
       /** Persistent fields a death wipes (roguelike presets). */
       reset: z.array(z.enum(['wantedLevel', 'bank', 'lifetimeEarned', 'upgrades'])),
     }).strict(),
-    cancelled: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
-    expired: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
-    extracted: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    /** Esc on the horse before boarding. */
+    cancelled: z.object({
+      /** Bank the loot carried when the run ends this way. */
+      bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) when the run ends this way. */
+      wantedDelta: z.number().int(),
+    }).strict(),
+    /** The countdown ran out with you still aboard. */
+    expired: z.object({
+      /** Bank the loot carried when the run ends this way. */
+      bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) when the run ends this way. */
+      wantedDelta: z.number().int(),
+    }).strict(),
+    /** Got off on the horse the whistle brought. */
+    extracted: z.object({
+      /** Bank the loot carried when the run ends this way. */
+      bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) when the run ends this way. */
+      wantedDelta: z.number().int(),
+    }).strict(),
     /** F on the horse mid-run (Devlin, 2026-10-19). */
-    cashedOut: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    cashedOut: z.object({
+      /** Bank the loot carried when the run ends this way. */
+      bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) when the run ends this way. */
+      wantedDelta: z.number().int(),
+    }).strict(),
     /** A guard threw you off and the doors shut behind you (Devlin, PR #46 playtest): the run ends there. The throw's own wanted level is `wanted.perThrowOff`. */
-    caught: z.object({ bankRunLoot: z.boolean(), wantedDelta: z.number().int() }).strict(),
+    caught: z.object({
+      /** Bank the loot carried when the run ends this way. */
+      bankRunLoot: z.boolean(),
+      /** Wanted levels added (or taken off, if negative) when the run ends this way. */
+      wantedDelta: z.number().int(),
+    }).strict(),
   }).strict(),
   /**
    * F on the horse during a run (after a guard throws you off) ends the run and banks what you
@@ -318,14 +415,24 @@ export const GameSchema = z.object({
    * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
    * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
    */
-  cashOut: z.object({ enabled: z.boolean(), closeDoors: z.boolean(), closeDoorsOnThrownOff: z.boolean(),
+  cashOut: z.object({
+    /** F on the horse during a run cashes out. */
+    enabled: z.boolean(),
+    /** Cashing out shuts that train's doors. */
+    closeDoors: z.boolean(),
+    /** Being thrown off by a guard shuts that train's doors. */
+    closeDoorsOnThrownOff: z.boolean(),
     /** A guard throw that shuts the doors ends the run `caught` (Devlin, PR #46 playtest). Off for later, when outside ladders give a way back on. */
-    shutDoorsEndRun: z.boolean(), doorsReopenSec: z.number().min(0) }).strict(),
+    shutDoorsEndRun: z.boolean(),
+    /** Shut doors open again after this long (0: never, for the rest of the session). */
+    doorsReopenSec: z.number().min(0),
+  }).strict(),
   horse: z.object({
     /** Tiles per second. */
     maxSpeed: positive,
     /** Tiles per second squared, as are the rates below. */
     accel: positive,
+    /** Slowdown while holding S. */
     brake: positive,
     /** Slowdown with the throttle released, under the coast throttle model. */
     dragTilesPerSec2: positive,
@@ -335,6 +442,7 @@ export const GameSchema = z.object({
     slowZoneSpeedScale: z.number().gt(0).max(1),
     /** Top speed wading through water, as a fraction of maxSpeed; entering water drops to it at once. */
     waterSpeedScale: z.number().gt(0).max(1),
+    /** How fast the horse turns toward the steered heading. */
     turnRateDegPerSec: positive,
     /** steering variant group: direction keys set a screen heading, or A/D turn the horse. */
     steering: z.enum(['screen', 'heading']),
@@ -344,6 +452,7 @@ export const GameSchema = z.object({
     runOffSec: z.number().min(0),
     /** handlingModel variant group (`arcade-boost` on, `arcade` off): Shift gives a short burst above top speed, then a cooldown (G20). */
     boost: z.object({
+      /** Shift boosts the horse. */
       enabled: z.boolean(),
       /** How long the burst lasts. */
       durationSec: positive,
@@ -382,7 +491,14 @@ export const GameSchema = z.object({
     /** Moving on a ledge, at any pace: how far it carries, through the wall (Devlin, 2026-10-21: a guard just the other side hears you). */
     ledgeNoiseRadiusTiles: z.number().min(0),
     /** Trackside rocks: blocked ground this far outward of a player on a ledge scrapes them (collision scrape damage); under them, knocks them off when `knockOff` is on, shutting the train's doors only with `closeDoors`. */
-    scrape: z.object({ glanceTiles: z.number().min(0), knockOff: z.boolean(), closeDoors: z.boolean() }).strict(),
+    scrape: z.object({
+      /** How far outward of a player on a ledge the rocks reach to scrape them. */
+      glanceTiles: z.number().min(0),
+      /** A rock right under a player on a ledge knocks them off the train. */
+      knockOff: z.boolean(),
+      /** Being knocked off by a rock shuts the train's doors. */
+      closeDoors: z.boolean(),
+    }).strict(),
     /** Walking on the roofs (sneaking PR 3). */
     roof: z.object({
       /** Ladders and roofs are there to use (off: no ladders, so no one gets up). */
@@ -400,7 +516,18 @@ export const GameSchema = z.object({
       /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
       speedTilesPerSec: positive,
       /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */
-      noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), landRadiusTiles: z.number().min(0), landSec: z.number().min(0) }).strict(),
+      noise: z.object({
+        /** How far walking on a roof carries. */
+        walkRadiusTiles: z.number().min(0),
+        /** How far running on a roof carries. */
+        runRadiusTiles: z.number().min(0),
+        /** How far crouching on a roof carries. */
+        crouchRadiusTiles: z.number().min(0),
+        /** How far the thud of a jump's landing carries. */
+        landRadiusTiles: z.number().min(0),
+        /** How long the landing thud lasts. */
+        landSec: z.number().min(0),
+      }).strict(),
       /** A guard out on a platform, the coupling or a ledge sees you on a roof within this far of the edge over them (inside, never). */
       edgeSeenTiles: z.number().min(0),
       /** The same, crouched. */
@@ -414,22 +541,52 @@ export const GameSchema = z.object({
        * platform this share of the time; they also climb a neighbour's ladder to reach a roof without one,
        * and drop off a roof end when their car has no ladder down (Devlin, PR #36 playtest, 2026-10-28).
        */
-      guardJump: z.object({ enabled: z.boolean(), shortShare: z.number().min(0).max(1) }).strict(),
+      guardJump: z.object({
+        /** Guards jump the gaps between roofs. */
+        enabled: z.boolean(),
+        /** The share of guard jumps that land short on the platform. */
+        shortShare: z.number().min(0).max(1),
+      }).strict(),
       /** A drop off a roof onto the platform or coupling (a short jump, or walking off the end) staggers you this long; it is loud, like the landing stumble. */
       dropStumbleSec: z.number().min(0),
       /** Space on a roof: you fly airSec at your speed, plus pushTiles; a running jump clears a gap only from near the edge. */
-      jump: z.object({ airSec: positive, pushTiles: z.number().min(0), /** How high the player is drawn at the top of a jump (view only). */ liftTiles: z.number().min(0) }).strict(),
+      jump: z.object({
+        /** How long a jump keeps you in the air, moving at your speed. */
+        airSec: positive,
+        /** Extra distance every jump adds on top of your speed x airSec. */
+        pushTiles: z.number().min(0),
+        /** How high the player is drawn at the top of a jump (view only). */
+        liftTiles: z.number().min(0),
+      }).strict(),
       /** Falling off a roof (a bad jump or a slip) brings the guards in the car you fell from and `cars` cars either side to check, for at least checkSec. */
-      fallAlert: z.object({ enabled: z.boolean(), cars: z.number().int().min(0), checkSec: z.number().min(0) }).strict(),
+      fallAlert: z.object({
+        /** Falling off a roof sends guards to check. */
+        enabled: z.boolean(),
+        /** Guards this many cars either side of the fall come too. */
+        cars: z.number().int().min(0),
+        /** Guards search where you fell for at least this long. */
+        checkSec: z.number().min(0),
+      }).strict(),
       /**
        * Slipping on curves: the curve's pull (train speed² x curvature) times your share of top roof
        * speed at thresholdTilesPerSec2 or more starts a slip; you slide outward at slideTilesPerSec
        * until you push the other way for leanSec; then no slip for cooldownSec.
        */
       slip: z.object({
-        enabled: z.boolean(), thresholdTilesPerSec2: z.number().min(0), slideTilesPerSec: z.number().min(0), leanSec: z.number().min(0), cooldownSec: z.number().min(0),
+        /** Fast curves can make you slip on a roof. */
+        enabled: z.boolean(),
+        /** The curve pull, times your share of top roof speed, that starts a slip. */
+        thresholdTilesPerSec2: z.number().min(0),
+        /** How fast a slip slides you toward the outside edge. */
+        slideTilesPerSec: z.number().min(0),
+        /** Push against the slide this long to recover. */
+        leanSec: z.number().min(0),
+        /** No new slip for this long after one ends. */
+        cooldownSec: z.number().min(0),
         /** Guards on a roof slip too (Devlin, PR #36 playtest): the same pull test at their pace, sliding outward for guardCatchSec before they catch themselves; they never fall. */
-        guards: z.boolean(), guardCatchSec: z.number().min(0),
+        guards: z.boolean(),
+        /** How long a slipping guard slides before catching themselves. */
+        guardCatchSec: z.number().min(0),
       }).strict(),
     }).strict(),
   }).strict(),
@@ -445,11 +602,30 @@ export const GameSchema = z.object({
     chaseSpeedTilesPerSec: positive,
     /** How fast a guard turns to face where it walks or what it noticed. */
     turnRateDegPerSec: positive,
-    /** The sight cone: range, and half its angle (turned into a cosine threshold); cells with blocksSight stop it. */
-    /** `crouchCoverMin`: a cell with at least this `cover` between a guard and a crouched player blocks the guard's sight of them (crates 0.5, barrels 0.4). */
-    sight: z.object({ rangeTiles: positive, ledgeRangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(180), crouchCoverMin: z.number().min(0) }).strict(),
+    /** The sight cone; cells with blocksSight stop it. */
+    sight: z.object({
+      /** How far a guard sees. */
+      rangeTiles: positive,
+      /** How far a guard out on a ledge sees. */
+      ledgeRangeTiles: positive,
+      /** Half the cone's angle (90 sees everything in front, 180 all around). */
+      coneHalfAngleDeg: z.number().gt(0).max(180),
+      /** A cell with at least this `cover` between a guard and a crouched player blocks the guard's sight of them (crates 0.5, barrels 0.4). */
+      crouchCoverMin: z.number().min(0),
+    }).strict(),
     /** Footsteps carry this far walking, running and crouching, times the noise of the cell the player is on. */
-    noise: z.object({ walkRadiusTiles: z.number().min(0), runRadiusTiles: z.number().min(0), crouchRadiusTiles: z.number().min(0), searchRadiusTiles: z.number().min(0), stumbleRadiusTiles: z.number().min(0) }).strict(),
+    noise: z.object({
+      /** How far walking carries. */
+      walkRadiusTiles: z.number().min(0),
+      /** How far running carries. */
+      runRadiusTiles: z.number().min(0),
+      /** How far crouching carries. */
+      crouchRadiusTiles: z.number().min(0),
+      /** How far searching loot carries (holding E on a slot), crouched or not. */
+      searchRadiusTiles: z.number().min(0),
+      /** How far the stumble after a good landing carries, moving or not (Devlin, 2026-10-20: loud, like running). */
+      stumbleRadiusTiles: z.number().min(0),
+    }).strict(),
     /** A suspicious guard that keeps seeing the player this long goes alert and raises the alarm. */
     alertAfterSec: z.number().min(0),
     /** A suspicious guard with no sight or sound of the player this long goes back to unaware. */
