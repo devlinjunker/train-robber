@@ -608,7 +608,7 @@ async function main() {
           <label>Preset<select data-f="preset">${opts(presets, sel.preset, inherit)}</select></label>
           <label>Map<select data-f="map">${opts(maps, sel.map, inherit === '(base)' ? '(base)' : 'default (alpha-flats)')}</select></label>
         </div>
-        <details${changed || inherit === '(base)' ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map((g) =>
+        <details${changed ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map((g) =>
           `<label title="${esc(g.question)}">${esc(g.name)}<select data-var="${esc(g.group)}"><option value="">${inherit === '(base)' ? '(base)' : "(preset's)"}</option>${g.options.map((o) => `<option value="${esc(o.id)}" title="${esc(o.help)}"${o.id === sel.variants?.[g.group] ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select><span class="vhelp" data-vhelp>${esc(variantHelp(g, sel.variants?.[g.group], inherit))}</span></label>`).join('')}</div></details>
         <div class="muted">?set= values</div><div data-sets>${Object.entries(sel.set ?? {}).map(([p, v]) => setRow(p, v)).join('')}</div>
         <button type="button" data-add-set>Add a value</button>`;
