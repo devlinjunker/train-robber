@@ -211,14 +211,14 @@ These are copied from [docs/technical-design.md](https://github.com/devlinjunker
 | --- | --- | --- |
 | Countdown start | At commit, not at boarding | U1, confirmed |
 | Countdown length | Train `countdown.baseSec` x `countdown.scale`; mail placeholder 150 s | Configuration, U7 |
-| Heat | 0-100; drain rate `1 + heatDrainFactor x heat/100`; time-spent heat 0 and decay 0 by default | U2 |
-| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 1, timeAboardPerSec 0.33 | Systems |
+| Heat | 0-100, rises only within a run and never touches the clock (M6b); bands split at `heat.bandEdgeShares` 1/3 and 2/3; heat at run end is the % chance of +1 wanted | U2 |
+| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 2 (time-aboard heat removed in M6b) | Systems |
 | Grace window | While the horse is alongside and you are within reach of a door on its side; 3 s (G18) | U3 |
 | Extraction | One whistle arms the horse; the physical horse is placed behind the train at a seeded 5-20 s catch-up distance and rides up around terrain, visible from behind (timer optional), coming up on the side you are nearest; alongside 10 s, re-whistle 5 s later; the mount meter's perfect mounts clean, good spills loot, fail leaves you aboard to retry (G3, G11, G12, G14, G24) | U4 |
 | Cash out | The moment the extraction mount completes | Flags, open items |
 | Outcome policy | extracted banks loot, wanted +0; expired loses loot, wanted +1; died and cancelled lose loot, wanted +0 | Run state, U5, U6 |
 | Persistence | wantedLevel, bank, lifetimeEarned (never decreases, leaderboard source); browser storage first | C2, confirmed |
-| Wanted level | Levels 0-5, extra guards per level from a config table, no decay | U11 |
+| Wanted level | Levels 0-5, extra guards per level from a config table; decays by `wanted.decay` (default 1 per day, experiment 6 decides); no way to pay it down yet (issue #60) | U11 |
 | Carry | Carry limit and weight slowdown are separate flags, both on by default; max 10 weight units and 20 items, slowdown from 6 units to 50% speed at the max (G25) | C3 |
 | Run length | The plain value `countdown.scale` (with `loot.densityScale`) scales countdown and loot density; minute ranges are outcomes, not inputs (U7, G22) | U7 |
 | Mail train | Speed and stealth, short run, many small items, light guards, `search` verb with no decoys | Train verbs |
@@ -352,5 +352,5 @@ Decisions from grilling the plan with Devlin, newest last.
 - Landing on foot when a guard throws you off, then whistling for the horse (G5)
 - Heat levels: past thresholds, guards spot you faster, and at full heat every car is on alert (G10)
 - Riding back to pick up loot spilled on a good mount (G15)
-- Required later: a way for wanted level to come down, such as a clean getaway lowering it by one, or decay over runs or time (G19)
+- ~~Required later: a way for wanted level to come down (G19)~~ Decay is built in M6b (G36, G46). Paying wanted down, which matters when a run banks nothing (issue #60), comes later with careers and towns
 - Side ladders as entry points, so you can board straight onto the roof from the horse (G29)
