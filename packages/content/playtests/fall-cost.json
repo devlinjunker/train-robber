@@ -2,8 +2,12 @@
   "schemaVersion": 1,
   "id": "fall-cost",
   "title": "What falling off the train costs",
-  "question": "From PR #35 (question 8): a rock knocking you off costs failure damage and half your loot, but the doors stay open. Should a fall cost less than being caught (keep the loot), the same, or all of it?",
+  "question": "From PR #35 (question 8): a rock knocking you off costs failure damage and half your loot, but the doors stay open. Falling off a roof (bad jump or slip) costs the same. Should a fall cost less than being caught (keep the loot), the same, or all of it?",
   "pr": 35,
+  "base": {
+    "preset": "fall-test",
+    "map": "rock-cut"
+  },
   "setups": [
     {
       "id": "half",
