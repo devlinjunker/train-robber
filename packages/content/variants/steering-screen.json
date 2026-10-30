@@ -3,6 +3,7 @@
   "id": "screen",
   "group": "steering",
   "label": "Screen-relative",
+  "help": "Arrow keys point the horse that way on screen.",
   "question": "Which steering feels better in the isometric view?",
   "patch": { "horse": { "steering": "screen" } }
 }

@@ -15,7 +15,7 @@ import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
   linkedPr, loadExcluded, playQuery, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
-import { diffLabel, mapChoices, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
+import { diffLabel, diffReadable, mapChoices, type VariantGroupInfo, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
 
 const REPO = 'https://github.com/devlinjunker/train-robber';
 const REPO_ISSUES = `${REPO}/issues/new`;
@@ -61,6 +61,18 @@ function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
 function selectionLabel(base: ExperimentBase | undefined, setup: ExperimentSetup): string {
   const sel = setupSelection(base, setup);
   return diffLabel({ preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)), ...(sel.map ? { map: sel.map } : {}) });
+}
+/** A setup's difference as lines for its card header, variants in words with their help on hover. */
+/** The help line under a variant pick: what the chosen option does, or where an unpicked one comes from. */
+function variantHelp(g: VariantGroupInfo, id: string | undefined, inherit: string): string {
+  const o = id ? g.options.find((x) => x.id === id) : undefined;
+  if (o) return o.help || o.label;
+  return inherit === '(base)' ? `Uses the base's choice. ${g.question}` : `Uses the preset's choice. ${g.question}`;
+}
+function selectionHtml(base: ExperimentBase | undefined, setup: ExperimentSetup): string {
+  const sel = setupSelection(base, setup);
+  return diffReadable({ preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)), ...(sel.map ? { map: sel.map } : {}) })
+    .map((p) => `<div${p.help ? ` title="${esc(p.help)}"` : ''}>${esc(p.text)}</div>`).join('');
 }
 const baseLabel = (base: ExperimentBase | undefined) => selectionLabel(base, { id: 'base', name: 'base' });
 
@@ -223,7 +235,7 @@ async function main() {
       <div class="base muted">Base: ${esc(base)}${s.baseChanged ? ' <b>(changed in this browser)</b> <button data-act="resetbase">Reset</button>' : ''}</div>
       ${s.done ? '<details class="results"><summary>Results and answers</summary>' : ''}
       <div class="scroll"><table class="cmp">
-        <tr><th></th>${exp.setups.map((setup) => `<th>${esc(setup.name)}<div class="diff">${esc(selectionLabel(s.base, setup))}</div><a class="play" href="${esc(href(setup.id))}" target="_blank" title="Play this setup; its runs are tagged for this card">Play ▸</a></th>`).join('')}</tr>
+        <tr><th></th>${exp.setups.map((setup) => `<th>${esc(setup.name)}<div class="diff">${selectionHtml(s.base, setup)}</div><a class="play" href="${esc(href(setup.id))}" target="_blank" title="Play this setup; its runs are tagged for this card">Play ▸</a></th>`).join('')}</tr>
         <tr><td>Runs</td>${cells((c) => `${c.length}${c.length ? ` <span class="muted">(${new Set(c.map((r) => r.tester || '?')).size} tester${new Set(c.map((r) => r.tester || '?')).size === 1 ? '' : 's'})</span>` : ''}`)}</tr>
         ${exp.numbers.map((n) => `<tr><td title="${esc(EXPERIMENT_NUMBERS[n])}">${esc(NUMBER_LABELS[n])}</td>${cells((c) => esc(experimentNumber(n, c)))}</tr>`).join('')}
         <tr><td title="The outcome of the last run in each session (a page load); closed means the tab closed mid-run">Sessions ended by</td>${cells((c) => esc(outcomeWords(sessionPull(c).endedBy)))}</tr>
@@ -589,13 +601,14 @@ async function main() {
           <label>Preset<select data-f="preset">${opts(presets, sel.preset, inherit)}</select></label>
           <label>Map<select data-f="map">${opts(maps, sel.map, inherit === '(base)' ? '(base)' : 'default (alpha-flats)')}</select></label>
         </div>
-        <details${changed ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map((g) =>
-          `<label title="${esc(g.question)}">${esc(g.name)}<select data-var="${esc(g.group)}"><option value="">${inherit === '(base)' ? '(base)' : "(preset's)"}</option>${g.options.map((o) => `<option value="${esc(o.id)}"${o.id === sel.variants?.[g.group] ? ' selected' : ''}>${esc(o.label)} (${esc(o.id)})</option>`).join('')}</select></label>`).join('')}</div></details>
+        <details${changed || inherit === '(base)' ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map((g) =>
+          `<label title="${esc(g.question)}">${esc(g.name)}<select data-var="${esc(g.group)}"><option value="">${inherit === '(base)' ? '(base)' : "(preset's)"}</option>${g.options.map((o) => `<option value="${esc(o.id)}" title="${esc(o.help)}"${o.id === sel.variants?.[g.group] ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select><span class="vhelp" data-vhelp>${esc(variantHelp(g, sel.variants?.[g.group], inherit))}</span></label>`).join('')}</div></details>
         <div class="muted">?set= values</div><div data-sets>${Object.entries(sel.set ?? {}).map(([p, v]) => setRow(p, v)).join('')}</div>
         <button type="button" data-add-set>Add a value</button>`;
     };
     const setupBlock = (s: ExperimentSetup, i: number) => `<fieldset data-setup="${esc(s.id)}"><legend>Setup ${i + 1}</legend>
-        <div class="row"><label>Name<input data-f="name" value="${esc(s.name)}" maxlength="40" /></label>${mode === 'full' ? '<button type="button" data-dup-setup title="Add a copy of this setup to change">Duplicate setup</button><button type="button" data-del-setup>Remove setup</button>' : ''}</div>
+        ${mode === 'full' ? '<div class="setup-actions"><button type="button" data-dup-setup title="Add a copy of this setup to change">Duplicate</button><button type="button" data-del-setup title="Remove this setup">Remove</button></div>' : ''}
+        <div class="row"><label>Name<input data-f="name" value="${esc(s.name)}" maxlength="40" /></label></div>
         ${selection(s, '(base)')}</fieldset>`;
     const full = mode === 'full';
     dlg.innerHTML = `<form method="dialog">
@@ -666,6 +679,13 @@ async function main() {
         dlg.close();
         onSave(next);
       }
+    };
+    dlg.onchange = (e) => {
+      const t = e.target as HTMLSelectElement;
+      if (!t.matches('[data-var]')) return;
+      const g = groups.find((x) => x.group === t.dataset.var)!;
+      const inherit = t.closest('[data-base]') ? 'default' : '(base)';
+      t.parentElement!.querySelector('[data-vhelp]')!.textContent = variantHelp(g, t.value || undefined, inherit);
     };
     dlg.oninput = (e) => {
       const t = e.target as HTMLInputElement;

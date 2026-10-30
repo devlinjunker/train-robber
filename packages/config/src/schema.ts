@@ -479,6 +479,8 @@ export const VariantSchema = z.object({
   id,
   group: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]*$/, 'camelCase group name'),
   label: z.string(),
+  /** One line on what this variant does, shown in the experiment editor. */
+  help: z.string().optional(),
   question: z.string(),
   patch: z.record(z.unknown()),
 }).strict();

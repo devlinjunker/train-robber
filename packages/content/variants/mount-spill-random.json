@@ -3,6 +3,7 @@
   "id": "random",
   "group": "mountSpill",
   "label": "Good mount spills: One item at random",
+  "help": "A good (not perfect) mount drops one item at random.",
   "question": "What should a good (amber) mount cost?",
   "patch": { "extraction": { "mountSpill": "random" } }
 }

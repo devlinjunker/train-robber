@@ -53,10 +53,10 @@ export function configForHeader(h: { preset: string; variants: Record<string, st
 export const presetIds = (): string[] => [...content.presets.keys()].sort();
 /** Variant ids by group, for the experiment editor. */
 /** A variant group for the editor: a readable name, the question it answers, and each option's label. */
-export interface VariantGroupInfo { group: string; name: string; question: string; options: { id: string; label: string }[] }
+export interface VariantGroupInfo { group: string; name: string; question: string; options: { id: string; label: string; help: string }[] }
 export const variantInfo = (): VariantGroupInfo[] => variantGroups().map(([group, ids]) => {
   const vs = ids.map((id) => content.variants.get(`${group}:${id}`)!);
-  return { group, name: readable(group), question: vs[0]?.question ?? '', options: vs.map((v) => ({ id: v.id, label: v.label })) };
+  return { group, name: readable(group), question: vs[0]?.question ?? '', options: vs.map((v) => ({ id: v.id, label: v.label, help: v.help ?? '' })) };
 });
 /** `guardCatch` as `Guard catch`. */
 export const readable = (camel: string) => camel.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().replace(/^./, (c) => c.toUpperCase());
@@ -104,6 +104,26 @@ export function diffParts(sel: { preset: string; variants: Record<string, string
     ...setEntries(sel.overrides ?? {}).sort().map((e) => e.replace(/="([^"]*)"$/, '=$1')),
     ...(sel.map ? [`map ${sel.map}`] : []),
   ];
+}
+/**
+ * The same difference in words, for experiment cards: variants as `Guard catch: Guards only raise heat`
+ * with their help text, the preset, `?set=` values and map as they are.
+ */
+export function diffReadable(sel: Parameters<typeof diffParts>[0]): { text: string; help?: string }[] {
+  const own = presetVariants(sel.preset) ?? {};
+  const variant = (g: string, id: string) => {
+    const v = content.variants.get(`${g}:${id}`);
+    return { text: `${readable(g)}: ${v?.label ?? id}`, ...(v?.help ? { help: v.help } : {}) };
+  };
+  const out = [
+    ...(sel.preset !== DEFAULT_PRESET ? [{ text: `preset ${sel.preset}` }] : []),
+    // What the preset itself changes from the default, so a preset reads as its variants too.
+    ...(sel.preset !== DEFAULT_PRESET ? Object.entries(own).filter(([g, id]) => (presetVariants(DEFAULT_PRESET) ?? {})[g] !== id && !(g in sel.variants)).sort().map(([g, id]) => variant(g, id)) : []),
+    ...Object.entries(sel.variants).filter(([g, id]) => own[g] !== id).sort().map(([g, id]) => variant(g, id)),
+    ...setEntries(sel.overrides ?? {}).sort().map((e) => ({ text: e.replace(/="([^"]*)"$/, '=$1') })),
+    ...(sel.map ? [{ text: `map ${sel.map}` }] : []),
+  ];
+  return out.length ? out : [{ text: 'default' }];
 }
 export const diffLabel = (sel: Parameters<typeof diffParts>[0]): string => diffParts(sel).join(', ') || 'default';
 
