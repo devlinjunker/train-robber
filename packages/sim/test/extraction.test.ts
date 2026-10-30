@@ -2,7 +2,7 @@
 // the mount jump and its spill, the extracted outcome and cash out, and the grace window (G18).
 import { describe, it, expect } from 'vitest';
 import {
-  cellOf, throwOff, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
+  avoidAhead, couplingBoxes, distanceToBox, cellOf, throwOff, createSim, entryPointWorld, findPath, laneTarget, mountCheck, pathGrid, prepareMap, restoreSim, trackAt, trainLengthOf,
   type Command, type GameState, type MountSpill, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { testConfig, testMap, type Paint } from './fixtures';
@@ -13,6 +13,7 @@ const map = testMap(undefined, SPAWN);
 type Values = SimConfig['values'];
 const withExtraction = (over: Partial<Values['extraction']>, hash = 'ext00001') => testConfig({}, hash, { extraction: { ...config.values.extraction, ...over } });
 
+const sim0 = () => setup();
 function setup(cfg: SimConfig = config, m = map, seed = 'm4'): Sim {
   const sim = createSim({ config: cfg, map: m, seed, playerIds: [1] });
   (sim.state as GameState).world.trains[0]!.d = 100;
@@ -153,13 +154,13 @@ describe('the riderless horse', () => {
     expect(Math.hypot(horse(sim).x - lane.x, horse(sim).y - lane.y)).toBeLessThan(3.5);
   });
 
-  it('says it is blocked when no path reaches the player\'s car, and keeps trying', () => {
+  it('with unstick off, says it is blocked when no path reaches the player\'s car, and keeps trying', () => {
     const sim = aboard();
     step(sim, { type: 'whistle' });
     // A pocket walled in by rock, away from the track.
     const pocket: Paint = (x, y) => (Math.max(Math.abs(x - 60), Math.abs(y - 80)) === 6 ? 'blocked' : 'open');
-    // Passing through off screen is off here, so the pocket holds it.
-    const walled = aboard(withExtraction({ passThroughBeyondTiles: 0 }, 'ext-nopass'), testMap(pocket, SPAWN));
+    // Passing through off screen and unsticking are off here, so the pocket holds it.
+    const walled = aboard(withExtraction({ passThroughBeyondTiles: 0, unstick: 'off' }, 'ext-nopass'), testMap(pocket, SPAWN));
     step(walled, { type: 'whistle' });
     Object.assign(horse(walled), { x: 60.5, y: 80.5 });
     call(walled).replanTicks = 0;
@@ -167,6 +168,54 @@ describe('the riderless horse', () => {
     expect(of(ev, 'HorseBlocked')).toEqual([expect.objectContaining({ reason: 'no path' })]);
     expect(call(walled)).toMatchObject({ state: 'approaching', blocked: 'no path' });
     expect(call(sim).blocked).toBeNull();
+  });
+
+  it('with unstick passThrough (default), a walled-in horse says so once, then rides out through the rock for the rest of the call (issue #60)', () => {
+    const pocket: Paint = (x, y) => (Math.max(Math.abs(x - 60), Math.abs(y - 80)) === 6 ? 'blocked' : 'open');
+    const sim = aboard(withExtraction({ passThroughBeyondTiles: 0 }, 'ext-unstick'), testMap(pocket, SPAWN));
+    step(sim, { type: 'whistle' });
+    Object.assign(horse(sim), { x: 60.5, y: 80.5 });
+    call(sim).replanTicks = 0;
+    const ev = steps(sim, 5);
+    expect(of(ev, 'HorseBlocked')).toEqual([expect.objectContaining({ reason: 'no path' })]);
+    // No blocked notice: it is on its way.
+    expect(call(sim)).toMatchObject({ state: 'approaching', blocked: null, unsticking: true });
+    const more = steps(sim, 60 * 3);
+    expect(Math.max(Math.abs(horse(sim).x - 60), Math.abs(horse(sim).y - 80))).toBeGreaterThan(7);
+    expect(of(more, 'HorseBlocked')).toEqual([]);
+    for (let i = 0; i < 60 * 40 && call(sim).state !== 'alongside'; i++) step(sim);
+    expect(call(sim).state).toBe('alongside');
+    expect(call(sim).unsticking).toBe(true);
+    // A new whistle starts afresh.
+    steps(sim, 600 + 200 + 120);
+    step(sim, { type: 'whistle' });
+    expect(call(sim).unsticking).toBe(false);
+  });
+
+  it('never hurts the player when it runs into rocks while riderless (issue #60)', () => {
+    // Rocks scattered all round the lane on both sides of the track.
+    const rocks: Paint = (x, y) => ((x * 7 + y * 13) % 11 === 0 && (x + y) % 3 === 0 ? 'blocked' : 'open');
+    const sim = aboard(withExtraction({ passThroughBeyondTiles: 0, unstick: 'off' }, 'ext-rocks'), testMap(rocks, SPAWN));
+    const ev = untilAlongside(sim, 60 * 30);
+    ev.push(...steps(sim, 60 * 10));
+    expect(of(ev, 'DamageDealt')).toEqual([]);
+    expect(player(sim).health).toBe(100);
+  });
+
+  it('the pace window only counts down while the horse is within paceClockRangeTiles of its lane point (issue #60)', () => {
+    const sim = aboard();
+    untilAlongside(sim);
+    const left = call(sim).ticks;
+    // Held back: put it far behind the player's car (but on its side), where it must ride up again.
+    const lane = laneTarget(S(sim), sim.map, config, player(sim), 'left')!;
+    Object.assign(horse(sim), { x: lane.x - lane.ux * 8, y: lane.y - lane.uy * 8, speed: 0 });
+    step(sim);
+    expect(call(sim).ticks).toBe(left);
+    let n = 0;
+    for (; n < 1500 && call(sim).state === 'alongside'; n++) step(sim);
+    // It caught up again and the window ran out only after that: it paced its whole window.
+    expect(call(sim).state).toBe('leaving');
+    expect(n).toBeGreaterThan(left + 30);
   });
 
   it('off screen (beyond passThroughBeyondTiles) it rides through rock and is never blocked', () => {
@@ -180,6 +229,30 @@ describe('the riderless horse', () => {
     expect(of(ev, 'HorseBlocked')).toEqual([]);
     expect(Math.max(Math.abs(horse(sim).x - 60), Math.abs(horse(sim).y - 80))).toBeGreaterThan(7);
     expect(call(sim).blocked).toBeNull();
+  });
+});
+
+describe('the horse steers round what is ahead', () => {
+  it('turns its aim off a rock straight ahead and leaves it alone on open ground', () => {
+    const rock: Paint = (x, y) => (x >= 52 && x <= 53 && y >= 39 && y <= 41 ? 'blocked' : 'open');
+    const m = prepareMap(testMap(rock));
+    const h = { x: 50, y: 40.5, hx: 1, hy: 0, speed: 9 } as Parameters<typeof avoidAhead>[2];
+    const aim = avoidAhead(m, [], h, 70, 40.5);
+    expect(Math.abs(aim.ty - 40.5)).toBeGreaterThan(1);
+    expect(avoidAhead(prepareMap(testMap()), [], h, 70, 40.5)).toEqual({ tx: 70, ty: 40.5 });
+  });
+
+  it('closes the coupling gap between cars, wider on a bend', () => {
+    const straight = couplingBoxes(sim0().cars().filter((c) => c.trainId === sim0().cars()[0]!.trainId));
+    expect(straight.length).toBeGreaterThan(0);
+    // Two cars meeting at a right angle: the box reaches the outer corners of the wedge.
+    const a = { trainId: 't', index: 0, template: 'x', x: 0, y: 0, ux: 1, uy: 0, halfLength: 5, halfWidth: 2 };
+    const b = { trainId: 't', index: 1, template: 'x', x: -6, y: 6, ux: 0, uy: -1, halfLength: 5, halfWidth: 2 };
+    const [box] = couplingBoxes([a, b]);
+    // Outer corners: a's rear-left (-5, -2) and b's front-right (-8, 1).
+    expect(distanceToBox(-5, -2, box!)).toBe(0);
+    expect(distanceToBox(-8, 1, box!)).toBe(0);
+    expect(distanceToBox(-6.5, -0.5, box!)).toBe(0);
   });
 });
 

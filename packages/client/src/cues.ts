@@ -45,9 +45,14 @@ export interface TrainFocus {
 /** A scrape flashes red only briefly; a crash for HIT_FLASH_SEC. */
 export const SCRAPE_FLASH_SEC = 0.4;
 
-/** The notice for a crash or a scrape; `obstacle` names what blocked ground was drawn as. */
-export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | 'scrape', amount: number, obstacle: ObstacleKind = 'rock'): string {
+/**
+ * The notice for a crash or a scrape; `obstacle` names what blocked ground was drawn as. `onLedge`:
+ * the player was scraped standing on a car's side ledge, not riding, so the notice says so (the
+ * riderless horse never hurts you, issue #60).
+ */
+export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | 'scrape', amount: number, obstacle: ObstacleKind = 'rock', onLedge = false): string {
   const what = against === 'train' ? 'the train' : `a ${obstacle}`;
+  if (onLedge) return `Scraped ${what} on the ledge: -${Math.round(amount)} health. Step inside to stay clear`;
   return `${kind === 'scrape' ? 'Scraped' : 'Crashed into'} ${what}: -${Math.round(amount)} health`;
 }
 

@@ -370,6 +370,8 @@ export interface HorseCall {
   path: number[];
   /** Ticks until the path is planned again. */
   replanTicks: number;
+  /** Got stuck this call, so it passes through rocks and water until the call ends (`extraction.unstick`). */
+  unsticking: boolean;
   /** Mount jumps made this run. */
   mountAttempts: number;
 }
@@ -550,6 +552,10 @@ export interface SimConfig {
       passThroughBeyondTiles: number;
       /** How long a good mount stuns the horse. */
       goodMountStunTicks: number;
+      /** The pace window counts down only while the horse is this close to its lane point. */
+      paceClockRangeTiles: number;
+      /** A stuck horse passes through rocks and water for the rest of the call (`passThrough`), or keeps trying (`off`). */
+      unstick: 'passThrough' | 'off';
     };
     countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; lineClock?: 'town' | 'fixed' };
     heat: {

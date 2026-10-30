@@ -89,7 +89,7 @@ export function autoCommitSystem(ctx: RunCtx): void {
 
 /** The run's horse before boarding: ridden, so no call state yet. */
 export function freshHorseCall(): RunState['horse'] {
-  return { state: 'away', side: 'left', ticks: 0, cooldownTicks: 0, whistles: 0, whistleTick: 0, delaySec: 0, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0, mountAttempts: 0 };
+  return { state: 'away', side: 'left', ticks: 0, cooldownTicks: 0, whistles: 0, whistleTick: 0, delaySec: 0, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0, unsticking: false, mountAttempts: 0 };
 }
 
 /** `startRun` and `interact` while idle: validate the commit, pin the train and enter `approach`. */

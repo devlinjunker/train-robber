@@ -92,5 +92,6 @@ describe('landing and crash cues', () => {
     expect(collisionNotice('obstacle', 'crash', 10, 'tree')).toBe('Crashed into a tree: -10 health');
     expect(collisionNotice('obstacle', 'crash', 10, 'mesa')).toBe('Crashed into a mesa: -10 health');
     expect(collisionNotice('obstacle', 'scrape', 1, 'tree')).toBe('Scraped a tree: -1 health');
+    expect(collisionNotice('obstacle', 'scrape', 1, 'rock', true)).toBe('Scraped a rock on the ledge: -1 health. Step inside to stay clear');
   });
 });
