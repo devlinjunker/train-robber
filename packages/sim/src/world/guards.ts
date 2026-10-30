@@ -310,9 +310,10 @@ export interface SideLadder { car: number; side: 'left' | 'right'; x: number }
 const sideLadderCache = new WeakMap<object, Map<string, SideLadder[]>>();
 
 /**
- * Every side ladder of a train: one up each long side of the cars that have end ladders
- * (`ladderCarShare`), `outside.roof.sideLadder.fromEndTiles` in from its `end`. None with the roof
- * off or `boarding.targets.sideLadders` off.
+ * Every side ladder of a train: `outside.roof.sideLadder.perTrain` of them (Devlin, PR #65: one),
+ * each up one long side of a car that has end ladders (`ladderCarShare`), `fromEndTiles` in from its
+ * `end`. Which car and side comes from a hash of the car list, like the end ladders, so it is fixed for
+ * a train's layout. None with the roof off or `boarding.targets.sideLadders` off.
  */
 export function trainSideLadders(config: SimConfig, cars: readonly string[]): SideLadder[] {
   let byCars = sideLadderCache.get(config.values);
@@ -325,28 +326,31 @@ export function trainSideLadders(config: SimConfig, cars: readonly string[]): Si
   if (rc.enabled && config.values.boarding.targets.sideLadders) {
     const g = trainGrid(config, cars);
     const withLadders = ladderCars(key, cars.length, rc.ladderCarShare);
-    for (let k = 0; k < cars.length; k++) {
-      if (!withLadders.has(k)) continue;
-      const cols = g.carCols[k]!;
+    const spots: { car: number; side: 'left' | 'right'; h: number }[] = [];
+    for (const k of withLadders) for (const side of ['left', 'right'] as const) spots.push({ car: k, side, h: hashOf(`${key}#side#${k}#${side}`) });
+    spots.sort((a, b) => a.h - b.h || a.car - b.car || (a.side < b.side ? -1 : 1));
+    for (const s of spots.slice(0, rc.sideLadder.perTrain).sort((a, b) => a.car - b.car || (a.side < b.side ? -1 : 1))) {
+      const cols = g.carCols[s.car]!;
       const from = Math.min(rc.sideLadder.fromEndTiles, cols / 2);
-      const x = rc.sideLadder.end === 'rear' ? cols - from : from;
-      out.push({ car: k, side: 'left', x }, { car: k, side: 'right', x });
+      out.push({ car: s.car, side: s.side, x: rc.sideLadder.end === 'rear' ? cols - from : from });
     }
   }
   byCars.set(key, out);
   return out;
 }
 
+/** FNV-1a of a string: a fixed pick that needs no random stream. */
+function hashOf(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+  return h;
+}
+
 /** The cars of a train (by index) that get ladders: `share` of `n`, at least one, picked by a hash of the car list. */
 function ladderCars(key: string, n: number, share: number): Set<number> {
   const count = Math.max(1, Math.min(n, Math.round(n * share)));
   if (count >= n) return new Set(Array.from({ length: n }, (_, k) => k));
-  const score = (k: number) => {
-    let h = 2166136261;
-    const s = `${key}#${k}`;
-    for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
-    return h;
-  };
+  const score = (k: number) => hashOf(`${key}#${k}`);
   return new Set(Array.from({ length: n }, (_, k) => k).sort((a, b) => score(a) - score(b) || a - b).slice(0, count));
 }
 
@@ -809,15 +813,19 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
   const turn = (w: { fx: number; fy: number }, x: number, y: number) => turnToward(w, x, y, ai.turnRateCosPerTick, ai.turnRateSinPerTick);
   const m: MoveCtx = { ctx, grid, ladders, turn };
   // The one player in phase 2, when aboard this train.
-  let target: (SightTarget & { p: PlayerState; noise: number; air: boolean }) | null = null;
+  let target: (SightTarget & { p: PlayerState; noise: number; air: boolean; high: boolean }) | null = null;
   if (run.phase === 'aboard' || run.phase === 'extracting') {
     for (const p of state.players) {
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== train.id || !run.players[p.id]) continue;
       const lx = toTrain(grid, f.car, p.placement.x);
       const rp = run.players[p.id]!;
+      // More than `climbSafeShare` of the way up a ladder, a guard at its foot cannot reach you (Devlin, PR #65).
+      const c = rp.climb, climbTicks = Math.max(1, config.values.outside.roof.climbTicks);
+      const up = c ? (c.to === 'roof' ? 1 - c.ticks / climbTicks : c.ticks / climbTicks) : 0;
       target = {
         p, lx, y: p.placement.y, roof: p.placement.layer === 'roof', car: f.car, x: p.placement.x, crouched: rp.crouched, air: rp.air !== null,
+        high: c !== null && up > config.values.outside.roof.climbSafeShare,
         noise: noiseRadius(config, grid, p, lx, rp.crouched, rp.search !== null, rp.stumbleTicks > 0, rp.thudTicks > 0, rp.air !== null),
       };
       break;
@@ -920,7 +928,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
     const at = g.roof ? { car: roofCarAt(grid, w.lx) >= 0 ? roofCarAt(grid, w.lx) : g.car, x: 0 } : fromTrain(grid, w.lx);
     if (g.roof) at.x = w.lx - grid.offsets[at.car]!;
     g.car = at.car; g.x = at.x; g.y = w.y; g.fx = w.fx; g.fy = w.fy;
-    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && !g.slip && !g.jump && g.roof === target.roof && !target.air) {
+    if (!caught && target && g.state === 'alert' && !searching && ai.guardCatch === 'thrown-off' && !g.climb && !g.slip && !g.jump && g.roof === target.roof && !target.air && !(target.high && !g.roof)) {
       const dx = target.lx - w.lx, dy = target.y - w.y;
       if (dx * dx + dy * dy <= ai.catchRangeTiles * ai.catchRangeTiles) caught = { guard: g, player: target.p };
     }

@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  HORSE_RADIUS, carBoardingTargets, trainSideLadders, guardsInCone, trainOpenings, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  HORSE_RADIUS, carBoardingTargets, trainSideLadders, guardsInCone, trainOpenings, ladderInReach, sideLadderInReach, targetZoneWidths, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
   type CarPose, type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
@@ -302,7 +302,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     // At the foot or the top of a ladder, E climbs it (not while already climbing).
     climbable: () => {
       const p = sim.state.players[0]!, rp = sim.state.run?.players[p.id];
-      return !!rp && !rp.climb && !rp.air && ladderInReach(sim.state, config, p) !== null;
+      return !!rp && !rp.climb && !rp.air && (ladderInReach(sim.state, config, p) !== null || sideLadderInReach(sim.state, config, p) !== null);
     },
   };
 
@@ -523,7 +523,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const mount = extracting ? mountCheck(s, sim.map, config, player) : null;
       // The mount meter shows over you while the horse is alongside; it sweeps once you are at a door with the horse in reach.
       const meter: MeterView | null = phase === 'approach' && run && (!readShut || outsideBoarding)
-        ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
+        ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, targetZoneWidths(config, check?.target ?? null)), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
         : extracting && run && call?.state === 'alongside'
           ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, ex.meter.zoneWidths), sweeping: mount?.state === 'eligible', matched: false }
           : null;
@@ -670,7 +670,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           closedTrains,
           loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
           cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
-          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt, roof: onRoofNow, climb: climbing?.progress ?? null, lift } : null, focus,
+          aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt, roof: onRoofNow, climb: climbing?.progress ?? null, sideClimb: !!run?.climb?.side, lift } : null, focus,
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
@@ -837,7 +837,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         ].join('  ·  '),
       } : null;
       const outsideSpace = aboardPhase ? playerSpace(s, config, player) : null;
-      const ladder = aboardPhase && !riding && run && !run.climb && !run.air ? ladderInReach(s, config, player) : null;
+      const ladder = aboardPhase && !riding && run && !run.climb && !run.air ? ladderInReach(s, config, player) ?? sideLadderInReach(s, config, player) : null;
       // Walking toward a roof end with another car beyond it: too slow to clear the gap (Devlin, PR #36 playtest).
       const walkingAtGap = (() => {
         if (!onRoofNow || !run || run.air || run.climb || run.slip || !runTrain) return false;

@@ -123,7 +123,8 @@ export interface WorldSceneInput {
    * (`roof`) or on a ladder (`climb`, 0 at the foot to 1 at the top) the car stays closed and the
    * player is drawn on it (sneaking PR 3).
    */
-  aboard: { trainId: string; index: number; x: number; y: number; roof?: boolean; climb?: number | null; lift?: number } | null;
+  /** `sideClimb`: on a side ladder (issue #60), sorted against the ladder by depth alone, so it is behind you on the near wall and in front of you on the far one. */
+  aboard: { trainId: string; index: number; x: number; y: number; roof?: boolean; climb?: number | null; sideClimb?: boolean; lift?: number } | null;
   /** Slipping on a roof: the player leans and flashes. */
   slipping?: boolean;
   /** Running on a roof: where a jump now would come down (`roof` on a roof, `drop` short onto the platform or coupling, `fall` off the train). */
@@ -585,7 +586,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
           for (const l of rc.sideLadders?.(car.trainId, car.index) ?? []) {
             const g = piece();
             drawSideLadder(g, car, l.side, l.x, CAR_HEIGHT);
-            const c = carToWorld(car, l.x, l.side === 'left' ? -0.1 : car.halfWidth * 2 + 0.1);
+            // Sorted at the wall's plane: a climber hangs further out, in front of it on the near side and behind it on the far side.
+            const c = carToWorld(car, l.x, l.side === 'left' ? -0.06 : car.halfWidth * 2 + 0.06);
             g.zIndex = depthOf(c.x, c.y);
           }
         }
@@ -645,7 +647,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         const wobble = shaky ? Math.sin(input.timeSec * (input.slipping ? 30 : 22)) * (input.slipping ? 0.2 : 0.12) : 0;
         const colour = input.slipping && flashOn(input.timeSec) ? HIT_COLOUR : input.stumbling && flashOn(input.timeSec) ? GOOD_COLOUR : PLAYER_COLOUR;
         drawPlayer(playerG, { x: p.x + wobble, y: p.y - wobble }, colour, input.crouched ?? false, playerZ);
-        playerG.zIndex = depthOf(p.x, p.y) + (playerZ > CAR_HEIGHT / 2 ? ROOF_DEPTH_BIAS : 0);
+        playerG.zIndex = depthOf(p.x, p.y) + (playerZ > CAR_HEIGHT / 2 && !input.aboard.sideClimb ? ROOF_DEPTH_BIAS : 0);
       }
 
       // Guards in the open car, and their sight cones on the floor: faint so you can read where they look, stronger for debug.

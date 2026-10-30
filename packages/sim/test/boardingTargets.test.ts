@@ -1,9 +1,10 @@
-// Issue #60: quieter ways onto a train. Jumps from the horse can land on the end platforms between
-// cars and on the side ladders up to the roof, with the same meter; riding alongside, the guards in a
-// cone through a door show (the pure `guardsInCone` helper).
+// Issue #60: quieter ways onto a train. Jumps from the horse can land on the platform at the train's
+// end and on a side ladder up to the roof (perfect zone only); the side ladder is climbable from the
+// ledge too; a guard at a ladder's foot cannot reach you past halfway up; riding alongside, the guards
+// in a cone through a door show (the pure `guardsInCone` helper).
 import { describe, it, expect } from 'vitest';
 import {
-  boardingCheck, carBoardingTargets, createSim, entryPointWorld, guardsInCone, ROOF_STEP_IN, SIDE_LADDER_OUT, trainGrid, trainOpenings, trainSideLadders,
+  boardingCheck, carBoardingTargets, createSim, entryPointWorld, guardsInCone, ROOF_STEP_IN, SIDE_LADDER_OUT, sideLadderInReach, targetZoneWidths, trainGrid, trainOpenings, trainSideLadders,
   type Command, type GameState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { OUTSIDE, ROOF, testConfig, testMap } from './fixtures';
@@ -12,12 +13,13 @@ const base = testConfig();
 const SPAWN = { x: 116, y: 22 };
 const map = testMap(undefined, SPAWN);
 
-/** Platforms 1 tile deep, roofs on with side ladders on every car, and the targets switched as given. */
-function cfg(targets: Partial<SimConfig['values']['boarding']['targets']> = {}): SimConfig {
+type Targets = SimConfig['values']['boarding']['targets'];
+/** Platforms 1 tile deep, roofs on (every car has end ladders), one side ladder, and the targets as given. */
+function cfg(targets: Partial<Targets> = {}, roof: Partial<SimConfig['values']['outside']['roof']> = {}): SimConfig {
   const b = base.values.boarding;
   return testConfig({}, 'targets1', {
-    boarding: { ...b, targets: { doors: true, platforms: true, sideLadders: true, ...targets } },
-    outside: { ...OUTSIDE, roof: ROOF },
+    boarding: { ...b, targets: { doors: true, platforms: 'train-end', sideLadders: true, ...targets } },
+    outside: { ...OUTSIDE, roof: { ...ROOF, ...roof } },
   });
 }
 
@@ -29,13 +31,14 @@ function setup(c: SimConfig): Sim {
 const S = (sim: Sim) => sim.state as GameState;
 const horse = (sim: Sim) => S(sim).world.horses[0]!;
 const me = (sim: Sim) => S(sim).players[0]!;
+const rp = (sim: Sim) => S(sim).run!.players[1]!;
 const step = (sim: Sim, ...commands: Command[]) => sim.step([{ player: 1, commands }]).events;
 
-/** Committed, with the horse `gap` tiles out from car 1's side at `along` (from mid-car toward the front), matching the train. */
-function beside(c: SimConfig, along: number, side: 'left' | 'right' = 'left', gap = 1): Sim {
+/** Committed, with the horse `gap` tiles out from car `k`'s side at `along` (from mid-car toward the front), matching the train. */
+function beside(c: SimConfig, k: number, along: number, side: 'left' | 'right' = 'left', gap = 1): Sim {
   const sim = setup(c);
   step(sim, { type: 'interact', held: true });
-  const car = sim.cars()[1]!;
+  const car = sim.cars()[k]!;
   const at = entryPointWorld(car, { side, along });
   const s = side === 'left' ? 1 : -1;
   Object.assign(horse(sim), { x: at.x + car.uy * gap * s, y: at.y - car.ux * gap * s, hx: car.ux, hy: car.uy, speed: 9, cruiseTarget: 9 });
@@ -43,77 +46,119 @@ function beside(c: SimConfig, along: number, side: 'left' | 'right' = 'left', ga
   return sim;
 }
 
-function perfectJump(sim: Sim): SimEvent[] {
-  const rp = S(sim).run!.players[1]!;
-  rp.meter.zoneCentre = 0.5;
-  rp.meter.phase = 0.25;
+/** Jump with the marker at `offset` from the zone centre (0 is dead centre: perfect). */
+function jumpAt(sim: Sim, offset = 0): SimEvent[] {
+  rp(sim).meter.zoneCentre = 0.5;
+  rp(sim).meter.phase = 0.25 + offset / 2;
   return step(sim, { type: 'jump' });
 }
 
-// Car 1 is a 16 x 6 blank car: platforms 1 tile deep, so a platform landing stands 0.5 out from the end wall.
+// The test train is an engine and three 16 x 6 blank cars; platforms are 1 tile deep, so a platform
+// landing stands 0.5 out from the end wall.
+const LAST = 3;
 const REAR_PLATFORM_ALONG = -(8 + 0.5);
-const SIDE_LADDER_ALONG = 8 - 13; // 3 in from the rear: car x 13.
+
+function theLadder(c: SimConfig) {
+  const sim = setup(c);
+  const l = trainSideLadders(c, S(sim).world.trains[0]!.cars)[0]!;
+  return { ...l, along: 8 - l.x };
+}
 
 describe('boarding targets', () => {
-  it('lists doors, platforms at both ends (not the engine front) and side ladders, each switchable', () => {
+  it('lists doors, the train-end platform and the one side ladder; `all` platforms and the switches', () => {
     const c = cfg();
     const sim = setup(c);
     const cars = sim.cars(), train = S(sim).world.trains[0]!;
-    const kinds = (i: number, cc = c) => carBoardingTargets(cc, cars[i]!, train.cars).map((t) => `${t.kind}:${t.id}:${t.side}`).sort();
-    expect(kinds(0).filter((k) => k.startsWith('platform'))).toEqual(['platform:platform-rear:left', 'platform:platform-rear:right']);
-    expect(kinds(1)).toEqual([
-      'door:side-left:left', 'door:side-right:right',
-      'ladder:ladder-left:left', 'ladder:ladder-right:right',
-      'platform:platform-front:left', 'platform:platform-front:right', 'platform:platform-rear:left', 'platform:platform-rear:right',
-    ]);
-    expect(kinds(1, cfg({ platforms: false, sideLadders: false }))).toEqual(['door:side-left:left', 'door:side-right:right']);
+    const of = (cc: SimConfig, i: number) => carBoardingTargets(cc, cars[i]!, train.cars).filter((t) => t.kind === 'platform').map((t) => `${t.id}:${t.side}`).sort();
+    expect(of(c, 1)).toEqual([]);
+    expect(of(c, LAST)).toEqual(['platform-rear:left', 'platform-rear:right']);
+    const all = cfg({ platforms: 'all' });
+    expect(of(all, 0)).toEqual(['platform-rear:left', 'platform-rear:right']);
+    expect(of(all, 1)).toEqual(['platform-front:left', 'platform-front:right', 'platform-rear:left', 'platform-rear:right']);
+    // One side ladder per train, on one car and side; perTrain sets how many.
+    expect(trainSideLadders(c, train.cars)).toHaveLength(1);
+    expect(trainSideLadders(cfg({}, { sideLadder: { ...ROOF.sideLadder, perTrain: 3 } }), train.cars)).toHaveLength(3);
+    expect(trainSideLadders(cfg({ sideLadders: false }), train.cars)).toHaveLength(0);
+    const doorsOnly = cfg({ platforms: 'none', sideLadders: false });
+    expect(cars.flatMap((car) => carBoardingTargets(doorsOnly, car, train.cars)).every((t) => t.kind === 'door')).toBe(true);
     // Shut doors drop only the doors.
-    expect(carBoardingTargets(c, cars[1]!, train.cars, true).some((t) => t.kind === 'door')).toBe(false);
-    expect(trainSideLadders(c, train.cars).find((l) => l.car === 1)?.x).toBe(13);
+    expect(carBoardingTargets(c, cars[LAST]!, train.cars, true).map((t) => t.kind)).not.toContain('door');
   });
 
-  it('a perfect jump at a rear platform lands on it, out in the open past the end wall', () => {
+  it('a perfect jump at the train-end platform lands on it, out past the end wall', () => {
     const c = cfg();
-    const sim = beside(c, REAR_PLATFORM_ALONG);
+    const sim = beside(c, LAST, REAR_PLATFORM_ALONG);
     const check = boardingCheck(S(sim), sim.map, c, S(sim).run!.trainId, horse(sim));
-    expect([check.target, check.entry, check.car, check.state]).toEqual(['platform', 'platform-rear', 1, 'eligible']);
-    const ev = perfectJump(sim);
+    expect([check.target, check.entry, check.car, check.state]).toEqual(['platform', 'platform-rear', LAST, 'eligible']);
+    const ev = jumpAt(sim);
     expect(ev.find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'perfect', target: 'platform' });
     expect(S(sim).run!.phase).toBe('aboard');
-    expect(me(sim).placement).toMatchObject({ x: 16.5, y: 0.5, layer: 'interior' });
-    expect(me(sim).placement.frame).toContain(':1');
+    expect(me(sim).placement).toMatchObject({ frame: `car:${S(sim).run!.trainId}:${LAST}`, x: 16.5, y: 0.5, layer: 'interior' });
   });
 
-  it('a jump at a side ladder hangs on it, then climbs straight to the roof', () => {
+  it('the platform keeps the door meter, a side ladder only takes the perfect zone', () => {
     const c = cfg();
-    const sim = beside(c, SIDE_LADDER_ALONG, 'right');
-    const ev = perfectJump(sim);
-    expect(ev.find((e) => e.type === 'BoardingAttempt')).toMatchObject({ target: 'ladder' });
-    const rp = S(sim).run!.players[1]!;
-    expect(rp.climb).toMatchObject({ to: 'roof', side: 'right', car: 1 });
-    expect(me(sim).placement).toMatchObject({ x: 13, y: 6 + SIDE_LADDER_OUT });
+    expect(targetZoneWidths(c, 'platform')).toEqual(c.values.boarding.meter.zoneWidths);
+    expect(targetZoneWidths(c, 'ladder')).toEqual([0.1, 0.1]);
+    // Inside the good zone but outside the perfect one: a good landing at the platform, a miss at the ladder.
+    const good = 0.08;
+    const atPlatform = beside(c, LAST, REAR_PLATFORM_ALONG);
+    expect(jumpAt(atPlatform, good).find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'good', target: 'platform' });
+    const l = theLadder(c);
+    const atLadder = beside(c, l.car, l.along, l.side);
+    expect(jumpAt(atLadder, good).find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'fail', target: 'ladder' });
+    expect(S(atLadder).run!.phase).toBe('boarding');
+    const lenient = { ...c, values: { ...c.values, boarding: { ...c.values.boarding, ladderPerfectOnly: false } } } as SimConfig;
+    expect(targetZoneWidths(lenient, 'ladder')).toEqual(lenient.values.boarding.meter.zoneWidths);
+  });
+
+  it('a jump at the side ladder hangs on it, then climbs straight to the roof', () => {
+    const c = cfg();
+    const l = theLadder(c);
+    const sim = beside(c, l.car, l.along, l.side);
+    expect(jumpAt(sim).find((e) => e.type === 'BoardingAttempt')).toMatchObject({ result: 'perfect', target: 'ladder' });
+    expect(rp(sim).climb).toMatchObject({ to: 'roof', side: l.side, car: l.car });
+    const rows = 6;
+    expect(me(sim).placement).toMatchObject({ x: l.x, y: l.side === 'left' ? -SIDE_LADDER_OUT : rows + SIDE_LADDER_OUT });
     let climbed: SimEvent | undefined;
     for (let i = 0; i < c.values.outside.roof.climbTicks + 1 && !climbed; i++) climbed = step(sim).find((e) => e.type === 'Climbed');
-    expect(climbed).toMatchObject({ to: 'roof', side: 'right', car: 1 });
-    expect(me(sim).placement).toMatchObject({ x: 13, y: 6 - ROOF_STEP_IN, layer: 'roof' });
+    expect(climbed).toMatchObject({ to: 'roof', side: l.side, car: l.car });
+    expect(me(sim).placement).toMatchObject({ x: l.x, y: l.side === 'left' ? ROOF_STEP_IN : rows - ROOF_STEP_IN, layer: 'roof' });
   });
 
-  it('with the doors only, beside a platform is too far, as before', () => {
-    const c = cfg({ platforms: false, sideLadders: false });
-    const sim = beside(c, REAR_PLATFORM_ALONG);
-    const check = boardingCheck(S(sim), sim.map, c, S(sim).run!.trainId, horse(sim));
-    expect(check.state).toBe('too far');
-  });
-
-  it('a shut train can still be boarded at a platform, not at a door', () => {
+  it('E on the ledge beside the side ladder climbs it to the roof', () => {
     const c = cfg();
-    const atDoor = beside(c, -0.5);
+    const l = theLadder(c);
+    // Board at the train-end platform, then stand on the ladder car's ledge next to it.
+    const sim = beside(c, LAST, REAR_PLATFORM_ALONG);
+    jumpAt(sim);
+    const trainId = S(sim).run!.trainId;
+    const ledgeY = l.side === 'left' ? -0.25 : 6.25;
+    me(sim).placement = { frame: `car:${trainId}:${l.car}`, x: l.x + 0.5, y: ledgeY, layer: 'interior' };
+    expect(sideLadderInReach(S(sim), c, me(sim))).toMatchObject({ car: l.car, side: l.side });
+    step(sim, { type: 'climb' });
+    expect(rp(sim).climb).toMatchObject({ to: 'roof', side: l.side });
+    for (let i = 0; i < c.values.outside.roof.climbTicks + 1; i++) step(sim);
+    expect(me(sim).placement.layer).toBe('roof');
+    // Too far along the ledge: no ladder.
+    me(sim).placement = { frame: `car:${trainId}:${l.car}`, x: l.x + 3, y: ledgeY, layer: 'interior' };
+    expect(sideLadderInReach(S(sim), c, me(sim))).toBeNull();
+  });
+
+  it('with doors only, beside the train-end platform is too far, as before', () => {
+    const c = cfg({ platforms: 'none', sideLadders: false });
+    const sim = beside(c, LAST, REAR_PLATFORM_ALONG);
+    expect(boardingCheck(S(sim), sim.map, c, S(sim).run!.trainId, horse(sim)).state).toBe('too far');
+  });
+
+  it('a shut train can still be boarded at the platform, not at a door', () => {
+    const c = cfg();
+    const atDoor = beside(c, 1, -0.5);
     S(atDoor).world.trains.find((t) => t.id === S(atDoor).run!.trainId)!.doorsClosed = { untilTick: null };
-    const ev = perfectJump(atDoor);
-    expect(ev.find((e) => e.type === 'CommandRejected')).toMatchObject({ command: 'jump', reason: 'doors closed' });
-    const atPlatform = beside(c, REAR_PLATFORM_ALONG);
+    expect(jumpAt(atDoor).find((e) => e.type === 'CommandRejected')).toMatchObject({ command: 'jump', reason: 'doors closed' });
+    const atPlatform = beside(c, LAST, REAR_PLATFORM_ALONG);
     S(atPlatform).world.trains.find((t) => t.id === S(atPlatform).run!.trainId)!.doorsClosed = { untilTick: null };
-    perfectJump(atPlatform);
+    jumpAt(atPlatform);
     expect(S(atPlatform).run!.phase).toBe('aboard');
   });
 });

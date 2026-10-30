@@ -63,11 +63,13 @@ export const GameSchema = z.object({
      */
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
     /**
-     * Where a jump from the horse can land (issue #60): side doors, the end platforms between cars
-     * (not the engine's front), and the side ladders up to the roof (`outside.roof.sideLadder`, needs
-     * the roof on). The jump goes to the nearest one on the side you ride, with the same meter.
+     * Where a jump from the horse can land (issue #60): side doors; end platforms (`train-end` is only
+     * the last car's rear platform, Devlin PR #65; `all` every platform but the engine's front); and the
+     * side ladders up to the roof (`outside.roof.sideLadder`, needs the roof on). The jump goes to the
+     * nearest one on the side you ride. A side ladder only takes the perfect zone with `ladderPerfectOnly`.
      */
-    targets: z.object({ doors: z.boolean(), platforms: z.boolean(), sideLadders: z.boolean() }).strict(),
+    targets: z.object({ doors: z.boolean(), platforms: z.enum(['none', 'train-end', 'all']), sideLadders: z.boolean() }).strict(),
+    ladderPerfectOnly: z.boolean(),
     /**
      * Riding beside the train you committed to, you see the guards inside a car who stand in a cone
      * through an opening (side door or end door) within `rangeTiles` of the horse: `coneHalfAngleDeg`
@@ -410,11 +412,14 @@ export const GameSchema = z.object({
       /** How long a climb up or down takes, for the player and for guards. */
       climbSec: z.number().min(0),
       /**
-       * A ladder up each long side of the cars that have ladders, `fromEndTiles` in from that `end`:
-       * only reached by jumping from the horse (`boarding.targets.sideLadders`), and it climbs straight
-       * to the roof in `climbSec` (issue #60).
+       * `perTrain` ladders up the long sides of the cars that have end ladders (which car and side is a
+       * hash of the train's car list), `fromEndTiles` in from that `end`. Reached by jumping from the
+       * horse (`boarding.targets.sideLadders`) or with E from the ledge beside it; it climbs to the roof
+       * in `climbSec` (issue #60, PR #65).
        */
-      sideLadder: z.object({ end: z.enum(['front', 'rear']), fromEndTiles: z.number().min(0.5) }).strict(),
+      sideLadder: z.object({ end: z.enum(['front', 'rear']), fromEndTiles: z.number().min(0.5), perTrain: z.number().int().min(0) }).strict(),
+      /** Climbing, more than this share of the way up a ladder you are out of reach of a guard at its foot (Devlin, PR #65). */
+      climbSafeShare: z.number().min(0).max(1),
       /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
       speedTilesPerSec: positive,
       /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */

@@ -522,7 +522,8 @@ export interface SimConfig {
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
-      targets: { doors: boolean; platforms: boolean; sideLadders: boolean };
+      targets: { doors: boolean; platforms: 'none' | 'train-end' | 'all'; sideLadders: boolean };
+      ladderPerfectOnly: boolean;
       doorPeek: { enabled: boolean; rangeTiles: number; coneHalfAngleDeg: number; coneCos: number; sightTiles: number };
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
@@ -683,7 +684,8 @@ export interface RoofConfig {
   ladderRow: number;
   ladderReachTiles: number;
   climbTicks: number;
-  sideLadder: { end: CarEnd; fromEndTiles: number };
+  sideLadder: { end: CarEnd; fromEndTiles: number; perTrain: number };
+  climbSafeShare: number;
   speedTilesPerTick: number;
   noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; landRadiusTiles: number; landTicks: number };
   edgeSeenTiles: number;

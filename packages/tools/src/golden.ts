@@ -72,7 +72,7 @@ export function recordGolden(): string {
   const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map', guardCatch: 'heat-only' },
     // Pinned to the first three layouts so new mail-car layouts don't change the golden story.
     // Doors only (issue #60 added platforms and side ladders), so the jump story stays the same.
-    overrides: { trains: { 'mail-express': { layouts: ['mail-car-a', 'mail-car-b', 'mail-car-c'] } }, boarding: { targets: { doors: true, platforms: false, sideLadders: false } } } });
+    overrides: { trains: { 'mail-express': { layouts: ['mail-car-a', 'mail-car-b', 'mail-car-c'] } }, boarding: { targets: { doors: true, platforms: 'none', sideLadders: false } } } });
   const map = loadMapDef(DEFAULT_MAP);
   const lines: string[] = [];
   const header: RunHeader = {

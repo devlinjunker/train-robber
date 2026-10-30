@@ -4,7 +4,7 @@ import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, runWantedLevel } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
-import { advanceMeter, boardingCheck, type BoardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
+import { advanceMeter, boardingCheck, targetZoneWidths, type BoardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
 import { Space, toTrain, trainGrid } from './world/guards';
 import { isSolid, Terrain, terrainAt } from './world/map';
@@ -414,7 +414,7 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, check: Boarding
   const rp = run.players[p.id]!;
   const b = config.values.boarding;
   rp.boardingAttempts += 1;
-  const { result, position } = meterResult(rp.meter, b.meter.zoneWidths);
+  const { result, position } = meterResult(rp.meter, targetZoneWidths(config, target));
   setPhase(ctx, p.id, 'boarding');
   ctx.emit({ type: 'BoardingAttempt', tick: state.tick, player: p.id, result, attempt: rp.boardingAttempts, meter: position, target });
   // The jump has resolved, so the next attempt gets new zones.

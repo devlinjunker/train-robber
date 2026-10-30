@@ -224,6 +224,19 @@ describe('guards climbing after you', () => {
     expect(ofType(ev, 'ThrownOff')).toEqual([]);
   });
 
+  it('past climbSafeShare up a ladder, an alert guard at its foot cannot grab you; below it, he can', () => {
+    const cfg = roofConfig({ guards: 1, ai: { guardCatch: 'thrown-off' } });
+    const climbTicks = cfg.values.outside.roof.climbTicks;
+    const climbing = (share: number) => {
+      const sim = at(cfg, -0.35, 1.5);
+      rp(sim).climb = { ticks: Math.round(climbTicks * (1 - share)), car: 1, end: 'front', to: 'roof' };
+      Object.assign(S(sim).run!.guards[0]!, { car: 1, x: -0.35, y: 2, fx: 0, fy: -1, roof: false, state: 'alert', spotted: true, lastKnown: { car: 1, x: -0.35, y: 1.5, roof: false }, climb: null, patrol: null });
+      return sim;
+    };
+    expect(ofType(steps(climbing(0.1), 5), 'ThrownOff')).toHaveLength(1);
+    expect(ofType(steps(climbing(0.6), 10), 'ThrownOff')).toEqual([]);
+  });
+
   it('a calm guard up on a roof climbs back down to its post', () => {
     const sim = at(roofConfig({ guards: 1 }), -0.35, 4.5, 'interior', 0);
     Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 8, y: 3, roof: true, state: 'unaware', post: { car: 1, x: 12.5, y: 2.5, fx: -1, fy: 0 }, patrol: null });

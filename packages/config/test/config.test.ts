@@ -12,7 +12,8 @@ const base = {
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
     failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
-    targets: { doors: true, platforms: true, sideLadders: true },
+    targets: { doors: true, platforms: 'train-end', sideLadders: true },
+    ladderPerfectOnly: true,
     doorPeek: { enabled: true, rangeTiles: 6, coneHalfAngleDeg: 45, sightTiles: 10 },
   },
   health: { max: 100, scope: 'day' },
@@ -37,7 +38,7 @@ const base = {
     ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
     platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoiseRadiusTiles: 1.5, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },
     roof: {
-      enabled: true, ladderEnds: 'both', ladderCarShare: 0.67, ladderRow: 1, ladderReachTiles: 1, climbSec: 1, sideLadder: { end: 'rear', fromEndTiles: 3 }, speedTilesPerSec: 5,
+      enabled: true, ladderEnds: 'both', ladderCarShare: 0.67, ladderRow: 1, ladderReachTiles: 1, climbSec: 1, sideLadder: { end: 'rear', fromEndTiles: 3, perTrain: 1 }, climbSafeShare: 0.5, speedTilesPerSec: 5,
       noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landSec: 0.25 },
       edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0.25 }, dropStumbleSec: 0.6,
       jump: { airSec: 0.5, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkSec: 8 }, slip: { enabled: true, thresholdTilesPerSec2: 1.2, slideTilesPerSec: 3, leanSec: 0.3, cooldownSec: 1, guards: true, guardCatchSec: 0.8 },

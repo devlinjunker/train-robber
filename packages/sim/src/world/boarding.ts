@@ -56,13 +56,20 @@ function platformStand(depth: number): number {
   return Math.max(depth / 2, Math.min(depth - 0.01, 0.35));
 }
 
-/** How far outside the long wall a rider on a side ladder hangs, in tiles. */
-export const SIDE_LADDER_OUT = 0.15;
+/** How far outside the long wall a rider on a side ladder hangs, in tiles: beyond the ladder's rails, so the view sorts them in front of it on the near side and behind it on the far side. */
+export const SIDE_LADDER_OUT = 0.3;
+
+/** The meter zone widths a jump at this target uses: a side ladder takes only the perfect zone with `boarding.ladderPerfectOnly` (Devlin, PR #65). */
+export function targetZoneWidths(config: SimConfig, target: BoardingTargetKind | null): readonly [number, number] {
+  const b = config.values.boarding, w = b.meter.zoneWidths;
+  return target === 'ladder' && b.ladderPerfectOnly ? [w[0], w[0]] : w;
+}
 
 /**
  * Every boarding target of a placed car, under `boarding.targets`: its side doors (unless `doorsShut`),
- * a platform at each end on each side (not the engine's front, car 0), and its side ladders.
- * `trainCars` is the train's car template list, which says which cars have ladders.
+ * its end platforms on each side (`train-end`: only the last car's rear; `all`: every end but the
+ * engine's front, car 0), and its side ladders. `trainCars` is the train's car template list, which
+ * says which car is last and which have ladders.
  */
 export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: readonly string[], doorsShut = false): BoardingTarget[] {
   const t = config.values.boarding.targets, P = config.values.outside.platformDepthTiles;
@@ -76,12 +83,12 @@ export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: r
   if (t.doors && !doorsShut) {
     for (const ep of tmpl.sideEntries) add('door', ep.id, ep.side, ep.along, { x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5 });
   }
-  if (t.platforms && P > 0) {
-    const d = platformStand(P);
+  if (t.platforms !== 'none' && P > 0) {
+    const d = platformStand(P), last = car.index === trainCars.length - 1;
     for (const side of ['left', 'right'] as const) {
       const y = side === 'left' ? 0.5 : rows - 0.5;
-      if (car.index > 0) add('platform', 'platform-front', side, hl + d, { x: -d, y });
-      add('platform', 'platform-rear', side, hl - cols - d, { x: cols + d, y });
+      if (t.platforms === 'all' && car.index > 0) add('platform', 'platform-front', side, hl + d, { x: -d, y });
+      if (t.platforms === 'all' || last) add('platform', 'platform-rear', side, hl - cols - d, { x: cols + d, y });
     }
   }
   for (const l of trainSideLadders(config, trainCars)) {
