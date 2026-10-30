@@ -25,6 +25,8 @@ export interface SessionMeta {
   setup?: string;
   /** The pull request whose link the session came from (`?pr=`). */
   pr?: number;
+  /** Only in exported JSON: the tester left this run out of the results. */
+  excluded?: boolean;
   /**
    * A copy of the experiment when it is a tester's own (not in the repo), so runs imported on
    * someone else's page bring their experiment card with them.

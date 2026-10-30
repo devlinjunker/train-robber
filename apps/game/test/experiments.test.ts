@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import type { Experiment } from '@train-robber/config';
 import {
-  linkedPr,
+  linkedPr, loadExcluded, saveExcluded,
   canonical, classifyIncoming, decodeExperiment, encodeExperiment, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, playQuery,
   saveAnswers, saveBases, saveOwn, shareQuery,
 } from '../src/experiments';
-import { experimentIssue, experimentMarkdown, experimentNumber, notesMarkdown, sessionPull, issueMarkdown } from '../src/playtestStats';
+import { experimentIssue, experimentMarkdown, notesIssue, experimentNumber, notesMarkdown, sessionPull, issueMarkdown } from '../src/playtestStats';
 import type { RunRecord } from '../src/runTracker';
 
 const exp: Experiment = {
@@ -29,7 +29,7 @@ describe('experiments in the browser', () => {
     expect(loadOwn(s)).toEqual([exp]);
     saveBases({ e1: { preset: 'medium-run' }, bad: { nope: 1 } as never }, s);
     expect(loadBases(s)).toEqual({ e1: { preset: 'medium-run' } });
-    saveAnswers({ e1: { answer: 'a', next: '', prize: '', again: 'yes' } }, s);
+    saveAnswers({ e1: { answer: 'a', next: '', prize: '', again: 'yes', notes: '' } }, s);
     expect(loadAnswers(s).e1!.again).toBe('yes');
   });
 
@@ -125,17 +125,21 @@ describe('experiment cards', () => {
   });
 
   it('writes the card and its answers into the notes and the GitHub issue', () => {
-    const rep = { exp, labels: ['countdown.scale=2', 'medium-run'], baseLabel: 'steering:screen, map line', answers: { answer: 'Mid felt right', next: 'Board later', prize: '', again: 'Yes' } };
+    const rep = { exp, labels: ['countdown.scale=2', 'medium-run'], baseLabel: 'steering:screen, map line', answers: { answer: 'Mid felt right', next: 'Board later', prize: '', again: 'Yes', notes: 'Try a longer line' } };
     const md = experimentMarkdown(rep, runs).join('\n');
     expect(md).toContain('### Town spacing');
     expect(md).toContain('> Which spacing?');
     expect(md).toContain('| | Tight | Mid |');
     expect(md).toContain('| Runs | 4 | 1 |');
     expect(md).toContain('| Avg left on train | $200 | $50 |');
-    expect(md).toContain('| Went again within 30 s | 1 of 2 | – |');
+    expect(md).not.toContain('Went again');
     expect(md).toContain('**Answer** Mid felt right');
     expect(md).toContain('**Did you want to go again? Why?** Yes');
     expect(md).not.toContain('prize or route');
+    expect(md).toContain('**Other notes** Try a longer line');
+    // In-game notes go out with the experiment, under their setup.
+    expect(md).toContain('**Run notes**');
+    expect(md).toMatch(/_Tight_\n- too short _\(run 3, extracted/);
     const notes = notesMarkdown(runs, [], [rep]);
     expect(notes.indexOf('### Town spacing')).toBeLessThan(notes.indexOf('### Run notes'));
     expect(notes).toContain('- tick 9: too short');
@@ -156,5 +160,26 @@ describe('experiment cards', () => {
     expect(done.body).toContain('`packages/content/playtests/towns-abcd.json`');
     expect(done.body).toContain('"status": "done"');
     expect(experimentIssue(rep, runs, '', undefined, 200).body.length).toBeLessThanOrEqual(200);
+  });
+
+  it('notes go to GitHub as one note, one run, or every run that has notes', () => {
+    const two = run({ runNumber: 7, notes: [{ t: 1, text: 'first' }, { t: 2, text: 'second' }] });
+    const one = notesIssue([two], 'devlin', 1);
+    expect(one.title).toBe('Playtest note: second');
+    expect(one.body).toContain('- tick 2: second');
+    expect(one.body).not.toContain('first');
+    expect(notesIssue([two], '').title).toBe('Playtest notes: run 7 (extracted)');
+    const all = notesIssue([...runs, two], 'devlin');
+    expect(all.title).toBe('Playtest notes: 3 notes from 2 runs');
+    expect(all.body).toMatch(/^devlin on build/);
+    expect(all.body).toContain('**Run 3**');
+  });
+
+  it('excluded runs are kept per browser', () => {
+    const s = memoryStorage();
+    saveExcluded(new Set(['a#1', 'b#2']), s);
+    expect([...loadExcluded(s)].sort()).toEqual(['a#1', 'b#2']);
+    s.m.set('train-robber-excluded-runs', '{bad');
+    expect(loadExcluded(s).size).toBe(0);
   });
 });

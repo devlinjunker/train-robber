@@ -1,6 +1,7 @@
 // Playtest experiments (phase 2 M6a): a question plus 2-4 named setups to compare on the Playtests
 // page. Repo experiments live in packages/content/playtests/*.json; testers build their own on the page.
 import { z } from 'zod';
+import { GameSchema } from './schema';
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes');
 
@@ -103,4 +104,67 @@ export function setupSelection(base: ExperimentBase | undefined, setup: Experime
 /** `?set=` entries for a selection, as the URL writes them (strings plain, the rest as JSON). */
 export function setParams(set: SetupSelection['set']): string[] {
   return Object.entries(set).map(([path, v]) => `${path}=${typeof v === 'string' ? v : JSON.stringify(v)}`);
+}
+
+/** What a `?set=` path takes, read from the game.json schema, for the experiment editor's hints. */
+export interface SettingInfo { kind: 'number' | 'integer' | 'boolean' | 'text' | 'choice' | 'list' | 'other'; options?: string[]; min?: number; max?: number; nullable?: boolean }
+
+export function describeSetting(path: string): SettingInfo | null {
+  let t: z.ZodTypeAny = GameSchema;
+  let nullable = false;
+  const unwrap = () => {
+    for (;;) {
+      if (t instanceof z.ZodEffects) t = t._def.schema;
+      else if (t instanceof z.ZodOptional || t instanceof z.ZodDefault) t = t._def.innerType;
+      else if (t instanceof z.ZodNullable) { nullable = true; t = t._def.innerType; }
+      else return;
+    }
+  };
+  for (const key of path.split('.')) {
+    unwrap();
+    if (t instanceof z.ZodObject) {
+      const next = (t.shape as Record<string, z.ZodTypeAny>)[key];
+      if (!next) return null;
+      t = next;
+    } else if (t instanceof z.ZodRecord) t = t._def.valueType;
+    else return null;
+  }
+  unwrap();
+  const extra = nullable ? { nullable } : {};
+  if (t instanceof z.ZodNumber) {
+    const info: SettingInfo = { kind: t.isInt ? 'integer' : 'number', ...extra };
+    if (t.minValue !== null) info.min = t.minValue;
+    if (t.maxValue !== null) info.max = t.maxValue;
+    return info;
+  }
+  if (t instanceof z.ZodBoolean) return { kind: 'boolean', ...extra };
+  if (t instanceof z.ZodEnum) return { kind: 'choice', options: [...(t.options as string[])], ...extra };
+  if (t instanceof z.ZodLiteral) return { kind: 'choice', options: [String(t.value)], ...extra };
+  if (t instanceof z.ZodUnion) {
+    const lits = (t.options as z.ZodTypeAny[]).filter((o) => o instanceof z.ZodLiteral).map((o) => String((o as z.ZodLiteral<unknown>).value));
+    if (lits.length === (t.options as unknown[]).length) return { kind: 'choice', options: lits, ...extra };
+  }
+  if (t instanceof z.ZodString) return { kind: 'text', ...extra };
+  if (t instanceof z.ZodArray || t instanceof z.ZodTuple) return { kind: 'list', ...extra };
+  return { kind: 'other', ...extra };
+}
+
+/** A setting's kind in a few words, e.g. `number 0 to 1`, `one of: off, los, cone`, `true or false`. */
+export function settingWords(info: SettingInfo | null): string {
+  if (!info) return 'not a setting';
+  const n = info.nullable ? ' (or null)' : '';
+  switch (info.kind) {
+    case 'number': case 'integer': {
+      const what = info.kind === 'integer' ? 'whole number' : 'number';
+      if (info.min !== undefined && info.max !== undefined) return `${what} ${info.min} to ${info.max}${n}`;
+      if (info.min !== undefined) return `${what}, at least ${info.min}${n}`;
+      if (info.max !== undefined) return `${what}, at most ${info.max}${n}`;
+      return what + n;
+    }
+    case 'boolean': return `true or false${n}`;
+    case 'choice': return `one of: ${info.options!.join(', ')}${n}`;
+    case 'text': return `text${n}`;
+    case 'list': return `a list (can't be set with ?set=)`;
+    default: return `a value${n}`;
+  }
 }
