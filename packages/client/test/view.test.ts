@@ -68,7 +68,7 @@ describe('walking aboard', () => {
 
 describe('speed readout', () => {
   const check = (state: BoardingCheck['state'], speedDelta: number): BoardingCheck =>
-    ({ state, side: 'right', car: 1, entry: 'side-right', at: null, distance: 1, speedDelta });
+    ({ state, side: 'right', car: 1, entry: 'side-right', target: 'door', at: null, land: null, distance: 1, speedDelta });
   it('uses the sim verdict in range and the same reading by speed out of range', () => {
     expect(speedLabel(check('eligible', 0.5), 2).text).toBe('MATCHED +0.5');
     expect(speedLabel(check('too slow', -3), 2).text).toBe('TOO SLOW -3.0');

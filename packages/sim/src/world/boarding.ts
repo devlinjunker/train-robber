@@ -1,9 +1,10 @@
 // Committing to a train and the boarding rule: who can commit, who may jump, and the meter.
 // The client only reads these; the decisions are the sim's.
 import { nextU32 } from '../rng';
-import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection, TrainState } from '../types';
+import type { BoardingResult, BoardingTargetKind, CommitRejection, GameState, HorseState, MeterState, SimConfig, SwitchRejection, TrainState } from '../types';
 import { carCatalog, carTemplate, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
+import { trainSideLadders } from './guards';
 import type { WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
 
@@ -17,15 +18,32 @@ export interface BoardingCheck {
   state: BoardingState;
   /** Side of the train the horse is on, relative to the direction of travel. */
   side: Side;
-  /** Nearest entry point on that side, or null when the train has none there. */
+  /** Nearest boarding target on that side, or null when the train has none there. */
   car: number | null;
+  /** Its id: the entry point's id for a door, `platform-front` / `platform-rear`, or `ladder-left` / `ladder-right`. */
   entry: string | null;
-  /** World position of that entry point. */
+  /** What it is: a side door, an end platform or a side ladder (issue #60). */
+  target: BoardingTargetKind | null;
+  /** World position of that target. */
   at: { x: number; y: number } | null;
+  /** Where a landing there puts you, in the car's frame. */
+  land: { x: number; y: number } | null;
   /** Distance from the horse to it, in tiles. */
   distance: number;
   /** Horse speed along that car's direction of travel minus the train's speed, tiles/s. */
   speedDelta: number;
+}
+
+/** A place on a car a jump from the horse can land (issue #60). */
+export interface BoardingTarget {
+  kind: BoardingTargetKind;
+  id: string;
+  side: Side;
+  /** World position: the door, the platform's side edge or the ladder, on the car's outside. */
+  x: number;
+  y: number;
+  /** Where a landing there puts you, in the car's frame. */
+  land: { x: number; y: number };
 }
 
 /** Which side of a car the point is on: left of travel is (uy, -ux), as in `entryPointWorld`. */
@@ -33,18 +51,57 @@ export function sideOf(car: CarPose, x: number, y: number): Side {
   return (x - car.x) * car.uy - (y - car.y) * car.ux >= 0 ? 'left' : 'right';
 }
 
-const scratch = { x: 0, y: 0 };
+/** How far out from the end wall a platform landing stands: as a ladder's foot, clear of the wall for a walker. */
+function platformStand(depth: number): number {
+  return Math.max(depth / 2, Math.min(depth - 0.01, 0.35));
+}
+
+/** How far outside the long wall a rider on a side ladder hangs, in tiles. */
+export const SIDE_LADDER_OUT = 0.15;
 
 /**
- * The boarding rule: a jump needs `boarding.rangeTiles` of an entry point on the side the horse
- * is riding. Being within `boarding.speedToleranceTilesPerSec` of the train's speed, measured
- * along that car's direction of travel, slows the meter. Too far wins over a speed mismatch.
+ * Every boarding target of a placed car, under `boarding.targets`: its side doors (unless `doorsShut`),
+ * a platform at each end on each side (not the engine's front, car 0), and its side ladders.
+ * `trainCars` is the train's car template list, which says which cars have ladders.
+ */
+export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: readonly string[], doorsShut = false): BoardingTarget[] {
+  const t = config.values.boarding.targets, P = config.values.outside.platformDepthTiles;
+  const tmpl = carTemplate(carCatalog(config), car.template);
+  const cols = tmpl.size.cols, rows = tmpl.size.rows, hl = car.halfLength;
+  const out: BoardingTarget[] = [];
+  const add = (kind: BoardingTargetKind, id: string, side: Side, along: number, land: { x: number; y: number }) => {
+    const w = entryPointWorld(car, { side, along });
+    out.push({ kind, id, side, x: w.x, y: w.y, land });
+  };
+  if (t.doors && !doorsShut) {
+    for (const ep of tmpl.sideEntries) add('door', ep.id, ep.side, ep.along, { x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5 });
+  }
+  if (t.platforms && P > 0) {
+    const d = platformStand(P);
+    for (const side of ['left', 'right'] as const) {
+      const y = side === 'left' ? 0.5 : rows - 0.5;
+      if (car.index > 0) add('platform', 'platform-front', side, hl + d, { x: -d, y });
+      add('platform', 'platform-rear', side, hl - cols - d, { x: cols + d, y });
+    }
+  }
+  for (const l of trainSideLadders(config, trainCars)) {
+    if (l.car !== car.index) continue;
+    add('ladder', `ladder-${l.side}`, l.side, hl - l.x, { x: l.x, y: l.side === 'left' ? -SIDE_LADDER_OUT : rows + SIDE_LADDER_OUT });
+  }
+  return out;
+}
+
+/**
+ * The boarding rule: a jump needs `boarding.rangeTiles` of a boarding target (`carBoardingTargets`)
+ * on the side the horse is riding. Being within `boarding.speedToleranceTilesPerSec` of the train's
+ * speed, measured along that car's direction of travel, slows the meter. Too far wins over a speed
+ * mismatch. A train whose doors are shut (`doorsClosed`) can still be boarded at its platforms and ladders.
  */
 export function boardingCheck(state: GameState, map: WorldMap, config: SimConfig, trainId: string, h: HorseState): BoardingCheck {
   const b = config.values.boarding;
   const train = state.world.trains.find((t) => t.id === trainId);
   const cars = carPosesOf(state, map, config, trainId);
-  const out: BoardingCheck = { state: 'too far', side: 'left', car: null, entry: null, at: null, distance: Infinity, speedDelta: 0 };
+  const out: BoardingCheck = { state: 'too far', side: 'left', car: null, entry: null, target: null, at: null, land: null, distance: Infinity, speedDelta: 0 };
   if (!train || cars.length === 0) return out;
   // The side comes from the nearest car body, so a horse beside the engine still has one.
   let nearest = Infinity;
@@ -53,15 +110,14 @@ export function boardingCheck(state: GameState, map: WorldMap, config: SimConfig
     if (d < nearest) { nearest = d; out.side = sideOf(car, h.x, h.y); }
   }
   let best: CarPose | null = null;
-  const catalog = carCatalog(config);
+  const shut = doorsClosed(state, train);
   for (const car of cars) {
-    for (const ep of carTemplate(catalog, car.template).sideEntries) {
-      if (ep.side !== out.side) continue;
-      entryPointWorld(car, ep, scratch);
-      const dx = h.x - scratch.x, dy = h.y - scratch.y;
+    for (const tg of carBoardingTargets(config, car, train.cars, shut)) {
+      if (tg.side !== out.side) continue;
+      const dx = h.x - tg.x, dy = h.y - tg.y;
       const d = Math.sqrt(dx * dx + dy * dy);
       if (d < out.distance) {
-        out.distance = d; out.car = car.index; out.entry = ep.id; out.at = { x: scratch.x, y: scratch.y };
+        out.distance = d; out.car = car.index; out.entry = tg.id; out.target = tg.kind; out.at = { x: tg.x, y: tg.y }; out.land = tg.land;
         best = car;
       }
     }

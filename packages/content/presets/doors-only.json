@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "doors-only",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "boarding": { "targets": { "doors": true, "platforms": false, "sideLadders": false } } }
+}

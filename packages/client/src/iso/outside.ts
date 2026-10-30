@@ -69,3 +69,19 @@ export function drawLadder(g: Graphics, car: CarPose, end: 'front' | 'rear', row
   box(-0.24, 0.04, 0, height + LADDER_TOP);
   box(0.24, 0.04, 0, height + LADDER_TOP);
 }
+
+/**
+ * A ladder up a car's long side (issue #60), at car-frame x `x`: rails just outside the `side` wall
+ * from near the ground to above the roof, `height` tiles up, with rungs between. Boarded from the horse.
+ */
+export function drawSideLadder(g: Graphics, car: CarPose, side: 'left' | 'right', x: number, height: number): void {
+  const rows = car.halfWidth * 2;
+  const y = side === 'left' ? -0.06 : rows + 0.06;
+  const box = (dx: number, halfLength: number, z0: number, z1: number) => {
+    const c = carToWorld(car, x + dx, y);
+    drawBox(g, { x: c.x, y: c.y, ux: car.ux, uy: car.uy, halfLength, halfWidth: 0.04, z0, z1 }, LADDER_COLOUR);
+  };
+  for (let z = 0.4; z < height + 0.2; z += 0.55) box(0, 0.24, z, z + 0.07);
+  box(-0.24, 0.04, 0.2, height + LADDER_TOP);
+  box(0.24, 0.04, 0.2, height + LADDER_TOP);
+}

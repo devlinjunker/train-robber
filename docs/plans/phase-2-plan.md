@@ -92,7 +92,9 @@ After playtesting M3, Devlin wants to sneak past guards. The design and its seve
 - [x] Platforms and side ledges (PR #35, merged as v0.2.4): half-tile end platforms and a 1-tile coupling gap (cars 2 tiles apart, crossed on a 3-tile plate), 0.1-tile side ledges, any size walkable, platforms 4 tiles/s walk-only, ledges 1.2 tiles/s and heard through the wall while moving, guards see you through windows and outer doors (and 30 tiles along a ledge), suspicious guards walk over and step outside, chasing or searching guards follow you out, good landings stagger you in loudly, trackside rocks scrape you or knock you off onto the horse (`FellOff`, doors stay open), two big-window mail layouts; values under `outside.*` and `ai.*`
 - [ ] Roof: ladders at end platforms, gap jumps with hang-and-climb, leaning toward the edge on curves (a skill check, never random), loud footsteps for guards below, guards climb up after you
 
-Side ladders for boarding straight onto the roof, and landing on foot after a fall, stay for later (wiki Ideas page).
+Landing on foot after a fall stays for later (wiki Ideas page). Side ladders for boarding straight onto the roof were pulled forward from Phase 3 (Devlin, 2026-10-30, issue #60), with end platform landings and seeing guards through a door while riding alongside: see "Quieter boarding" below.
+
+- [ ] Quieter boarding (issue #60): jump from the horse onto an end platform or a side ladder up to the roof, same meter; riding alongside, guards in a cone through a nearby door show; `boarding.targets`, `boarding.doorPeek`, `outside.roof.sideLadder`, preset `doors-only`
 
 ### M4: Extraction
 
@@ -355,4 +357,4 @@ Decisions from grilling the plan with Devlin, newest last.
 - Heat levels: past thresholds, guards spot you faster, and at full heat every car is on alert (G10)
 - Riding back to pick up loot spilled on a good mount (G15)
 - Required later: a way for wanted level to come down, such as a clean getaway lowering it by one, or decay over runs or time (G19)
-- Side ladders as entry points, so you can board straight onto the roof from the horse (G29)
+- ~~Side ladders as entry points, so you can board straight onto the roof from the horse (G29)~~ Built in Phase 2 (issue #60)

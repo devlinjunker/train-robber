@@ -6,7 +6,7 @@
 // it. Climbing, jumps and slips live in the run's player state, so a snapshot resumes mid-jump.
 import type { CarEnd, FallCause, GameState, PlayerRunState, PlayerState, SimConfig, SimEvent } from '../types';
 import { carFrame, parseCarFrame } from './frames';
-import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
+import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, ROOF_STEP_IN, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
 import { carrySpeedScale, carriedWeight } from './loot';
 import type { WorldMap } from './map';
 import { curvePull } from './curve';
@@ -167,8 +167,15 @@ export function roofSystem(ctx: RoofCtx): { p: PlayerState; cause: FallCause } |
     if (rp.slipCooldownTicks > 0) rp.slipCooldownTicks -= 1;
     if (rp.climb) {
       if (--rp.climb.ticks > 0) continue;
-      const { car, end, to } = rp.climb;
+      const { car, end, to, side } = rp.climb;
       rp.climb = null;
+      // A side ladder (boarded from the horse) tops out at the roof's long edge, stepped in a little.
+      if (side) {
+        const rows = g.carRows[car]!;
+        p.placement = { frame: carFrame(train.id, car), x: p.placement.x, y: side === 'left' ? ROOF_STEP_IN : rows - ROOF_STEP_IN, layer: 'roof' };
+        ctx.emit({ type: 'Climbed', tick: state.tick, player: p.id, car, end, to, side });
+        continue;
+      }
       const l = trainLadders(config, train.cars).find((q) => q.car === car && q.end === end);
       if (!l) continue;
       if (to === 'roof') p.placement = { frame: carFrame(train.id, car), x: l.roofX, y: l.y, layer: 'roof' };

@@ -62,6 +62,18 @@ export const GameSchema = z.object({
      * staggers `goodStumbleInTiles` in from the door, out in the open. A perfect landing stays in the doorway.
      */
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
+    /**
+     * Where a jump from the horse can land (issue #60): side doors, the end platforms between cars
+     * (not the engine's front), and the side ladders up to the roof (`outside.roof.sideLadder`, needs
+     * the roof on). The jump goes to the nearest one on the side you ride, with the same meter.
+     */
+    targets: z.object({ doors: z.boolean(), platforms: z.boolean(), sideLadders: z.boolean() }).strict(),
+    /**
+     * Riding beside the train you committed to, you see the guards inside a car who stand in a cone
+     * through an opening (side door or end door) within `rangeTiles` of the horse: `coneHalfAngleDeg`
+     * either side of straight in, up to `sightTiles` deep, with nothing in between. Client only.
+     */
+    doorPeek: z.object({ enabled: z.boolean(), rangeTiles: positive, coneHalfAngleDeg: z.number().gt(0).max(90), sightTiles: positive }).strict(),
   }).strict(),
   health: z.object({
     max: positive,
@@ -397,6 +409,12 @@ export const GameSchema = z.object({
       ladderReachTiles: positive,
       /** How long a climb up or down takes, for the player and for guards. */
       climbSec: z.number().min(0),
+      /**
+       * A ladder up each long side of the cars that have ladders, `fromEndTiles` in from that `end`:
+       * only reached by jumping from the horse (`boarding.targets.sideLadders`), and it climbs straight
+       * to the roof in `climbSec` (issue #60).
+       */
+      sideLadder: z.object({ end: z.enum(['front', 'rear']), fromEndTiles: z.number().min(0.5) }).strict(),
       /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
       speedTilesPerSec: positive,
       /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */

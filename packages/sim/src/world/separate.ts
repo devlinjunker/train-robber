@@ -12,7 +12,8 @@ import { carPosesOf, trainSpeed } from './trains';
 export interface Vec2 { x: number; y: number }
 
 /** An entry point of one car of a train. */
-export interface EntryRef { trainId: string; car: number; entry: string }
+/** Where a boarding jump lands: an entry point of a car, or with `at` that point in the car's frame (a platform or side ladder, issue #60). */
+export interface EntryRef { trainId: string; car: number; entry: string; at?: { x: number; y: number } }
 
 export interface WorldModel {
   readonly horseWhileAboard: 'physical' | 'abstract';
@@ -123,11 +124,15 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
       return trainCellWalkable(config, trainCars(state, f.trainId), f.car, p.x, p.y);
     },
     enterTrain(state, player, entry) {
-      const ep = carTemplate(catalog, templateOf(state, entry.trainId, entry.car)).entryPoints.find((e) => e.id === entry.entry);
-      if (!ep) throw new Error(`no entry point ${entry.entry} on car ${entry.car} of ${entry.trainId}`);
       const p = playerOf(state, player);
-      // Land in the middle of the entry cell.
-      p.placement = { frame: carFrame(entry.trainId, entry.car), x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5, layer: 'interior' };
+      if (entry.at) {
+        p.placement = { frame: carFrame(entry.trainId, entry.car), x: entry.at.x, y: entry.at.y, layer: 'interior' };
+      } else {
+        const ep = carTemplate(catalog, templateOf(state, entry.trainId, entry.car)).entryPoints.find((e) => e.id === entry.entry);
+        if (!ep) throw new Error(`no entry point ${entry.entry} on car ${entry.car} of ${entry.trainId}`);
+        // Land in the middle of the entry cell.
+        p.placement = { frame: carFrame(entry.trainId, entry.car), x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5, layer: 'interior' };
+      }
       // The horse stays in the world, riderless: it runs off and leaves (U4, see extraction.ts).
       const h = state.world.horses.find((q) => q.id === p.horseId);
       if (h) { h.cruiseTarget = 0; h.stunTicks = 0; h.boostTicks = 0; h.boostCooldownTicks = 0; }

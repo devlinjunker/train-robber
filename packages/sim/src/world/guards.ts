@@ -304,6 +304,39 @@ export function trainLadders(config: SimConfig, cars: readonly string[]): Ladder
   return out;
 }
 
+/** A ladder up a car's long side (issue #60): car `car`, side `side`, at car-frame x `x`. Only reached from the horse. */
+export interface SideLadder { car: number; side: 'left' | 'right'; x: number }
+
+const sideLadderCache = new WeakMap<object, Map<string, SideLadder[]>>();
+
+/**
+ * Every side ladder of a train: one up each long side of the cars that have end ladders
+ * (`ladderCarShare`), `outside.roof.sideLadder.fromEndTiles` in from its `end`. None with the roof
+ * off or `boarding.targets.sideLadders` off.
+ */
+export function trainSideLadders(config: SimConfig, cars: readonly string[]): SideLadder[] {
+  let byCars = sideLadderCache.get(config.values);
+  if (!byCars) { byCars = new Map(); sideLadderCache.set(config.values, byCars); }
+  const key = cars.join(',');
+  const hit = byCars.get(key);
+  if (hit) return hit;
+  const rc = config.values.outside.roof;
+  const out: SideLadder[] = [];
+  if (rc.enabled && config.values.boarding.targets.sideLadders) {
+    const g = trainGrid(config, cars);
+    const withLadders = ladderCars(key, cars.length, rc.ladderCarShare);
+    for (let k = 0; k < cars.length; k++) {
+      if (!withLadders.has(k)) continue;
+      const cols = g.carCols[k]!;
+      const from = Math.min(rc.sideLadder.fromEndTiles, cols / 2);
+      const x = rc.sideLadder.end === 'rear' ? cols - from : from;
+      out.push({ car: k, side: 'left', x }, { car: k, side: 'right', x });
+    }
+  }
+  byCars.set(key, out);
+  return out;
+}
+
 /** The cars of a train (by index) that get ladders: `share` of `n`, at least one, picked by a hash of the car list. */
 function ladderCars(key: string, n: number, share: number): Set<number> {
   const count = Math.max(1, Math.min(n, Math.round(n * share)));

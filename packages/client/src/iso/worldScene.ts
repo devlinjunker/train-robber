@@ -2,7 +2,7 @@
 // against the horse (cars in two-tile slices, boulders in strips), the mud cue, entry markers and
 // the debug overlays.
 import { Container, Graphics, GraphicsContext } from 'pixi.js';
-import { carEntryPoints, carTemplate, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef, type SimConfig } from '@train-robber/sim';
+import { carEntryPoints, carTemplate, carToWorld, HORSE_RADIUS, WALKER_RADIUS, type BoardingCheck, type BoardingState, type CarCatalog, type CarPose, type CellTypeDef, type SimConfig } from '@train-robber/sim';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { boxCorners, drawBox, groundEllipse, isoPoly, mix, shade, sidePanel, type Box } from './draw';
 import { drawIsoMapOverlay, drawTerrain } from './terrain';
@@ -22,7 +22,7 @@ import { depthOf, isoX, isoY, TILE_H, TILE_W } from '../projection';
 import type { ActorPose } from '../interp';
 import { COMMITTED_COLOUR, flashOn, GOOD_COLOUR, HIT_COLOUR, PERFECT_COLOUR, SWITCH_CANDIDATE_COLOUR, SWITCH_FLASH_SEC, type TrainFocus } from '../cues';
 import { drawInterior, type InteriorLoot } from './interior';
-import { drawCarOutside, drawLadder, type OutsideDims } from './outside';
+import { drawCarOutside, drawLadder, drawSideLadder, type OutsideDims } from './outside';
 import { GUARD_STATE_COLOURS, type ConeView, type GuardView } from '../guards';
 import { obstacleNear, type ObstacleKind, type ObstacleTiles } from '../obstacle';
 
@@ -171,10 +171,14 @@ export interface SceneContent {
   boostDust?: number;
   /** Platforms, coupling and ledges round each car (outside.*); none when absent. */
   outside?: OutsideDims;
+  /** Where a jump from the horse can land on a car (doors, platforms, side ladders: issue #60); its side doors when absent. */
+  boardingTargets?(car: CarPose): readonly { id: string; side: 'left' | 'right'; x: number; y: number }[];
   /** Ladders up to the roofs (outside.roof.*); none when absent or off. */
   roof?: Pick<SimConfig['values']['outside']['roof'], 'enabled' | 'ladderEnds' | 'ladderRow'> & {
     /** Whether a train's car has a ladder at that end (only some cars do, `ladderCarShare`); absent, every car. */
     hasLadder?(trainId: string, index: number, end: 'front' | 'rear'): boolean;
+    /** A train car's ladders up its long sides (issue #60, boarded from the horse); none when absent. */
+    sideLadders?(trainId: string, index: number): readonly { side: 'left' | 'right'; x: number }[];
   };
 }
 
@@ -414,6 +418,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   let hole: { x: number; y: number; to: { x: number; y: number } | null } | null = null;
   // Each pooled piece's own context, for drawing that changes every frame (interiors, guards, glowing slices).
   const owned = new WeakMap<Graphics, GraphicsContext>();
+  const targetsOf = (car: CarPose) => content.boardingTargets ? content.boardingTargets(car) : carEntryPoints(car, content.catalog);
   const piece = (cut = false, own = true) => {
     let g = slicePool[used];
     if (!g) {
@@ -576,6 +581,13 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
             const a = end === 'front' ? car.halfLength + 0.1 : -car.halfLength - 0.1;
             g.zIndex = depthOf(car.x + car.ux * a, car.y + car.uy * a);
           }
+          // Ladders up the long sides, boarded from the horse (issue #60).
+          for (const l of rc.sideLadders?.(car.trainId, car.index) ?? []) {
+            const g = piece();
+            drawSideLadder(g, car, l.side, l.x, CAR_HEIGHT);
+            const c = carToWorld(car, l.x, l.side === 'left' ? -0.1 : car.halfWidth * 2 + 0.1);
+            g.zIndex = depthOf(c.x, c.y);
+          }
         }
         // The car you are in is drawn open: no roof, its cells as low boxes and its loot, so you show inside it.
         // Up on its roof or on its ladder, it stays closed and you are drawn on it.
@@ -698,7 +710,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       zoneOverlay.clear();
       for (const car of input.cars) {
         if (input.closedTrains?.has(car.trainId)) continue;
-        for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+        for (const ep of targetsOf(car)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
       }
       zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
@@ -754,7 +766,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       if (input.horse && c && input.trainId) {
         for (const car of input.cars) {
           if (car.trainId !== input.trainId) continue;
-          for (const ep of carEntryPoints(car, content.catalog)) {
+          for (const ep of targetsOf(car)) {
             if (ep.side !== c.side) continue;
             const isNearest = c.car === car.index && c.entry === ep.id;
             const state: BoardingState = isNearest ? c.state : 'too far';

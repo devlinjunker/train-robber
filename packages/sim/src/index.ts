@@ -24,3 +24,4 @@ export * from './extraction';
 export * from './rules/outcome';
 export * from './rules/heat';
 export * from './replay';
+export * from './world/view';

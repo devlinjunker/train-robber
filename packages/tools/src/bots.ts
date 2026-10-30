@@ -1,7 +1,7 @@
 // Headless bot sweep: many seeds, every steering and throttle variant, three kinds of rider,
 // and a set of invariants checked after every tick. `npm run bots` runs it in CI.
 import {
-  boardingCheck, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, distanceToTrain, gridWalkable, onRoof, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, trainLadders, WORLD_FRAME,
+  boardingCheck, meterResult, carCatalog, carTemplate, carriedWeight, commitTarget, createSim, distanceToTrain, gridWalkable, onRoof, mountCheck, nearestLoot, nextInt, parseCarFrame, pointInBox, seedRng, toTrain, trainGrid, trainLadders, WORLD_FRAME,
   type Command, type GameState, type RngState, type Sim, type SimConfig,
 } from '@train-robber/sim';
 import type { MapDef } from '@train-robber/config';
@@ -11,7 +11,7 @@ import { ReportBuilder, type BoardingReport } from './report';
 
 /**
  * `idle` sends nothing. `random` mashes every key at random (switching trains and the debug heat keys too), now and then quick retrying so it
- * meets the train. `chaser` quick retries, rides up to a door, commits, jumps after a random wait
+ * meets the train. `chaser` quick retries, rides up to a door, commits, jumps (at doors and platforms) after a random wait
  * so the meter results vary, loots aboard (walks to loot, holds E, sometimes drops something,
  * sometimes lets go early), and goes again.
  */
@@ -70,8 +70,9 @@ export function checkInvariants(sim: Sim, config: SimConfig): string | null {
     } else {
       const f = parseCarFrame(p.placement.frame);
       if (!f || f.trainId !== run?.trainId || (run.phase !== 'aboard' && run.phase !== 'extracting')) return `player ${p.id} in ${p.placement.frame} in phase ${run?.phase ?? 'idle'}`;
-      // Mid-jump you are over open air between roofs: only the landing has to be somewhere.
-      if (!rp?.air && !sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
+      // Mid-jump you are over open air between roofs, and on a side ladder outside the long wall
+      // (issue #60): only the landing has to be somewhere.
+      if (!rp?.air && !rp?.climb?.side && !sim.world.walkable(s, p.placement)) return `player ${p.id} on an unwalkable cell (${p.placement.x}, ${p.placement.y}) of ${p.placement.frame}`;
       // Aboard, the horse is in the world only while it runs off or comes when whistled (U4).
       if (h.mode === 'physical' && run.horse.state === 'away') return `player ${p.id} aboard with the horse physical but not called`;
       if (h.mode !== 'physical' && run.horse.state !== 'away') return `player ${p.id} aboard with the horse ${run.horse.state} but ${h.mode}`;
@@ -146,6 +147,7 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
   // Some boardings go up on the roofs instead of looting: out of the front door to the ladder, up,
   // then run about jumping now and then, and climb down at a ladder if one comes up.
   let roofer = false, roofFor = 0;
+  let aimed = false;
   let last = { x: 0, y: 0 };
   return (sim, t) => {
     const s = sim.state as GameState;
@@ -239,9 +241,15 @@ function chaserBot(rng: RngState, config: SimConfig): Brain {
     if (t % 10 === 0) { const r = riderCommands(sim, config, trainId, check.side); move(r.x, r.y); }
     // Boost now and then while catching up (rejected while cooling down or under handlingModel arcade).
     if (t % 240 === 120 && check.state === 'too far') c.push({ type: 'boost' });
-    if (s.run && check.state === 'eligible') {
+    // The chaser loots, so it jumps for doors and platforms (it walks in from there); side ladders,
+    // which go straight up to the roof, are left to the random bot.
+    // Every other jump is aimed: after the wait it holds on until the marker is in a zone, so the
+    // sweep boards often enough to loot even with narrow zones; the others land wherever the marker is.
+    if (s.run && check.state === 'eligible' && check.target !== 'ladder') {
       if (eligibleFor++ === 0) waitTicks = 1 + nextInt(rng, 'misc', 90);
-      if (eligibleFor >= waitTicks) { c.push({ type: 'jump' }); eligibleFor = 0; }
+      const rp = s.run.players[s.players[0]!.id]!;
+      const ready = !aimed || meterResult(rp.meter, config.values.boarding.meter.zoneWidths).result !== 'fail';
+      if (eligibleFor >= waitTicks && ready) { c.push({ type: 'jump' }); eligibleFor = 0; aimed = !aimed; }
     } else eligibleFor = 0;
     return c;
   };

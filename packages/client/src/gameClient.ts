@@ -3,9 +3,9 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  HORSE_RADIUS, carBoardingTargets, trainSideLadders, guardsInCone, trainOpenings, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
-  type Command, type Sim, type SimEvent, type TrainState,
+  type CarPose, type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
 import { InputMapper, KeyboardSource, worldDirToCar, type MapContext, type ViewAction } from './input';
@@ -189,10 +189,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
 
   const items = config.values.items;
   const boostDustParam = Number(params.get('boostDust') ?? 1);
-  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, outside: config.values.outside,
+  // Where a jump can land on a car: doors (unless shut), platforms and side ladders (issue #60).
+  const boardingTargetsOf = (car: CarPose) => {
+    const t = sim.state.world.trains.find((q) => q.id === car.trainId);
+    return t ? carBoardingTargets(config, car, t.cars, doorsClosed(sim.state, t)) : [];
+  };
+  const sceneContent = { catalog: carCatalog(config), cellTypes: config.values.cellTypes, items, outside: config.values.outside, boardingTargets: boardingTargetsOf,
     roof: { ...config.values.outside.roof, hasLadder: (trainId: string, index: number, end: 'front' | 'rear') => {
       const t = sim.state.world.trains.find((q) => q.id === trainId);
       return !!t && trainLadders(config, t.cars).some((l) => l.car === index && l.end === end);
+    }, sideLadders: (trainId: string, index: number) => {
+      const t = sim.state.world.trains.find((q) => q.id === trainId);
+      return t ? trainSideLadders(config, t.cars).filter((l) => l.car === index) : [];
     } },
     boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
   const search = config.values.verbs.search;
@@ -505,14 +513,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const riderless = physical && !riding;
       // The boarding readout is against the committed train, or the nearest one while idle.
       const readTrain = s.run?.trainId ?? [...s.world.trains].sort((a, c) => distanceToTrain(s, sim.map, config, a.id, horseState.x, horseState.y) - distanceToTrain(s, sim.map, config, c.id, horseState.x, horseState.y))[0]?.id ?? null;
-      // A shut train (a cash-out, or thrown off) cannot be boarded: no boarding readout or meter for it.
+      // A shut train (a cash-out, or thrown off) cannot be boarded at its doors; with platform or
+      // ladder boarding on (issue #60) it still can at those, so the readout stays.
       const readShut = !!readTrain && doorsClosed(s, s.world.trains.find((t) => t.id === readTrain)!);
-      const check = physical && riding && readTrain && !readShut ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
+      const outsideBoarding = b.targets.platforms || (b.targets.sideLadders && config.values.outside.roof.enabled);
+      const check = physical && riding && readTrain && (!readShut || outsideBoarding) ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
       const extracting = phase === 'extracting';
       const call = s.run?.horse ?? null;
       const mount = extracting ? mountCheck(s, sim.map, config, player) : null;
       // The mount meter shows over you while the horse is alongside; it sweeps once you are at a door with the horse in reach.
-      const meter: MeterView | null = phase === 'approach' && run && !readShut
+      const meter: MeterView | null = phase === 'approach' && run && (!readShut || outsideBoarding)
         ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, b.meter.zoneWidths), sweeping: check !== null && check.state !== 'too far', matched: check?.state === 'eligible' }
         : extracting && run && call?.state === 'alongside'
           ? { position: meterPosition(run.meter.phase), ...meterZones(run.meter, ex.meter.zoneWidths), sweeping: mount?.state === 'eligible', matched: false }
@@ -632,6 +642,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         // Up on a roof (or a ladder) you peek at the guards in the car under you: drawn through its
         // roof, so you can tell who might hear you (shown with ?roofPeek=on).
         if (roofPeekOn) for (const g of guardPoses) if (!outsideIds.has(g.id) && g.car === (climbing?.car ?? frame.car)) seenIds.add(g.id);
+      } else if (runGrid && runTrain && riding && horse && phase === 'approach' && b.doorPeek.enabled) {
+        // Riding beside the train: the guards in a cone through a door near you (issue #60), so you
+        // can time the jump. Shut doors show nothing.
+        const peek = b.doorPeek, shutNow = doorsClosed(s, runTrain);
+        const inside = guardPoses.filter((g) => !outsideIds.has(g.id)).map((g) => ({ id: g.id, lx: toTrain(runGrid, g.car, g.x), y: g.y }));
+        if (!shutNow && inside.length > 0) {
+          for (const o of trainOpenings(config, runTrain.cars)) {
+            const car = cars.find((c) => c.trainId === runTrain.id && c.index === o.car);
+            if (!car) continue;
+            const at = carToWorld(car, o.x, o.y);
+            if (Math.hypot(at.x - horse.x, at.y - horse.y) > peek.rangeTiles) continue;
+            for (const id of guardsInCone(runGrid, o, o.facing, peek.coneCos, peek.sightTiles, inside)) seenIds.add(id);
+          }
+        }
       } else if (runGrid && frame && runTrain && frame.trainId === runTrain.id) {
         const plx = toTrain(runGrid, frame.car, placement.x), ply = placement.y;
         for (const g of guardPoses) {
@@ -830,7 +854,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       })();
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
-        : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
+        : phase === 'approach' ? check && check.state !== 'too far' ? `Space: jump${check.target === 'platform' ? ' for the platform' : check.target === 'ladder' ? ' for the ladder' : ''}!`
+          : readShut ? outsideBoarding ? 'The train shut its doors: board at a platform or ladder, or Tab to another train' : 'The train shut its doors: Tab to another train'
+          : outsideBoarding ? 'Ride beside a door, platform or ladder and match the train\'s speed' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : aboardPhase ? run?.climb ? `Climbing ${run.climb.to === 'roof' ? 'up to the roof' : 'down'}...`
               : run?.air ? 'In the air!'
