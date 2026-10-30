@@ -94,7 +94,7 @@ After playtesting M3, Devlin wants to sneak past guards. The design and its seve
 
 Landing on foot after a fall stays for later (wiki Ideas page). Side ladders for boarding straight onto the roof were pulled forward from Phase 3 (Devlin, 2026-10-30, issue #60), with end platform landings and seeing guards through a door while riding alongside: see "Quieter boarding" below.
 
-- [ ] Quieter boarding (issue #60, PR #65): jump from the horse onto the platform at the train's end (door meter) or the one side ladder up to the roof (perfect zone only, also climbable from the ledge); more than half way up a ladder a guard at its foot cannot grab you; riding alongside, guards in a cone through a nearby door show; `boarding.targets`, `boarding.ladderPerfectOnly`, `boarding.doorPeek`, `outside.roof.sideLadder`, `outside.roof.climbSafeShare`, preset `doors-only`
+- [ ] Quieter boarding (issue #60, PR #65): jump from the horse onto the caboose's rear platform (door meter; about 1 in 5 trains have a caboose, sometimes with a guard in it; you can mount your horse from it too) or the one side ladder up to the roof (perfect zone only, also climbable from the ledge); more than half way up a ladder a guard at its foot cannot grab you; riding alongside, guards in a cone through a nearby door show; `boarding.targets`, `boarding.ladderPerfectOnly`, `boarding.doorPeek`, `outside.roof.sideLadder`, `outside.roof.climbSafeShare`, `trains.<id>.cabooseShare`, `trains.<id>.guards.cabooseChance`, preset `doors-only`
 
 ### M4: Extraction
 

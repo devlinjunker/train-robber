@@ -2,6 +2,7 @@
 // beside their car the horse rides to, and whether a mount jump (or the grace window) applies.
 // The client reads these too; the decisions stay in the sim.
 import type { GameState, PlayerState, SimConfig, TrainSide } from '../types';
+import { carBoardingTargets } from './boarding';
 import { carCatalog, carTemplate, entryPointWorld, type CarPose } from './cars';
 import { parseCarFrame } from './frames';
 import type { WorldMap } from './map';
@@ -34,7 +35,7 @@ export function laneTarget(state: GameState, map: WorldMap, config: SimConfig, p
   return { x: car.x + car.ux * along + car.uy * out, y: car.y + car.uy * along - car.ux * out, ux: car.ux, uy: car.uy, car };
 }
 
-/** A side door of the player's car on `side` within `extraction.doorReachTiles` of them, in car cells, with where it is in the world. */
+/** A side door (or the boarding platform) of the player's car on `side` within `extraction.doorReachTiles` of them, in car cells, with where it is in the world. */
 export interface MountDoor { car: number; entry: string; reach: number; x: number; y: number }
 
 export function mountDoor(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState, side: TrainSide): MountDoor | null {
@@ -53,6 +54,17 @@ export function mountDoor(state: GameState, map: WorldMap, config: SimConfig, p:
     const car = carPosesOf(state, map, config, f.trainId)[f.car];
     if (!car) continue;
     best = { car: f.car, entry: ep.id, reach, ...entryPointWorld(car, ep) };
+  }
+  // The platform you can land on from the horse (the caboose's, Devlin PR #65) is a way off too: stand
+  // by its corner on the horse's side.
+  const car = carPosesOf(state, map, config, f.trainId)[f.car];
+  if (car) {
+    for (const tg of carBoardingTargets(config, car, train.cars)) {
+      if (tg.kind !== 'platform' || tg.side !== side) continue;
+      const dx = tg.land.x - p.placement.x, dy = tg.land.y - p.placement.y, reach = Math.sqrt(dx * dx + dy * dy);
+      if (reach > config.values.extraction.doorReachTiles || (best && reach >= best.reach)) continue;
+      best = { car: f.car, entry: tg.id, reach, x: tg.x, y: tg.y };
+    }
   }
   return best;
 }

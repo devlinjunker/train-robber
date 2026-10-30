@@ -67,7 +67,7 @@ export function targetZoneWidths(config: SimConfig, target: BoardingTargetKind |
 
 /**
  * Every boarding target of a placed car, under `boarding.targets`: its side doors (unless `doorsShut`),
- * its end platforms on each side (`train-end`: only the last car's rear; `all`: every end but the
+ * its end platforms on each side (`caboose`: only a caboose's rear; `train-end`: only the last car's rear; `all`: every end but the
  * engine's front, car 0), and its side ladders. `trainCars` is the train's car template list, which
  * says which car is last and which have ladders.
  */
@@ -84,7 +84,8 @@ export function carBoardingTargets(config: SimConfig, car: CarPose, trainCars: r
     for (const ep of tmpl.sideEntries) add('door', ep.id, ep.side, ep.along, { x: ep.cell[0] + 0.5, y: ep.cell[1] + 0.5 });
   }
   if (t.platforms !== 'none' && P > 0) {
-    const d = platformStand(P), last = car.index === trainCars.length - 1;
+    // `caboose`: only the train's last car when it is a caboose (Devlin PR #65); `train-end`: the last car whatever it is.
+    const d = platformStand(P), last = car.index === trainCars.length - 1 && (t.platforms !== 'caboose' || tmpl.carType === 'caboose');
     for (const side of ['left', 'right'] as const) {
       const y = side === 'left' ? 0.5 : rows - 0.5;
       if (t.platforms === 'all' && car.index > 0) add('platform', 'platform-front', side, hl + d, { x: -d, y });

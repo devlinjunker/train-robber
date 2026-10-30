@@ -516,7 +516,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // A shut train (a cash-out, or thrown off) cannot be boarded at its doors; with platform or
       // ladder boarding on (issue #60) it still can at those, so the readout stays.
       const readShut = !!readTrain && doorsClosed(s, s.world.trains.find((t) => t.id === readTrain)!);
-      const outsideBoarding = b.targets.platforms || (b.targets.sideLadders && config.values.outside.roof.enabled);
+      const outsideBoarding = b.targets.platforms !== 'none' || (b.targets.sideLadders && config.values.outside.roof.enabled);
       const check = physical && riding && readTrain && (!readShut || outsideBoarding) ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
       const extracting = phase === 'extracting';
       const call = s.run?.horse ?? null;

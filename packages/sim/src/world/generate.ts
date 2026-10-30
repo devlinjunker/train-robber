@@ -73,7 +73,9 @@ export function pickTrainCars(config: SimConfig, type: string, seed: string): st
       picks[free[nextInt(rng, 'gen', free.length)]!] = doorless[nextInt(rng, 'gen', doorless.length)]!;
     }
   }
-  return [def.engine, ...picks, ...(def.caboose ? [def.caboose] : [])];
+  // With `cabooseShare`, the caboose comes on only that share of runs (Devlin PR #65), rolled last so the layouts stay the same.
+  const caboose = def.caboose && (def.cabooseShare === undefined || def.cabooseShare >= 1 || nextInt(rng, 'gen', 1_000_000) < def.cabooseShare * 1_000_000);
+  return [def.engine, ...picks, ...(caboose ? [def.caboose!] : [])];
 }
 
 /** The seed a free train's layouts come from: the next run's seed plus the train's id. */

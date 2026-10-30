@@ -498,11 +498,16 @@ export function isSearching(g: GuardState, config: SimConfig): boolean {
 /** Place the train's guards for a run: `guardCount` of the layouts' spawns, picked from the `gen` stream. */
 export function generateGuards(state: GameState, config: SimConfig, train: TrainState): GuardState[] {
   const catalog = carCatalog(config);
-  const guarded = train.cars.filter((id) => carTemplate(catalog, id).guardSpawns.length > 0).length;
+  const def = config.values.trains[train.type];
+  // The caboose (the train's last car, when it is its caboose) is kept apart: it never adds to perCar,
+  // and its spawns only take a guard with `guards.cabooseChance` (Devlin PR #65).
+  const cabooseAt = def?.caboose && train.cars[train.cars.length - 1] === def.caboose ? train.cars.length - 1 : -1;
+  const guarded = train.cars.filter((id, car) => car !== cabooseAt && carTemplate(catalog, id).guardSpawns.length > 0).length;
   const n = guardCount(config, train.type, runWantedLevel(state, config), guarded);
   if (n <= 0) return [];
-  const spawns: { car: number; spawn: ReturnType<typeof carTemplate>['guardSpawns'][number] }[] = [];
-  train.cars.forEach((id, car) => { for (const spawn of carTemplate(catalog, id).guardSpawns) spawns.push({ car, spawn }); });
+  type Spawn = { car: number; spawn: ReturnType<typeof carTemplate>['guardSpawns'][number] };
+  const spawns: Spawn[] = [], cabooseSpawns: Spawn[] = [];
+  train.cars.forEach((id, car) => { for (const spawn of carTemplate(catalog, id).guardSpawns) (car === cabooseAt ? cabooseSpawns : spawns).push({ car, spawn }); });
   // A partial shuffle picks which spawns get a guard; ids then follow train order.
   const order = spawns.map((_, i) => i);
   const take = Math.min(n, order.length);
@@ -510,9 +515,15 @@ export function generateGuards(state: GameState, config: SimConfig, train: Train
     const j = i + nextInt(state.rng, GEN, order.length - i);
     [order[i], order[j]] = [order[j]!, order[i]!];
   }
-  const picked = order.slice(0, take).sort((a, b) => a - b);
-  const guards = picked.map((si, id) => {
-    const { car, spawn } = spawns[si]!;
+  let chosen = order.slice(0, take).sort((a, b) => a - b).map((i) => spawns[i]!);
+  // Sometimes one of them stands in the caboose instead: the last one picked moves there.
+  const chance = def?.guards?.cabooseChance ?? 0;
+  if (cabooseSpawns.length && chance > 0 && nextInt(state.rng, GEN, 1_000_000) < chance * 1_000_000) {
+    const at = cabooseSpawns[nextInt(state.rng, GEN, cabooseSpawns.length)]!;
+    // With fewer spawns than guards it is an extra one rather than a move.
+    chosen = chosen.length >= n ? [...chosen.slice(0, -1), at] : [...chosen, at];
+  }
+  const guards = chosen.map(({ car, spawn }, id) => {
     const [fx, fy] = FACING[spawn.facing] ?? FACING.left!;
     const x = spawn.cell[0] + 0.5, y = spawn.cell[1] + 0.5;
     const route = spawn.patrol ? config.values.carTemplates[train.cars[car]!]?.patrols[spawn.patrol] : undefined;

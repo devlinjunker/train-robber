@@ -63,12 +63,13 @@ export const GameSchema = z.object({
      */
     landing: z.object({ stumbleSec: z.number().min(0), stumbleSpeedScale: fraction, goodStumbleInTiles: z.number().min(0) }).strict(),
     /**
-     * Where a jump from the horse can land (issue #60): side doors; end platforms (`train-end` is only
-     * the last car's rear platform, Devlin PR #65; `all` every platform but the engine's front); and the
+     * Where a jump from the horse can land (issue #60): side doors; end platforms (`caboose` is only
+     * the caboose's rear platform, when the train has one, Devlin PR #65; `train-end` the last car's
+     * rear platform whatever it is; `all` every platform but the engine's front); and the
      * side ladders up to the roof (`outside.roof.sideLadder`, needs the roof on). The jump goes to the
      * nearest one on the side you ride. A side ladder only takes the perfect zone with `ladderPerfectOnly`.
      */
-    targets: z.object({ doors: z.boolean(), platforms: z.enum(['none', 'train-end', 'all']), sideLadders: z.boolean() }).strict(),
+    targets: z.object({ doors: z.boolean(), platforms: z.enum(['none', 'caboose', 'train-end', 'all']), sideLadders: z.boolean() }).strict(),
     ladderPerfectOnly: z.boolean(),
     /**
      * Riding beside the train you committed to, you see the guards inside a car who stand in a cone
@@ -211,6 +212,8 @@ export const GameSchema = z.object({
     layouts: z.array(z.string()).min(1).optional(),
     /** Template of the last car, if any. */
     caboose: z.string().optional(),
+    /** The share of runs the train has its caboose, rolled from the train's layout seed (Devlin PR #65: about 1 in 5); always when absent. */
+    cabooseShare: fraction.optional(),
     /**
      * After picking layouts, make sure the train can be boarded: `both` swaps in layouts until each
      * side has at least one side door, `one` until any side has one, `off` leaves the picks alone.
@@ -228,6 +231,11 @@ export const GameSchema = z.object({
       perCar: z.number().min(0).optional(),
       /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
       perWantedLevel: z.number().min(0).optional(),
+      /**
+       * The chance one of the train's guards stands in the caboose instead (Devlin PR #65: "guards in the
+       * caboose sometimes"). Caboose guard spawns are only used this way, and the caboose never adds to `perCar`.
+       */
+      cabooseChance: fraction.optional(),
     }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),

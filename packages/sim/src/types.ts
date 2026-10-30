@@ -522,7 +522,7 @@ export interface SimConfig {
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
-      targets: { doors: boolean; platforms: 'none' | 'train-end' | 'all'; sideLadders: boolean };
+      targets: { doors: boolean; platforms: 'none' | 'caboose' | 'train-end' | 'all'; sideLadders: boolean };
       ladderPerfectOnly: boolean;
       doorPeek: { enabled: boolean; rangeTiles: number; coneHalfAngleDeg: number; coneCos: number; sightTiles: number };
     };
@@ -707,6 +707,8 @@ export interface TrainDef {
   carCount: number;
   layouts?: readonly string[];
   caboose?: string;
+  /** The share of runs the train has its caboose; always when absent. */
+  cabooseShare?: number;
   requireSideDoors: 'both' | 'one' | 'off';
   /** At most this many of the train's cars get side doors (the long-train preset sets 2). */
   maxSideDoorCars?: number;
@@ -714,7 +716,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base?: number; perCar?: number; perWantedLevel?: number };
+  guards?: { base?: number; perCar?: number; perWantedLevel?: number; cabooseChance?: number };
   verbs: readonly string[];
 }
 
