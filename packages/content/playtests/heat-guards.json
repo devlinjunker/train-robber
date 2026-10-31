@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-guards",
+  "title": "Heat and guards",
+  "question": "Gate experiment 5 (PR #58): as heat climbs, guards see, hear and chase better, and a guard that spots you remembers you. Does heat make a greedy robbery feel dangerous at the right point? Is harsh still fun?",
+  "pr": 58,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "off",
+      "name": "Off",
+      "preset": "heat-guards-off"
+    },
+    {
+      "id": "bands",
+      "name": "Bands only",
+      "preset": "heat-bands-only"
+    },
+    {
+      "id": "default",
+      "name": "Bands and memory"
+    },
+    {
+      "id": "harsh",
+      "name": "Harsh",
+      "preset": "heat-harsh"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "heat",
+    "heatRoll",
+    "lootCarried",
+    "banked",
+    "lootLeft"
+  ],
+  "status": "open"
+}

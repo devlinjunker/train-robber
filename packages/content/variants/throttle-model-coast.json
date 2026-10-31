@@ -3,6 +3,7 @@
   "id": "coast",
   "group": "throttleModel",
   "label": "Coast under drag",
+  "help": "Let go of W and the horse slows down under drag.",
   "question": "What should releasing W do?",
   "patch": { "horse": { "throttleModel": "coast" } }
 }

@@ -49,7 +49,7 @@ Initial picks from the procedural maps review (2026-10-18, [options doc](https:/
 - **Seeds.** A new world per career, a daily seed for the daily, and `?seed=` to replay any world. The same seed builds the same world on every machine.
 - **Hand-made maps stay** as test fixtures, golden runs and the source of set pieces.
 
-**Daily demo.** The free daily is a short day; a weekly heist may come later. Your streak, wanted poster and the community line carry over, and your record moves into the full game on purchase. Owners can ride the daily as a gang with free friends, on a gang board, and an occasional free gang weekend lets free players ride together with no owner. Every train type shows up in dailies over a week. No ghost riders in your daily; friends' choices may show on the result screen after you finish.
+**Daily demo.** The free daily is a short day; a weekly heist may come later. Your wanted poster and the community line carry over (a streak is doubtful, since it mostly rewards the most dedicated players, so it stays an open question), and your record moves into the full game on purchase. Owners can ride the daily as a gang with free friends, on a gang board, and an occasional free gang weekend lets free players ride together with no owner. Every train type shows up in dailies over a week. No ghost riders in your daily; friends' choices may show on the result screen after you finish.
 
 ## Core loop
 

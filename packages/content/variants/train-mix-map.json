@@ -3,6 +3,7 @@
   "id": "map",
   "group": "trainMix",
   "label": "The map's own trains",
+  "help": "Trains as the map defines them.",
   "question": "Are blank decoy trains interesting?",
   "patch": {
     "trainMix": {

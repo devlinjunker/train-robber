@@ -155,9 +155,11 @@ export type SimEvent =
    * the line (the run expires there). `practice`: a `wanted.forceLevel` run, so `cashOut` is what the
    * outcome would have banked, but nothing was saved (G9). `heatRoll` (phase 2 M6b): the chance of
    * +`wanted.perHeatRoll` wanted (heat as a share of max), the roll drawn (0 to 1, a hit when below
-   * the chance) and whether it hit; null when the outcome's `heatRoll` is off.
+   * the chance) and whether it hit; null when the outcome's `heatRoll` is off. `lootLeftValue` and
+   * `lootLeftItems` are the loot still in the committed train when the run ended (hidden or not),
+   * for the Playtests page.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; heatRoll?: HeatRoll | null; endOfLine?: true; practice?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; heatRoll?: HeatRoll | null; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few

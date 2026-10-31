@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "time-aboard-heat",
+  "title": "Heat from time aboard",
+  "question": "From PR #16: should heat build up just from being aboard, or only from what you do?",
+  "pr": 16,
+  "setups": [
+    {
+      "id": "default",
+      "name": "0.33 heat per second"
+    },
+    {
+      "id": "none",
+      "name": "No time-aboard heat"
+    }
+  ],
+  "numbers": [
+    "heat",
+    "timeLeft",
+    "length",
+    "outcomes"
+  ],
+  "status": "done",
+  "conclusion": "0.33 per second kept as the default (Devlin, PR #16, 2026-10-14). Removed in Phase 2 M6b (PR #58) when heat started driving guards, so both setups now play the same."
+}
