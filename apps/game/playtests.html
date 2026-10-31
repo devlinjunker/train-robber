@@ -91,6 +91,8 @@
   .empty { padding:24px; text-align:center; color:var(--muted); white-space:normal !important; }
   /* Experiment editor */
   dialog { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:16px; }
+  dialog.small { width:min(460px, calc(100vw - 32px)); }
+  dialog .done-actions { justify-content:flex-end; margin-top:12px; }
   dialog::backdrop { background:#000a; }
   dialog h3 { margin-bottom:8px; }
   dialog fieldset { border:1px solid var(--line); border-radius:6px; margin:10px 0; padding:8px 10px; }
@@ -149,4 +151,5 @@
   <div id="runStats" class="stats"></div>
   <div class="scroll" style="margin-top:6px"><table id="runs"></table></div>
   <dialog id="editor"></dialog>
+  <dialog id="doneDialog" class="small"></dialog>
 </main><script type="module" src="/src/playtests.ts"></script></body></html>

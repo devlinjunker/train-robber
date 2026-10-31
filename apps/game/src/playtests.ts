@@ -321,20 +321,39 @@ async function main() {
       case 'del':
         if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) { own = own.filter((o) => o.id !== exp.id); saveOwn(own); render(); }
         break;
-      case 'done':
-      case 'reopen': {
-        const want = btn.dataset.act === 'done' ? 'done' : 'open';
-        status = { ...status, [exp.id]: want };
-        if (want === (exp.status ?? 'open')) delete status[exp.id];
-        saveStatus(status); renderExperiments();
-        if (want === 'open') flash(exp.id);
-        else if (confirm(`"${exp.title}" is done in this browser.\n\nOK: open a GitHub issue with its results, your answers and the file to commit, so it is finished for everyone.\nCancel: keep it to this browser.`)) {
-          sendExperiment({ ...s, done: true }, true);
-        }
+      case 'reopen':
+        setStatus(exp, 'open'); flash(exp.id);
         break;
-      }
+      case 'done':
+        askDone(s);
+        break;
     }
   };
+  function setStatus(exp: Experiment, want: 'open' | 'done'): void {
+    status = { ...status, [exp.id]: want };
+    if (want === (exp.status ?? 'open')) delete status[exp.id];
+    saveStatus(status); renderExperiments();
+  }
+  /** Mark done asks first: done everywhere (a GitHub issue with the file to commit), done in this browser only, or cancel (nothing changes). */
+  function askDone(s: Shown): void {
+    const dlg = $('doneDialog') as HTMLDialogElement;
+    dlg.innerHTML = `<form method="dialog">
+      <h3>Mark "${esc(s.exp.title)}" done?</h3>
+      <p class="mini">It moves to Finished experiments. Add to GitHub opens an issue with its results, your answers and the file to commit (<code>"status": "done"</code> with your answer as the conclusion), so it is finished for everyone once that file is merged.</p>
+      <div class="row done-actions">
+        <button value="github" class="primary">Add to GitHub${cardPr(s) ? ` (PR #${cardPr(s)})` : ''}</button>
+        <button value="local">Only this browser</button>
+        <button value="cancel">Cancel</button>
+      </div></form>`;
+    dlg.returnValue = '';
+    dlg.onclose = () => {
+      const pick = dlg.returnValue;
+      if (pick !== 'github' && pick !== 'local') return;
+      setStatus(s.exp, 'done');
+      if (pick === 'github') sendExperiment({ ...s, done: true }, true);
+    };
+    dlg.showModal();
+  }
   /** The experiment as a repo file: the base you play it with, and once done, `status: done` with the conclusion (your answer if it has none). */
   function fileFor(s: Shown): Experiment {
     const out: Experiment = structuredClone(s.exp);
