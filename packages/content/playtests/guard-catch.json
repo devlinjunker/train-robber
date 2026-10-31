@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "guard-catch",
+  "title": "What happens when a guard catches you",
+  "question": "From PR #28 (question 1): which makes guards a threat without being frustrating, being thrown off the train or heat only?",
+  "pr": 28,
+  "setups": [
+    {
+      "id": "thrown-off",
+      "name": "Thrown off"
+    },
+    {
+      "id": "heat-only",
+      "name": "Heat only",
+      "preset": "heat-only"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "lootCarried",
+    "heat",
+    "length"
+  ],
+  "status": "done",
+  "conclusion": "Thrown off is the better behaviour and became the default; you also lose loot when thrown off (Devlin, PR #28, 2026-10-17)."
+}

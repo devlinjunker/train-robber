@@ -2,8 +2,8 @@
 // swap from it, so a broken variant fails CI even if no preset picks it yet. Then the
 // train-level car checks: cars that line up, end doors that join, side doors to board by.
 import { existsSync } from 'node:fs';
-import { join, relative } from 'node:path';
-import { MapDefSchema, SceneryDefSchema, resolveConfig, resolveMapGen, type ResolvedConfig } from '@train-robber/config';
+import { basename, join, relative } from 'node:path';
+import { ExperimentSchema, MapDefSchema, SceneryDefSchema, overridesFromSet, resolveConfig, resolveMapGen, setParams, setupSelection, type LoadedContent, type ResolvedConfig } from '@train-robber/config';
 import { carCatalog, cellOpen, layoutPool, type PreparedCar } from '@train-robber/sim';
 import { CONTENT_DIR, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
 
@@ -93,5 +93,39 @@ export function validateContent(dir?: string): ValidateResult {
   if (existsSync(mapGen)) {
     try { resolveMapGen(readJson(mapGen)); } catch (e) { errors.push(`${relative(REPO_ROOT, mapGen)}: ${(e as Error).message}`); }
   }
+  errors.push(...experimentErrors(content, dir ?? CONTENT_DIR));
   return { errors, resolved };
+}
+
+/** Maps a Play link can name besides the built ones: the generated loop and the open line. */
+const GENERATED_MAPS = ['gen', 'line'];
+
+/**
+ * Playtest experiments in playtests/*.json: the schema, the id matching the file name, and every
+ * setup (over the base) resolving to a config, so a typo in a preset, variant or `?set=` path fails CI.
+ */
+export function experimentErrors(content: LoadedContent, dir: string): string[] {
+  const errors: string[] = [];
+  const maps = new Set([...GENERATED_MAPS, ...jsonFiles(join(dir, 'base/maps')).map((p) => basename(p, '.json'))]);
+  for (const path of jsonFiles(join(dir, 'playtests'))) {
+    const rel = relative(REPO_ROOT, path);
+    const r = ExperimentSchema.safeParse(readJson(path));
+    if (!r.success) {
+      const issue = r.error.issues[0]!;
+      errors.push(`${rel} at ${issue.path.join('.') || 'root'}: ${issue.message}`);
+      continue;
+    }
+    const exp = r.data;
+    if (exp.id !== basename(path, '.json')) errors.push(`${rel}: id ${exp.id} does not match the file name`);
+    for (const setup of exp.setups) {
+      const sel = setupSelection(exp.base, setup);
+      if (sel.map && !maps.has(sel.map)) errors.push(`${rel} setup ${setup.id}: unknown map ${sel.map}`);
+      try {
+        resolveConfig(content, { preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)) });
+      } catch (e) {
+        errors.push(`${rel} setup ${setup.id}: ${(e as Error).message}`);
+      }
+    }
+  }
+  return errors;
 }

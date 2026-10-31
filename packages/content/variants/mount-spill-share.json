@@ -3,6 +3,7 @@
   "id": "share",
   "group": "mountSpill",
   "label": "Good mount spills: A share of carried value",
+  "help": "A good (not perfect) mount drops a share (30%) of the value you carry.",
   "question": "What should a good (amber) mount cost?",
   "patch": { "extraction": { "mountSpill": "share" } }
 }

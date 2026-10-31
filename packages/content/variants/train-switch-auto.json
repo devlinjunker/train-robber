@@ -3,6 +3,7 @@
   "id": "auto",
   "group": "trainSwitch",
   "label": "Riding closer switches trains",
+  "help": "Riding close to another train makes it your committed train.",
   "question": "Is switching your committed train better on a key (Tab) or automatic when you ride closer to another train?",
   "patch": { "commit": { "autoSwitch": true } }
 }

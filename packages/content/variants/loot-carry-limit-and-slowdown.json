@@ -3,6 +3,7 @@
   "id": "limit-and-slowdown",
   "group": "lootCarry",
   "label": "Carry limit and weight slowdown",
+  "help": "You can only carry so much weight, and heavy loot slows you down.",
   "question": "Does carry weight make choices interesting?",
   "patch": {
     "carry": {

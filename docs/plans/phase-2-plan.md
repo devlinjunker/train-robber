@@ -2,6 +2,8 @@
 
 > Exported from the live [Phase 2 implementation plan](https://claude.ai/code/artifact/b87c9954-66b4-4b7d-b759-0f74a8eaf0fd) on 2026-10-11, refreshed 2026-10-28 for the M6 regrill. The live doc stays the working copy while Phase 2 runs. Each Phase 2 milestone PR refreshes this file from it, and when Phase 2 ends this copy becomes the final record. Decided values still live in [technical-design.md](../technical-design.md).
 
+M1 values and earlier decisions below are retained as history, not current configuration. M6b's current design is under review in PR #58: heat does not affect the clock or rise just for being aboard; it sharpens guards by band, loot heat is 2 per item, and heat at run end is the chance of +1 wanted. The PR also tests no decay, per-day and per-quiet-day wanted decay; the gate must select the rule.
+
 Oct 10, 2026 · @Devlin
 
 ## Overview
@@ -323,7 +325,7 @@ Decisions from grilling the plan with Devlin, newest last.
 | G33 | Where is the gate played? | On the open line with the next-town clock. Loop maps are for automated tests only and long term are not offered to players. The gate's dial is town spacing, not countdown.scale | 2026-10-28 |
 | G34 | What does heat do now? | Heat never changes the clock. It drives guards, by band: alert and calm-down last longer, sight and hearing grow a little, chase gets faster, more guards patrol (shooting waits for Phase 3). Built in M6 with a heatGuards switch | 2026-10-28 |
 | G35 | Does heat affect wanted level? | Yes: heat at run end is the % chance of +1 wanted, even on a clean extraction. Time-aboard heat (heat.sources.timeAboardPerSec and its no-time-aboard-heat preset) is removed | 2026-10-28 |
-| G36 | How does wanted come back down? (U11 said never) | Decay now: wanted.decayPerDay 1 at each new day. Paying it off with bank comes later with careers and towns | 2026-10-28 |
+| G36 | How does wanted come back down? (U11 said never) | Start with `wanted.decayPerDay` 1 at each new day; experiment 6 compares no decay, per-day and per-quiet-day decay before the gate selects a rule. Paying it off with bank comes later with careers and towns | 2026-10-28 |
 | G37 | Which outcomes roll on heat? | All of them. Expired still adds +1 outright. Died and cancelled roll too (a cancel that didn't roll would dodge wanted); outcomePolicy.<outcome>.heatRoll turns it off per outcome | 2026-10-28 |
 | G38 | Where do the golden runs and bots run? | Loop golden fixed to extract, plus a short line golden. CI: idle and looter bots over 1,000 loop seeds and 25 line seeds. tools report --line runs a few hundred line seeds per preset on demand. The gate answer comes from Devlin's playtest logs | 2026-10-28 |
 | G39 | The Playtests page is too busy. How should it be organized? | Experiments as the backbone, plus the run list split into views (Robbery, Boarding, All) with click-to-expand rows. New numbers go into a view, never as a column everywhere | 2026-10-28 |

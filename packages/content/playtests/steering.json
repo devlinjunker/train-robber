@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "steering",
+  "title": "Steering on the horse",
+  "question": "From Phase 1 M2: is riding easier with heading steering (arrows turn the horse) or screen steering (arrows pick a screen direction)?",
+  "pr": 5,
+  "setups": [
+    {
+      "id": "heading",
+      "name": "Heading",
+      "variants": {
+        "steering": "heading"
+      }
+    },
+    {
+      "id": "screen",
+      "name": "Screen",
+      "variants": {
+        "steering": "screen"
+      }
+    }
+  ],
+  "numbers": [
+    "aboard",
+    "toBoard",
+    "jumps",
+    "damage"
+  ],
+  "status": "done",
+  "conclusion": "Heading steering became the default after the Phase 1 M2 playtest (Devlin, PR #5, 2026-10-09)."
+}
