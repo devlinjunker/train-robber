@@ -1,56 +1,157 @@
 <!doctype html>
 <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Train Robber Playtests</title>
 <style>
-  :root { --bg:#1b1b1f; --panel:#25252b; --line:#3a3a42; --text:#e8e6e1; --muted:#9a978f; --accent:#e0a84a; --died:#e07a6a; --ok:#8cc084; }
+  :root { --bg:#1b1b1f; --panel:#25252b; --panel2:#2d2d34; --line:#3a3a42; --text:#e8e6e1; --muted:#9a978f; --accent:#e0a84a; --died:#e07a6a; --ok:#8cc084; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, sans-serif; }
-  main { margin:0 auto; padding:16px; }
-  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:15px; margin:24px 0 8px; color:var(--accent); }
+  main { margin:0 auto; padding:16px; max-width:1400px; }
+  h1 { font-size:20px; margin:0; } h2 { font-size:15px; margin:24px 0 8px; color:var(--accent); }
+  h3 { font-size:15px; margin:0; }
   .muted { color:var(--muted); font-size:12px; }
-  tr.flash td { background:#4a3f22; transition:background .3s; }
-  a[data-save], a[data-run] { color:var(--accent); }
-  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:12px 0; }
-  button, select, input { font:inherit; font-size:13px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; }
-  button { cursor:pointer; } button:hover { border-color:var(--accent); }
-  a.watch { color:var(--accent); font-size:13px; margin-right:4px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:10px 0; }
+  .head { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
+  .grow { flex:1; }
+  button, select, input, textarea { font:inherit; font-size:13px; background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:4px 8px; }
+  button { cursor:pointer; } button:hover, summary:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#1b1b1f; border-color:var(--accent); font-weight:600; }
+  a { color:var(--accent); }
   label { font-size:12px; color:var(--muted); display:flex; gap:4px; align-items:center; }
+  /* Export menu */
+  details.menu { position:relative; }
+  details.menu > summary { list-style:none; cursor:pointer; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:4px 10px; font-size:13px; }
+  details.menu > summary::-webkit-details-marker { display:none; }
+  details.menu > div { position:absolute; right:0; top:calc(100% + 4px); z-index:5; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:6px; display:flex; flex-direction:column; gap:4px; min-width:250px; box-shadow:0 6px 20px #0008; }
+  details.menu > div button { text-align:left; border-color:transparent; }
+  details.menu > div button:hover { border-color:var(--accent); }
+  details.menu .sep { border-top:1px solid var(--line); margin:2px 0; }
+  /* Filters stay on one line and scroll sideways when there are many. */
+  /* The Variants menu opens under the filter row from its left edge, so it never runs off the right side. */
+  #filters { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:8px 0; position:relative; }
+  #filters details.more { position:static; }
+  #filters details.more > div { left:0; right:auto; top:100%; display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); width:min(640px, calc(100vw - 32px)); gap:6px 10px; }
+  #filters details.more label { justify-content:space-between; }
+  #filters:empty { display:none; }
+  /* Experiment cards */
+  .finished { margin-top:12px; }
+  .finished > summary { cursor:pointer; color:var(--muted); font-size:13px; margin-bottom:8px; }
+  .finished .card { opacity:.85; }
+  .finished #finishedCards { grid-template-columns:repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+  details.results > summary { cursor:pointer; color:var(--accent); font-size:12px; margin:4px 0; }
+  .focus { grid-column:1 / -1; display:flex; gap:8px; align-items:center; }
+  .conclusion { margin:6px 0; padding:6px 8px; border-left:3px solid var(--ok); background:var(--panel2); font-size:13px; }
+  .stats { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; padding:8px 10px; background:var(--panel); border:1px solid var(--line); border-radius:6px; }
+  .stats:empty { display:none; }
+  .stats div { display:flex; flex-direction:column; }
+  .stats span { color:var(--muted); font-size:11px; }
+  .stats b { font-variant-numeric:tabular-nums; }
+  #experiments, #finishedCards { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 560px), 1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; min-width:0; }
+  .card.flash { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+  .card-head { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-start; justify-content:space-between; }
+  .card-head .actions { display:flex; flex-wrap:wrap; gap:4px; }
+  .card-head .actions button { font-size:12px; padding:2px 7px; }
+  .tag { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:10px; padding:0 6px; margin-left:6px; vertical-align:middle; }
+  .question { margin:6px 0; }
+  .base { margin:4px 0 8px; }
+  .base button { font-size:11px; padding:0 6px; }
   .scroll { overflow-x:auto; border:1px solid var(--line); border-radius:6px; }
   table { border-collapse:collapse; width:100%; font-size:13px; }
-  th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; white-space:nowrap; }
-  th { background:var(--panel); font-weight:600; position:sticky; top:0; }
-  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
-  td.notes { white-space:normal; min-width:180px; max-width:360px; color:var(--muted); }
-  td.setup { white-space:normal; max-width:170px; }
-  td.setup .variants { color:var(--muted); font-size:11px; line-height:1.3; }
-  td.setup .variants span { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  /* The actions stay in view at the right edge while the rest of the table scrolls under them. */
-  th.actions, td.actions { position:sticky; right:0; background:var(--bg); box-shadow:-1px 0 0 var(--line); }
-  th.actions { background:var(--panel); z-index:1; }
-  tr:last-child td { border-bottom:none; }
+  th, td { padding:6px 8px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { background:var(--panel2); font-weight:600; }
+  tr:last-child > td { border-bottom:none; }
+  table.cmp td:first-child { color:var(--muted); white-space:nowrap; width:1%; }
+  table.cmp th { min-width:140px; }
+  table.cmp .diff { color:var(--muted); font-size:11px; font-weight:400; margin:2px 0 4px; overflow-wrap:anywhere; }
+  table.cmp a.play { display:inline-block; font-size:12px; text-decoration:none; border:1px solid var(--accent); border-radius:4px; padding:1px 8px; }
+  table.cmp ul { margin:0; padding-left:16px; max-height:120px; overflow:auto; color:var(--muted); font-size:12px; }
+  .answers { display:grid; gap:6px; margin-top:10px; }
+  .answers label { flex-direction:column; align-items:stretch; }
+  .answers textarea { min-height:34px; resize:vertical; }
+  /* Run list */
+  .tabs { display:flex; gap:4px; }
+  .tabs button[aria-pressed="true"] { background:var(--accent); color:#1b1b1f; border-color:var(--accent); }
+  #runs th, #runs td { white-space:nowrap; }
+  #runs td.num, #runs th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  #runs td.setup { max-width:260px; overflow:hidden; text-overflow:ellipsis; }
+  #runs tr.run { cursor:pointer; }
+  #runs tr.run:hover td { background:var(--panel); }
+  #runs tr.run.open td { background:var(--panel2); }
+  #runs tr.run.excluded td { opacity:.45; text-decoration:line-through; text-decoration-color:var(--muted); }
+  button.mini { font-size:11px; padding:0 6px; margin-left:4px; }
+  .hint { font-size:11px; }
+  #runs tr.run.flash td { background:#4a3f22; transition:background .3s; }
+  #runs tr.detail > td { white-space:normal; background:var(--panel2); }
+  .detail dl { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 16px; margin:0 0 8px; }
+  .detail dl div { min-width:0; }
+  .detail dt { color:var(--muted); font-size:11px; }
+  .detail dd { margin:0; overflow-wrap:anywhere; }
+  .detail .notes { margin:6px 0; }
+  .detail .bar { margin:4px 0 0; }
   .extracted { color:#6bd88a; } .died, .expired, .caught { color:var(--died); } .cancelled, .retry { color:var(--accent); } .cashedOut { color:var(--ok); } .abandoned { color:var(--muted); }
-  .empty { padding:24px; text-align:center; color:var(--muted); }
-</style>  <script type="module" crossorigin src="./assets/playtests-2c8SRXYC.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/tester-Dh3YxsfS.js">
+  .empty { padding:24px; text-align:center; color:var(--muted); white-space:normal !important; }
+  /* Experiment editor */
+  dialog { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:16px; }
+  dialog.small { width:min(460px, calc(100vw - 32px)); }
+  dialog .done-actions { justify-content:flex-end; margin-top:12px; }
+  dialog::backdrop { background:#000a; }
+  dialog h3 { margin-bottom:8px; }
+  dialog fieldset { border:1px solid var(--line); border-radius:6px; margin:10px 0; padding:8px 10px; }
+  dialog legend { color:var(--accent); font-size:13px; }
+  dialog .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:4px 0; }
+  dialog .row > label { flex-direction:column; align-items:stretch; }
+  dialog input.wide, dialog textarea.wide { width:100%; }
+  dialog .vars { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 8px; margin:6px 0; }
+  dialog .vars label { flex-direction:column; align-items:stretch; min-width:0; } dialog .vars select { width:100%; min-width:0; }
+  dialog .setrow { flex-wrap:wrap; }
+  dialog .setdoc { flex-basis:100%; font-size:11px; color:var(--muted); line-height:1.35; }
+  dialog .setdoc:empty { display:none; }
+  dialog .vhelp { font-size:11px; color:var(--muted); line-height:1.3; }
+  dialog fieldset[data-setup] { position:relative; }
+  dialog .setup-actions { position:absolute; top:-2px; right:8px; display:flex; gap:4px; }
+  dialog .setup-actions button { font-size:12px; padding:2px 8px; }
+  table.cmp .diff div[title] { text-decoration:underline dotted; cursor:help; }
+  dialog .numbers { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:2px 8px; }
+  dialog .error { color:var(--died); min-height:1.4em; margin:6px 0; white-space:pre-wrap; }
+  dialog .setrow input:first-child { width:220px; } dialog .setrow input:nth-child(2) { width:90px; }
+  dialog .foot { display:flex; gap:8px; justify-content:flex-end; }
+  @media (max-width: 600px) { main { padding:16px 16px; } .card { padding:10px; } }
+</style>  <script type="module" crossorigin src="./assets/playtests-p5BZFFtM.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/tester-BAdM8W10.js">
 </head>
 <body><main>
-  <h1>Playtests</h1>
-  <div class="muted">This build is version <b id="build"></b> (0.phase.milestone). Every run played in this browser is recorded here automatically, with its outcome and notes (N in game). Import other testers' JSON exports to compare. Watch replays a stored run in the game; to watch someone else's run, drop their .commands.log file onto the game page.</div>
-  <div class="bar">
-    <label>Your name <input id="tester" placeholder="for runs from now on" size="16" /></label>
-    <button id="csv">Download CSV</button>
-    <button id="json">Download JSON</button>
-    <button id="import">Import JSON</button>
-    <input id="importFile" type="file" accept=".json,application/json" multiple hidden />
-    <button id="github">Send to GitHub</button>
+  <div class="head">
+    <div>
+      <h1>Playtests</h1>
+      <div class="muted">Build <b id="build"></b> (0.phase.milestone)<span id="buildSha"></span>. Every run played in this browser is recorded here. Experiments compare a few setups on one question: press Play on a setup, play a few runs, then write your answer.</div>
+    </div>
+    <div class="bar">
+      <span id="prLink" class="muted" hidden></span>
+      <label>Your name <input id="tester" placeholder="for runs from now on" size="22" /></label>
+      <details class="menu" id="exportMenu">
+        <summary>Export ▾</summary>
+        <div>
+          <button id="notesCopy">Copy notes (Markdown for a PR comment)</button>
+          <button id="notesIssue">Notes to a GitHub issue (runs with notes)</button>
+          <button id="notesDownload">Download notes</button>
+          <button id="github">Send to GitHub</button>
+          <div class="sep"></div>
+          <button id="csv">Download runs as CSV</button>
+          <button id="json">Download runs as JSON</button>
+          <button id="import">Import runs or an experiment file…</button>
+        </div>
+      </details>
+      <input id="importFile" type="file" accept=".json,application/json" multiple hidden />
+    </div>
   </div>
-  <div class="bar">
-    <span class="muted">Notes from the runs shown below, grouped by version, as Markdown for a PR comment:</span>
-    <button id="notesCopy">Copy notes</button>
-    <button id="notesDownload">Download notes</button>
-  </div>
-  <div class="bar" id="filters"></div>
-  <h2>By setup</h2>
-  <div class="scroll"><table id="summary"></table></div>
-  <h2>Runs</h2>
-  <div class="scroll"><table id="runs"></table></div>
+  <div id="filters"></div>
+  <div class="head"><h2>Experiments</h2><button id="newExp">New experiment</button></div>
+  <div id="experiments"></div>
+  <details id="finished" class="finished" hidden><summary>Finished experiments (<span id="finishedCount">0</span>)</summary><div id="finishedCards"></div></details>
+  <div class="head"><h2>Runs</h2><div class="tabs" id="views"></div></div>
+  <div class="muted" id="viewHelp"></div>
+  <div id="excludedToggle" class="muted" hidden></div>
+  <div id="runStats" class="stats"></div>
+  <div class="scroll" style="margin-top:6px"><table id="runs"></table></div>
+  <dialog id="editor"></dialog>
+  <dialog id="doneDialog" class="small"></dialog>
 </main></body></html>
