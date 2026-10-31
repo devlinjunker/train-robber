@@ -114,7 +114,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   // The countdown is copied into the run at commit (U1); with `startsAt: boarding` it waits there.
   const train = state.world.trains.find((t) => t.id === id)!;
   const cd = config.values.countdown;
-  // On an open line the clock runs to the next town instead (countdown.lineClock).
+  // On an open line the clock may run to the next town instead (trainClock `next-town`).
   const towards = lineClock(map, config, train);
   const countdownSec = towards ? towards.sec : runCountdownSec(config, train.type);
   // Run generation: the train's layouts were picked for this run number; fill its loot slots,
@@ -231,7 +231,7 @@ function resetToSpawn(ctx: RunCtx, p: PlayerState): void {
  * `cashOut` is the loot value the run would bank (an extraction: the carried value after any spill);
  * it goes into the bank and lifetime earned when the outcome's policy has `bankRunLoot`.
  */
-export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0, endOfLine = false): void {
+export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: boolean, cashOut = 0, endOfLine = false, town?: string): void {
   const { state } = ctx;
   const run = state.run;
   if (!run) return;
@@ -250,6 +250,7 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
     lootLeftValue, lootLeftItems: left.length,
     ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
+    ...(town !== undefined ? { town } : {}),
   });
   // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
   state.persistent = after;
@@ -673,9 +674,10 @@ export function debugHeat(ctx: RunCtx, p: PlayerState, source: HeatSource | unde
 
 /**
  * Tick system 11, run end: a player at no health dies; otherwise a run whose countdown is at zero
- * expires once the grace window no longer holds it (U3), and on an open line a run whose train
- * reaches the end of the line expires there too (the law gets on in the next town). All of them
- * then reset as cancel does.
+ * expires once the grace window no longer holds it (U3); under the next-town clock that is the
+ * train pulling into the town (RunEnded `town`). Under the fixed countdown, on an open line, a run
+ * whose train reaches the end of the line expires there too (`endOfLine`). All of them then reset
+ * as cancel does.
  */
 export function runEndSystem(ctx: RunCtx): void {
   const run = ctx.state.run;
@@ -690,12 +692,14 @@ export function runEndSystem(ctx: RunCtx): void {
   if (!run) return;
   for (const p of ctx.state.players) {
     if (run.players[p.id] && countdownExpired(ctx, p)) {
-      endRun(ctx, p, 'expired', false);
+      // Under the next-town clock the train has pulled into that town.
+      endRun(ctx, p, 'expired', false, 0, false, run.clockTo !== undefined && run.clockTo !== 'end' ? run.clockTo : undefined);
       resetToSpawn(ctx, p);
       return;
     }
   }
-  const train = ctx.map.openLine ? ctx.state.world.trains.find((t) => t.id === run.trainId) : undefined;
+  // Under the fixed countdown an open line's end ends the run; the next-town clock ends it in the end town instead.
+  const train = ctx.map.openLine && (run.clockTo === undefined || run.clockTo === 'end' || !run.clockRunning) ? ctx.state.world.trains.find((t) => t.id === run.trainId) : undefined;
   if (train && atLineEnd(ctx.map, ctx.config, train)) {
     for (const p of ctx.state.players) {
       if (!run.players[p.id]) continue;

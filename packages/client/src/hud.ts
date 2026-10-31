@@ -34,6 +34,8 @@ export interface HudState {
   debug: string | null;
   /** The countdown while a run has one, else null. */
   clock: ClockView | null;
+  /** On an open line: when the next train is due at the next town, or when yours gets there (G6); null hides it. */
+  eta?: string | null;
   /** Heat while a run is active, else null. */
   heat: { now: number; max: number } | null;
   /** The wanted level runs use now (0 to `max`); `practice` when `wanted.forceLevel` sets it. Null hides it. */
@@ -110,6 +112,7 @@ const CSS = `
 .tr-hud .clock { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px;
   background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
 .tr-hud .clock-row { display: flex; gap: 10px; align-items: center; }
+.tr-hud .eta { font-size: 13px; color: #e8d9a8; white-space: nowrap; }
 .tr-hud .clock-time { font-size: 22px; font-weight: 800; min-width: 64px; text-align: right; }
 .tr-hud .clock-bar { width: 280px; height: 16px; background: #222; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
 /* Stripes slide left at the drain rate, so a faster clock visibly runs faster. */
@@ -149,7 +152,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const root = document.createElement('div');
   root.className = 'tr-hud';
   root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
-    <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
+    <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div><span class="eta"></span>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
@@ -161,6 +164,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
     lootEl = q('.loot-total'), lootTitle = q('.lt-title'), lootDetail = q('.lt-detail'),
     hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
+  const eta = q('.eta');
   const wantedEl = q('.wanted'), bankEl = q('.bank');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
@@ -232,6 +236,8 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       set(controls, s.controls);
       // The panel always shows the phase; the countdown and heat appear under it during a run.
       clock.querySelector<HTMLElement>('.clock-row')!.style.display = s.clock ? '' : 'none';
+      eta.style.display = s.eta ? '' : 'none';
+      if (s.eta) set(eta, s.eta);
       if (s.clock) {
         const share = s.clock.total > 0 ? Math.max(0, Math.min(1, s.clock.sec / s.clock.total)) : 0;
         setClass(clock, `clock ${clockStep(share)}`);

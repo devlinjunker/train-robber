@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "train-clock",
+  "title": "Train clock on the open line",
+  "question": "From PR #47 (question 2): on the open line, is the run's clock better as your train's time to the next town (next-town, heat doesn't speed it up, the run ends as the train pulls in) or as the fixed 2:30 countdown that heat drains?",
+  "pr": 47,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "next-town",
+      "name": "Next town (default)"
+    },
+    {
+      "id": "fixed",
+      "name": "Fixed countdown",
+      "preset": "fixed-clock"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "timeLeft",
+    "lootCarried",
+    "lootLeft",
+    "heat"
+  ]
+}

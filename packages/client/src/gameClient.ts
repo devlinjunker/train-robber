@@ -22,6 +22,7 @@ import { createAudioBus } from './audio';
 import { heatNotice, tickBucket } from './clock';
 import { createStreamedOverlayGround, drawMapOverlay } from './topdown/mapOverlay';
 import { createMinimap } from './minimap';
+import { timetableText, townEta } from './townEta';
 import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
@@ -164,8 +165,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     }
     return d;
   };
-  /** A town's name on screen, numbered along the line; `end` is the end of the line. */
-  const placeName = (id: string) => id === 'end' ? 'END OF LINE' : `TOWN ${towns.findIndex((t) => t.id === id) + 1}`;
+  /** A town's name on screen (G6); `end` is the end of a line without an end town. */
+  const townName = (id: string) => towns.find((t) => t.id === id)?.name ?? id;
+  const placeName = (id: string) => id === 'end' ? 'END OF LINE' : townName(id).toUpperCase();
   // What the line clock counted down to, kept past the run's end for the expiry message.
   let lastClockTo: string | undefined;
   const edgeArrows: 'town' | 'trains' | 'both' = arrowsParam === 'town' || arrowsParam === 'trains' || arrowsParam === 'both' ? arrowsParam : towns.length ? 'town' : 'trains';
@@ -372,7 +374,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (e.cause === 'alarmRaised') { alarmAt = now; audio.play('alarm', audioCfg.volume); } else audio.play('heat', audioCfg.volume);
     } else if (e.type === 'RunEnded' && e.outcome === 'expired') {
       audio.play('expired', audioCfg.volume);
-      const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
+      // The next-town clock names the town the train pulled into (RunEnded.town).
+      const to = e.town ?? lastClockTo;
+      const why = e.endOfLine || to === 'end' ? 'The train reached the end of the line' : to ? `The train pulled into ${townName(to)}` : "Time's up";
       show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') {
       show(`Extracted! $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}`, 'good', 3500);
@@ -703,15 +707,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
       }
-      // The next town ahead of the rider along the line: the first whose clearing is not yet behind them.
+      // The next town ahead of the rider along the line: the first whose clearing is not yet behind
+      // them (never the start town, which is behind everyone).
       let town: TownPointer | null = null;
+      const riderAlong = ridden && lineRoute && towns.length ? alongLine(ridden.x, ridden.y) : null;
       if (ridden && edgeArrows !== 'trains') {
-        const at = lineRoute ? alongLine(ridden.x, ridden.y) : 0;
-        const i = towns.findIndex((t) => t.d + t.radiusTiles > at);
-        const t = towns[i];
+        const at = riderAlong ?? 0;
+        const t = towns.find((q) => q.end !== 'start' && q.d + q.radiusTiles > at);
         if (t) {
           const p = project(t.x, t.y, iso ? isoWorld.groundZ(t.x, t.y) : 0);
-          town = { name: `TOWN ${i + 1}`, sx: p.x, sy: p.y, distanceTiles: Math.hypot(t.x - ridden.x, t.y - ridden.y) };
+          town = { name: t.name.toUpperCase(), sx: p.x, sy: p.y, distanceTiles: Math.hypot(t.x - ridden.x, t.y - ridden.y) };
         }
       }
       // The line cue, on the far side of the run's train in iso.
@@ -756,7 +761,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const bucket = clockOn ? tickBucket(rs.countdownSec, audioCfg) : null;
       if (bucket !== null && lastTick !== null && bucket !== lastTick && rs!.countdownSec > 0) audio.play(bucket < 0 ? 'tickFast' : 'tick', audioCfg.volume * audioCfg.tickVolume);
       lastTick = bucket;
-      // The line clock (countdown.lineClock) runs to a town and heat does not speed it up.
+      // The next-town clock (trainClock) runs to a town and heat does not speed it up.
       const rate = rs && rs.clockTo === undefined ? drainRate(rs.heat, config.values.heat) : 1;
       if (rs) lastClockTo = rs.clockTo;
       heatNotices = heatNotices.filter((n) => n.until > now);
@@ -881,6 +886,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
+        eta: townEta({
+          map: sim.map, config, seed: s.seed, tick: s.tick, towns, clockTo: rs?.clockTo, riderAlong,
+          train: rs ? (s.world.trains.find((t) => t.id === rs.trainId) ?? null) : null, typeName: (type) => showNames ? config.values.trains[type]?.name ?? null : null,
+        }),
         clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },
@@ -905,6 +914,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           call && s.run ? `extraction: horse ${call.state.toUpperCase()} ${call.side}  ${(call.ticks / tickRateHz).toFixed(1)} s${call.blocked ? `  BLOCKED ${call.blocked}` : ''}  whistles ${call.whistles}  mounts ${call.mountAttempts}  cooldown ${cdSec.toFixed(1)} s${mount ? `  mount ${mount.state}${Number.isFinite(mount.horseDistance) ? ` ${mount.horseDistance.toFixed(1)} tiles` : ''}` : ''}` : '',
           s.run && s.run.guards.length ? `guards (${config.values.ai.guardCatch}): ${s.run.guards.map((g) => `${g.id} car ${g.car} ${g.state}${g.state === 'suspicious' ? ` ${g.sightTicks}/${config.values.ai.alertAfterTicks}` : ''}`).join(', ')}  cones ${showCones ? (faintCones ? 'faint' : 'on') : 'off'}` : '',
           s.run ? `loot: ${lootLeft.length} left in the train (${lootLeft.filter((l) => l.hidden).length} hidden)  carried ${carried.length} items, ${weight.toFixed(1)} weight, $${carry?.value ?? 0}${searching ? `  searching loot ${searching.loot} ${searching.ticks}/${searchTicks} ticks` : ''}` : '',
+          ...(riderAlong !== null && towns.length ? [timetableText(sim.map, config, s.seed, s.tick, towns.find((t) => t.end !== 'start' && t.d + t.radiusTiles > riderAlong) ?? towns.at(-1)!)] : []),
           ...(host.recentEvents.length ? ['recent events:', ...host.recentEvents.slice(-4)] : []),
         ].filter(Boolean).join('\n'),
       });

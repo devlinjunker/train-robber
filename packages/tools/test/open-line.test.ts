@@ -60,7 +60,7 @@ describe('the open line grows piece by piece', () => {
 });
 
 describe('open line maps', () => {
-  it('run across the map from off one end to off the other, with one or two towns in clearings', () => {
+  it('run across the map from off one end to off the other, with one or two towns in clearings and one off each end', () => {
     const { map, info } = generateLine('shape-1', settings);
     expect(map.id).toBe(LINE_MAP_ID);
     expect(map.size).toEqual({ cols: settings.line.lengthTiles, rows: settings.line.widthTiles });
@@ -70,10 +70,12 @@ describe('open line maps', () => {
     expect(r.samples.x.at(-1)).toBeGreaterThan(map.size.cols);
     expect(map.openLine?.headwayTiles).toBe(settings.line.trainHeadwayTiles);
     expect(map.openLine?.headwaySpreadTiles).toBe(settings.line.trainHeadwaySpreadTiles);
-    expect(map.towns!.length).toBeGreaterThanOrEqual(1);
-    expect(map.towns!.length).toBeLessThanOrEqual(2);
-    expect(info.towns).toBe(map.towns!.length);
-    for (const t of map.towns!) expect(map.markers[t.id]).toBeTruthy();
+    const inner = map.towns!.filter((t) => !t.end);
+    expect(inner.length).toBeGreaterThanOrEqual(1);
+    expect(inner.length).toBeLessThanOrEqual(2);
+    expect(info.towns).toBe(inner.length);
+    for (const t of inner) expect(map.markers[t.id]).toBeTruthy();
+    expect(map.towns!.filter((t) => t.end).map((t) => t.d)).toEqual([0, r.length]);
   });
 
   it('pass the map checks with other lengths, widths, curviness, towns and themes', () => {
@@ -145,21 +147,25 @@ describe('open lines are deterministic', () => {
     expect(sha(map)).toBe(PINNED.map);
     expect(sha(scenery)).toBe(PINNED.scenery);
     // G4 built the tiles in chunks and added `generated` to the map, which moved the map pin once;
-    // the tiles, routes and markers are still exactly the G3 ones.
+    // G6 (line generator 3) gave towns names, sizes, buildings and end towns, which moved it again.
+    // The tiles, routes and markers are still exactly the G3 ones.
     expect(sha(map.zones)).toBe('9569c6973a0b3bb7');
     expect(sha(map.elevation)).toBe('c53da0b03adcd059');
     expect(sha(map.routes)).toBe('69a90b6ca7b0618e');
     expect(sha(map.markers)).toBe('5e32385ac16d1d56');
+    // The scenery pin moves with the source hash; its items and bridges are the G4 ones.
+    expect(sha(scenery.items)).toBe('32248979054b532f');
+    expect(sha(scenery.bridges)).toBe('723400a0f7296908');
   });
 });
 
-const PINNED = { map: '9dfb7f8fd203ba65', scenery: '50cb77e6f09cbb17' };
+const PINNED = { map: '872f902947473894', scenery: '93d6d2e6ec3dde0d' };
 
 describe('the line clock', () => {
   const { map } = generateLine('line-clock', settings);
   const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map' } });
 
-  it('counts down to the next town at least LINE_CLOCK_MIN_SEC ahead of the train, or the end of the line', () => {
+  it('counts down to the next town at least LINE_CLOCK_MIN_SEC ahead of the train, or the town at the end of the line', () => {
     const sim = createSim({ config, map, seed: 'line-clock', playerIds: [1] });
     expect(sim.map.towns.length).toBeGreaterThan(0);
     for (const train of sim.state.world.trains) {
@@ -167,7 +173,8 @@ describe('the line clock', () => {
       const { route } = routeOf(sim.map, config, train);
       const d = c.to === 'end' ? route.length : sim.map.towns.find((t) => t.id === c.to)!.d;
       expect(c.sec).toBeCloseTo((d - train.d) / trainSpeed(config, train.type), 6);
-      if (c.to !== 'end') expect(c.sec).toBeGreaterThanOrEqual(LINE_CLOCK_MIN_SEC);
+      expect(c.to).not.toBe('end');
+      if (c.to !== 'line-end') expect(c.sec).toBeGreaterThanOrEqual(LINE_CLOCK_MIN_SEC);
       // No town between the train and the one it counts to, other than ones too close to count.
       for (const t of sim.map.towns) if (t.d < d && t.d > train.d) expect((t.d - train.d) / trainSpeed(config, train.type)).toBeLessThan(LINE_CLOCK_MIN_SEC);
     }

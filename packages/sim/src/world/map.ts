@@ -25,11 +25,12 @@ export interface SimMap {
   markers: { playerSpawn: { x: number; y: number } };
   /** Open line maps: trains enter at the start of the line once the last one is headwayTiles in, and leave past its end. */
   openLine?: { headwayTiles: number; headwaySpreadTiles?: number };
-  /** Town spots along an open line: where on which route (MapDef.towns). */
+  /** Towns along an open line: where on which route (MapDef.towns). */
   towns?: readonly MapTown[];
 }
 
-export interface MapTown { id: string; route: string; d: number }
+/** A town along an open line: where on which route; `end` marks the towns off the ends of the line (G6). */
+export interface MapTown { id: string; route: string; d: number; end?: 'start' | 'end' }
 
 export interface MapTrain { type: string; route: string; d: number }
 
@@ -133,7 +134,7 @@ export function prepareMap(map: SimMap): WorldMap {
     trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
     openLine: map.openLine ? { ...map.openLine } : null,
-    towns: (map.towns ?? []).map(({ id, route, d }) => ({ id, route, d })).sort((a, b) => a.d - b.d),
+    towns: (map.towns ?? []).map(({ id, route, d, end }) => ({ id, route, d, ...(end ? { end } : {}) })).sort((a, b) => a.d - b.d),
   };
 }
 

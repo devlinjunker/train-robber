@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "next-town",
+  "group": "trainClock",
+  "label": "Time until the train reaches the next town (open lines)",
+  "question": "Should the run's clock be a fixed countdown or the time to the next town?",
+  "patch": { "countdown": { "trainClock": "next-town" } }
+}

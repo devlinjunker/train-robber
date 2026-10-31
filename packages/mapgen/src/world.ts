@@ -8,7 +8,7 @@
 //
 // A window gives exactly the tiles a whole-map pass gives (the G3 generator did one pass over every
 // tile; a test checks the chunks against the whole map). Deterministic maths only (see dmath.ts).
-import { ELEVATION_MAX, SCENERY_KINDS, ZONES, type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone } from '@train-robber/config';
+import { ELEVATION_MAX, SCENERY_KINDS, ZONES, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import type { Track, Vec } from './track';
 
@@ -29,7 +29,8 @@ export interface WorldOpts {
   towns: MapGenSettings['line']['towns'] | null;
 }
 
-export type Town = NonNullable<MapDef['towns']>[number];
+/** A town's place: a flat clearing beside the track (towns.ts makes it a town). */
+export interface TownSpot { id: string; route: string; d: number; x: number; y: number; side: 1 | -1; radiusTiles: number }
 
 interface Stretch { side: number; strip: number | null; inner: number; outer: number }
 
@@ -82,7 +83,7 @@ export interface WorldPlan {
   stamps: { x: number[]; y: number[]; half: number[]; tag: number[] }; stampIndex: CellIndex;
   fords: { x: number; y: number; radius: number }[]; fordIndex: CellIndex;
   bridges: SceneryDef['bridges'];
-  towns: Town[];
+  towns: TownSpot[];
   /** Mesa stamps: each marks up to three tiles from (x, y) that are at least minD from the track. */
   puts: { x: number[]; y: number[]; minD: number[] }; putIndex: CellIndex;
   /** Tiles forced open on the way from the spawn to the track. */
@@ -164,7 +165,7 @@ function riversIn(p: WorldPlan, x0: number, y0: number, w: number, h: number, ma
 const onDeck = (p: WorldPlan, tx: number, ty: number) => p.bridges.some((b) => tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h);
 
 /** Tiles from the edge of the nearest town clearing (negative inside), or Infinity with none. */
-function townGap(towns: readonly Town[], cx: number, cy: number): number {
+function townGap(towns: readonly TownSpot[], cx: number, cy: number): number {
   let best = Infinity;
   for (const t of towns) best = Math.min(best, Math.sqrt((cx - t.x) * (cx - t.x) + (cy - t.y) * (cy - t.y)) - t.radiusTiles);
   return best;

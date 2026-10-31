@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "town-spacing",
+  "title": "Town spacing on the open line",
+  "question": "From PR #47 (question 3): with the next-town clock, town spacing sets how long a robbery lasts. Is the time from boarding to the next town about right with towns at least 1,200 tiles apart (about 2-4 minutes of train time), or should they be closer or farther apart? This feeds the Phase 2 M6 robbery time.",
+  "pr": 47,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "close",
+      "name": "More towns (2-3, 800+ apart)",
+      "set": {
+        "mapGen.line.towns.minGapTiles": 800,
+        "mapGen.line.towns.count": "[2,3]"
+      }
+    },
+    {
+      "id": "default",
+      "name": "Default (1-2, 1,200+ apart)"
+    },
+    {
+      "id": "far",
+      "name": "One town per line",
+      "set": {
+        "mapGen.line.towns.minGapTiles": 2000,
+        "mapGen.line.towns.count": "[1,1]"
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "lootCarried",
+    "lootLeft",
+    "banked",
+    "aboard"
+  ]
+}

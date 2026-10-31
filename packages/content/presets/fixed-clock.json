@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "fixed-clock",
+  "extends": "alpha-default",
+  "variants": {
+    "trainClock": "fixed-countdown"
+  }
+}

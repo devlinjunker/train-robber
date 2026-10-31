@@ -114,8 +114,16 @@ export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null, w
   const markers = new Graphics();
   for (const p of Object.values(map.markers)) markers.poly([p.x, p.y - 0.8, p.x + 0.8, p.y, p.x, p.y + 0.8, p.x - 0.8, p.y]);
   markers.fill({ color: 0xb46bff });
-  // Town spots on an open line: a ring round each clearing.
-  for (const t of map.towns ?? []) markers.circle(t.x, t.y, t.radiusTiles).stroke({ width: 0.4, color: 0xe8d9a8, alpha: 0.8 });
+  // Towns on an open line (G6): a faint ring round each clearing and each building's footprint.
+  for (const t of map.towns ?? []) {
+    if (t.end) continue;
+    markers.circle(t.x, t.y, t.radiusTiles).stroke({ width: 0.3, color: 0xe8d9a8, alpha: 0.4 });
+    for (const b of t.layout) {
+      const lx = -b.uy * b.halfWidth, ly = b.ux * b.halfWidth, fx = b.ux * b.halfLength, fy = b.uy * b.halfLength;
+      markers.poly([b.x + fx + lx, b.y + fy + ly, b.x + fx - lx, b.y + fy - ly, b.x - fx - lx, b.y - fy - ly, b.x - fx + lx, b.y - fy + ly])
+        .fill({ color: b.kind === 'platform' ? 0x8a6a48 : 0xc9a46a, alpha: 0.9 }).stroke({ width: 0.15, color: 0x000000 });
+    }
+  }
 
   // Junctions: a ring and the shared tangent, labelled with their id, as are segments at their middle.
   const junctions = new Graphics();
