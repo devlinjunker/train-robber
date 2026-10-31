@@ -57,10 +57,11 @@ export function lineClear(map: WorldMap, x0: number, y0: number, x1: number, y1:
 
 /**
  * A* over the coarse grid, 8 neighbours (no corner cutting), octile costs, ties broken by the order
- * cells were found so it is deterministic. The start and goal cells count as open. Returns the cells
+ * cells were found so it is deterministic. The start and goal cells count as open; `shut` closes
+ * more (the cars where they are now). Returns the cells
  * after the start up to the goal, or null when no path exists.
  */
-export function findPath(g: PathGrid, start: number, goal: number): number[] | null {
+export function findPath(g: PathGrid, start: number, goal: number, shut?: (i: number) => boolean): number[] | null {
   if (start === goal) return [];
   const n = g.cols * g.rows;
   const cost = new Float64Array(n).fill(Infinity);
@@ -71,7 +72,7 @@ export function findPath(g: PathGrid, start: number, goal: number): number[] | n
     const dx = Math.abs((i % g.cols) - gx), dy = Math.abs(Math.floor(i / g.cols) - gy);
     return 10 * Math.max(dx, dy) + 4 * Math.min(dx, dy);
   };
-  const open = (i: number) => i === goal || i === start || pathCellOpen(g, i);
+  const open = (i: number) => i === goal || i === start || (pathCellOpen(g, i) && !shut?.(i));
   // Binary heap of [f, seq, cell].
   const heap: [number, number, number][] = [];
   let seq = 0;

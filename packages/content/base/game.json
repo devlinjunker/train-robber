@@ -58,7 +58,8 @@
     "alongsideRangeTiles": 3, "mountRangeTiles": 4, "doorReachTiles": 1.5,
     "meter": { "sweepPeriodSec": 1.85, "zoneWidths": [0.03, 0.15] },
     "mountSpill": "random", "spillShare": 0.3, "pathCellTiles": 3, "stuckSec": 3,
-    "passThroughBeyondTiles": 30, "goodMountStunSec": 1
+    "passThroughBeyondTiles": 30, "goodMountStunSec": 1,
+    "paceClockRangeTiles": 5, "unstick": "passThrough"
   },
   "countdown": { "enabled": true, "startsAt": "commit", "scale": 1, "graceSec": 3 },
   "heat": {

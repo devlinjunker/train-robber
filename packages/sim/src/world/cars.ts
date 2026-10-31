@@ -109,6 +109,33 @@ const rear: TrackPoint = { d: 0, x: 0, y: 0, tx: 1, ty: 0 };
  * Track distance between one car body's rear and the next one's front: a platform at each end
  * and the coupling gap between them (sneaking PR 2). 0 puts the cars end to end, as before.
  */
+/**
+ * Boxes that close the coupling gap between neighbouring cars of a train, for horses to collide
+ * with. On a bend the gap opens into a wedge on the outside of the curve that a horse can ride into
+ * and be squeezed in as the train straightens (issue #60). Each box spans from one car's rear to the
+ * next car's front along their mean axis, as wide as the wider car, and reaches past both ends far
+ * enough to cover the wedge's outer corners. `cars` are boxes as placed (platforms included or not).
+ */
+export function couplingBoxes(cars: readonly CarPose[]): CarPose[] {
+  const out: CarPose[] = [];
+  for (let i = 0; i + 1 < cars.length; i++) {
+    const a = cars[i]!, b = cars[i + 1]!;
+    if (a.trainId !== b.trainId || b.index !== a.index + 1) continue;
+    const rx = a.x - a.ux * a.halfLength, ry = a.y - a.uy * a.halfLength;
+    const fx = b.x + b.ux * b.halfLength, fy = b.y + b.uy * b.halfLength;
+    let ux = a.ux + b.ux, uy = a.uy + b.uy;
+    const n = Math.sqrt(ux * ux + uy * uy);
+    if (n === 0) continue;
+    ux /= n; uy /= n;
+    const halfWidth = Math.max(a.halfWidth, b.halfWidth);
+    // sin of half the bend between the two cars: how far the wedge's corners reach along the axis.
+    const sinHalf = Math.sqrt(Math.max(0, (1 - (a.ux * b.ux + a.uy * b.uy)) / 2));
+    const gap = Math.sqrt((fx - rx) ** 2 + (fy - ry) ** 2);
+    out.push({ trainId: a.trainId, index: a.index, template: a.template, x: (rx + fx) / 2, y: (ry + fy) / 2, ux, uy, halfLength: gap / 2 + halfWidth * sinHalf + 0.1, halfWidth });
+  }
+  return out;
+}
+
 export function carSpacing(config: SimConfig): number {
   const o = config.values.outside;
   return 2 * o.platformDepthTiles + o.couplingGapTiles;

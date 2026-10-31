@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "horse-unstick",
+  "title": "Stuck horse: ride through or keep trying",
+  "question": "From PR #62 (issue #60): when the whistled horse gets stuck on rocks, it now rides through them for the rest of that call. Does that get you off the train more reliably, and does it look OK, compared with the old horse that keeps trying where it is?",
+  "pr": 62,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "pass-through",
+      "name": "Rides through when stuck"
+    },
+    {
+      "id": "keep-trying",
+      "name": "Keeps trying (old)",
+      "set": { "extraction.unstick": "off" }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "whistles",
+    "length",
+    "damage"
+  ]
+}

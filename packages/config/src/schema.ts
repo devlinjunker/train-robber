@@ -166,6 +166,10 @@ export const GameSchema = z.object({
     passThroughBeyondTiles: z.number().min(0),
     /** A good mount stuns the horse this long (no steering, speed held), as a failed boarding jump does. */
     goodMountStunSec: z.number().min(0),
+    /** The pace window only counts down while the horse is within this of its lane point, so a horse held up by rocks or the train keeps its window (issue #60). */
+    paceClockRangeTiles: positive,
+    /** What a stuck horse does (issue #60): `passThrough` rides through rocks and water (and mud at full speed) for the rest of that call; `off` keeps trying where it is. */
+    unstick: z.enum(['passThrough', 'off']),
   }).strict(),
   /**
    * Overrides for the procedural map generator (`?map=gen`), merged over base/map-gen.json and checked

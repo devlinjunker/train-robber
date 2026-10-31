@@ -357,7 +357,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // A scrape inside a crash's flash keeps the longer flash.
       const now = performance.now(), sec = e.kind === 'scrape' ? SCRAPE_FLASH_SEC : HIT_FLASH_SEC;
       if (now - hitAt > hitFlashSec * 1000 || sec > hitFlashSec) { hitAt = now; hitFlashSec = sec; }
-      show(collisionNotice(e.against, e.kind, e.amount, e.against === 'obstacle' ? obstacleHit() : undefined), 'bad', e.kind === 'scrape' ? 1000 : 2000);
+      // Aboard, the only collision is a trackside rock scraping you on a ledge.
+      const ledge = e.against === 'obstacle' && !!carOf(sim.state.players[0]!.placement.frame);
+      show(collisionNotice(e.against, e.kind, e.amount, e.against === 'obstacle' ? obstacleHit() : undefined, ledge), 'bad', ledge ? 2500 : e.kind === 'scrape' ? 1000 : 2000);
     }
     else if (e.type === 'RunStarted') {
       switchedAt = performance.now();
