@@ -88,7 +88,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'spotted', 'thrownOff', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -102,7 +102,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
       ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
       notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
-      cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
+      cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, spotted: r.spotted, thrownOff: r.thrownOff, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });
@@ -233,6 +233,8 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
     }
     case 'damage': return (avgOf(rs, (r) => r.damageTaken) ?? 0).toFixed(0);
     case 'whistles': { const w = avgOf(rs, (r) => r.whistles); return w == null ? '–' : w.toFixed(1); }
+    case 'spotted': { const n = avgOf(rs, (r) => r.spotted); return n == null ? '–' : n.toFixed(1); }
+    case 'thrownOff': { const n = avgOf(rs, (r) => r.thrownOff); return n == null ? '–' : n.toFixed(1); }
   }
 }
 
@@ -240,7 +242,7 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
 export const NUMBER_LABELS: Record<ExperimentNumber, string> = {
   outcomes: 'Ended', length: 'Avg length', lootCarried: 'Avg carried', banked: 'Avg banked', lootLeft: 'Avg left on train', lootLost: 'Avg lost on the way', wanted: 'Wanted (start → after)',
   timeLeft: 'Avg time left', heat: 'Avg heat', aboard: 'Got aboard', toBoard: 'Median to board', jumps: 'Jumps (P / G / F)',
-  damage: 'Avg damage', whistles: 'Avg whistles',
+  damage: 'Avg damage', whistles: 'Avg whistles', spotted: 'Avg spotted', thrownOff: 'Avg thrown off',
 };
 export { EXPERIMENT_NUMBERS };
 

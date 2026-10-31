@@ -462,6 +462,7 @@ async function main() {
       ['Jumps (perfect / good / fail)', `${r.boardingAttempts} (${r.boarding.perfect} / ${r.boarding.good} / ${r.boarding.fail})`], ['Furthest', r.furthestPhase],
       ['Commit to aboard', duration(r.commitToAboardSec)], ['Damage taken', String(r.damageTaken)],
       ['Whistles', String(r.whistles ?? '–')], ['Mount jumps', String(r.mountAttempts ?? '–')],
+      ['Spotted by guards', String(r.spotted ?? '–')], ['Thrown off by guards', String(r.thrownOff ?? '–')],
       ['Refused commands', Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(', ') || '–'],
     ];
     const notes = r.notes.length

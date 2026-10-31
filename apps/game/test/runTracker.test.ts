@@ -49,6 +49,21 @@ describe('run tracker', () => {
     expect(s!.setup).toBe('alpha-default · steering:heading throttleModel:coast · set countdown.scale=4');
     expect(s!.outcomes.expired).toBe(1);
   });
+  it('counts guard sightings and throw-offs (PR #51), in the record and the CSV', () => {
+    const t = createRunTracker(meta);
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    t.events([
+      ev({ type: 'PlayerSpotted', tick: 10, player: 1, guard: 0, car: 1 }),
+      ev({ type: 'PlayerSpotted', tick: 20, player: 1, guard: 1, car: 2 }),
+      ev({ type: 'ThrownOff', tick: 30, player: 1, guard: 1, car: 2 }),
+    ], 'T1');
+    const [rec] = t.events([ev({ type: 'RunEnded', tick: 600, player: 1, outcome: 'cancelled', durationTicks: 600, boardingAttempts: 1, retry: false, countdownLeftSec: 140, heat: 2 })], 'T2');
+    expect(rec).toMatchObject({ spotted: 2, thrownOff: 1 });
+    const [head, row] = toCsv([rec!]).split('\n');
+    const cols = head!.split(',');
+    expect(row!.split(',')[cols.indexOf('spotted')]).toBe('2');
+    expect(row!.split(',')[cols.indexOf('thrownOff')]).toBe('1');
+  });
   it('records the loot carried at run end: picked up minus dropped, shown in the summary and CSV', () => {
     const t = createRunTracker(meta);
     t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
