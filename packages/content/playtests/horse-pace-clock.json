@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "horse-pace-clock",
+  "title": "Horse pace window: pause while held back",
+  "question": "From PR #62 (issue #60): the 10 s pace window now only counts down while the horse is within 5 tiles of you. Does it feel like a fair window to mount? Compare a tighter 3 tiles and the old clock that always ran.",
+  "pr": 62,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "range-5",
+      "name": "Pauses beyond 5 tiles"
+    },
+    {
+      "id": "range-3",
+      "name": "Pauses beyond 3 tiles",
+      "set": { "extraction.paceClockRangeTiles": 3 }
+    },
+    {
+      "id": "always",
+      "name": "Always counts (old)",
+      "set": { "extraction.paceClockRangeTiles": 1000 }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "whistles",
+    "timeLeft",
+    "length"
+  ]
+}
