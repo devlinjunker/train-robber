@@ -36,6 +36,9 @@ jobs:
       # Relative base so the same build works at the site root and under pr-preview/pr-N/.
       - if: github.event.action != 'closed'
         run: npx tsc -b && npm run build -w @train-robber/game -- --base ./
+        env:
+          # The PR's own head commit (the checkout is the merge ref), shown on the Playtests page.
+          VITE_BUILD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Deploy main
         if: github.event_name == 'push'

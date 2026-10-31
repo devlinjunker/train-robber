@@ -3,6 +3,7 @@
   "id": "arcade",
   "group": "handlingModel",
   "label": "Arcade handling, no boost",
+  "help": "Arcade riding with no boost.",
   "question": "Is the horse boost worth having?",
   "patch": { "horse": { "boost": { "enabled": false } } }
 }

@@ -282,9 +282,13 @@ describe('mount', () => {
     const sim = aboard();
     rp(sim).carried.push('cash-bundle', 'parcel', 'letter');
     untilAlongside(sim);
+    // The run end also says what was left on the train: every item not taken, hidden or not.
+    const loot = S(sim).run!.loot;
+    loot.push({ id: 900, car: 0, x: 1.5, y: 1.5, item: 'strongbox', hidden: true, taken: false }, { id: 901, car: 0, x: 2.5, y: 1.5, item: 'parcel', hidden: false, taken: true });
+    const left = loot.filter((l) => !l.taken);
     const ev = mount(sim, 'perfect');
     expect(of(ev, 'MountAttempt')[0]).toMatchObject({ result: 'perfect', attempt: 1 });
-    expect(of(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'extracted', cashOut: 65 });
+    expect(of(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'extracted', cashOut: 65, lootLeftItems: left.length, lootLeftValue: left.reduce((n, l) => n + config.values.items[l.item]!.value, 0) });
     expect(of(ev, 'PersistentChanged')[0]!.after).toMatchObject({ bank: 65, lifetimeEarned: 65, wantedLevel: 0 });
     expect(S(sim).run).toBeNull();
     expect(player(sim).placement.frame).toBe('world');

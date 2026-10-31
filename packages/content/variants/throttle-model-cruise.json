@@ -3,6 +3,7 @@
   "id": "cruise",
   "group": "throttleModel",
   "label": "Cruise target",
+  "help": "W and S set a target speed that the horse holds.",
   "question": "What should releasing W do?",
   "patch": { "horse": { "throttleModel": "cruise" } }
 }

@@ -3,6 +3,7 @@
   "id": "time-and-damage",
   "group": "boardingFailure",
   "label": "Time and damage",
+  "help": "A failed jump costs time and some health.",
   "question": "Should a failed jump cost health as well as time?",
   "patch": {}
 }

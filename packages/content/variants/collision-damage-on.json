@@ -3,6 +3,7 @@
   "id": "on",
   "group": "collisionDamage",
   "label": "Crashes hurt",
+  "help": "Scrapes cost a little health; crashes cost more the faster you hit.",
   "question": "Should running into the train or a rock cost health?",
   "patch": {}
 }
