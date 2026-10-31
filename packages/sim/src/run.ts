@@ -4,7 +4,7 @@ import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, runWantedLevel } from './rules/outcome';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
-import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
+import { advanceMeter, boardingCheck, targetZoneWidths, type BoardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
 import { HORSE_RADIUS, type Impact } from './world/riding';
 import { Space, toTrain, trainGrid } from './world/guards';
 import { isSolid, Terrain, terrainAt } from './world/map';
@@ -393,19 +393,16 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
     if (run.phase === 'aboard' || run.phase === 'extracting') continue;
     if (run.phase !== 'approach') { if (jumped) reject(ctx, p.id, 'jump', 'aboard'); continue; }
 
-    // A shut train (thrown off with `cashOut.closeDoorsOnThrownOff`) cannot be boarded: the meter parks.
-    if (doorsClosed(state, state.world.trains.find((t) => t.id === run.trainId)!)) {
-      if (jumped) reject(ctx, p.id, 'jump', 'doors closed');
-      advanceMeter(rp.meter, 'too far', b.meter);
-      continue;
-    }
+    // A shut train (thrown off with `cashOut.closeDoorsOnThrownOff`) cannot be boarded at its doors;
+    // its platforms and side ladders still can (issue #60), so with none of those in range the meter parks.
+    const shut = doorsClosed(state, state.world.trains.find((t) => t.id === run.trainId)!);
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
       // In range is enough to try; a speed mismatch only means the faster meter.
       if (check.state === 'too far') {
-        reject(ctx, p.id, 'jump', 'too far');
+        reject(ctx, p.id, 'jump', shut ? 'doors closed' : 'too far');
       } else {
-        resolveJump(ctx, p, h, check.car!, check.entry!);
+        resolveJump(ctx, p, h, check);
         continue;
       }
     }
@@ -414,25 +411,33 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
   }
 }
 
-function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, entry: string): void {
+function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, check: BoardingCheck): void {
+  const car = check.car!, entry = check.entry!, target = check.target!;
   const { state, config } = ctx;
   const run = state.run!;
   const rp = run.players[p.id]!;
   const b = config.values.boarding;
   rp.boardingAttempts += 1;
-  const { result, position } = meterResult(rp.meter, b.meter.zoneWidths);
+  const { result, position } = meterResult(rp.meter, targetZoneWidths(config, target));
   setPhase(ctx, p.id, 'boarding');
-  ctx.emit({ type: 'BoardingAttempt', tick: state.tick, player: p.id, result, attempt: rp.boardingAttempts, meter: position });
+  ctx.emit({ type: 'BoardingAttempt', tick: state.tick, player: p.id, result, attempt: rp.boardingAttempts, meter: position, target });
   // The jump has resolved, so the next attempt gets new zones.
   rollMeterZones(state, rp.meter, b.meter.zoneWidths);
   rp.meter.phase = 0;
   if (result !== 'fail') {
-    ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry });
+    // A door lands in its doorway; a platform or a side ladder where the target says (issue #60).
+    ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car, entry, at: target === 'door' ? undefined : check.land! });
     rp.stumbleTicks = result === 'good' ? b.landing.stumbleTicks : 0;
-    // A perfect landing stays in the doorway; a good one staggers in, into the open.
-    if (result === 'good') stumbleIn(state, config, p, b.landing.goodStumbleInTiles);
+    // A perfect landing stays in the doorway; a good one staggers in, into the open. On a ladder
+    // there is nowhere to stagger: a good grab only makes the stumble's noise.
+    if (result === 'good' && target !== 'ladder') stumbleIn(state, config, p, b.landing.goodStumbleInTiles);
     rp.crouched = false;
     Object.assign(rp, freshRoofState());
+    // On a side ladder you climb straight up to the roof.
+    if (target === 'ladder') {
+      const rc = config.values.outside.roof;
+      rp.climb = { ticks: Math.max(1, rc.climbTicks), car, end: rc.sideLadder.end, to: 'roof', side: entry === 'ladder-left' ? 'left' : 'right' };
+    }
     // The riderless horse runs off for `horse.runOffSec`, then leaves the world (U4).
     run.horse = { ...freshHorseCall(), state: 'leaving', ticks: config.values.horse.runOffTicks };
     // The mount meter starts parked with fresh zones at its own widths.

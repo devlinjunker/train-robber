@@ -78,7 +78,7 @@ export const TEST_MAIL_TRAIN: Values['trains'][string] = {
 
 /** The shipped roof values at 60 Hz (sneaking PR 3), switched on. */
 export const ROOF: Values['outside']['roof'] = {
-  enabled: true, ladderEnds: 'both', ladderCarShare: 1, ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
+  enabled: true, ladderEnds: 'both', ladderCarShare: 1, ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, sideLadder: { end: 'rear', fromEndTiles: 3, perTrain: 1 }, climbSafeShare: 0.5, speedTilesPerTick: 5 / 60,
   noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
   edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0 }, dropStumbleTicks: 36,
   jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480 },
@@ -111,6 +111,10 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         meter: { sweepPeriodTicks: 72, matchedSweepPeriodTicks: 108, zoneWidths: [0.1, 0.25] },
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
+        // Doors only, as before issue #60; the boarding-targets tests switch the others on.
+        targets: { doors: true, platforms: 'none', sideLadders: false },
+        ladderPerfectOnly: true,
+        doorPeek: { enabled: false, rangeTiles: 6, coneHalfAngleDeg: 45, coneCos: Math.cos(Math.PI / 4), sightTiles: 10 },
       },
       health: { max: 100, scope: 'day' },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },

@@ -23,9 +23,9 @@ export function lapProblems(map: MapDef, seed: string, config = mapTrainsConfig(
   const trains = map.trains?.length ?? 1;
   if (sim.state.world.trains.length !== trains) out.push(`${sim.state.world.trains.length} trains, expected ${trains}`);
   for (let t = 0, n = lapTicks(map, config); t < n; t++) sim.step([{ player: 1, commands: [] }]);
-  // Engine, its cars and the caboose, if any, for each train.
-  const carsOf = (type: string) => { const d = config.values.trains[type]!; return 1 + d.carCount + (d.caboose ? 1 : 0); };
-  const want = sim.state.world.trains.reduce((n, t) => n + carsOf(t.type), 0);
+  // Engine, its cars and the caboose, if this run's train has one (`cabooseShare`), for each train.
+  const carsOf = (t: { type: string; cars: readonly string[] }) => { const d = config.values.trains[t.type]!; return 1 + d.carCount + (d.caboose && t.cars[t.cars.length - 1] === d.caboose ? 1 : 0); };
+  const want = sim.state.world.trains.reduce((n, t) => n + carsOf(t), 0);
   if (sim.cars().length !== want) out.push(`${sim.cars().length} cars after a lap, expected ${want}`);
   return out;
 }

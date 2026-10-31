@@ -119,7 +119,8 @@ export type SimEvent =
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
   | { type: 'CommandRejected'; tick: number; player: PlayerId; command: Command['type']; reason: RejectReason }
   /** `meter` is the sampled position, 0 to 1. */
-  | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
+  /** `target` is where the jump went (absent in logs from before issue #60: a door). */
+  | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number; target?: BoardingTargetKind }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' | 'mount' }
   /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
@@ -187,7 +188,7 @@ export type SimEvent =
   /** A trackside rock knocked the player off a ledge of car `car`: they land on the horse as if thrown off. */
   | { type: 'FellOff'; tick: number; player: PlayerId; car: number; cause: FallCause }
   /** The player finished climbing a ladder of car `car`'s `end`, onto its roof or down to its platform (sneaking PR 3). */
-  | { type: 'Climbed'; tick: number; player: PlayerId; car: number; end: CarEnd; to: 'roof' | 'deck' }
+  | { type: 'Climbed'; tick: number; player: PlayerId; car: number; end: CarEnd; to: 'roof' | 'deck'; side?: 'left' | 'right' }
   /** Space on a roof: a jump of `distanceTiles` (speed x air time plus the push) from car `car`'s roof. */
   | { type: 'RoofJumped'; tick: number; player: PlayerId; car: number; distanceTiles: number }
   /**
@@ -212,6 +213,9 @@ export type GuardAwareness = 'unaware' | 'suspicious' | 'alert';
 export type FallCause = 'rock' | 'jump' | 'slip';
 /** A car's front or rear end, where its end platform and ladder are. */
 export type CarEnd = 'front' | 'rear';
+
+/** Where a jump from the horse lands: a side door, an end platform, or a side ladder up to the roof (issue #60). */
+export type BoardingTargetKind = 'door' | 'platform' | 'ladder';
 
 /**
  * A guard aboard the committed train (phase 2 M3: perception, no combat). Positions are in its
@@ -285,8 +289,12 @@ export interface PlayerRunState {
   searchLatched: boolean;
   /** Crouching aboard (C): slower, quieter, hidden behind cover. Cleared on leaving the train. */
   crouched: boolean;
-  /** Climbing a ladder of car `car`'s `end` (sneaking PR 3): ticks left, then on the roof (`to: 'roof'`) or the platform. */
-  climb: { ticks: number; car: number; end: CarEnd; to: 'roof' | 'deck' } | null;
+  /**
+   * Climbing a ladder of car `car`'s `end` (sneaking PR 3): ticks left, then on the roof (`to: 'roof'`)
+   * or the platform. With `side`, it is that side's ladder up the car's long wall (`outside.roof.sideLadder`),
+   * reached by jumping from the horse: always up, to the roof.
+   */
+  climb: { ticks: number; car: number; end: CarEnd; to: 'roof' | 'deck'; side?: 'left' | 'right' } | null;
   /** In the air after a roof jump: ticks left, and the step per tick in the takeoff car's frame. */
   air: { ticks: number; vx: number; vy: number } | null;
   /** Slipping on a roof on a curve: sliding toward side `dir` (car-frame y) until leaned against for `outside.roof.slip.leanSec`. */
@@ -515,6 +523,9 @@ export interface SimConfig {
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
+      targets: { doors: boolean; platforms: 'none' | 'caboose' | 'train-end' | 'all'; sideLadders: boolean };
+      ladderPerfectOnly: boolean;
+      doorPeek: { enabled: boolean; rangeTiles: number; coneHalfAngleDeg: number; coneCos: number; sightTiles: number };
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
     health: { max: number; scope: 'day' | 'run' };
@@ -674,6 +685,8 @@ export interface RoofConfig {
   ladderRow: number;
   ladderReachTiles: number;
   climbTicks: number;
+  sideLadder: { end: CarEnd; fromEndTiles: number; perTrain: number };
+  climbSafeShare: number;
   speedTilesPerTick: number;
   noise: { walkRadiusTiles: number; runRadiusTiles: number; crouchRadiusTiles: number; landRadiusTiles: number; landTicks: number };
   edgeSeenTiles: number;
@@ -695,6 +708,8 @@ export interface TrainDef {
   carCount: number;
   layouts?: readonly string[];
   caboose?: string;
+  /** The share of runs the train has its caboose; always when absent. */
+  cabooseShare?: number;
   requireSideDoors: 'both' | 'one' | 'off';
   /** At most this many of the train's cars get side doors (the long-train preset sets 2). */
   maxSideDoorCars?: number;
@@ -702,7 +717,7 @@ export interface TrainDef {
   countdown: { baseSec: number };
   loot?: { table: string; density: number };
   /** Guards placed on the layouts' guard spawns at commit: `base`, plus the wanted level bonus from M5. */
-  guards?: { base?: number; perCar?: number; perWantedLevel?: number };
+  guards?: { base?: number; perCar?: number; perWantedLevel?: number; cabooseChance?: number };
   verbs: readonly string[];
 }
 

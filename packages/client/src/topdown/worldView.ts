@@ -126,9 +126,10 @@ export function createWorldView(content: SceneContent): WorldView {
       entries.clear();
       zones.clear();
       const shut = (car: CarPose) => input.closedTrains?.has(car.trainId) ?? false;
+      // Doors, platforms and side ladders (issue #60); a shut train's platforms and ladders stay open.
+      const targetsOf = (car: CarPose) => content.boardingTargets ? content.boardingTargets(car) : shut(car) ? [] : carEntryPoints(car, content.catalog);
       for (const car of cars) {
-        if (shut(car)) continue;
-        for (const ep of carEntryPoints(car, content.catalog)) {
+        for (const ep of targetsOf(car)) {
           entries.circle(ep.x, ep.y, 0.35);
           zones.circle(ep.x, ep.y, input.rangeTiles);
         }

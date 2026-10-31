@@ -6,7 +6,8 @@
 // it. Climbing, jumps and slips live in the run's player state, so a snapshot resumes mid-jump.
 import type { CarEnd, FallCause, GameState, PlayerRunState, PlayerState, SimConfig, SimEvent } from '../types';
 import { carFrame, parseCarFrame } from './frames';
-import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
+import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, ROOF_STEP_IN, Space, spaceAt, toTrain, trainGrid, trainLadders, trainSideLadders, type Ladder, type SideLadder, type TrainGrid } from './guards';
+import { SIDE_LADDER_OUT } from './boarding';
 import { carrySpeedScale, carriedWeight } from './loot';
 import type { WorldMap } from './map';
 import { curvePull } from './curve';
@@ -52,6 +53,23 @@ export function ladderInReach(state: GameState, config: SimConfig, p: PlayerStat
   return best;
 }
 
+/**
+ * The side ladder a player on a ledge could climb now (issue #60, Devlin PR #65): on the ledge of that
+ * car and side, within `outside.roof.ladderReachTiles` along the car of it; null when none.
+ */
+export function sideLadderInReach(state: GameState, config: SimConfig, p: PlayerState): SideLadder | null {
+  const f = parseCarFrame(p.placement.frame);
+  const train = f && state.world.trains.find((t) => t.id === f.trainId);
+  if (!f || !train || !config.values.outside.roof.enabled || p.placement.layer === 'roof') return null;
+  const g = trainGrid(config, train.cars);
+  const { x, y } = p.placement;
+  if (spaceAt(g, toTrain(g, f.car, x), y) !== Space.Ledge) return null;
+  const side = y < 0 ? 'left' : y >= g.carRows[f.car]! ? 'right' : null;
+  if (!side) return null;
+  const reach = config.values.outside.roof.ladderReachTiles;
+  return trainSideLadders(config, train.cars).find((l) => l.car === f.car && l.side === side && Math.abs(l.x - x) <= reach) ?? null;
+}
+
 /** E at a ladder: start climbing it. Refused off a run, mid-jump or mid-slip, already climbing, or with no ladder in reach. */
 export function climb(ctx: RoofCtx & { emit(ev: SimEvent): void }, p: PlayerState, reject: (reason: 'not aboard' | 'busy' | 'no ladder' | 'disabled') => void): void {
   const run = ctx.state.run;
@@ -60,7 +78,17 @@ export function climb(ctx: RoofCtx & { emit(ev: SimEvent): void }, p: PlayerStat
   if (!ctx.config.values.outside.roof.enabled) return reject('disabled');
   if (rp.climb || rp.air || rp.slip) return reject('busy');
   const l = ladderInReach(ctx.state, ctx.config, p);
-  if (!l) return reject('no ladder');
+  if (!l) {
+    // On a ledge by a side ladder: up it to the roof, from where you hang on it.
+    const s = sideLadderInReach(ctx.state, ctx.config, p);
+    if (!s) return reject('no ladder');
+    const rows = trainGrid(ctx.config, ctx.state.world.trains.find((t) => t.id === parseCarFrame(p.placement.frame)!.trainId)!.cars).carRows[s.car]!;
+    rp.climb = { ticks: Math.max(1, ctx.config.values.outside.roof.climbTicks), car: s.car, end: ctx.config.values.outside.roof.sideLadder.end, to: 'roof', side: s.side };
+    p.placement.x = s.x;
+    p.placement.y = s.side === 'left' ? -SIDE_LADDER_OUT : rows + SIDE_LADDER_OUT;
+    rp.search = null;
+    return;
+  }
   rp.climb = { ticks: Math.max(1, ctx.config.values.outside.roof.climbTicks), car: l.car, end: l.end, to: p.placement.layer === 'roof' ? 'deck' : 'roof' };
   rp.search = null;
 }
@@ -167,8 +195,15 @@ export function roofSystem(ctx: RoofCtx): { p: PlayerState; cause: FallCause } |
     if (rp.slipCooldownTicks > 0) rp.slipCooldownTicks -= 1;
     if (rp.climb) {
       if (--rp.climb.ticks > 0) continue;
-      const { car, end, to } = rp.climb;
+      const { car, end, to, side } = rp.climb;
       rp.climb = null;
+      // A side ladder (boarded from the horse) tops out at the roof's long edge, stepped in a little.
+      if (side) {
+        const rows = g.carRows[car]!;
+        p.placement = { frame: carFrame(train.id, car), x: p.placement.x, y: side === 'left' ? ROOF_STEP_IN : rows - ROOF_STEP_IN, layer: 'roof' };
+        ctx.emit({ type: 'Climbed', tick: state.tick, player: p.id, car, end, to, side });
+        continue;
+      }
       const l = trainLadders(config, train.cars).find((q) => q.car === car && q.end === end);
       if (!l) continue;
       if (to === 'roof') p.placement = { frame: carFrame(train.id, car), x: l.roofX, y: l.y, layer: 'roof' };

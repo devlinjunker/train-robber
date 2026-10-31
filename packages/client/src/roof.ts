@@ -11,10 +11,12 @@ export function climbPose(state: Readonly<GameState>, config: SimConfig, p: Play
   const train = state.run && state.world.trains.find((t) => t.id === state.run!.trainId);
   if (!rp?.climb || !train) return null;
   const c = rp.climb;
+  const done = 1 - c.ticks / Math.max(1, config.values.outside.roof.climbTicks);
+  // A side ladder (boarded from the horse, issue #60): you hang where you landed, outside the long wall.
+  if (c.side) return { car: c.car, x: p.placement.x, y: p.placement.y, progress: done };
   const l = trainLadders(config, train.cars).find((q) => q.car === c.car && q.end === c.end);
   if (!l) return null;
   const g = trainGrid(config, train.cars);
-  const done = 1 - c.ticks / Math.max(1, config.values.outside.roof.climbTicks);
   return { car: l.car, x: l.deckLx - g.offsets[l.car]!, y: l.y, progress: c.to === 'roof' ? done : 1 - done };
 }
 

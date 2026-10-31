@@ -81,6 +81,38 @@ export const GameSchema = z.object({
       /** How far in from the door a good landing staggers you. */
       goodStumbleInTiles: z.number().min(0),
     }).strict(),
+    /**
+     * Where a jump from the horse can land (issue #60): side doors; end platforms (`caboose` is only
+     * the caboose's rear platform, when the train has one, Devlin PR #65; `train-end` the last car's
+     * rear platform whatever it is; `all` every platform but the engine's front); and the
+     * side ladders up to the roof (`outside.roof.sideLadder`, needs the roof on). The jump goes to the
+     * nearest one on the side you ride. A side ladder only takes the perfect zone with `ladderPerfectOnly`.
+     */
+    targets: z.object({
+      /** Side doors take a jump (off: only the platform and ladder). */
+      doors: z.boolean(),
+      /** Which end platforms take a jump: `caboose`, `train-end`, `all` or `none`. */
+      platforms: z.enum(['none', 'caboose', 'train-end', 'all']),
+      /** The side ladder takes a jump. */
+      sideLadders: z.boolean(),
+    }).strict(),
+    /** A jump at a side ladder only lands in the meter's perfect zone (off: the door meter). */
+    ladderPerfectOnly: z.boolean(),
+    /**
+     * Riding beside the train you committed to, you see the guards inside a car who stand in a cone
+     * through an opening (side door or end door) within `rangeTiles` of the horse: `coneHalfAngleDeg`
+     * either side of straight in, up to `sightTiles` deep, with nothing in between. Client only.
+     */
+    doorPeek: z.object({
+      /** See guards through a door while riding beside the train. */
+      enabled: z.boolean(),
+      /** How close to a door the horse must be. */
+      rangeTiles: positive,
+      /** How wide the cone through the door is, each side of straight in. */
+      coneHalfAngleDeg: z.number().gt(0).max(90),
+      /** How deep into the car the cone reaches. */
+      sightTiles: positive,
+    }).strict(),
   }).strict(),
   health: z.object({
     /** Full health; damage values elsewhere are fractions of this. */
@@ -233,6 +265,8 @@ export const GameSchema = z.object({
     layouts: z.array(z.string()).min(1).optional(),
     /** Template of the last car, if any. */
     caboose: z.string().optional(),
+    /** The share of runs the train has its caboose, rolled from the train's layout seed (Devlin PR #65: about 1 in 5); always when absent. */
+    cabooseShare: fraction.optional(),
     /**
      * After picking layouts, make sure the train can be boarded: `both` swaps in layouts until each
      * side has at least one side door, `one` until any side has one, `off` leaves the picks alone.
@@ -258,6 +292,11 @@ export const GameSchema = z.object({
       perCar: z.number().min(0).optional(),
       /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
       perWantedLevel: z.number().min(0).optional(),
+      /**
+       * The chance one of the train's guards stands in the caboose instead (Devlin PR #65: "guards in the
+       * caboose sometimes"). Caboose guard spawns are only used this way, and the caboose never adds to `perCar`.
+       */
+      cabooseChance: fraction.optional(),
     }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
@@ -513,6 +552,22 @@ export const GameSchema = z.object({
       ladderReachTiles: positive,
       /** How long a climb up or down takes, for the player and for guards. */
       climbSec: z.number().min(0),
+      /**
+       * `perTrain` ladders up the long sides of the cars that have end ladders (which car and side is a
+       * hash of the train's car list), `fromEndTiles` in from that `end`. Reached by jumping from the
+       * horse (`boarding.targets.sideLadders`) or with E from the ledge beside it; it climbs to the roof
+       * in `climbSec` (issue #60, PR #65).
+       */
+      sideLadder: z.object({
+        /** The car end the side ladder is measured from. */
+        end: z.enum(['front', 'rear']),
+        /** How far in from that end it stands. */
+        fromEndTiles: z.number().min(0.5),
+        /** How many side ladders a train has. */
+        perTrain: z.number().int().min(0),
+      }).strict(),
+      /** Climbing, more than this share of the way up a ladder you are out of reach of a guard at its foot (Devlin, PR #65). */
+      climbSafeShare: z.number().min(0).max(1),
       /** Top speed on a roof, running; walking is half, crouched is this times player.crouch.speedScale (inside: 8 running). */
       speedTilesPerSec: positive,
       /** Footsteps on a roof carry this far to a guard in the car below or on a roof: walking, running, crouched; and the thud of a jump's landing for landSec. */

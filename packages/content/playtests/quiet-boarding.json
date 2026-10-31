@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "quiet-boarding",
+  "title": "Quieter ways aboard at high wanted",
+  "question": "From PR #65 (issue #60, question 1): at wanted 5, do the caboose platform and the side ladder give you a real chance to board unnoticed, while it still feels challenging? The caboose is always on here, to compare with doors only.",
+  "pr": 65,
+  "base": {
+    "set": {
+      "wanted.forceLevel": 5,
+      "trains.mail-express.cabooseShare": 1
+    }
+  },
+  "setups": [
+    {
+      "id": "doors",
+      "name": "Doors only",
+      "preset": "doors-only"
+    },
+    {
+      "id": "quiet",
+      "name": "Caboose platform and side ladder"
+    }
+  ],
+  "numbers": [
+    "aboard",
+    "toBoard",
+    "jumps",
+    "heat",
+    "outcomes",
+    "lootCarried"
+  ],
+  "status": "open"
+}
