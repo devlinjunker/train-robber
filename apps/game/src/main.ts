@@ -2,7 +2,9 @@ import { createApp, createCarScene, createGameClient, showFatal } from '@train-r
 import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, type RunHeader, type SimEvent } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
-import { setupFromUrl } from './setup';
+import { repoExperiments, setupFromUrl } from './setup';
+import { classifyIncoming, decodeExperiment, linkedPr, loadOwn, mergeIncoming, saveOwn, undelete } from './experiments';
+import type { Experiment } from '@train-robber/config';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { mapIdFromUrl, sessionMap } from './map';
 import { RingBuffer } from './ringBuffer';
@@ -60,6 +62,7 @@ async function boot() {
   const carId = new URLSearchParams(location.search).get('car');
   if (carId !== null) return createCarScene(app, setupFromUrl().config, carId);
 
+  const tag = experimentTag();
   let setup: ReturnType<typeof setupFromUrl>;
   try {
     setup = setupFromUrl();
@@ -89,7 +92,7 @@ async function boot() {
   const header: RunHeader = {
     gameVersion: pkg.version, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
     seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { ...save.persistent }, startedAt,
-    config: config.values, url: location.search,
+    config: config.values, url: location.search, ...(tag.exp ? { exp: tag.exp } : {}), ...(tag.setup ? { setup: tag.setup } : {}), ...(tag.pr ? { pr: tag.pr } : {}),
   };
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
   const sink = await openSink(session, startedAt);
@@ -100,7 +103,7 @@ async function boot() {
 
   const tracker = createRunTracker({
     session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants, overrides: header.overrides,
-    seed, mapId: header.mapId, url: location.search, tickRateHz, saveId: save.saveId,
+    seed, mapId: header.mapId, url: location.search, tickRateHz, saveId: save.saveId, ...tag,
   });
   const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };
 
@@ -213,4 +216,37 @@ async function boot() {
     client.render(acc / STEP_MS, { fps, tickMs, seed, recentEvents: recent.toArray() });
   });
 }
+/**
+ * The experiment tag from a Play link (`?exp=&setup=`). A link that carries the experiment (`xp`)
+ * saves it to this browser's own experiments first, asking when one with the same id differs, and
+ * is then dropped from the address bar. Own experiments ride along on each run record.
+ */
+function experimentTag(): { exp?: string; setup?: string; experiment?: Experiment; pr?: number } {
+  const q = new URLSearchParams(location.search);
+  const pr = linkedPr(q.get('pr'));
+  let exp = q.get('exp') || undefined;
+  const setup = q.get('setup') || undefined;
+  const repoIds = new Set(repoExperiments.map((e) => e.id));
+  const xp = q.get('xp');
+  if (xp) {
+    try {
+      const incoming = decodeExperiment(xp);
+      const own = loadOwn();
+      const replace = classifyIncoming(incoming, own, repoIds) === 'conflict' &&
+        confirm(`You already have an experiment with this id ("${incoming.id}") but different contents.\n\nOK: replace yours with the shared "${incoming.title}".\nCancel: keep both (the shared one is saved as a copy).`);
+      const r = mergeIncoming(incoming, own, repoIds, replace);
+      if (r.kind === 'new' || r.kind === 'conflict') saveOwn(r.own);
+      undelete(incoming.id); undelete(r.id);
+      if (exp === incoming.id) exp = r.id;
+    } catch (e) {
+      console.warn('The shared experiment in this link was not saved:', e);
+    }
+    q.delete('xp');
+    if (exp) q.set('exp', exp);
+    history.replaceState(null, '', `${location.pathname}?${q}${location.hash}`);
+  }
+  const experiment = exp && !repoIds.has(exp) ? loadOwn().find((e) => e.id === exp) : undefined;
+  return { ...(exp ? { exp } : {}), ...(setup ? { setup } : {}), ...(experiment ? { experiment } : {}), ...(pr ? { pr } : {}) };
+}
+
 void boot();

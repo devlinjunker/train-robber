@@ -12,6 +12,7 @@ export * from './map';
 export * from './scenery';
 export * from './mapGen';
 export * from './diff';
+export * from './playtest';
 export { derive, deepFreeze, type Derived } from './derive';
 
 /** A loaded content file. `file` is only used in error messages. */

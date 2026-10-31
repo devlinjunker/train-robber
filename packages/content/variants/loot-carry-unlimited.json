@@ -3,6 +3,7 @@
   "id": "unlimited",
   "group": "lootCarry",
   "label": "Carry anything, no slowdown",
+  "help": "Carry as much as you like at full speed.",
   "question": "Does carry weight make choices interesting?",
   "patch": {
     "carry": {

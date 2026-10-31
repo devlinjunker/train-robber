@@ -3,6 +3,7 @@
   "id": "heading",
   "group": "steering",
   "label": "Heading-relative",
+  "help": "Left and right turn the horse from the way it is facing.",
   "question": "Which steering feels better in the isometric view?",
   "patch": { "horse": { "steering": "heading" } }
 }
