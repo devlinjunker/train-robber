@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "rounds-tuning",
+  "title": "Rounds: pause and reach",
+  "question": "From PR #51 (questions 2 and 3): on a 6-car train with every patrolling guard on rounds, is a 2 s pause at each stop enough to slip past? Should rounds reach one car each way, or two?",
+  "pr": 51,
+  "base": {
+    "preset": "long-train",
+    "set": {
+      "ai.rounds.share": 1,
+      "ai.rounds.walkerChance": 0
+    }
+  },
+  "setups": [
+    {
+      "id": "short",
+      "name": "2 s pause, 1 car"
+    },
+    {
+      "id": "long-pause",
+      "name": "4 s pause, 1 car",
+      "set": {
+        "ai.rounds.pauseSec": 4
+      }
+    },
+    {
+      "id": "far",
+      "name": "2 s pause, 2 cars",
+      "set": {
+        "ai.rounds.reachCars": 2
+      }
+    }
+  ],
+  "numbers": [
+    "spotted",
+    "thrownOff",
+    "outcomes",
+    "lootCarried",
+    "length"
+  ]
+}

@@ -16,7 +16,8 @@
     "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 55, "crouchCoverMin": 0.25 },
     "noise": { "walkRadiusTiles": 1.5, "runRadiusTiles": 5, "crouchRadiusTiles": 1, "searchRadiusTiles": 3, "stumbleRadiusTiles": 5 },
     "alertAfterSec": 1, "calmSec": 4, "alertCalmSec": 6, "loseSightSec": 3, "catchRangeTiles": 0.8,
-    "thrownOffLootShare": 1, "fellLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true
+    "thrownOffLootShare": 1, "fellLootShare": 0.5, "suspiciousStepOutside": true, "suspiciousApproach": true,
+    "rounds": { "share": 0.5, "reachCars": 1, "walkerChance": 0.5, "pauseSec": 2 }
   },
   "outside": {
     "ledges": true, "platformDepthTiles": 0.5, "couplingGapTiles": 1, "gangwayWidthTiles": 3, "ledgeWidthTiles": 0.1, "seeThroughDoorways": true,

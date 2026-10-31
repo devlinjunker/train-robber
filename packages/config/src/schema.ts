@@ -258,6 +258,15 @@ export const GameSchema = z.object({
       perCar: z.number().min(0).optional(),
       /** Extra guards on this train per wanted level, rounded, on top of `wanted.guardBonus` (phase 2 M5). */
       perWantedLevel: z.number().min(0).optional(),
+      /** This train type's own mix of guards walking between cars, over `ai.rounds` (any of the three). */
+      rounds: z.object({
+        /** Share of patrolling guards that walk rounds to the next cars. */
+        share: z.number().min(0).max(1),
+        /** How many cars either side their rounds go. */
+        reachCars: z.number().int().min(0),
+        /** Chance this train has one walker, a guard who walks every guarded car end to end. */
+        walkerChance: z.number().min(0).max(1),
+      }).partial().strict().optional(),
     }).strict().optional(),
     /** Train verbs the train uses (M2: search). */
     verbs: z.array(z.enum(['search'])),
@@ -644,6 +653,24 @@ export const GameSchema = z.object({
     suspiciousStepOutside: z.boolean(),
     /** A suspicious guard walks toward where it saw or heard the player instead of standing and staring. */
     suspiciousApproach: z.boolean(),
+    /**
+     * Rounds between cars (Devlin, 2026-10-28): this share of the guards that have a patrol route walk
+     * rounds instead, through the end doors and over the platforms to a stop in each car up to
+     * `reachCars` either side of their own (cars with guard spawns or routes only), pausing `pauseSec`
+     * at each stop, then back. 0 keeps every guard in its own car. With chance `walkerChance` a train
+     * also gets one walker: a patrolling guard whose rounds take in every car it can reach, end to end.
+     * A train type's `guards.rounds` overrides any of share, reachCars and walkerChance.
+     */
+    rounds: z.object({
+      /** Share of the guards with a patrol route that walk rounds to the next cars instead (0 keeps every guard in its own car). */
+      share: z.number().min(0).max(1),
+      /** How many cars either side of its own a guard's rounds go. */
+      reachCars: z.number().int().min(0),
+      /** Chance a train has one walker: a patrolling guard whose rounds take in every guarded car, end to end. */
+      walkerChance: z.number().min(0).max(1),
+      /** Pause at each stop of a guard's rounds, looking along the car toward the next stop. */
+      pauseSec: z.number().min(0),
+    }).strict(),
   }).strict(),
 }).strict();
 export type Game = z.infer<typeof GameSchema>;

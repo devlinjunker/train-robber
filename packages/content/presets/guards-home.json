@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "guards-home",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "ai": { "rounds": { "share": 0, "walkerChance": 0 } }
+  }
+}

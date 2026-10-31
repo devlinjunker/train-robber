@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "guard-rounds",
+  "title": "Guards walking between cars",
+  "question": "From PR #51 (questions 1, 4 and 5): guards now walk rounds to the next car, and some trains have one walker who covers the whole train. Does that make sneaking more interesting or just harder? Is half the guards on rounds right, and should 1 in 2 trains have a walker?",
+  "pr": 51,
+  "setups": [
+    {
+      "id": "mix",
+      "name": "Today's mix"
+    },
+    {
+      "id": "home",
+      "name": "Guards stay home",
+      "preset": "guards-home"
+    },
+    {
+      "id": "all",
+      "name": "Every guard on rounds",
+      "set": {
+        "ai.rounds.share": 1,
+        "ai.rounds.walkerChance": 0
+      }
+    },
+    {
+      "id": "walker",
+      "name": "Walker on 6 cars",
+      "preset": "train-walker"
+    }
+  ],
+  "numbers": [
+    "spotted",
+    "thrownOff",
+    "outcomes",
+    "lootCarried",
+    "lootLeft",
+    "length"
+  ]
+}
