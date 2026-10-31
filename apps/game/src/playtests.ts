@@ -13,7 +13,7 @@ import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
 import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
-  linkedPr, loadExcluded, playQuery, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
+  linkedPr, loadDeleted, loadExcluded, playQuery, saveDeleted, undelete, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
 import { diffLabel, diffReadable, mapChoices, settingDoc, settingName, type VariantGroupInfo, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
 
@@ -156,12 +156,13 @@ async function main() {
     const replace = kind === 'conflict' && confirm(`You already have an experiment with the id "${incoming.id}" but different contents.\n\nOK: replace yours with the shared "${incoming.title}".\nCancel: keep both (the shared one is saved as a copy).`);
     const r = mergeIncoming(incoming, own, repoIds, replace);
     if (r.kind === 'new' || r.kind === 'conflict') { own = r.own; saveOwn(own); }
+    undelete(incoming.id); undelete(r.id);
     return r.id;
   }
 
   /** Runs carry a copy of a tester's own experiment: add any you don't have, so their runs get a card. */
   function adoptFromRuns() {
-    const known = new Set([...repoIds, ...own.map((e) => e.id)]);
+    const known = new Set([...repoIds, ...own.map((e) => e.id), ...loadDeleted()]);
     let added = false;
     for (const r of runs) {
       if (r.experiment && !known.has(r.experiment.id)) {
@@ -319,7 +320,11 @@ async function main() {
         delete bases[exp.id]; saveBases(bases); render();
         break;
       case 'del':
-        if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) { own = own.filter((o) => o.id !== exp.id); saveOwn(own); render(); }
+        if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) {
+          own = own.filter((o) => o.id !== exp.id); saveOwn(own);
+          const gone = loadDeleted(); gone.add(exp.id); saveDeleted(gone);
+          render();
+        }
         break;
       case 'reopen':
         setStatus(exp, 'open'); flash(exp.id);

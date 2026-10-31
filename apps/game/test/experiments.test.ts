@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Experiment } from '@train-robber/config';
 import {
-  linkedPr, loadExcluded, saveExcluded,
+  linkedPr, loadDeleted, loadExcluded, saveDeleted, undelete, saveExcluded,
   canonical, classifyIncoming, decodeExperiment, encodeExperiment, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, playQuery,
   saveAnswers, saveBases, saveOwn, shareQuery,
 } from '../src/experiments';
@@ -181,5 +181,16 @@ describe('experiment cards', () => {
     expect([...loadExcluded(s)].sort()).toEqual(['a#1', 'b#2']);
     s.m.set('train-robber-excluded-runs', '{bad');
     expect(loadExcluded(s).size).toBe(0);
+  });
+
+  it('remembers deleted experiments so their runs do not bring them back, until shared again', () => {
+    const s = memoryStorage();
+    expect(loadDeleted(s).size).toBe(0);
+    saveDeleted(new Set(['mine', 'old']), s);
+    expect([...loadDeleted(s)].sort()).toEqual(['mine', 'old']);
+    undelete('mine', s);
+    expect([...loadDeleted(s)]).toEqual(['old']);
+    undelete('never', s);
+    expect([...loadDeleted(s)]).toEqual(['old']);
   });
 });

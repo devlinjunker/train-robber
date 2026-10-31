@@ -161,6 +161,19 @@ export function loadExcluded(s = storage()): Set<string> {
 }
 export function saveExcluded(ids: ReadonlySet<string>, s = storage()): void { writeJson(EXCLUDED_KEY, [...ids], s); }
 
+const DELETED_KEY = 'train-robber-deleted-experiments';
+/** Ids of your own experiments you deleted here, so a copy carried on their runs does not bring them back. Sharing or importing one again un-deletes it. */
+export function loadDeleted(s = storage()): Set<string> {
+  const raw = readJson(DELETED_KEY, s);
+  return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+}
+export function saveDeleted(ids: ReadonlySet<string>, s = storage()): void { writeJson(DELETED_KEY, [...ids], s); }
+/** Take an id off the deleted list (it was shared, imported or played again on purpose). */
+export function undelete(id: string, s = storage()): void {
+  const d = loadDeleted(s);
+  if (d.delete(id)) saveDeleted(d, s);
+}
+
 const STATUS_KEY = 'train-robber-experiment-status';
 export type ExperimentStatus = 'open' | 'done';
 /** Experiments you marked done or reopened in this browser, by id; they win over the file's `status`. */
