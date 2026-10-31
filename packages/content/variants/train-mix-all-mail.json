@@ -3,6 +3,7 @@
   "id": "all-mail",
   "group": "trainMix",
   "label": "Every train a mail train",
+  "help": "Every train is a mail train with loot and guards.",
   "question": "Are blank decoy trains interesting?",
   "patch": {
     "trainMix": {

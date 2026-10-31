@@ -241,10 +241,14 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   const before = state.persistent;
   const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
   const after = practice ? before : result.persistent;
+  // What the robbery left behind: every item still in the train, searched or not.
+  const left = run.loot.filter((l) => !l.taken);
+  const lootLeftValue = left.reduce((n, l) => n + (ctx.config.values.items[l.item]?.value ?? 0), 0);
   ctx.emit({
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
+    lootLeftValue, lootLeftItems: left.length,
     ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
     ...(town !== undefined ? { town } : {}),
   });

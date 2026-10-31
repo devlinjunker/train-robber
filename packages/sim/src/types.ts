@@ -139,10 +139,12 @@ export type SimEvent =
    * null with the countdown off) and `heat` the heat at the end. `cashOut` is the loot value banked
    * (a cash-out on F), else 0. `endOfLine`: on an open line under the fixed countdown, the committed
    * train reached the end of the line (the run expires there). `town`: under trainClock `next-town`,
-   * the town the train pulled into when the run expired. `practice`: a `wanted.forceLevel` run, so `cashOut` is what the
-   * outcome would have banked, but nothing was saved (G9).
+   * the town the train pulled into when the run expired. `practice`: a `wanted.forceLevel` run, so
+   * `cashOut` is what the outcome would have banked, but nothing was saved (G9). `lootLeftValue` and
+   * `lootLeftItems` are the loot still in the committed train when the run ended (hidden or not), for
+   * the Playtests page.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; endOfLine?: true; practice?: true; town?: string }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true; town?: string }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few

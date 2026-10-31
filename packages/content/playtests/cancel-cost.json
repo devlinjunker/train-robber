@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "cancel-cost",
+  "title": "Should a cancel cost wanted",
+  "question": "From PR #46 (question 2): expiry costs a wanted level and a cancel costs nothing. Do you press Esc just before time runs out to dodge the +1? Should a cancel cost a level too?",
+  "pr": 46,
+  "setups": [
+    {
+      "id": "free",
+      "name": "Cancel is free"
+    },
+    {
+      "id": "costs",
+      "name": "Cancel costs a level",
+      "set": {
+        "outcomePolicy.cancelled.wantedDelta": 1
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "wanted",
+    "timeLeft"
+  ],
+  "status": "done",
+  "conclusion": "No, and really this is just a debug control: it won't be in the final game while you are on the train. Cancel stays free."
+}

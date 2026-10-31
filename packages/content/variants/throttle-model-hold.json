@@ -3,6 +3,7 @@
   "id": "hold",
   "group": "throttleModel",
   "label": "Hold speed",
+  "help": "Let go of W and the horse keeps its speed.",
   "question": "What should releasing W do?",
   "patch": { "horse": { "throttleModel": "hold" } }
 }
