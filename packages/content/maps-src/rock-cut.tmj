@@ -1,0 +1,189 @@
+{
+ "type": "map",
+ "version": "1.10",
+ "tiledversion": "1.10.2",
+ "orientation": "orthogonal",
+ "renderorder": "right-down",
+ "width": 400,
+ "height": 200,
+ "tilewidth": 32,
+ "tileheight": 32,
+ "infinite": false,
+ "compressionlevel": -1,
+ "tilesets": [
+  {
+   "firstgid": 1,
+   "source": "zones.tsj"
+  }
+ ],
+ "layers": [
+  {
+   "id": 1,
+   "name": "terrain",
+   "type": "tilelayer",
+   "x": 0,
+   "y": 0,
+   "width": 400,
+   "height": 200,
+   "opacity": 1,
+   "visible": true,
+   "encoding": "base64",
+   "compression": "zlib",
+   "data": "eJzt3dFqW2kMhdGQ9P2fufQuheLY2z1H0q+1YN8Z7IyLvjEzbr4+Pj6+7Oh9mhWt+s++XT/OVn1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84l37sUH1DbO84V2U/dOs+1TfE9o5z3d0PfwdwjeobYnvHue683f4e+TrVN8T2jnPddbf9LpJa1TfE9o5z6ccO1TfE9o5z6ccO1TfE9o5z3XGz/T7detU3xPaOc/n8sUP1DbG941z6AUBCPwBI+P4HAAnfPwcgUXm7NQNgLv/uD0BCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR9c5dU/Wx7v8e88nvt5j7hKt/vi8Wc/nvt5jwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj/gsc/qFwBN6QcbfV442EI/ON2VrdAUNtMPTlTdCy1hA/3gFNVd0BK20Q+mu/rG/7rhOWAi/WCqd5tw1XSELfSDiTr14n/3BKbQDyaZ0oz/0RLoTj+YYnI30o5AZ/rBBKd0I+kIdKUfdHdiN17tCHSkH3S2oR0awlT6QVdbuvFKR6AT/aCrje34qSHQiX7Q0dbPHj6DMIl+0NHmdvgMwhT6QUf6oR/0px90pB/6QX/6QTfaoSHMoB90pCHaQX/6QUf6oR/0px90pB/6QX/6QUe+/6Ef9KcfdKUf2kFv+kFXWz+D+OzBFPpBZ49u6Wkd+elnhW70g+42NEQ7mEg/mOCn+zq1I8/8XNCVfjDFM7d2Skee/VmgM/1gkmfvbteOvPL6oTv9YKJX7nB1S159rTCFfjDVq3f5rp6887pgEv1gunfu9bOtufo5YCL94BRX33jdgL/pByeq7oJmsIF+cLrqXmgGp9IPNtIKeJ9+wGOaAP+mHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9AOAhH4AkNAPABL6AUBCPwBI6AcACf0AIKEfACT0A4CEfgCQ0A8AEvoBQEI/AEjoBwAJ/QAgoR8AJPQDgIR+AJDQDwAS+gFAQj8ASOgHAAn9ACChHwAk9APgHHfec/0AmO3rwe54XgDmedSOq++7fgDM9Ew7rrzx+gEwzyvtuOrO6wfAPPoBQEI/AHhV0o4rbr1+AMxT3Y7vrwGAOfQDgIR+AJDy/Q8AUlXt+P7cAMxU0Y7vzwvAfHfec/0AIKEfACT0A5jEvepDP4AJ7v5vw/zM+wB0V/X/F/GY9wDoTj968h4AnVV+P47H/PMHutOOnrwHQHf60ZP3AJhAO/rxPgCTuFd96AcACf0AIKEfACT0A4BE8jt0zczM/uw3FtFGtQ=="
+  },
+  {
+   "id": 2,
+   "name": "track",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 1,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "main",
+     "x": 2560,
+     "y": 1903,
+     "polyline": [
+      {
+       "x": 0,
+       "y": 0
+      },
+      {
+       "x": 1920,
+       "y": 0
+      },
+      {
+       "x": 3840,
+       "y": 0
+      },
+      {
+       "x": 5760,
+       "y": 0
+      },
+      {
+       "x": 7680,
+       "y": 0
+      },
+      {
+       "x": 8320,
+       "y": 171.49
+      },
+      {
+       "x": 8788.51,
+       "y": 640
+      },
+      {
+       "x": 8960,
+       "y": 1280
+      },
+      {
+       "x": 8788.51,
+       "y": 1920
+      },
+      {
+       "x": 8320,
+       "y": 2388.51
+      },
+      {
+       "x": 7680,
+       "y": 2560
+      },
+      {
+       "x": 5760,
+       "y": 2560
+      },
+      {
+       "x": 3840,
+       "y": 2560
+      },
+      {
+       "x": 1920,
+       "y": 2560
+      },
+      {
+       "x": 0,
+       "y": 2560
+      },
+      {
+       "x": -640,
+       "y": 2388.51
+      },
+      {
+       "x": -1108.51,
+       "y": 1920
+      },
+      {
+       "x": -1280,
+       "y": 1280
+      },
+      {
+       "x": -1108.51,
+       "y": 640
+      },
+      {
+       "x": -640,
+       "y": 171.49
+      }
+     ],
+     "properties": [
+      {
+       "name": "closed",
+       "type": "bool",
+       "value": true
+      },
+      {
+       "name": "route",
+       "type": "string",
+       "value": "main"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 3,
+   "name": "speedZones",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": []
+  },
+  {
+   "id": 4,
+   "name": "markers",
+   "type": "objectgroup",
+   "draworder": "topdown",
+   "x": 0,
+   "y": 0,
+   "opacity": 1,
+   "visible": true,
+   "objects": [
+    {
+     "id": 2,
+     "type": "",
+     "rotation": 0,
+     "visible": true,
+     "width": 0,
+     "height": 0,
+     "name": "playerSpawn",
+     "point": true,
+     "x": 6400,
+     "y": 5440
+    }
+   ]
+  }
+ ],
+ "nextlayerid": 5,
+ "nextobjectid": 4
+}
