@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mount-spill",
+  "title": "What a good mount costs",
+  "question": "From PR #29 (G15): a good (not perfect) mount loses some loot. Now that the stun and LOST LOOT text show it, which loss feels fair: one random item, the heaviest item, or 30% of the value?",
+  "pr": 29,
+  "setups": [
+    {
+      "id": "random",
+      "name": "Random item"
+    },
+    {
+      "id": "heaviest",
+      "name": "Heaviest item",
+      "preset": "spill-heaviest"
+    },
+    {
+      "id": "share",
+      "name": "30% of value",
+      "preset": "spill-share"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "lootCarried",
+    "banked",
+    "whistles"
+  ]
+}

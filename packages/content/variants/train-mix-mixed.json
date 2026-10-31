@@ -3,6 +3,7 @@
   "id": "mixed",
   "group": "trainMix",
   "label": "About half the trains blank",
+  "help": "About half the trains are blank decoys with no loot.",
   "question": "Are blank decoy trains interesting?",
   "patch": {
     "trainMix": {

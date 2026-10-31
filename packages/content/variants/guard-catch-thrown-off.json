@@ -3,6 +3,7 @@
   "id": "thrown-off",
   "group": "guardCatch",
   "label": "Alert guards chase and throw you off",
+  "help": "Alert guards chase you and throw you off the train, taking some of your loot.",
   "question": "What should an alert guard do before there is combat?",
   "patch": { "ai": { "guardCatch": "thrown-off" } }
 }

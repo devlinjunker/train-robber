@@ -3,6 +3,7 @@
   "id": "heat-only",
   "group": "guardCatch",
   "label": "Guards only raise heat",
+  "help": "Alert guards raise heat but never touch you.",
   "question": "What should an alert guard do before there is combat?",
   "patch": {}
 }

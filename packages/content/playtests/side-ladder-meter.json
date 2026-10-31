@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "side-ladder-meter",
+  "title": "Side ladder meter",
+  "question": "From PR #65 (question 6): a jump at the side ladder only lands in the meter's perfect zone (boarding.ladderPerfectOnly). Is that hard enough, or too hard, next to the door meter?",
+  "pr": 65,
+  "setups": [
+    {
+      "id": "perfect",
+      "name": "Perfect zone only (default)"
+    },
+    {
+      "id": "door",
+      "name": "Door meter",
+      "set": {
+        "boarding.ladderPerfectOnly": false
+      }
+    }
+  ],
+  "numbers": [
+    "aboard",
+    "toBoard",
+    "jumps",
+    "damage",
+    "heat"
+  ],
+  "status": "open"
+}

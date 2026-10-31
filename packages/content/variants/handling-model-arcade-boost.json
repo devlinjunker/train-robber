@@ -3,6 +3,7 @@
   "id": "arcade-boost",
   "group": "handlingModel",
   "label": "Arcade handling with a boost",
+  "help": "Arcade riding plus a short speed boost on Shift, with a cooldown.",
   "question": "Is the horse boost worth having?",
   "patch": {}
 }

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "caboose-guard",
+  "title": "A guard in the caboose",
+  "question": "From PR #65 (question 3): one of the guards stands in the caboose, facing its rear door, 3 times in 10 (guards.cabooseChance). Does a guard there make the caboose platform a gamble rather than a sure way on, without making it pointless?",
+  "pr": 65,
+  "base": {
+    "set": {
+      "trains.mail-express.cabooseShare": 1
+    }
+  },
+  "setups": [
+    {
+      "id": "empty",
+      "name": "Never a guard",
+      "set": {
+        "trains.mail-express.guards.cabooseChance": 0
+      }
+    },
+    {
+      "id": "some",
+      "name": "3 in 10 (default)"
+    },
+    {
+      "id": "always",
+      "name": "Always a guard",
+      "set": {
+        "trains.mail-express.guards.cabooseChance": 1
+      }
+    }
+  ],
+  "numbers": [
+    "aboard",
+    "heat",
+    "outcomes",
+    "damage",
+    "lootCarried"
+  ],
+  "status": "open"
+}

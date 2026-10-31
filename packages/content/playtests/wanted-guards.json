@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "wanted-guards",
+  "title": "Guards per wanted level",
+  "question": "From PR #46 (question 1): wanted levels add +0/+1/+1/+2/+2/+3 guards (wanted.guardBonus). Does level 3 feel noticeably harder without being hopeless? Should levels add guards faster, or add something besides guards later?",
+  "pr": 46,
+  "setups": [
+    {
+      "id": "save",
+      "name": "Your saved level"
+    },
+    {
+      "id": "w3",
+      "name": "Practice at wanted 3",
+      "preset": "wanted-3"
+    },
+    {
+      "id": "w5",
+      "name": "Practice at wanted 5",
+      "set": {
+        "wanted.forceLevel": 5
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "wanted",
+    "lootCarried",
+    "banked",
+    "length"
+  ],
+  "status": "done",
+  "conclusion": "Wanted level 3 does feel noticeably harder. It doesn't feel impossible, but you pretty much need to land a perfect landing. I was able to extract from a wanted level 5 train, just had to get lucky with the guard placement and be very sneaky."
+}
