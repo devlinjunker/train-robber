@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "roof-fall-alert",
+  "title": "Should a roof fall differ from a rock fall",
+  "question": "From PR #61 (question 2): a rock knock-off and a roof fall cost the same, except a roof fall also alerts the guards in that car and the next. On rock-cut, take both kinds of fall. Should a roof fall alert guards, or be as quiet as a rock?",
+  "pr": 61,
+  "base": {
+    "preset": "fall-test",
+    "map": "rock-cut"
+  },
+  "setups": [
+    {
+      "id": "alert",
+      "name": "Roof falls alert guards"
+    },
+    {
+      "id": "quiet",
+      "name": "Roof falls are quiet",
+      "set": {
+        "outside.roof.fallAlert.enabled": false
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "lootCarried",
+    "lootLost",
+    "heat",
+    "damage"
+  ]
+}
