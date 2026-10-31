@@ -3,6 +3,7 @@
   "id": "off",
   "group": "collisionDamage",
   "label": "Crashes only stop you",
+  "help": "Hitting the train or a rock stops you but does no damage.",
   "question": "Should running into the train or a rock cost health?",
   "patch": { "collision": { "damageFraction": 0, "obstacleDamageFraction": 0, "scrapeDamageFraction": 0 } }
 }

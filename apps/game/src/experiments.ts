@@ -8,13 +8,14 @@ const BASES_KEY = 'train-robber-experiment-bases';
 const ANSWERS_KEY = 'train-robber-experiment-answers';
 
 /** The answer box: the experiment's own question first, then the three every experiment asks (G45). */
-export interface Answers { answer: string; next: string; prize: string; again: string }
+export interface Answers { answer: string; next: string; prize: string; again: string; notes: string }
 export const ANSWER_FIELDS: readonly { key: keyof Answers; label: string }[] = [
   { key: 'next', label: 'What would you try next time?' },
   { key: 'prize', label: 'Did you see a prize or route you left behind?' },
   { key: 'again', label: 'Did you want to go again? Why?' },
+  { key: 'notes', label: 'Other notes on this experiment' },
 ];
-export const emptyAnswers = (): Answers => ({ answer: '', next: '', prize: '', again: '' });
+export const emptyAnswers = (): Answers => ({ answer: '', next: '', prize: '', again: '', notes: '' });
 
 type Store = Pick<Storage, 'getItem' | 'setItem'>;
 const storage = (): Store | null => { try { return globalThis.localStorage ?? null; } catch { return null; } };
@@ -150,6 +151,27 @@ export function shareQuery(e: Experiment, isRepo: boolean): string {
 export function linkedPr(v: string | null | undefined): number | undefined {
   const n = Number(v);
   return v && Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
+const EXCLUDED_KEY = 'train-robber-excluded-runs';
+/** Run ids left out of the results in this browser (quick tests); exported JSON marks them `excluded`. */
+export function loadExcluded(s = storage()): Set<string> {
+  const raw = readJson(EXCLUDED_KEY, s);
+  return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+}
+export function saveExcluded(ids: ReadonlySet<string>, s = storage()): void { writeJson(EXCLUDED_KEY, [...ids], s); }
+
+const DELETED_KEY = 'train-robber-deleted-experiments';
+/** Ids of your own experiments you deleted here, so a copy carried on their runs does not bring them back. Sharing or importing one again un-deletes it. */
+export function loadDeleted(s = storage()): Set<string> {
+  const raw = readJson(DELETED_KEY, s);
+  return new Set(Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []);
+}
+export function saveDeleted(ids: ReadonlySet<string>, s = storage()): void { writeJson(DELETED_KEY, [...ids], s); }
+/** Take an id off the deleted list (it was shared, imported or played again on purpose). */
+export function undelete(id: string, s = storage()): void {
+  const d = loadDeleted(s);
+  if (d.delete(id)) saveDeleted(d, s);
 }
 
 const STATUS_KEY = 'train-robber-experiment-status';

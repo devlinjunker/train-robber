@@ -76,6 +76,9 @@
   #runs tr.run { cursor:pointer; }
   #runs tr.run:hover td { background:var(--panel); }
   #runs tr.run.open td { background:var(--panel2); }
+  #runs tr.run.excluded td { opacity:.45; text-decoration:line-through; text-decoration-color:var(--muted); }
+  button.mini { font-size:11px; padding:0 6px; margin-left:4px; }
+  .hint { font-size:11px; }
   #runs tr.run.flash td { background:#4a3f22; transition:background .3s; }
   #runs tr.detail > td { white-space:normal; background:var(--panel2); }
   .detail dl { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:4px 16px; margin:0 0 8px; }
@@ -88,6 +91,8 @@
   .empty { padding:24px; text-align:center; color:var(--muted); white-space:normal !important; }
   /* Experiment editor */
   dialog { background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:8px; width:min(760px, calc(100vw - 32px)); max-height:calc(100vh - 32px); padding:16px; }
+  dialog.small { width:min(460px, calc(100vw - 32px)); }
+  dialog .done-actions { justify-content:flex-end; margin-top:12px; }
   dialog::backdrop { background:#000a; }
   dialog h3 { margin-bottom:8px; }
   dialog fieldset { border:1px solid var(--line); border-radius:6px; margin:10px 0; padding:8px 10px; }
@@ -96,6 +101,15 @@
   dialog .row > label { flex-direction:column; align-items:stretch; }
   dialog input.wide, dialog textarea.wide { width:100%; }
   dialog .vars { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:4px 8px; margin:6px 0; }
+  dialog .vars label { flex-direction:column; align-items:stretch; min-width:0; } dialog .vars select { width:100%; min-width:0; }
+  dialog .setrow { flex-wrap:wrap; }
+  dialog .setdoc { flex-basis:100%; font-size:11px; color:var(--muted); line-height:1.35; }
+  dialog .setdoc:empty { display:none; }
+  dialog .vhelp { font-size:11px; color:var(--muted); line-height:1.3; }
+  dialog fieldset[data-setup] { position:relative; }
+  dialog .setup-actions { position:absolute; top:-2px; right:8px; display:flex; gap:4px; }
+  dialog .setup-actions button { font-size:12px; padding:2px 8px; }
+  table.cmp .diff div[title] { text-decoration:underline dotted; cursor:help; }
   dialog .numbers { display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:2px 8px; }
   dialog .error { color:var(--died); min-height:1.4em; margin:6px 0; white-space:pre-wrap; }
   dialog .setrow input:first-child { width:220px; } dialog .setrow input:nth-child(2) { width:90px; }
@@ -106,7 +120,7 @@
   <div class="head">
     <div>
       <h1>Playtests</h1>
-      <div class="muted">Build <b id="build"></b> (0.phase.milestone). Every run played in this browser is recorded here. Experiments compare a few setups on one question: press Play on a setup, play a few runs, then write your answer.</div>
+      <div class="muted">Build <b id="build"></b> (0.phase.milestone)<span id="buildSha"></span>. Every run played in this browser is recorded here. Experiments compare a few setups on one question: press Play on a setup, play a few runs, then write your answer.</div>
     </div>
     <div class="bar">
       <span id="prLink" class="muted" hidden></span>
@@ -115,7 +129,7 @@
         <summary>Export ▾</summary>
         <div>
           <button id="notesCopy">Copy notes (Markdown for a PR comment)</button>
-          <button id="prNotes" hidden></button>
+          <button id="notesIssue">Notes to a GitHub issue (runs with notes)</button>
           <button id="notesDownload">Download notes</button>
           <button id="github">Send to GitHub</button>
           <div class="sep"></div>
@@ -133,7 +147,9 @@
   <details id="finished" class="finished" hidden><summary>Finished experiments (<span id="finishedCount">0</span>)</summary><div id="finishedCards"></div></details>
   <div class="head"><h2>Runs</h2><div class="tabs" id="views"></div></div>
   <div class="muted" id="viewHelp"></div>
+  <div id="excludedToggle" class="muted" hidden></div>
   <div id="runStats" class="stats"></div>
   <div class="scroll" style="margin-top:6px"><table id="runs"></table></div>
   <dialog id="editor"></dialog>
+  <dialog id="doneDialog" class="small"></dialog>
 </main><script type="module" src="/src/playtests.ts"></script></body></html>

@@ -254,7 +254,7 @@ export interface ExperimentReport {
   labels: string[];
   /** The base when it is not the default (changed on the page, or the experiment's own). */
   baseLabel?: string;
-  answers: { answer: string; next: string; prize: string; again: string };
+  answers: { answer: string; next: string; prize: string; again: string; notes?: string };
 }
 
 /** One experiment as Markdown: the question, a table of the setups side by side, and the answers. */
@@ -270,13 +270,42 @@ export function experimentMarkdown(rep: ExperimentReport, runs: readonly RunReco
     row('Setup', (_, i) => rep.labels[i] ?? ''),
     row('Runs', (rs) => String(rs.length)),
     ...exp.numbers.map((n) => row(NUMBER_LABELS[n], (rs) => experimentNumber(n, rs))),
-    row(`Went again within ${PULL_WINDOW_SEC} s`, (rs) => pullWords(sessionPull(rs))),
     row('Sessions ended by', (rs) => outcomeWords(sessionPull(rs).endedBy)),
   );
   const a = rep.answers;
-  const answered: [string, string][] = [['Answer', a.answer], ['What would you try next time?', a.next], ['Did you see a prize or route you left behind?', a.prize], ['Did you want to go again? Why?', a.again]];
+  const answered: [string, string][] = [['Answer', a.answer], ['What would you try next time?', a.next], ['Did you see a prize or route you left behind?', a.prize], ['Did you want to go again? Why?', a.again], ['Other notes', a.notes ?? '']];
   for (const [q, text] of answered) if (text.trim()) lines.push('', `**${q}** ${text.trim()}`);
+  // Notes written in game (N) during the experiment's runs, under their setup.
+  const noted = exp.setups.map((s, i) => [s.name, cells[i]!.flatMap((r) => r.notes.map((n) => `- ${n.text} _(run ${r.runNumber}, ${r.outcome}${r.tester ? `, ${r.tester}` : ''})_`))] as const).filter(([, ns]) => ns.length);
+  if (noted.length) {
+    lines.push('', '**Run notes**');
+    for (const [name, ns] of noted) lines.push('', `_${name}_`, ...ns);
+  }
   return lines;
+}
+
+/**
+ * A GitHub issue for in-game notes: one note (`noteIndex`), one run's notes, or every run given
+ * that has notes, each under its run's setup, outcome and seed.
+ */
+export function notesIssue(runs: readonly RunRecord[], tester: string, noteIndex?: number, maxChars = 7000): { title: string; body: string } {
+  const noted = runs.filter((r) => r.notes.length);
+  const picked = noted.map((r) => ({ r, notes: noteIndex === undefined ? r.notes : r.notes.slice(noteIndex, noteIndex + 1) })).filter((x) => x.notes.length);
+  const count = picked.reduce((n, x) => n + x.notes.length, 0);
+  const first = picked[0];
+  const short = (t: string) => (t.length > 60 ? `${t.slice(0, 57)}…` : t);
+  const title = count === 1 && first ? `Playtest note: ${short(first.notes[0]!.text)}`
+    : picked.length === 1 && first ? `Playtest notes: run ${first.r.runNumber} (${first.r.outcome})`
+    : `Playtest notes: ${count} notes from ${picked.length} runs`;
+  const versions = [...new Set(picked.map((x) => runVersion(x.r)))].sort(compareVersions).join(', ');
+  const lines = [`${tester || 'A tester'} on build ${versions || '?'}.`];
+  for (const { r, notes } of picked) {
+    lines.push('', `**Run ${r.runNumber}** · ${setupKey(r)} · ${r.outcome} · ${duration(r.durationSec)} · seed \`${r.seed}\` · map ${r.mapId}`);
+    for (const n of notes) lines.push(`- tick ${n.t}: ${n.text}`);
+  }
+  lines.push('', '_Drop the exported `.log` files here for any run worth replaying._');
+  const body = lines.join('\n');
+  return { title, body: body.length <= maxChars ? body : body.slice(0, maxChars - 60) + '\n\n_…cut to fit; use Copy notes for the rest._' };
 }
 
 /**

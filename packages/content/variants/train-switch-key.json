@@ -3,6 +3,7 @@
   "id": "key",
   "group": "trainSwitch",
   "label": "Tab switches trains",
+  "help": "Tab switches your committed train to the nearest one.",
   "question": "Is switching your committed train better on a key (Tab) or automatic when you ride closer to another train?",
   "patch": {}
 }

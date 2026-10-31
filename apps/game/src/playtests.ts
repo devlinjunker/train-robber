@@ -6,16 +6,16 @@ import { EXPERIMENT_NUMBERS, overridesFromSet, setParams, setupSelection, type E
 import { download, listRuns, listSessions, openDb, readLog } from './logSink';
 import pkg from '../package.json';
 import {
-  compareVersions, duration, experimentIssue, experimentNumber, issueMarkdown, money, notesMarkdown, NUMBER_LABELS, outcomeWords, PULL_WINDOW_SEC, pullWords,
+  compareVersions, duration, experimentIssue, experimentNumber, issueMarkdown, money, notesIssue, notesMarkdown, NUMBER_LABELS, outcomeWords,
   runVersion, sessionPull, setupKey, setupRuns, toCsv, type ExperimentReport,
 } from './playtestStats';
 import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
 import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
-  linkedPr, playQuery, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
+  linkedPr, loadDeleted, loadExcluded, playQuery, saveDeleted, undelete, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
 } from './experiments';
-import { diffLabel, mapChoices, presetIds, repoExperiments, selectionError, settablePaths, variantGroups } from './setup';
+import { diffLabel, diffReadable, mapChoices, settingDoc, settingName, type VariantGroupInfo, presetIds, repoExperiments, selectionError, settablePaths, settingChoices, settingHint, variantInfo } from './setup';
 
 const REPO = 'https://github.com/devlinjunker/train-robber';
 const REPO_ISSUES = `${REPO}/issues/new`;
@@ -54,13 +54,31 @@ function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
   }
   if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
   const pull = sessionPull(rs);
-  return [...head, ['Testers', count((r) => r.tester || '?')], ['Sessions', String(pull.sessions)], ['Versions', count(runVersion)], ['Maps', count((r) => r.mapId)], ['Notes', String(rs.reduce((k, r) => k + r.notes.length, 0))], [`Went again within ${PULL_WINDOW_SEC} s`, pullWords(pull)]];
+  return [...head, ['Testers', count((r) => r.tester || '?')], ['Sessions', String(pull.sessions)], ['Versions', count(runVersion)], ['Maps', count((r) => r.mapId)], ['Notes', String(rs.reduce((k, r) => k + r.notes.length, 0))]];
 }
 
 /** How a setup is told in lists: its difference from the default. */
 function selectionLabel(base: ExperimentBase | undefined, setup: ExperimentSetup): string {
   const sel = setupSelection(base, setup);
   return diffLabel({ preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)), ...(sel.map ? { map: sel.map } : {}) });
+}
+/** A setup's difference as lines for its card header, variants in words with their help on hover. */
+/** A `?set=` row's explanation: the setting in words, then its doc comment from the schema. */
+function setDoc(path: string): string {
+  if (!path) return '';
+  const doc = settingDoc(path);
+  return `<b>${esc(settingName(path))}</b>${doc ? ` · ${esc(doc)}` : ''}`;
+}
+/** The help line under a variant pick: what the chosen option does, or where an unpicked one comes from. */
+function variantHelp(g: VariantGroupInfo, id: string | undefined, inherit: string): string {
+  const o = id ? g.options.find((x) => x.id === id) : undefined;
+  if (o) return o.help || o.label;
+  return inherit === '(base)' ? `Uses the base's choice. ${g.question}` : `Uses the preset's choice. ${g.question}`;
+}
+function selectionHtml(base: ExperimentBase | undefined, setup: ExperimentSetup): string {
+  const sel = setupSelection(base, setup);
+  return diffReadable({ preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)), ...(sel.map ? { map: sel.map } : {}) })
+    .map((p) => `<div${p.help ? ` title="${esc(p.help)}"` : ''}>${esc(p.text)}</div>`).join('');
 }
 const baseLabel = (base: ExperimentBase | undefined) => selectionLabel(base, { id: 'base', name: 'base' });
 
@@ -88,8 +106,7 @@ async function main() {
     const box = $('prLink');
     box.hidden = !pr;
     box.innerHTML = pr ? `Linked to <a href="${prUrl(pr)}" target="_blank" rel="noopener">PR #${pr} ↗</a> <button id="prUnlink" title="Stop sending results to this PR">Unlink</button>` : '';
-    $('prNotes').hidden = !pr;
-    $('prNotes').textContent = pr ? `Send notes to PR #${pr}` : '';
+    $('github').textContent = pr ? `Send to GitHub (issue for PR #${pr})` : 'Send to GitHub';
   }
   $('prLink').addEventListener('click', (e) => {
     if ((e.target as HTMLElement).id !== 'prUnlink') return;
@@ -99,18 +116,22 @@ async function main() {
     history.replaceState(null, '', `${location.pathname}${q.toString() ? `?${q}` : ''}${location.hash}`);
     renderPr(); renderExperiments();
   });
-  /** Copy Markdown and open the PR in a new tab to paste it as a comment (GitHub has no prefilled PR comment link). */
-  async function sendToPr(btn: HTMLButtonElement, n: number, text: string, file: string) {
-    let copied = true;
-    try { await navigator.clipboard.writeText(text); } catch { copied = false; download(file, text, 'text/markdown'); }
-    window.open(`${prUrl(n)}#new_comment_field`, '_blank', 'noopener');
-    const label = btn.textContent;
-    btn.textContent = copied ? 'Copied: paste it in the PR comment box' : 'Saved as a file: paste it on the PR';
-    setTimeout(() => { btn.textContent = label; }, 4000);
+  /** A new `playtest` issue in a new tab; with a PR, the title names it and the body links it, so the PR shows the issue. */
+  function openIssue(title: string, body: string, prN?: number) {
+    const t = prN ? `${title} (PR #${prN})` : title;
+    const b = prN ? `For #${prN}.\n\n${body}` : body;
+    window.open(`${REPO_ISSUES}?${new URLSearchParams({ title: t, body: b, labels: 'playtest' })}`, '_blank', 'noopener');
   }
+  // Runs left out of the results (quick tests): kept, but hidden from cards, totals and the list unless shown.
+  const excluded = loadExcluded();
+  let showExcluded = false;
   const repoIds = new Set(repoExperiments.map((e) => e.id));
 
   $('build').textContent = pkg.version;
+  const sha = String(import.meta.env.VITE_BUILD_SHA ?? '');
+  if (/^[0-9a-f]{7,40}$/.test(sha)) {
+    $('buildSha').innerHTML = ` from commit <a href="https://github.com/devlinjunker/train-robber/commit/${sha}" target="_blank" rel="noopener" title="The commit this page was built from"><code>${sha.slice(0, 7)}</code></a>`;
+  }
   const tester = $<HTMLInputElement>('tester');
   tester.value = getTester();
   tester.addEventListener('change', () => setTester(tester.value.trim()));
@@ -131,7 +152,7 @@ async function main() {
     return labelCache.get(k)!;
   };
 
-  const visible = () => runs.filter((r) => [...filters].every(([k, v]) => v === ALL || filterValue(r, k) === v));
+  const visible = () => runs.filter((r) => (showExcluded || !excluded.has(r.id)) && [...filters].every(([k, v]) => v === ALL || filterValue(r, k) === v));
 
   /** Save an experiment someone shared (link or file), asking on an id clash. Returns the id it is saved under. */
   function receive(incoming: Experiment): string {
@@ -139,12 +160,13 @@ async function main() {
     const replace = kind === 'conflict' && confirm(`You already have an experiment with the id "${incoming.id}" but different contents.\n\nOK: replace yours with the shared "${incoming.title}".\nCancel: keep both (the shared one is saved as a copy).`);
     const r = mergeIncoming(incoming, own, repoIds, replace);
     if (r.kind === 'new' || r.kind === 'conflict') { own = r.own; saveOwn(own); }
+    undelete(incoming.id); undelete(r.id);
     return r.id;
   }
 
   /** Runs carry a copy of a tester's own experiment: add any you don't have, so their runs get a card. */
   function adoptFromRuns() {
-    const known = new Set([...repoIds, ...own.map((e) => e.id)]);
+    const known = new Set([...repoIds, ...own.map((e) => e.id), ...loadDeleted()]);
     let added = false;
     for (const r of runs) {
       if (r.experiment && !known.has(r.experiment.id)) {
@@ -214,8 +236,7 @@ async function main() {
           <button data-act="share" title="Copy a link that opens this experiment on anyone's Playtests page${s.repo ? '' : ' and saves it there'}">Share link</button>
           <button data-act="dup" title="Make your own editable copy">Duplicate</button>
           <button data-act="file" title="Copy the experiment as a packages/content/playtests/*.json file${s.done ? ', marked done with its conclusion' : ''}">Copy as file</button>
-          ${target ? `<button data-act="pr" title="Copy this experiment's results and your answers, and open PR #${target} in a new tab to paste them as a comment">Send to PR #${target}</button>` : ''}
-          <button data-act="gh" title="Open a GitHub issue with this experiment's results and your answers">Send to GitHub</button>
+          <button data-act="gh" title="Open a GitHub issue with this experiment's results, your answers and its run notes${target ? `, linked to PR #${target}` : ''}">Send to GitHub${target ? ` (PR #${target})` : ''}</button>
           ${s.repo ? '<button data-act="base" title="Change the base setup every setup builds on, in this browser only">Edit base</button>' : '<button data-act="edit">Edit</button><button data-act="del">Delete</button>'}
           ${s.done ? '<button data-act="reopen" title="Move it back to the open experiments">Reopen</button>' : '<button data-act="done" title="Answered: move it to Finished experiments (in this browser)">Mark done</button>'}
         </div>
@@ -225,10 +246,9 @@ async function main() {
       <div class="base muted">Base: ${esc(base)}${s.baseChanged ? ' <b>(changed in this browser)</b> <button data-act="resetbase">Reset</button>' : ''}</div>
       ${s.done ? '<details class="results"><summary>Results and answers</summary>' : ''}
       <div class="scroll"><table class="cmp">
-        <tr><th></th>${exp.setups.map((setup) => `<th>${esc(setup.name)}<div class="diff">${esc(selectionLabel(s.base, setup))}</div><a class="play" href="${esc(href(setup.id))}" target="_blank" title="Play this setup; its runs are tagged for this card">Play ▸</a></th>`).join('')}</tr>
+        <tr><th></th>${exp.setups.map((setup) => `<th>${esc(setup.name)}<div class="diff">${selectionHtml(s.base, setup)}</div><a class="play" href="${esc(href(setup.id))}" target="_blank" title="Play this setup; its runs are tagged for this card">Play ▸</a></th>`).join('')}</tr>
         <tr><td>Runs</td>${cells((c) => `${c.length}${c.length ? ` <span class="muted">(${new Set(c.map((r) => r.tester || '?')).size} tester${new Set(c.map((r) => r.tester || '?')).size === 1 ? '' : 's'})</span>` : ''}`)}</tr>
         ${exp.numbers.map((n) => `<tr><td title="${esc(EXPERIMENT_NUMBERS[n])}">${esc(NUMBER_LABELS[n])}</td>${cells((c) => esc(experimentNumber(n, c)))}</tr>`).join('')}
-        <tr><td title="Runs followed by another run in the same session, and how many of those started within ${PULL_WINDOW_SEC} s of the last one ending (the summary screen)">Went again within ${PULL_WINDOW_SEC} s</td>${cells((c) => esc(pullWords(sessionPull(c))))}</tr>
         <tr><td title="The outcome of the last run in each session (a page load); closed means the tab closed mid-run">Sessions ended by</td>${cells((c) => esc(outcomeWords(sessionPull(c).endedBy)))}</tr>
         <tr><td>Notes</td>${cells(notes)}</tr>
       </table></div>
@@ -284,13 +304,6 @@ async function main() {
       case 'gh':
         sendExperiment(s, false);
         break;
-      case 'pr': {
-        // GitHub has no prefilled PR comment link, so the results go on the clipboard and the PR opens to paste them.
-        const { title, body } = experimentIssue(report(s), visible(), getTester());
-        const text = `## ${title}\n\n${body}`;
-        void sendToPr(btn, cardPr(s)!, text, `${exp.id}-results.md`);
-        break;
-      }
       case 'dup': {
         const copy: Experiment = { ...structuredClone(exp), id: newExperimentId(exp.title, new Set([...repoIds, ...own.map((o) => o.id)])), title: `${exp.title} (copy)`.slice(0, 80) };
         if (s.base) copy.base = structuredClone(s.base); else delete copy.base;
@@ -311,22 +324,45 @@ async function main() {
         delete bases[exp.id]; saveBases(bases); render();
         break;
       case 'del':
-        if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) { own = own.filter((o) => o.id !== exp.id); saveOwn(own); render(); }
-        break;
-      case 'done':
-      case 'reopen': {
-        const want = btn.dataset.act === 'done' ? 'done' : 'open';
-        status = { ...status, [exp.id]: want };
-        if (want === (exp.status ?? 'open')) delete status[exp.id];
-        saveStatus(status); renderExperiments();
-        if (want === 'open') flash(exp.id);
-        else if (confirm(`"${exp.title}" is done in this browser.\n\nOK: open a GitHub issue with its results, your answers and the file to commit, so it is finished for everyone.\nCancel: keep it to this browser.`)) {
-          sendExperiment({ ...s, done: true }, true);
+        if (confirm(`Delete the experiment "${exp.title}"? Its runs stay in the run list.`)) {
+          own = own.filter((o) => o.id !== exp.id); saveOwn(own);
+          const gone = loadDeleted(); gone.add(exp.id); saveDeleted(gone);
+          render();
         }
         break;
-      }
+      case 'reopen':
+        setStatus(exp, 'open'); flash(exp.id);
+        break;
+      case 'done':
+        askDone(s);
+        break;
     }
   };
+  function setStatus(exp: Experiment, want: 'open' | 'done'): void {
+    status = { ...status, [exp.id]: want };
+    if (want === (exp.status ?? 'open')) delete status[exp.id];
+    saveStatus(status); renderExperiments();
+  }
+  /** Mark done asks first: done everywhere (a GitHub issue with the file to commit), done in this browser only, or cancel (nothing changes). */
+  function askDone(s: Shown): void {
+    const dlg = $('doneDialog') as HTMLDialogElement;
+    dlg.innerHTML = `<form method="dialog">
+      <h3>Mark "${esc(s.exp.title)}" done?</h3>
+      <p class="mini">It moves to Finished experiments. Add to GitHub opens an issue with its results, your answers and the file to commit (<code>"status": "done"</code> with your answer as the conclusion), so it is finished for everyone once that file is merged.</p>
+      <div class="row done-actions">
+        <button value="github" class="primary">Add to GitHub${cardPr(s) ? ` (PR #${cardPr(s)})` : ''}</button>
+        <button value="local">Only this browser</button>
+        <button value="cancel">Cancel</button>
+      </div></form>`;
+    dlg.returnValue = '';
+    dlg.onclose = () => {
+      const pick = dlg.returnValue;
+      if (pick !== 'github' && pick !== 'local') return;
+      setStatus(s.exp, 'done');
+      if (pick === 'github') sendExperiment({ ...s, done: true }, true);
+    };
+    dlg.showModal();
+  }
   /** The experiment as a repo file: the base you play it with, and once done, `status: done` with the conclusion (your answer if it has none). */
   function fileFor(s: Shown): Experiment {
     const out: Experiment = structuredClone(s.exp);
@@ -347,7 +383,7 @@ async function main() {
   }
   function sendExperiment(s: Shown, finishing: boolean) {
     const { title, body } = experimentIssue(report(s), visible(), getTester(), finishing ? fileFor(s) : undefined);
-    window.open(`${REPO_ISSUES}?${new URLSearchParams({ title, body, labels: 'playtest' })}`, '_blank');
+    openIssue(title, body, cardPr(s));
   }
   const onCardInput = (e: Event) => {
     const ta = e.target as HTMLTextAreaElement;
@@ -428,26 +464,37 @@ async function main() {
       ['Whistles', String(r.whistles ?? '–')], ['Mount jumps', String(r.mountAttempts ?? '–')],
       ['Refused commands', Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(', ') || '–'],
     ];
-    const notes = r.notes.length ? `<div class="notes">${r.notes.map((n) => `<div>tick ${n.t}: ${esc(n.text)}</div>`).join('')}</div>` : '<div class="notes muted">No notes (press N in game).</div>';
+    const notes = r.notes.length
+      ? `<div class="notes">${r.notes.map((n, i) => `<div>tick ${n.t}: ${esc(n.text)} <button class="mini" data-note-issue="${i}" title="Open a GitHub issue for this note">Issue ↗</button></div>`).join('')}</div>`
+      : '<div class="notes muted">No notes (press N in game).</div>';
     const logs = stored.has(r.session)
       ? `<a href="${esc(watchUrl(r))}" target="_blank">Watch</a> <button data-logs="${esc(r.session)}">Download .log files</button>`
       : '<span class="muted">Logs pruned (only the newest 20 sessions keep them).</span>';
-    return `<tr class="detail"><td colspan="${span}"><dl>${items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>${notes}
-      <div class="bar">${logs} <a href="./${esc(r.url || '')}" target="_blank">Play this setup again</a></div></td></tr>`;
+    return `<tr class="detail"><td colspan="${span}" data-for="${esc(r.id)}"><dl>${items.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>${notes}
+      <div class="bar">${logs} <a href="./${esc(r.url || '')}" target="_blank">Play this setup again</a>
+        ${r.notes.length > 1 ? '<button data-run-notes-issue>Issue for this run\'s notes ↗</button>' : ''}
+        <button data-exclude title="${excluded.has(r.id) ? 'Count this run in the cards, totals and list again' : 'Leave this run out of the cards, totals and list (e.g. a quick test); Show excluded brings it back'}">${excluded.has(r.id) ? 'Include in results' : 'Exclude from results'}</button></div></td></tr>`;
   }
 
   function renderRuns() {
     $('views').innerHTML = (Object.keys(VIEWS) as View[]).map((v) => `<button data-view="${v}" aria-pressed="${v === view}">${VIEWS[v].name}</button>`).join('');
     $('viewHelp').textContent = VIEWS[view].help;
+    const nEx = runs.filter((r) => excluded.has(r.id)).length;
+    $('excludedToggle').hidden = nEx === 0;
+    $('excludedToggle').innerHTML = `<label><input type="checkbox" id="showExcluded"${showExcluded ? ' checked' : ''} /> Show ${nEx} excluded run${nEx === 1 ? '' : 's'}</label>`;
     const rs = visible();
     $('runStats').innerHTML = rs.length ? viewStats(view, rs).map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('') : '';
     const cols = COLS[view];
     $('runs').innerHTML = rs.length === 0
       ? `<tr><td class="empty">${runs.length ? 'No runs match the filters.' : 'No runs yet. Press Play on an experiment setup, or open the game and commit to a train with E; each run shows up here when it ends.'}</td></tr>`
       : `<tr>${cols.map((c) => `<th${c.num ? ' class="num"' : ''}>${c.head}</th>`).join('')}</tr>` +
-        rs.map((r) => `<tr class="run${expanded.has(r.id) ? ' open' : ''}" data-run="${esc(r.id)}" title="Click for details">${cols.map((c) => `<td class="${c.num ? 'num' : c.head === 'Setup' ? 'setup' : ''}">${c.cell(r)}</td>`).join('')}</tr>${expanded.has(r.id) ? detail(r, cols.length) : ''}`).join('');
+        rs.map((r) => `<tr class="run${expanded.has(r.id) ? ' open' : ''}${excluded.has(r.id) ? ' excluded' : ''}" data-run="${esc(r.id)}" title="Click for details">${cols.map((c) => `<td class="${c.num ? 'num' : c.head === 'Setup' ? 'setup' : ''}">${c.cell(r)}</td>`).join('')}</tr>${expanded.has(r.id) ? detail(r, cols.length) : ''}`).join('');
   }
 
+  $('excludedToggle').addEventListener('change', (e) => {
+    showExcluded = (e.target as HTMLInputElement).checked;
+    renderExperiments(); renderRuns();
+  });
   $('views').addEventListener('click', (e) => {
     const v = (e.target as HTMLElement).dataset.view as View | undefined;
     if (!v) return;
@@ -477,6 +524,24 @@ async function main() {
       setTimeout(() => target?.classList.remove('flash'), 1200);
       return;
     }
+    const runId = el.closest<HTMLElement>('[data-for]')?.dataset.for;
+    const rec = runId ? runs.find((r) => r.id === runId) : undefined;
+    if (rec && el.dataset.noteIssue !== undefined) {
+      const { title, body } = notesIssue([rec], getTester(), Number(el.dataset.noteIssue));
+      openIssue(title, body, pr ?? findShown(rec.exp)?.exp.pr);
+      return;
+    }
+    if (rec && el.matches('[data-run-notes-issue]')) {
+      const { title, body } = notesIssue([rec], getTester());
+      openIssue(title, body, pr ?? findShown(rec.exp)?.exp.pr);
+      return;
+    }
+    if (rec && el.matches('[data-exclude]')) {
+      if (excluded.has(rec.id)) excluded.delete(rec.id); else excluded.add(rec.id);
+      saveExcluded(excluded);
+      renderExperiments(); renderRuns();
+      return;
+    }
     if (el.closest('a, button')) return;
     const row = el.closest<HTMLElement>('tr.run');
     if (!row?.dataset.run) return;
@@ -503,17 +568,21 @@ async function main() {
     return `playtest-notes-${v && v !== ALL ? v : 'all'}-${stamp()}.md`;
   };
   $('notesCopy').addEventListener('click', () => void copyText($<HTMLButtonElement>('notesCopy'), notes(), () => download(notesName(), notes(), 'text/markdown')));
-  $('prNotes').addEventListener('click', () => { if (pr) void sendToPr($<HTMLButtonElement>('prNotes'), pr, notes(), notesName()); });
+  $('notesIssue').addEventListener('click', () => {
+    const rs = visible().filter((r) => r.notes.length);
+    if (!rs.length) { alert('None of the runs shown have notes.'); return; }
+    const { title, body } = notesIssue(rs, getTester());
+    openIssue(title, body, pr);
+  });
   $('notesDownload').addEventListener('click', () => download(notesName(), notes(), 'text/markdown'));
   $('csv').addEventListener('click', () => download(`playtests-${stamp()}.csv`, toCsv(visible()), 'text/csv'));
-  $('json').addEventListener('click', () => download(`playtests-${stamp()}.json`, JSON.stringify(visible(), null, 1), 'application/json'));
+  $('json').addEventListener('click', () => download(`playtests-${stamp()}.json`, JSON.stringify(visible().map((r) => (excluded.has(r.id) ? { ...r, excluded: true } : r)), null, 1), 'application/json'));
   $('github').addEventListener('click', () => {
     const rs = visible();
     const reps = reports(rs);
     if (rs.length === 0 && reps.length === 0) return;
     const who = getTester() || 'a tester';
-    const q = new URLSearchParams({ title: `Playtest: ${rs.length} runs from ${who}`, body: issueMarkdown(rs, 6000, reps), labels: 'playtest' });
-    window.open(`${REPO_ISSUES}?${q}`, '_blank');
+    openIssue(`Playtest: ${rs.length} runs from ${who}`, issueMarkdown(rs, 6000, reps), pr);
   });
   const file = $<HTMLInputElement>('importFile');
   $('import').addEventListener('click', () => { menu.open = false; file.click(); });
@@ -530,7 +599,13 @@ async function main() {
     }
     const n = incoming.length;
     const tx = db.transaction('runs', 'readwrite');
-    for (const r of incoming) tx.objectStore('runs').put(r);
+    for (const r of incoming) {
+      if (r.excluded) excluded.add(r.id);
+      const rec = { ...r };
+      delete rec.excluded;
+      tx.objectStore('runs').put(rec);
+    }
+    saveExcluded(excluded);
     tx.oncomplete = () => {
       file.value = '';
       void load().then(() => {
@@ -544,24 +619,31 @@ async function main() {
 
   function openEditor(draft: Experiment, mode: 'full' | 'base', onSave: (e: Experiment) => void) {
     const dlg = $<HTMLDialogElement>('editor');
-    const presets = presetIds(), groups = variantGroups(), maps = mapChoices();
+    const presets = presetIds(), groups = variantInfo(), maps = mapChoices();
     const opts = (values: string[], current: string | undefined, inherit: string) =>
       `<option value="">${esc(inherit)}</option>` + values.map((v) => `<option${v === current ? ' selected' : ''}>${esc(v)}</option>`).join('');
-    const setRow = (path = '', value: unknown = '') =>
-      `<div class="row setrow"><input list="setPaths" placeholder="countdown.scale" value="${esc(path)}" /><input placeholder="value" value="${esc(typeof value === 'string' ? value : JSON.stringify(value))}" /><button type="button" data-del-set title="Remove">×</button></div>`;
+    // Each value row says what its path takes (and the game.json default), and suggests the choices.
+    let rows = 0;
+    const setRow = (path = '', value: unknown = '') => {
+      const list = `setChoices${rows++}`;
+      return `<div class="row setrow"><input list="setPaths" placeholder="countdown.scale" value="${esc(path)}" data-path /><input placeholder="value" list="${list}" value="${esc(typeof value === 'string' ? value : JSON.stringify(value))}" /><button type="button" data-del-set title="Remove">×</button>
+        <datalist id="${list}">${settingChoices(path).map((c) => `<option value="${esc(c)}">`).join('')}</datalist><span class="muted hint" data-hint>${esc(settingHint(path))}</span>
+        <div class="setdoc" data-doc>${setDoc(path)}</div></div>`;
+    };
     const selection = (sel: ExperimentBase, inherit: string) => {
       const changed = Object.keys(sel.variants ?? {}).length;
       return `<div class="row">
           <label>Preset<select data-f="preset">${opts(presets, sel.preset, inherit)}</select></label>
           <label>Map<select data-f="map">${opts(maps, sel.map, inherit === '(base)' ? '(base)' : 'default (alpha-flats)')}</select></label>
         </div>
-        <details${changed ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map(([g, ids]) =>
-          `<label>${esc(g)}<select data-var="${esc(g)}">${opts(ids, sel.variants?.[g], inherit === '(base)' ? '(base)' : "(preset's)")}</select></label>`).join('')}</div></details>
+        <details${changed ? ' open' : ''}><summary class="muted">Variants${changed ? ` (${changed} picked)` : ''}</summary><div class="vars">${groups.map((g) =>
+          `<label title="${esc(g.question)}">${esc(g.name)}<select data-var="${esc(g.group)}"><option value="">${inherit === '(base)' ? '(base)' : "(preset's)"}</option>${g.options.map((o) => `<option value="${esc(o.id)}" title="${esc(o.help)}"${o.id === sel.variants?.[g.group] ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select><span class="vhelp" data-vhelp>${esc(variantHelp(g, sel.variants?.[g.group], inherit))}</span></label>`).join('')}</div></details>
         <div class="muted">?set= values</div><div data-sets>${Object.entries(sel.set ?? {}).map(([p, v]) => setRow(p, v)).join('')}</div>
         <button type="button" data-add-set>Add a value</button>`;
     };
     const setupBlock = (s: ExperimentSetup, i: number) => `<fieldset data-setup="${esc(s.id)}"><legend>Setup ${i + 1}</legend>
-        <div class="row"><label>Name<input data-f="name" value="${esc(s.name)}" maxlength="40" /></label>${mode === 'full' ? '<button type="button" data-del-setup>Remove setup</button>' : ''}</div>
+        ${mode === 'full' ? '<div class="setup-actions"><button type="button" data-dup-setup title="Add a copy of this setup to change">Duplicate</button><button type="button" data-del-setup title="Remove this setup">Remove</button></div>' : ''}
+        <div class="row"><label>Name<input data-f="name" value="${esc(s.name)}" maxlength="40" /></label></div>
         ${selection(s, '(base)')}</fieldset>`;
     const full = mode === 'full';
     dlg.innerHTML = `<form method="dialog">
@@ -574,7 +656,7 @@ async function main() {
       ${full ? `<div data-setups>${draft.setups.map(setupBlock).join('')}</div><button type="button" data-add-setup>Add setup</button>
       <fieldset><legend>Numbers to compare (up to 6)</legend><div class="numbers">${(Object.keys(EXPERIMENT_NUMBERS) as ExperimentNumber[]).map((n) =>
         `<label><input type="checkbox" data-num="${n}"${draft.numbers.includes(n) ? ' checked' : ''} /> ${esc(EXPERIMENT_NUMBERS[n])}</label>`).join('')}</div></fieldset>` : ''}
-      <datalist id="setPaths">${settablePaths().map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <datalist id="setPaths">${settablePaths().map((p) => `<option value="${esc(p)}" label="${esc(`${settingName(p)}${settingDoc(p) ? ` · ${settingDoc(p).slice(0, 90)}` : ''}`)}">`).join('')}</datalist>
       <div class="error" data-error></div>
       <div class="foot"><button type="button" data-cancel>Cancel</button><button type="button" class="primary" data-save>Save</button></div>
     </form>`;
@@ -600,12 +682,15 @@ async function main() {
       if (t.matches('[data-add-set]')) t.previousElementSibling!.insertAdjacentHTML('beforeend', setRow());
       else if (t.matches('[data-del-set]')) t.closest('.setrow')!.remove();
       else if (t.matches('[data-del-setup]')) t.closest('fieldset')!.remove();
-      else if (t.matches('[data-add-setup]')) {
+      else if (t.matches('[data-add-setup], [data-dup-setup]')) {
         const box = dlg.querySelector('[data-setups]')!;
         const taken = new Set(Array.from(box.querySelectorAll<HTMLElement>('[data-setup]')).map((f) => f.dataset.setup!));
         let id = 'a';
         for (let i = 0; taken.has(id); i++) id = String.fromCharCode(97 + (i % 26)) + (i >= 26 ? Math.floor(i / 26) : '');
-        box.insertAdjacentHTML('beforeend', setupBlock({ id, name: '' }, box.children.length));
+        const from = t.matches('[data-dup-setup]') ? t.closest<HTMLElement>('[data-setup]') : null;
+        const copy: ExperimentSetup = from ? { ...readSelection(from), id, name: `${from.querySelector<HTMLInputElement>('[data-f="name"]')!.value.trim() || 'Setup'} copy`.slice(0, 40) } : { id, name: '' };
+        if (from) from.insertAdjacentHTML('afterend', setupBlock(copy, box.children.length)); else box.insertAdjacentHTML('beforeend', setupBlock(copy, box.children.length));
+        box.querySelectorAll('legend').forEach((l, i) => { if (l.closest('[data-setup]')) l.textContent = `Setup ${i + 1}`; });
       } else if (t.matches('[data-cancel]')) dlg.close();
       else if (t.matches('[data-save]')) {
         const err = dlg.querySelector<HTMLElement>('[data-error]')!;
@@ -629,6 +714,21 @@ async function main() {
         dlg.close();
         onSave(next);
       }
+    };
+    dlg.onchange = (e) => {
+      const t = e.target as HTMLSelectElement;
+      if (!t.matches('[data-var]')) return;
+      const g = groups.find((x) => x.group === t.dataset.var)!;
+      const inherit = t.closest('[data-base]') ? 'default' : '(base)';
+      t.parentElement!.querySelector('[data-vhelp]')!.textContent = variantHelp(g, t.value || undefined, inherit);
+    };
+    dlg.oninput = (e) => {
+      const t = e.target as HTMLInputElement;
+      if (!t.matches('[data-path]')) return;
+      const row = t.closest('.setrow')!;
+      row.querySelector('[data-hint]')!.textContent = settingHint(t.value.trim());
+      row.querySelector('[data-doc]')!.innerHTML = setDoc(t.value.trim());
+      row.querySelector('datalist')!.innerHTML = settingChoices(t.value.trim()).map((c) => `<option value="${esc(c)}">`).join('');
     };
     dlg.showModal();
   }

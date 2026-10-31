@@ -3,7 +3,7 @@ import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, typ
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
 import { repoExperiments, setupFromUrl } from './setup';
-import { classifyIncoming, decodeExperiment, linkedPr, loadOwn, mergeIncoming, saveOwn } from './experiments';
+import { classifyIncoming, decodeExperiment, linkedPr, loadOwn, mergeIncoming, saveOwn, undelete } from './experiments';
 import type { Experiment } from '@train-robber/config';
 import type { MapDef, SceneryDef } from '@train-robber/config';
 import { mapIdFromUrl, sessionMap } from './map';
@@ -236,6 +236,7 @@ function experimentTag(): { exp?: string; setup?: string; experiment?: Experimen
         confirm(`You already have an experiment with this id ("${incoming.id}") but different contents.\n\nOK: replace yours with the shared "${incoming.title}".\nCancel: keep both (the shared one is saved as a copy).`);
       const r = mergeIncoming(incoming, own, repoIds, replace);
       if (r.kind === 'new' || r.kind === 'conflict') saveOwn(r.own);
+      undelete(incoming.id); undelete(r.id);
       if (exp === incoming.id) exp = r.id;
     } catch (e) {
       console.warn('The shared experiment in this link was not saved:', e);
