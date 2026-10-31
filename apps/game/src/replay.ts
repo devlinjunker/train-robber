@@ -31,7 +31,8 @@ export async function bootReplay(app: Application, source: ReplaySource): Promis
     config = configForHeader(header);
     // A generated map (?map=gen or ?map=line) is rebuilt from the logged seed and mapGen overrides.
     const { map, scenery } = await sessionMap(header.mapId ?? DEFAULT_MAP, header.seed, config);
-    warnings = headerWarnings(header, { config, gameVersion: pkg.version, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
+    // Retired keys and presets (M6b) load with a warning, not an error.
+    warnings = [...config.warnings, ...headerWarnings(header, { config, gameVersion: pkg.version, mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz })];
     if (!header.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
     replay = createReplay(indexCommandLog(log), { config, map, seed: header.seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
     run(app, { name, header, replay, warnings, config, map, scenery, startTick: source.startTick });

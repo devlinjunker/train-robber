@@ -64,6 +64,8 @@ export interface RunRecord extends SessionMeta {
   countdownLeftSec?: number | null;
   /** Heat when the run ended; missing on older records. */
   heatAtEnd?: number;
+  /** The run end's heat roll for +wanted (M6b): the chance (0 to 1) and whether it hit; null when the outcome does not roll, missing on older records. */
+  heatRoll?: { chance: number; hit: boolean } | null;
   /** Dollar value and count of the loot carried when the run ended (picked up minus dropped); missing on records from before loot. */
   lootValue?: number;
   lootItems?: number;
@@ -93,7 +95,7 @@ export interface RunRecord extends SessionMeta {
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; heatRoll?: { chance: number; hit: boolean } | null; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
 
 export interface RunTracker {
   /**
@@ -124,7 +126,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     boardingAttempts: o.boarding.perfect + o.boarding.good + o.boarding.fail, boarding: { ...o.boarding },
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
-    rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
+    rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat, ...(o.heatRoll !== undefined ? { heatRoll: o.heatRoll } : {}),
     lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
     ...(o.lootLeftValue === undefined ? {} : { lootLeftValue: o.lootLeftValue, lootLeftItems: o.lootLeftItems }),
     lootLost: o.lootLost, wantedLevel: o.wantedLevel, ...(o.day !== undefined ? { day: o.day } : {}), practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
@@ -169,6 +171,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
+          if (ev.heatRoll !== undefined) open.heatRoll = ev.heatRoll ? { chance: ev.heatRoll.chance, hit: ev.heatRoll.hit } : null;
           if (ev.lootLeftValue !== undefined) { open.lootLeftValue = ev.lootLeftValue; open.lootLeftItems = ev.lootLeftItems; }
           const rec = close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now);
           if (ev.outcome === 'cancelled' && !ev.retry) cancelledOn.set(rec.trainId, rec.id); else cancelledOn.delete(rec.trainId);

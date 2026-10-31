@@ -1,6 +1,9 @@
-// Heat and the countdown (U1, U2, U3). Heat only ever goes up through raiseHeat, so every gain
-// is one HeatChanged event with its cause; the countdown drains faster as heat rises.
-import type { GameState, HeatCause, HeatSource, PlayerState, RunState, SimConfig, SimEvent, TrainState } from '../types';
+// Heat and the countdown (U1, U3). Heat only ever goes up through raiseHeat, so every gain is one
+// HeatChanged event with its cause. Since phase 2 M6b heat never touches the clock (G34): it is the
+// record of this robbery, read by the guards by band (heatBandIndex) and rolled for wanted at the
+// run's end (heatRollValue).
+import { runSeed, seedRng, nextU32 } from '../rng';
+import type { GameState, HeatBandIndex, HeatCause, HeatSource, PlayerState, RunState, SimConfig, SimEvent, TrainState } from '../types';
 import type { WorldMap } from '../world/map';
 import { escaping } from '../world/mount';
 import { routeOf, trainSpeed } from '../world/trains';
@@ -14,9 +17,24 @@ export interface HeatCtx {
 
 export const HEAT_SOURCES: readonly HeatSource[] = ['shotFired', 'alarmRaised', 'playerSpotted', 'actorKilled', 'lootTaken'];
 
-/** Countdown seconds drained per second of play: `1 + heatDrainFactor x heat/100` (U2). */
-export function drainRate(heat: number, cfg: SimConfig['values']['heat']): number {
-  return 1 + (cfg.heatDrainFactor * heat) / 100;
+/** The heat band for `heat`: 0 low, 1 mid, 2 high, split at `heat.bandEdgeShares` of maxHeat (G52). */
+export function heatBandIndex(heat: number, cfg: SimConfig['values']['heat']): HeatBandIndex {
+  const share = cfg.maxHeat > 0 ? heat / cfg.maxHeat : 0;
+  const [low = 1 / 3, mid = 2 / 3] = cfg.bandEdgeShares;
+  return share < low ? 0 : share < mid ? 1 : 2;
+}
+
+/** The chance a run end's heat roll hits: heat as a share of maxHeat, 0 to 1 (G35). */
+export function heatRollChance(heat: number, cfg: SimConfig['values']['heat']): number {
+  return cfg.maxHeat > 0 ? Math.max(0, Math.min(1, heat / cfg.maxHeat)) : 0;
+}
+
+/**
+ * The heat roll for run `runNumber` of a session seeded `seed`, 0 to 1: from its own stream of the
+ * run's seed, so it never shifts any other draw and a replay rolls the same.
+ */
+export function heatRollValue(seed: string, runNumber: number): number {
+  return nextU32(seedRng(`${runSeed(seed, runNumber)}/heatRoll`), 'misc') / 4294967296;
 }
 
 /** The run's whole countdown: the train's `countdown.baseSec` x `countdown.scale` (U1, U7). */
@@ -86,8 +104,8 @@ export function graceApplies(state: GameState, map: WorldMap, config: SimConfig,
 
 /**
  * Before run end each tick: start the clock on boarding when `countdown.startsAt` is `boarding`,
- * add time-aboard heat, and drain the countdown at the heat's rate. Expiry itself is a run end,
- * decided in the run end system with `countdownExpired`.
+ * and drain the countdown one second a second. Expiry itself is a run end, decided in the run end
+ * system with `countdownExpired`.
  */
 export function countdownSystem(ctx: HeatCtx): void {
   const { state, config } = ctx;
@@ -97,19 +115,7 @@ export function countdownSystem(ctx: HeatCtx): void {
   // Extracting is still aboard: the player is on the train until the mount lands.
   const aboard = run.phase === 'aboard' || run.phase === 'extracting';
   if (!run.clockRunning && aboard) run.clockRunning = v.countdown.enabled;
-  if (aboard && v.heat.sources.timeAboardPerTick > 0) {
-    run.pendingHeat += v.heat.sources.timeAboardPerTick;
-    if (run.pendingHeat >= 1) {
-      const whole = Math.floor(run.pendingHeat);
-      run.pendingHeat -= whole;
-      raiseHeat(ctx, whole, 'timeAboard');
-    }
-  }
-  if (run.clockRunning && run.countdownSec > 0) {
-    // The line clock counts down to a place: heat does not speed the train up.
-    const rate = run.clockTo !== undefined ? 1 : drainRate(run.heat, v.heat);
-    run.countdownSec = Math.max(0, run.countdownSec - rate / v.sim.tickRateHz);
-  }
+  if (run.clockRunning && run.countdownSec > 0) run.countdownSec = Math.max(0, run.countdownSec - 1 / v.sim.tickRateHz);
 }
 
 /**

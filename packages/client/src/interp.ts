@@ -11,7 +11,8 @@ export interface ActorPose { x: number; y: number; hx: number; hy: number }
 
 /** A guard in its car's frame, as the view draws it. */
 /** `roof`: up on its car's roof; `climb`: how far up a ladder it is (0 at the foot, 1 at the top) while climbing, else null. */
-export interface GuardPose { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness; roof: boolean; climb: number | null }
+/** `remembers`: it went alert this run and remembers you (`ai.guardMemory`). */
+export interface GuardPose { id: number; car: number; x: number; y: number; fx: number; fy: number; state: GuardAwareness; roof: boolean; climb: number | null; remembers: boolean }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -67,7 +68,7 @@ export class Interpolator {
       // Up a ladder: the share of the climb done, counted from the foot.
       const left = g.climb ? g.climb.ticks / Math.max(1, climbTicks) : 0;
       const climb = g.climb ? (g.roof ? left : 1 - left) : null;
-      this.currGuards.set(g.id, { id: g.id, car: g.car, x: g.x, y: g.y, fx: g.fx, fy: g.fy, state: g.state, roof: g.roof, climb });
+      this.currGuards.set(g.id, { id: g.id, car: g.car, x: g.x, y: g.y, fx: g.fx, fy: g.fy, state: g.state, roof: g.roof, climb, remembers: g.remembers === true });
     }
     this.pushes++;
   }

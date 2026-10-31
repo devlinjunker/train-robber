@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "wanted-decay",
+  "title": "Wanted level decay",
+  "question": "Gate experiment 6 (PR #58): starting at wanted 3, end days with K (or die) between robberies. Should wanted go down on its own, and does the heat roll feel fair? No decay, 1 a day, or 1 after a quiet day?",
+  "pr": 58,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "none",
+      "name": "No decay",
+      "preset": "wanted-decay-none"
+    },
+    {
+      "id": "per-day",
+      "name": "1 a day",
+      "preset": "wanted-decay-per-day"
+    },
+    {
+      "id": "quiet",
+      "name": "1 per quiet day",
+      "preset": "wanted-decay-quiet"
+    }
+  ],
+  "numbers": [
+    "wanted",
+    "heatRoll",
+    "outcomes",
+    "banked",
+    "heat"
+  ],
+  "status": "open"
+}

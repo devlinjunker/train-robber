@@ -11,8 +11,7 @@
     },
     {
       "id": "none",
-      "name": "No time-aboard heat",
-      "preset": "no-time-aboard-heat"
+      "name": "No time-aboard heat"
     }
   ],
   "numbers": [
@@ -22,5 +21,5 @@
     "outcomes"
   ],
   "status": "done",
-  "conclusion": "0.33 per second kept as the default (Devlin, PR #16, 2026-10-14). Phase 2 M6b removes time-aboard heat when heat starts driving guards."
+  "conclusion": "0.33 per second kept as the default (Devlin, PR #16, 2026-10-14). Removed in Phase 2 M6b (PR #58) when heat started driving guards, so both setups now play the same."
 }

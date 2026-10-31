@@ -182,13 +182,14 @@ describe('the line clock', () => {
   });
 
   it('drains at one second a second whatever the heat', () => {
-    const run = { phase: 'aboard', clockRunning: true, countdownSec: 100, heat: 100, pendingHeat: 0, clockTo: 'town1' } as unknown as RunState;
+    const run = { phase: 'aboard', clockRunning: true, countdownSec: 100, heat: 100, clockTo: 'town1' } as unknown as RunState;
     const state = { run, tick: 0 } as never;
     const tickRate = config.values.sim.tickRateHz;
     for (let i = 0; i < tickRate; i++) countdownSystem({ state, config, emit: () => {} });
     expect(run.countdownSec).toBeCloseTo(99, 6);
+    // M6b: heat never changes the clock, on the fixed clock either.
     const hot = { ...run, countdownSec: 100, clockTo: undefined } as RunState;
     for (let i = 0; i < tickRate; i++) countdownSystem({ state: { run: hot, tick: 0 } as never, config, emit: () => {} });
-    expect(hot.countdownSec).toBeLessThan(99);
+    expect(hot.countdownSec).toBeCloseTo(99, 6);
   });
 });

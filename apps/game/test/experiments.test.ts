@@ -70,6 +70,10 @@ describe('experiments in the browser', () => {
     expect(experimentNumber('wanted', rs)).toBe('2.0 → 2.5');
     expect(experimentNumber('lootLost', rs)).toBe('$20');
     expect(experimentNumber('wanted', [{ wantedLevel: 2, wantedAfter: 2 }] as unknown as RunRecord[])).toBe('2.0');
+    // M6b: the heat roll counts only runs that rolled (null = off for that outcome, missing = older record).
+    const rolls = [{ heatRoll: { chance: 0.2, hit: false } }, { heatRoll: { chance: 0.6, hit: true } }, { heatRoll: null }, {}] as unknown as RunRecord[];
+    expect(experimentNumber('heatRoll', rolls)).toBe('40%, 1 of 2 hit');
+    expect(experimentNumber('heatRoll', rolls.slice(2))).toBe('–');
   });
 
   it('an incoming experiment is added once, asks on a clash, and a repo one stays put', () => {

@@ -37,7 +37,7 @@ interface Shown { exp: Experiment; repo: boolean; base: ExperimentBase | undefin
 interface Column { head: string; num?: boolean; cell: (r: RunRecord) => string }
 type View = 'robbery' | 'boarding' | 'all';
 const VIEWS: Record<View, { name: string; help: string }> = {
-  robbery: { name: 'Robbery', help: 'How each robbery went: what you carried off (and lost), what you left on the train, your wanted level and bank. Click a save to see only its runs; time left and heat are in the totals and the expanded run.' },
+  robbery: { name: 'Robbery', help: 'How each robbery went: what you carried off (and lost), what you left on the train, your wanted level and bank. Click a save to see only its runs; time left, heat and the heat roll are in the totals and the expanded run.' },
   boarding: { name: 'Boarding', help: 'The Phase 1 numbers: jumps, how far each run got, time from commit to aboard, damage.' },
   all: { name: 'All', help: 'Who played what, on which build and map. Click a run for every number it recorded.' },
 };
@@ -50,7 +50,7 @@ function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
   if (view === 'robbery') {
     // The bank as the newest saved run left it (runs are newest first).
     const bank = rs.find((r) => r.bankAfter !== undefined && !r.practice)?.bankAfter;
-    return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg lost', n('lootLost')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')], ['Wanted (start → after)', n('wanted')], ['Bank now', money(bank)]];
+    return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg lost', n('lootLost')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')], ['Heat roll', n('heatRoll')], ['Wanted (start → after)', n('wanted')], ['Bank now', money(bank)]];
   }
   if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
   const pull = sessionPull(rs);
@@ -458,7 +458,7 @@ async function main() {
       ['Wanted', r.wantedLevel === undefined ? '–' : r.practice ? `${r.wantedLevel} (practice: nothing saved)` : `${r.wantedLevel} at start, ${r.wantedAfter ?? '–'} after`],
       ['Bank after', r.practice ? '– (practice)' : money(r.bankAfter)], ['Lifetime earned after', r.practice ? '– (practice)' : money(r.lifetimeAfter)],
       ['Save', r.saveId ? `${r.saveId}${r.day !== undefined ? `, day ${r.day}` : ''}` : '–'], ['Resumes', r.resumedFrom ?? '–'],
-      ['Time left', duration(r.countdownLeftSec)], ['Heat at end', String(r.heatAtEnd ?? '–')],
+      ['Time left', duration(r.countdownLeftSec)], ['Heat at end', String(r.heatAtEnd ?? '–')], ['Heat roll', heatRollCell(r)],
       ['Jumps (perfect / good / fail)', `${r.boardingAttempts} (${r.boarding.perfect} / ${r.boarding.good} / ${r.boarding.fail})`], ['Furthest', r.furthestPhase],
       ['Commit to aboard', duration(r.commitToAboardSec)], ['Damage taken', String(r.damageTaken)],
       ['Whistles', String(r.whistles ?? '–')], ['Mount jumps', String(r.mountAttempts ?? '–')],
@@ -788,6 +788,13 @@ function saveCell(r: RunRecord): string {
 }
 
 /** The run's wanted level and what the outcome did to it: `1 → 2`, `3 practice`, or – before M5. */
+/** The run end's heat roll (M6b), as the expanded run shows it. */
+function heatRollCell(r: RunRecord): string {
+  if (r.heatRoll === undefined) return '–';
+  if (r.heatRoll === null) return 'off for this outcome';
+  return `${Math.round(r.heatRoll.chance * 100)}% chance: ${r.heatRoll.hit ? 'hit, +wanted' : 'missed'}`;
+}
+
 function wantedCell(r: RunRecord): string {
   if (r.wantedLevel === undefined) return '–';
   if (r.practice) return `${r.wantedLevel} <span class="muted">practice</span>`;

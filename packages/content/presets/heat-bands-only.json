@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-bands-only",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "ai": { "guardMemory": { "enabled": false } } }
+}

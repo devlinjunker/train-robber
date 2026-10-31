@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "heat-harsh",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "heat": { "sources": { "lootTaken": 3 } }, "ai": { "guardMemory": { "sightBonusTiles": 8, "hearingScale": 1.5 } } }
+}

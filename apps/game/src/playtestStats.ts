@@ -88,7 +88,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'heatRollChance', 'heatRollHit', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -101,7 +101,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
     const flat: Record<(typeof CSV_COLUMNS)[number], unknown> = {
       ...r, variants: setupKey(r).split(' · ').slice(1).join(' · '), perfect: r.boarding.perfect, good: r.boarding.good, fail: r.boarding.fail,
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
-      notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
+      notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, heatRollChance: r.heatRoll ? Math.round(r.heatRoll.chance * 100) / 100 : '', heatRollHit: r.heatRoll ? r.heatRoll.hit : '', lootValue: r.lootValue, lootItems: r.lootItems,
       cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
@@ -225,6 +225,11 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
     }
     case 'timeLeft': return duration(avgOf(rs, (r) => r.countdownLeftSec));
     case 'heat': { const h = avgOf(rs, (r) => r.heatAtEnd); return h == null ? '–' : h.toFixed(0); }
+    case 'heatRoll': {
+      const rolled = rs.flatMap((r) => (r.heatRoll ? [r.heatRoll] : []));
+      if (!rolled.length) return '–';
+      return `${pct(rolled.reduce((n, h) => n + h.chance, 0) / rolled.length)}, ${rolled.filter((h) => h.hit).length} of ${rolled.length} hit`;
+    }
     case 'aboard': return pct(rs.filter((r) => r.furthestPhase === 'aboard' || r.furthestPhase === 'extracting').length / rs.length);
     case 'toBoard': { const m = median(rs.flatMap((r) => (r.commitToAboardSec == null ? [] : [r.commitToAboardSec]))); return duration(m); }
     case 'jumps': {
@@ -239,7 +244,7 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
 /** Short names for the card's row labels. */
 export const NUMBER_LABELS: Record<ExperimentNumber, string> = {
   outcomes: 'Ended', length: 'Avg length', lootCarried: 'Avg carried', banked: 'Avg banked', lootLeft: 'Avg left on train', lootLost: 'Avg lost on the way', wanted: 'Wanted (start → after)',
-  timeLeft: 'Avg time left', heat: 'Avg heat', aboard: 'Got aboard', toBoard: 'Median to board', jumps: 'Jumps (P / G / F)',
+  timeLeft: 'Avg time left', heat: 'Avg heat', heatRoll: 'Heat roll (chance, hits)', aboard: 'Got aboard', toBoard: 'Median to board', jumps: 'Jumps (P / G / F)',
   damage: 'Avg damage', whistles: 'Avg whistles',
 };
 export { EXPERIMENT_NUMBERS };

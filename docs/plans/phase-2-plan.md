@@ -134,16 +134,16 @@ M6 is roadmap step 9, regrilled with Devlin on 2026-10-28 (G31-G44 below). The g
 
 **M6b: Heat drives guards and wanted** (needs M5, PR #46; branch `claude/phase-2-m6b-heat-wanted`)
 
-- [ ] Heat never changes the clock (already true on the line). Delete `heat.heatDrainFactor`, `heat.sources.timeAboardPerSec` and the `no-time-aboard-heat` preset rather than setting them to 0; old logs and saved experiments that name them load with a warning (G34, G35, G55)
-- [ ] Heat only rises within a run: it is the record of this robbery, so a clean run stays easier than going in loud. Loot heat `heat.sources.lootTaken` goes from 1 to 2 per item. The heat band edges (a third and two-thirds of max heat) move from the HUD into game config so guards and the HUD share them (G52)
-- [ ] `heatGuards` (on by default): heat bands low / mid / high scale every guard on the train. In-car sight range +0 / +2 / +4 tiles (10 / 12 / 14; ledge range and cone angle unchanged), calm-down 4 / 5 / 6 s, searching before giving up 3 / 4 / 5 s, hearing ×1 / ×1.15 / ×1.3, chase 4 / 4.5 / 5 tiles/s, guards walking rounds instead of standing posts +0 / +25% / +50% (rounds need guard rounds, PR #51; added after if it isn't merged) (G34, G49, G53)
-- [ ] `guardMemory` (on by default): a guard that goes alert (not just suspicious) remembers you for the rest of the run, for that guard only: in-car sight +5 tiles and hearing ×1.25 on top of the band (15 / 17 / 19 tiles), no change to chase. A lasting red-eye badge marks it (`?remembers=off` hides it); faint cones draw at the real length; the footstep ring stays the base radius (G49, G50, G54)
-- [ ] Every number above is config, changeable with `?set=` (G51)
-- [ ] Heat roll: at every run end, heat % is the chance of +1 wanted level, extractions included; the roll is seeded from the run so replays match; `outcomePolicy.<outcome>.heatRoll` turns it off per outcome; expired still adds +1 outright (G35, G37)
-- [ ] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day; paying it off with bank comes with careers and towns (G36)
-- [ ] Debug End day key K (off a run only, a sim command so replays match): the same day end as death today (full health, day +1, the wanted decay rule runs). No stop-gap day logic before G8's day clock: no runs-per-day and no saving the day across reloads (G56)
-- [ ] Wanted level does not raise heat or guard alertness; it only adds guards (M5) (G57)
-- [ ] Summary screen and Playtests page show heat at end, the roll's chance and whether it hit
+- [x] Heat never changes the clock (already true on the line). Delete `heat.heatDrainFactor`, `heat.sources.timeAboardPerSec` and the `no-time-aboard-heat` preset rather than setting them to 0; old logs and saved experiments that name them load with a warning (G34, G35, G55)
+- [x] Heat only rises within a run: it is the record of this robbery, so a clean run stays easier than going in loud. Loot heat `heat.sources.lootTaken` goes from 1 to 2 per item. The heat band edges (a third and two-thirds of max heat) move from the HUD into game config so guards and the HUD share them (G52)
+- [x] `heatGuards` (on by default): heat bands low / mid / high scale every guard on the train. In-car sight range +0 / +2 / +4 tiles (10 / 12 / 14; ledge range and cone angle unchanged), calm-down 4 / 5 / 6 s, searching before giving up 3 / 4 / 5 s, hearing ×1 / ×1.15 / ×1.3, chase 4 / 4.5 / 5 tiles/s, guards walking rounds instead of standing posts +0 / +25% / +50% (rounds need guard rounds, PR #51; added after if it isn't merged) (G34, G49, G53). Built as bonuses on the base `ai` values (`ai.heatGuards`); "searching" is the search after a chase is lost (`alertCalmSec` + bonus); rounds is a config hook (`roundsBonusShare`) until PR #51 merges
+- [x] `guardMemory` (on by default): a guard that goes alert (not just suspicious) remembers you for the rest of the run, for that guard only: in-car sight +5 tiles and hearing ×1.25 on top of the band (15 / 17 / 19 tiles), no change to chase. A lasting red-eye badge marks it (`?remembers=off` hides it); faint cones draw at the real length; the footstep ring stays the base radius (G49, G50, G54)
+- [x] Every number above is config, changeable with `?set=` (G51)
+- [x] Heat roll: at every run end, heat % is the chance of +1 wanted level, extractions included; the roll is seeded from the run so replays match; `outcomePolicy.<outcome>.heatRoll` turns it off per outcome; expired still adds +1 outright (G35, G37)
+- [x] Wanted decays by a `wanted.decay` rule (none, per-day, per-quiet-day; experiment 6 decides, G46), default `wanted.decayPerDay` 1 at each new day; paying it off with bank comes with careers and towns (G36)
+- [x] Debug End day key K (off a run only, a sim command so replays match): the same day end as death today (full health, day +1, the wanted decay rule runs). No stop-gap day logic before G8's day clock: no runs-per-day and no saving the day across reloads (G56)
+- [x] Wanted level does not raise heat or guard alertness; it only adds guards (M5) (G57)
+- [x] Summary screen and Playtests page show heat at end, the roll's chance and whether it hit (Robbery view totals and the expanded run, plus the `heatRoll` experiment number; experiments `heat-guards` and `wanted-decay` in `content/playtests`)
 
 **M6c: Tests and the gate** (needs G6, PR #47, and M6b; bumps to 0.2.6; branch `claude/phase-2-m6c-tests-gate`)
 
@@ -213,14 +213,14 @@ These are copied from [docs/technical-design.md](https://github.com/devlinjunker
 | --- | --- | --- |
 | Countdown start | At commit, not at boarding | U1, confirmed |
 | Countdown length | Train `countdown.baseSec` x `countdown.scale`; mail placeholder 150 s | Configuration, U7 |
-| Heat | 0-100; drain rate `1 + heatDrainFactor x heat/100`; time-spent heat 0 and decay 0 by default | U2 |
-| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 1, timeAboardPerSec 0.33 | Systems |
+| Heat | 0-100, rises only within a run and never touches the clock (M6b); bands split at `heat.bandEdgeShares` 1/3 and 2/3; heat at run end is the % chance of +1 wanted | U2 |
+| Heat sources (placeholders) | shotFired 2, alarmRaised 15, playerSpotted 5, actorKilled 8, lootTaken 2 (time-aboard heat removed in M6b) | Systems |
 | Grace window | While the horse is alongside and you are within reach of a door on its side; 3 s (G18) | U3 |
 | Extraction | One whistle arms the horse; the physical horse is placed behind the train at a seeded 5-20 s catch-up distance and rides up around terrain, visible from behind (timer optional), coming up on the side you are nearest; alongside 10 s, re-whistle 5 s later; the mount meter's perfect mounts clean, good spills loot, fail leaves you aboard to retry (G3, G11, G12, G14, G24) | U4 |
 | Cash out | The moment the extraction mount completes | Flags, open items |
 | Outcome policy | extracted banks loot, wanted +0; expired loses loot, wanted +1; died and cancelled lose loot, wanted +0 | Run state, U5, U6 |
 | Persistence | wantedLevel, bank, lifetimeEarned (never decreases, leaderboard source); browser storage first | C2, confirmed |
-| Wanted level | Levels 0-5, extra guards per level from a config table, no decay | U11 |
+| Wanted level | Levels 0-5, extra guards per level from a config table; decays by `wanted.decay` (default 1 per day, experiment 6 decides); no way to pay it down yet (issue #60) | U11 |
 | Carry | Carry limit and weight slowdown are separate flags, both on by default; max 10 weight units and 20 items, slowdown from 6 units to 50% speed at the max (G25) | C3 |
 | Run length | The plain value `countdown.scale` (with `loot.densityScale`) scales countdown and loot density; minute ranges are outcomes, not inputs (U7, G22) | U7 |
 | Mail train | Speed and stealth, short run, many small items, light guards, `search` verb with no decoys | Train verbs |
@@ -354,5 +354,5 @@ Decisions from grilling the plan with Devlin, newest last.
 - Landing on foot when a guard throws you off, then whistling for the horse (G5)
 - Heat levels: past thresholds, guards spot you faster, and at full heat every car is on alert (G10)
 - Riding back to pick up loot spilled on a good mount (G15)
-- Required later: a way for wanted level to come down, such as a clean getaway lowering it by one, or decay over runs or time (G19)
+- ~~Required later: a way for wanted level to come down (G19)~~ Decay is built in M6b (G36, G46). Paying wanted down, which matters when a run banks nothing (issue #60), comes later with careers and towns
 - Side ladders as entry points, so you can board straight onto the roof from the horse (G29)

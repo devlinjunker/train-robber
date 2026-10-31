@@ -2,13 +2,14 @@
 // and results, the countdown bar and heat meter, and the controls. The debug readout lives here
 // too, toggled with the backquote key. The meter is not here: it is drawn in the world above the
 // horse (decision Q12).
-import { clockStep, clockText, drainText, HEAT_BANDS, heatBand } from './clock';
+import { clockStep, clockText, heatBand } from './clock';
+import type { SimConfig } from '@train-robber/sim';
 
 export type NoticeKind = 'bad' | 'good' | 'warn' | 'info';
 
 /** The run's clock: seconds left of the whole countdown, and how fast it drains now. */
-/** `to`: on an open line, the town the clock counts down to; it shows in place of the drain rate. */
-export interface ClockView { sec: number; total: number; rate: number; to?: string }
+/** `to`: on an open line, the town the clock counts down to; it shows beside the bar. Heat never changes the clock (M6b). */
+export interface ClockView { sec: number; total: number; to?: string }
 
 export interface HudState {
   phase: string;
@@ -35,7 +36,8 @@ export interface HudState {
   /** The countdown while a run has one, else null. */
   clock: ClockView | null;
   /** Heat while a run is active, else null. */
-  heat: { now: number; max: number } | null;
+  /** The run's heat and the heat config (max and the band edges the meter's ticks mark). */
+  heat: { now: number; cfg: SimConfig['values']['heat'] } | null;
   /** The wanted level runs use now (0 to `max`); `practice` when `wanted.forceLevel` sets it. Null hides it. */
   wanted?: { level: number; max: number; practice: boolean } | null;
   /** The saved bank, shown beside the wanted level; null hides it. */
@@ -112,7 +114,7 @@ const CSS = `
 .tr-hud .clock-row { display: flex; gap: 10px; align-items: center; }
 .tr-hud .clock-time { font-size: 22px; font-weight: 800; min-width: 64px; text-align: right; }
 .tr-hud .clock-bar { width: 280px; height: 16px; background: #222; border: 1px solid #fff8; border-radius: 3px; overflow: hidden; }
-/* Stripes slide left at the drain rate, so a faster clock visibly runs faster. */
+/* Stripes slide left a second a second, so the clock reads as running. */
 .tr-hud .clock-bar > div { height: 100%; transition: width .25s linear, background-color .3s;
   background-image: repeating-linear-gradient(-45deg, rgba(255,255,255,.22) 0 6px, transparent 6px 12px); background-size: 34px 16px;
   animation: tr-clock-run var(--tr-stripe-sec, 1s) linear infinite; }
@@ -150,7 +152,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   root.className = 'tr-hud';
   root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
     <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
-      <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
+      <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div><span class="tick"></span><span class="tick"></span></div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
     <div class="side"><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="horse-call"></div></div>
@@ -166,6 +168,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
+  const heatTicks = Array.from(root.querySelectorAll<HTMLElement>('.heat-bar > .tick'));
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
   // Only touch the DOM when a value changes.
   let last: Partial<HudState> = {};
@@ -237,15 +240,16 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         setClass(clock, `clock ${clockStep(share)}`);
         clockFill.style.width = `${share * 100}%`;
         set(clockTime, clockText(s.clock.sec));
-        set(clockRate, s.clock.to ? `to ${s.clock.to}` : drainText(s.clock.rate));
-        setClass(clockRate, `clock-rate${s.clock.to ? ' town' : s.clock.rate >= 1.5 ? ' faster' : s.clock.rate > 1.001 ? ' fast' : ''}`);
-        clockFill.style.setProperty('--tr-stripe-sec', `${(1 / s.clock.rate).toFixed(3)}s`);
+        set(clockRate, s.clock.to ? `to ${s.clock.to}` : '');
+        setClass(clockRate, `clock-rate${s.clock.to ? ' town' : ''}`);
       }
       heatRow.style.display = s.heat ? '' : 'none';
       if (s.heat) {
-        const band = heatBand(s.heat.now, s.heat.max);
+        const { cfg } = s.heat;
+        const band = heatBand(s.heat.now, cfg);
         setClass(heatRow, `heat-row ${band}`);
-        heatFill.style.width = `${Math.max(0, Math.min(100, (s.heat.now / s.heat.max) * 100))}%`;
+        heatFill.style.width = `${Math.max(0, Math.min(100, (s.heat.now / cfg.maxHeat) * 100))}%`;
+        heatTicks.forEach((t, i) => { t.style.left = `${(cfg.bandEdgeShares[i] ?? 1) * 100}%`; });
         set(heatLabel, `HEAT ${Math.round(s.heat.now)} · ${band}`);
       }
       const notices = s.heatNotices.join('\n');

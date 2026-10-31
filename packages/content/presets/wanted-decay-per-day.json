@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "wanted-decay-per-day",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "wanted": { "forceLevel": 3, "practiceMoves": true, "decay": "per-day" } }
+}

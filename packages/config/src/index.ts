@@ -48,6 +48,33 @@ export interface ResolvedConfig {
   preset: string;
   variants: Record<string, string>;
   overrides: Record<string, unknown>;
+  /** Retired keys and presets the selection named, which were dropped (RETIRED_KEYS, RETIRED_PRESETS). Not part of the hash. */
+  warnings: string[];
+}
+
+/**
+ * Config keys that no longer exist (phase 2 M6b, G55). Old logs, URLs and saved experiments that
+ * still set them load with a warning instead of failing the schema.
+ */
+export const RETIRED_KEYS: readonly string[] = ['heat.heatDrainFactor', 'heat.sources.timeAboardPerSec'];
+
+/** Deleted presets, and the preset an old log or link naming one now loads instead. */
+export const RETIRED_PRESETS: Readonly<Record<string, string>> = { 'no-time-aboard-heat': 'alpha-default' };
+
+/** Remove RETIRED_KEYS from an overrides tree (a copy), listing each one found. */
+export function dropRetiredKeys(tree: Record<string, unknown>): { tree: Record<string, unknown>; dropped: string[] } {
+  const dropped: string[] = [];
+  const copy = (v: unknown, path: string): unknown => {
+    if (!isObject(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const [k, c] of Object.entries(v)) {
+      const at = path ? `${path}.${k}` : k;
+      if (RETIRED_KEYS.includes(at)) { dropped.push(at); continue; }
+      out[k] = copy(c, at);
+    }
+    return out;
+  };
+  return { tree: copy(tree, '') as Record<string, unknown>, dropped };
 }
 
 export class ConfigError extends Error {
@@ -176,7 +203,14 @@ export function setEntries(overrides: Record<string, unknown>, prefix = ''): str
 
 /** Steps 2 to 5: merge, validate, derive, freeze and hash. */
 export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedConfig {
-  const flat = flattenPreset(loaded, sel.preset);
+  const warnings: string[] = [];
+  let presetId = sel.preset;
+  const instead = RETIRED_PRESETS[presetId];
+  if (instead && !loaded.presets.has(presetId)) {
+    warnings.push(`preset ${presetId} was removed; using ${instead}`);
+    presetId = instead;
+  }
+  const flat = flattenPreset(loaded, presetId);
   const preset = flat.preset;
   const chosen: Record<string, string> = { ...flat.variants, ...sel.variants };
   for (const group of loaded.groups.keys()) {
@@ -198,7 +232,8 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
   }
   // Preset values, then run-time overrides, both after the variants (step 2).
   merged = merge(merged, flat.values);
-  const overrides = sel.overrides ?? {};
+  const { tree: overrides, dropped } = dropRetiredKeys(sel.overrides ?? {});
+  for (const key of dropped) warnings.push(`${key} was removed from the config and is ignored`);
   merged = merge(merged, overrides);
 
   const file = `${loaded.base.file} merged with preset ${preset.id}`;
@@ -212,5 +247,5 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
     throw new ConfigError(loaded.base.file, '', (e as Error).message);
   }
   deepFreeze(values);
-  return { values, hash: hashState(values), preset: preset.id, variants: chosen, overrides };
+  return { values, hash: hashState(values), preset: preset.id, variants: chosen, overrides, warnings };
 }

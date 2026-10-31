@@ -19,6 +19,7 @@ export const EXPERIMENT_NUMBERS = {
   wanted: 'Average wanted level at the start and after the outcome',
   timeLeft: 'Average countdown left',
   heat: 'Average heat at the end',
+  heatRoll: 'Heat roll at the end (M6b): average chance of +wanted and how many hit',
   aboard: 'Share of runs that got aboard',
   toBoard: 'Median seconds from commit to aboard',
   jumps: 'Average jumps and perfect / good / fail',
