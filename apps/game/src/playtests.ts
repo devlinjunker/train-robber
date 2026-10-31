@@ -128,6 +128,10 @@ async function main() {
   const repoIds = new Set(repoExperiments.map((e) => e.id));
 
   $('build').textContent = pkg.version;
+  const sha = String(import.meta.env.VITE_BUILD_SHA ?? '');
+  if (/^[0-9a-f]{7,40}$/.test(sha)) {
+    $('buildSha').innerHTML = ` from commit <a href="https://github.com/devlinjunker/train-robber/commit/${sha}" target="_blank" rel="noopener" title="The commit this page was built from"><code>${sha.slice(0, 7)}</code></a>`;
+  }
   const tester = $<HTMLInputElement>('tester');
   tester.value = getTester();
   tester.addEventListener('change', () => setTester(tester.value.trim()));
