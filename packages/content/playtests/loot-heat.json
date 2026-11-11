@@ -3,6 +3,7 @@
   "id": "loot-heat",
   "title": "Heat per item taken",
   "question": "Core loop PR: does more heat per item taken (heat.sources.lootTaken) make a big haul feel risky?",
+  "pr": 68,
   "setups": [
     {
       "id": "one",

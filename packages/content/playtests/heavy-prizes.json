@@ -3,6 +3,7 @@
   "id": "heavy-prizes",
   "title": "Heavy prizes",
   "question": "Core loop PR: carrying a prize slows your walk (carry.prizeSpeedScale). Does it make getting the prize out tense, or just slow?",
+  "pr": 68,
   "setups": [
     {
       "id": "off",

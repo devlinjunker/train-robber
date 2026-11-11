@@ -3,6 +3,7 @@
   "id": "distraction-rocks",
   "title": "Distraction rocks",
   "question": "Core loop PR: G throws a rock the way you are moving and guards near where it lands go to look. Does it give you a way to reach a guarded prize? How many rocks per run feel right?",
+  "pr": 68,
   "setups": [
     {
       "id": "none",

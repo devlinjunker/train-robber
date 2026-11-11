@@ -3,6 +3,7 @@
   "id": "gentler-wanted",
   "title": "Gentler wanted",
   "question": "Core loop PR (Devlin, 2026-11-10: +1 wanted for being thrown off or missing the stop is tough): should a bad run only cost that run? Compare the default with no wanted for being thrown off, and with neither.",
+  "pr": 68,
   "setups": [
     {
       "id": "default",
