@@ -24,6 +24,28 @@
     "pieceTiles": [160, 240], "stepTiles": 16, "maxHeadingDeg": 100, "selfGapTiles": 40, "direction": "east", "curviness": 1, "swingChance": 0.5, "swingDeg": 30, "bendShare": [0.25, 0.8],
     "centrePull": 0.5, "marginTiles": 70, "minRadiusTiles": 19, "featureTilesPerLoop": 850,
     "trainHeadwayTiles": 600, "trainHeadwaySpreadTiles": 200, "spawnAlong": [0.1, 0.25],
+    "stretches": {
+      "enabled": true, "lengthTiles": [300, 800], "blendTiles": 60, "firstPace": "quiet", "quietAfterBig": true,
+      "namePrefixes": ["Coyote", "Rattlesnake", "Dry", "Buzzard", "Lone Pine", "Dead Man's", "Hangman's", "Red", "Bitter", "Broken Wheel", "Whiskey", "Sulphur", "Mule", "Painted", "Copper", "Widow's", "Cholla", "Antelope", "Owl", "Gallows", "Thirsty", "Bone", "Sidewinder", "Two Bit"],
+      "riverBesideGapTiles": [20, 30], "riverBesideFordTiles": [40, 80], "riverBesideWidthTiles": [5, 7],
+      "profiles": {
+        "flats": { "weight": 2, "pace": "quiet", "names": ["Flats", "Plain", "Basin", "Prairie"],
+          "shift": { "mud": 0.15, "rocks": 0.14, "forest": 0.3, "lakes": 0.12, "mesas": 0.3, "hills": 0.25 },
+          "rivers": [0, 0], "riverBeside": 0, "cuts": [0, 0], "besideTrack": [0, 0], "ridges": [0, 0] },
+        "broken": { "weight": 2, "pace": "busy", "names": ["Breaks", "Badlands", "Rocks", "Scrub"],
+          "shift": { "mud": -0.1, "rocks": -0.12, "forest": 0.12, "lakes": 0.06, "mesas": 0.04, "hills": -0.12 },
+          "rivers": [0, 1], "riverBeside": 0, "cuts": [0, 0], "besideTrack": [0, 1], "ridges": [0, 1] },
+        "timber": { "weight": 1.5, "pace": "busy", "names": ["Timber", "Pines", "Woods", "Hollow"],
+          "shift": { "mud": 0.04, "rocks": 0.06, "forest": -0.14, "lakes": 0.02, "mesas": 0.12, "hills": -0.08 },
+          "rivers": [0, 1], "riverBeside": 0, "cuts": [0, 0], "besideTrack": [0, 0], "ridges": [0, 0] },
+        "river": { "weight": 1.5, "pace": "big", "names": ["Wash", "Creek", "Bottoms", "River"],
+          "shift": { "mud": -0.08, "rocks": 0.06, "forest": 0.02, "lakes": -0.06, "mesas": 0.1, "hills": 0.08 },
+          "rivers": [1, 2], "riverBeside": 0.7, "cuts": [0, 0], "besideTrack": [0, 0], "ridges": [0, 0] },
+        "mesa": { "weight": 1.5, "pace": "big", "names": ["Mesas", "Buttes", "Bluffs", "Canyon"],
+          "shift": { "mud": 0.08, "rocks": -0.04, "forest": 0.14, "lakes": 0.1, "mesas": -0.1, "hills": 0 },
+          "rivers": [0, 0], "riverBeside": 0, "cuts": [1, 1], "besideTrack": [1, 2], "ridges": [1, 3] }
+      }
+    },
     "towns": { "count": [1, 2], "along": [0.3, 0.9], "minGapTiles": 1200, "clearingRadiusTiles": 18, "gapTiles": 8 }
   }
 }

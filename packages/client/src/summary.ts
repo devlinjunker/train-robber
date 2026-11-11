@@ -22,6 +22,8 @@ export interface RunSummaryView {
   wantedLevel: number;
   practice: boolean;
   endOfLine: boolean;
+  /** Where on an open line the run went (G10a): the stretch you committed in, and where it ended if elsewhere. */
+  where?: string;
 }
 
 const TITLES: Record<RunOutcome, string> = {
@@ -117,6 +119,7 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
       const lootText = v.banked > 0 ? (v.practice ? `${money(v.banked)} <span class="muted">(practice: not banked)</span>` : money(v.banked))
         : v.outcome === 'extracted' || v.outcome === 'cashedOut' ? '$0' : '$0 <span class="muted">(loot lost)</span>';
       const rows: [string, string][] = [
+        ...(v.where ? [['Where', v.where] as [string, string]] : []),
         ['Loot banked', lootText],
         ...(v.lost > 0 ? [['Lost on the way', money(v.lost)] as [string, string]] : []),
         ['Items picked up', String(v.picked)],

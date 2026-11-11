@@ -10,6 +10,7 @@
 // tile; a test checks the chunks against the whole map). Deterministic maths only (see dmath.ts).
 import { ELEVATION_MAX, SCENERY_KINDS, ZONES, type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
+import { columnThresholds, planStretches, type StretchPlan } from './stretches';
 import type { Track, Vec } from './track';
 
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
@@ -27,6 +28,8 @@ export interface WorldOpts {
   /** The player starts between these fractions of the way along the track; null anywhere. */
   spawnAlong: readonly [number, number] | null;
   towns: MapGenSettings['line']['towns'] | null;
+  /** Open line only: cut the line into stretches (G10a) when these are enabled. */
+  stretches?: MapGenSettings['line']['stretches'] | null;
 }
 
 export type Town = NonNullable<MapDef['towns']>[number];
@@ -88,6 +91,8 @@ export interface WorldPlan {
   /** Tiles forced open on the way from the spawn to the track. */
   spawnClear: ReadonlySet<number>;
   playerSpawn: Vec;
+  /** The line's stretches (G10a), or null on a loop or with stretches off. */
+  stretchPlan: StretchPlan | null;
   salts: { mud: number; rocks: number; forest: number; lakes: number; hills: number; strips: number; mesas: number; mesaTops: number; scenery: number; ground: number };
 }
 
@@ -170,6 +175,80 @@ function townGap(towns: readonly Town[], cx: number, cy: number): number {
   return best;
 }
 
+/** River stamps beside the track come after every crossing, so no bridge deck counts them. */
+const BESIDE_TAG = 1e9;
+
+/**
+ * Rivers that run beside the track for most of a stretch (G10a, the river valley): a band of water
+ * `riverBesideGapTiles` out on one side, crossable at fords every `riverBesideFordTiles`, that
+ * turns away from the line at both ends. Never closer to the track than its gap allows.
+ */
+function riversBeside(p: WorldPlan, seed: string, distAt: (q: Vec) => number, stamp: (q: Vec, half: number, tag?: number) => void): void {
+  const plan = p.stretchPlan!, { s, xs, ys, tangents, spacing, cols, rows } = p;
+  const c = s.line.stretches;
+  const addFord = (q: Vec, radius: number) => {
+    p.fordIndex.add(p.fords.length, Math.max(0, Math.floor(q.x - radius)), Math.max(0, Math.floor(q.y - radius)), Math.min(cols - 1, Math.floor(q.x + radius)), Math.min(rows - 1, Math.floor(q.y + radius)));
+    p.fords.push({ x: q.x, y: q.y, radius });
+  };
+  const onMap = (q: Vec, half: number) => q.x >= -half && q.y >= -half && q.x <= cols + half && q.y <= rows + half;
+  for (const st of plan.list) {
+    const r = rng(`${seed}/river-beside/${st.index}`);
+    if (r.next() >= st.profile.riverBeside) continue;
+    const side = r.next() < 0.5 ? -1 : 1;
+    const gap0 = r.range(c.riverBesideGapTiles[0], c.riverBesideGapTiles[1]);
+    const half = r.range(c.riverBesideWidthTiles[0], c.riverBesideWidthTiles[1]) / 2;
+    const phase = r.range(0, 2 * PI);
+    const lo = st.i0 + Math.ceil(40 / spacing), hi = Math.min(st.i1, p.n) - Math.ceil(40 / spacing);
+    if ((hi - lo) * spacing < 120) continue;
+    const fordRadius = Math.max(s.rivers.fordWidthTiles / 2, half);
+    let nextFord = lo * spacing + r.range(c.riverBesideFordTiles[0], c.riverBesideFordTiles[1]) / 2;
+    let last: Vec | null = null;
+    let ends: { q: Vec; j: number }[] = [];
+    // Stamps along the band, filled in where the outside of a bend spreads them apart.
+    const put = (q: Vec) => {
+      if (last) {
+        const dx = q.x - last.x, dy = q.y - last.y, len = Math.sqrt(dx * dx + dy * dy);
+        const steps = Math.ceil(len / Math.max(0.5, half * 0.7));
+        if (len < 12) for (let k = 1; k < steps; k++) stamp({ x: last.x + (dx * k) / steps, y: last.y + (dy * k) / steps }, half, BESIDE_TAG);
+      }
+      stamp(q, half, BESIDE_TAG);
+      last = q;
+    };
+    for (let j = lo; j < hi; j++) {
+      const d = j * spacing;
+      const g = gap0 + 3 * dsin(d / 37 + phase);
+      const tg = tangents[j]!;
+      const q = { x: xs[j]! - tg.y * g * side, y: ys[j]! + tg.x * g * side };
+      if (!onMap(q, half)) { last = null; continue; }
+      // On the inside of a bend the band would fold back toward the track: leave a gap there.
+      if (distAt(q) < g - 2.5) { last = null; continue; }
+      put(q);
+      if (!ends.length) ends = [{ q, j }];
+      else ends[1] = { q, j };
+      if (d >= nextFord) { addFord(q, fordRadius); nextFord = d + r.range(c.riverBesideFordTiles[0], c.riverBesideFordTiles[1]); }
+    }
+    // Both ends turn away from the line and run off for a while, meandering.
+    ends.forEach((e, k) => {
+      const tg = tangents[e.j]!, along = k === 0 ? -1 : 1;
+      let dx = -tg.y * side * 0.8 + tg.x * along * 0.6, dy = tg.x * side * 0.8 + tg.y * along * 0.6;
+      const m0 = Math.sqrt(dx * dx + dy * dy); dx /= m0; dy /= m0;
+      const q = { ...e.q };
+      last = q;
+      let bend = 0;
+      const len = r.range(30, 80);
+      for (let step = 0; step < len; step++) {
+        bend = Math.max(-s.rivers.meander, Math.min(s.rivers.meander, bend + (r.next() - 0.5) * s.rivers.meander));
+        const cb = dcos(bend), sb = dsin(bend);
+        [dx, dy] = [dx * cb - dy * sb, dx * sb + dy * cb];
+        const next = { x: q.x + dx, y: q.y + dy };
+        if (!onMap(next, half) || distAt(next) < s.rivers.trackGapTiles + half) break;
+        q.x = next.x; q.y = next.y;
+        stamp({ ...q }, half, BESIDE_TAG);
+      }
+    });
+  }
+}
+
 /** Lay out the world round a track: see the file comment. Same seed, settings and track, same plan. */
 export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldPlan {
   const { cols, rows, track, closed } = o;
@@ -195,6 +274,7 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     bridges: [], towns: [],
     puts: { x: [], y: [], minD: [] }, putIndex: new CellIndex(PUT_CELL),
     spawnClear: new Set(), playerSpawn: { x: 0, y: 0 },
+    stretchPlan: !closed && o.stretches?.enabled ? planStretches(seed, o.stretches, xs, spacing) : null,
     salts: {
       mud: salt('mud'), rocks: salt('rocks'), forest: salt('forest'), lakes: salt('lakes'), hills: salt('hills'), strips: salt('strips'),
       mesas: salt('mesas'), mesaTops: salt('mesa-tops'), scenery: salt('scenery'), ground: salt('ground'),
@@ -239,16 +319,22 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
   // Rivers: each crosses the track once, square to it where the track runs along x or y, on a bridge.
   {
     const r = rng(`${seed}/rivers`);
-    const count = r.int(s.rivers.count[0], s.rivers.count[1]);
     const crossings: number[] = [];
     const reachOf = (half: number) => half + s.hills.maxLevel * s.hills.tilesPerLevel + 1;
-    const stamp = (q: Vec, half: number) => {
+    const stamp = (q: Vec, half: number, tag = crossings.length - 1) => {
       const k = p.stamps.x.length, reach = reachOf(half);
-      p.stamps.x.push(q.x); p.stamps.y.push(q.y); p.stamps.half.push(half); p.stamps.tag.push(crossings.length - 1);
+      p.stamps.x.push(q.x); p.stamps.y.push(q.y); p.stamps.half.push(half); p.stamps.tag.push(tag);
       p.stampIndex.add(k, Math.max(0, Math.floor(q.x - reach)), Math.max(0, Math.floor(q.y - reach)), Math.min(cols - 1, Math.floor(q.x + reach)), Math.min(rows - 1, Math.floor(q.y + reach)));
     };
-    for (let attempt = 0; attempt < 60 * Math.max(1, Math.ceil(o.trackScale)) && crossings.length < count; attempt++) {
-      const i = r.int(0, n - 1);
+    // One pass over the whole track, or with stretches one per stretch with its own count.
+    const jobs = p.stretchPlan
+      ? p.stretchPlan.list.map((st) => ({ lo: st.i0, hi: st.i1 - 1, count: () => st.profile.rivers, attempts: 60 }))
+      : [{ lo: 0, hi: n - 1, count: () => s.rivers.count, attempts: 60 * Math.max(1, Math.ceil(o.trackScale)) }];
+    for (const job of jobs) {
+    const [cMin, cMax] = job.count();
+    const count = crossings.length + r.int(cMin, cMax);
+    for (let attempt = 0; attempt < job.attempts && crossings.length < count; attempt++) {
+      const i = r.int(job.lo, job.hi);
       if (!inMap(i)) continue;
       const tg = tangents[i]!;
       const alongX = Math.abs(tg.x) >= 0.97, alongY = Math.abs(tg.y) >= 0.97;
@@ -325,6 +411,8 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
       // No mud or rocks either side near a bridge: the lanes there are the river.
       for (let j = 0; j < n; j++) if (sDist(j * spacing, i * spacing) < half + 16) stretchOf[j] = -1;
     }
+    }
+    if (p.stretchPlan) riversBeside(p, seed, distAt, stamp);
   }
 
   // Town spots (open line only): a flat clearing beside the track, clear of rivers, with both lanes
@@ -392,10 +480,16 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
       }
     };
     // Cuts: the track runs through a long mesa, cliffs both sides just outside the riding lanes.
-    const cuts = r.int(m.cuts[0], m.cuts[1]);
+    const plan = p.stretchPlan;
     const used: number[] = [];
-    for (let attempt = 0; attempt < 40 * Math.max(1, Math.ceil(o.trackScale)) && used.length < cuts; attempt++) {
-      const i = r.int(0, n - 1);
+    const cutJobs = plan
+      ? plan.list.map((st) => ({ lo: st.i0, hi: st.i1 - 1, count: () => st.profile.cuts, attempts: 40 }))
+      : [{ lo: 0, hi: n - 1, count: () => m.cuts, attempts: 40 * Math.max(1, Math.ceil(o.trackScale)) }];
+    for (const job of cutJobs) {
+    const [cMin, cMax] = job.count();
+    const cuts = used.length + r.int(cMin, cMax);
+    for (let attempt = 0; attempt < job.attempts && used.length < cuts; attempt++) {
+      const i = r.int(job.lo, job.hi);
       const len = r.range(m.cutLengthTiles[0], m.cutLengthTiles[1]);
       const mid = i * spacing + len / 2;
       if (used.some((u) => sDist(u, mid) < len + 40)) continue;
@@ -412,16 +506,21 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
       // Both lanes open through the cut: no mud bank or rock line inside it.
       for (let k = -Math.ceil(10 / spacing); k * spacing <= len + 10; k++) { const j = wrapIdx(i + k); if (j >= 0) stretchOf[j] = -1; }
     }
+    }
     // Ridges that run beside the track, further out.
-    const beside = r.int(m.besideTrack[0], m.besideTrack[1]);
+    for (const job of plan ? plan.list.map((st) => ({ lo: st.i0, hi: st.i1 - 1, count: st.profile.besideTrack })) : [{ lo: 0, hi: n - 1, count: m.besideTrack }]) {
+    const beside = r.int(job.count[0], job.count[1]);
     for (let k = 0; k < beside; k++) {
-      alongTrack(r.int(0, n - 1), r.range(m.ridgeLengthTiles[0], m.ridgeLengthTiles[1]), r.next() < 0.5 ? -1 : 1,
+      alongTrack(r.int(job.lo, job.hi), r.range(m.ridgeLengthTiles[0], m.ridgeLengthTiles[1]), r.next() < 0.5 ? -1 : 1,
         r.range(m.besideGapTiles[0], m.besideGapTiles[1]), r.range(m.ridgeWidthTiles[0], m.ridgeWidthTiles[1]));
     }
-    // Free-standing ridges: a gently bending line of rock anywhere clear of the track.
-    const ridges = r.int(m.ridges[0], m.ridges[1]);
+    }
+    // Free-standing ridges: a gently bending line of rock anywhere clear of the track (with
+    // stretches, starting in the stretch's stretch of map).
+    for (const job of plan ? plan.list.map((st) => ({ x0: Math.max(0, st.x0), x1: Math.min(cols, st.x1), count: st.profile.ridges })) : [{ x0: 0, x1: cols, count: m.ridges }]) {
+    const ridges = r.int(job.count[0], job.count[1]);
     for (let k = 0; k < ridges; k++) {
-      let x = r.range(0, cols), y = r.range(0, rows), heading = r.next() * 2 * PI, bend = 0;
+      let x = r.range(job.x0, job.x1), y = r.range(0, rows), heading = r.next() * 2 * PI, bend = 0;
       const len = r.range(m.ridgeLengthTiles[0], m.ridgeLengthTiles[1]), half = r.range(m.ridgeWidthTiles[0], m.ridgeWidthTiles[1]) / 2;
       for (let step = 0; step < len; step++) {
         const u = (2 * step) / len - 1, w = half * Math.sqrt(Math.max(0, 1 - u * u * u * u));
@@ -430,6 +529,7 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
         heading += bend;
         x += dcos(heading); y += dsin(heading);
       }
+    }
     }
   }
 
@@ -515,7 +615,8 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
     }
   }
 
-  // Zones and elevation.
+  // Zones and elevation. Each column's noise thresholds: the settings', moved by the line's stretch there.
+  const th = columnThresholds(s, p.stretchPlan, ex0, W);
   const zones = new Uint8Array(N);
   const heights = new Uint8Array(N);
   const forest = new Uint8Array(N);
@@ -523,13 +624,15 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
     const x = ex0 + (t % W), y = ey0 + Math.floor(t / W);
     const cx = x + 0.5, cy = y + 0.5;
     const d = dist(t);
+    const col = x - ex0;
+    const hillsT = th.hills[col]!, lakesT = th.lakes[col]!;
     // Hills: quantised noise, held at 0 near the track and rivers and ramped up a level per few tiles.
     const hn = fbm(cx, cy, s.hills.scaleTiles, salts.hills);
-    let level = hn > s.hills.threshold ? Math.floor(((hn - s.hills.threshold) / (1 - s.hills.threshold)) * (s.hills.maxLevel + 1)) : 0;
+    let level = hn > hillsT ? Math.floor(((hn - hillsT) / (1 - hillsT)) * (s.hills.maxLevel + 1)) : 0;
     level = Math.min(level, s.hills.maxLevel, ELEVATION_MAX);
     // Lakes lie in hollows: no hills where the lake noise is near its threshold.
     const lake = fbm(cx, cy, s.lakes.scaleTiles, salts.lakes);
-    if (lake > s.lakes.threshold - 0.04) level = 0;
+    if (lake > lakesT - 0.04) level = 0;
     if (d < Infinity) level = Math.min(level, Math.max(0, Math.floor((d - s.hills.trackGapTiles) / s.hills.tilesPerLevel)));
     level = Math.min(level, Math.max(0, Math.floor(riverDist[t]! / s.hills.tilesPerLevel)));
     if (deck[t]) level = 0;
@@ -541,7 +644,7 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
     if ((closed && (x < s.edgeTiles || x >= cols - s.edgeTiles)) || y < s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
     if (toTown < 0) { zones[t] = Z.open; continue; }
     // Mesas: sandstone plateaus that rise by a cliff all round (drawn by iso/mesa.ts), on rock.
-    if ((mesaMask[t] || (fbm(cx, cy, s.mesas.scaleTiles, salts.mesas) > s.mesas.threshold && d > s.mesas.trackGapTiles)) && riverDist[t]! > 3 && lake <= s.lakes.threshold - 0.04) {
+    if ((mesaMask[t] || (fbm(cx, cy, s.mesas.scaleTiles, salts.mesas) > th.mesas[col]! && d > s.mesas.trackGapTiles)) && riverDist[t]! > 3 && lake <= lakesT - 0.04) {
       const [lo, hi] = s.mesas.topLevels;
       heights[t] = Math.min(hi, lo + Math.floor(fbm(cx, cy, 40, salts.mesaTops) * (hi - lo + 1)));
       zones[t] = Z.blocked;
@@ -556,13 +659,13 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
       // Rocks come as a broken line, mud as a solid bank.
       if (st.strip === Z.slow || fbm(cx, cy, 3, salts.strips) > 0.45) { zones[t] = st.strip; continue; }
     }
-    if (lake > s.lakes.threshold && d > s.lakes.trackGapTiles) {
-      zones[t] = lake > s.lakes.deepThreshold && d > s.lakes.trackGapTiles + 2 ? Z.deep : Z.water;
+    if (lake > lakesT && d > s.lakes.trackGapTiles) {
+      zones[t] = lake > th.deep[col]! && d > s.lakes.trackGapTiles + 2 ? Z.deep : Z.water;
       continue;
     }
-    if (fbm(cx, cy, s.forest.scaleTiles, salts.forest) > s.forest.threshold) { zones[t] = Z.blocked; forest[t] = 1; continue; }
-    if (fbm(cx, cy, s.rocks.scaleTiles, salts.rocks) > s.rocks.threshold) { zones[t] = Z.blocked; continue; }
-    zones[t] = fbm(cx, cy, s.mud.scaleTiles, salts.mud) > s.mud.threshold ? Z.slow : Z.open;
+    if (fbm(cx, cy, s.forest.scaleTiles, salts.forest) > th.forest[col]!) { zones[t] = Z.blocked; forest[t] = 1; continue; }
+    if (fbm(cx, cy, s.rocks.scaleTiles, salts.rocks) > th.rocks[col]!) { zones[t] = Z.blocked; continue; }
+    zones[t] = fbm(cx, cy, s.mud.scaleTiles, salts.mud) > th.mud[col]! ? Z.slow : Z.open;
   }
 
   // The window itself: cliffs (the top of a two-level drop is blocked, as build-maps does for Tiled

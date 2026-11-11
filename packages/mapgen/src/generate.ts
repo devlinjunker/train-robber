@@ -22,7 +22,7 @@ export const GENERATED_MAP_ID = 'gen';
 /** The map id of a generated open line (`?map=line`). */
 export const LINE_MAP_ID = 'line';
 /** Bump when a change makes the same seed and settings give a different open line. */
-export const LINE_GENERATOR_VERSION = 2;
+export const LINE_GENERATOR_VERSION = 3;
 
 export interface GeneratedMap {
   /** On an open line, `terrain` builds any chunk of it on demand. */
@@ -196,7 +196,9 @@ function wholeMap(cols: number, rows: number, chunks: LineChunks): { zones: [num
  */
 export function generateLine(seed: string, given: MapGenSettings, opts: { whole?: boolean } = {}): GeneratedMap {
   const whole = opts.whole ?? true;
-  const mixed = applyMix(seed, given);
+  // With stretches (G10a) each stretch sets its own mix, so the line as a whole picks no theme.
+  const stretchesOn = given.line.stretches.enabled;
+  const mixed = stretchesOn ? { settings: given, theme: 'balanced' as MapTheme, busyness: 0 } : applyMix(seed, given);
   const { theme, busyness } = mixed;
   const l = given.line;
   const cols = l.lengthTiles, rows = l.widthTiles;
@@ -209,7 +211,7 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
     rivers: { ...m.rivers, count: scaleRange(m.rivers.count, trackScale) },
     mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
   };
-  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns });
+  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns, stretches: l.stretches });
   // `west`: the same line mirrored, so trains run right to left.
   const west = l.direction === 'west';
   const mx = (x: number) => r4(cols - x);
@@ -219,15 +221,16 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
   const bridges = west ? plan.bridges.map((b) => ({ ...b, x: r4(cols - b.x - b.w) })) : plan.bridges;
   const settings = lineSettings(given);
   const version = `line${LINE_GENERATOR_VERSION}/${GENERATOR_VERSION}`;
-  const source = { file: `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${version}/${seed}/${JSON.stringify(settings)}`).toString(16).padStart(8, '0') };
+  const source = { file: stretchesOn ? `line:${seed} stretches` : `line:${seed} ${theme} ${busyness >= 0 ? '+' : ''}${busyness}`, hash: hashString(`${version}/${seed}/${JSON.stringify(settings)}`).toString(16).padStart(8, '0') };
   const markers: Record<string, Vec> = { playerSpawn };
   for (const t of towns) markers[t.id] = { x: t.x, y: t.y };
+  const stretches = plan.stretchPlan ? lineStretches(plan, route.id, west) : undefined;
   const terrain = new LineChunks(plan, west);
   const built = whole ? wholeMap(cols, rows, terrain) : null;
   const parsed = MapDefSchema.parse({
     schemaVersion: 1, id: LINE_MAP_ID, source, size: { cols, rows },
     zoneLegend: [...ZONES], ...(built ? { zones: built.zones, elevation: built.elevation } : {}),
-    routes: [route], speedZones: [], towns, markers,
+    routes: [route], speedZones: [], towns, ...(stretches ? { stretches } : {}), markers,
     openLine: { headwayTiles: l.trainHeadwayTiles, ...(l.trainHeadwaySpreadTiles > 0 ? { headwaySpreadTiles: Math.min(l.trainHeadwaySpreadTiles, l.trainHeadwayTiles * 0.9) } : {}) },
     generated: { generator: LINE_MAP_ID, version, seed, settings, chunkTiles: CHUNK_TILES },
   });
@@ -238,6 +241,30 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
     map, scenery, minRadiusTiles: track.minRadiusTiles,
     info: { controlPoints: track.route.points.length, trackAttempts: 1, rivers: plan.bridges.length, trackLength: track.route.length, theme, busyness, pieces: track.pieces, towns: towns.length },
   };
+}
+
+/** Where a stretch's sign stands: this far along into it, this far out from the track. */
+const SIGN_ALONG_TILES = 12, SIGN_OUT_TILES = 5.5;
+
+/** The map's stretches (see MapDef `stretches`), mirrored on a west line; signs stand on the left of travel. */
+function lineStretches(plan: WorldPlan, routeId: string, west: boolean): NonNullable<MapDef['stretches']> {
+  const { cols, xs, ys, tangents, spacing, n } = plan;
+  const inMap = (i: number) => xs[i]! >= 20 && xs[i]! < cols - 20;
+  return plan.stretchPlan!.list.map((st) => {
+    // The first sample on the map past its start (the first stretch starts off the map).
+    let i = Math.min(n - 1, st.i0 + Math.round(SIGN_ALONG_TILES / spacing));
+    while (i < n - 1 && !inMap(i)) i++;
+    const tg = tangents[i]!;
+    const sx = xs[i]! + tg.y * SIGN_OUT_TILES, sy = ys[i]! - tg.x * SIGN_OUT_TILES;
+    const x0 = Math.max(0, st.x0), x1 = Math.min(cols, st.x1);
+    return {
+      id: `stretch${st.index + 1}`, name: st.name, profile: st.profileId, pace: st.profile.pace, route: routeId,
+      d0: r4(st.d0), d1: r4(st.d1),
+      x0: r4(west ? cols - x1 : x0), x1: r4(west ? cols - x0 : x1),
+      // Mirrored, travel runs west, so the left of travel flips with it and stays on the left.
+      sign: west ? { x: r4(cols - (xs[i]! - tg.y * SIGN_OUT_TILES)), y: r4(ys[i]! + tg.x * SIGN_OUT_TILES) } : { x: r4(sx), y: r4(sy) },
+    };
+  });
 }
 
 /** The route mirrored x to cols - x; it keeps its direction of travel, so it now runs west. */

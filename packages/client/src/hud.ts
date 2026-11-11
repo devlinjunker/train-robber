@@ -50,6 +50,8 @@ export interface HudState {
   boost?: { state: 'ready' | 'active' | 'cooldown'; share: number; text: string } | null;
   /** Just off the train with loot (extracted or got away): the total banked, top right, for `hud.lootTotalSec`; null hides it. */
   lootTotal?: { title: string; detail: string } | null;
+  /** Entering a stretch of an open line (G10a): its name and kind of land, fading in and out; null hides it. */
+  place?: { title: string; sub: string; alpha: number } | null;
 }
 
 const CSS = `
@@ -135,6 +137,9 @@ const CSS = `
 .tr-hud .heat-row.hot .heat-bar > div { background-color: #ff3b30; }
 .tr-hud .heat-label { min-width: 110px; font-weight: 700; }
 .tr-hud .heat-notices { display: flex; flex-direction: column; align-items: center; font-size: 13px; font-weight: 700; color: #ffcf7a; text-shadow: 0 1px 2px #000; }
+.tr-hud .place { position: absolute; top: 24%; left: 50%; transform: translateX(-50%); text-align: center; white-space: nowrap; }
+.tr-hud .place-title { font: italic 700 34px/1.1 Georgia, 'Times New Roman', serif; letter-spacing: .04em; color: #f6e7c1; text-shadow: 0 2px 4px #000, 0 0 14px #000a; }
+.tr-hud .place-sub { margin-top: 4px; font-size: 13px; letter-spacing: .25em; text-transform: uppercase; color: #e8d9a8; text-shadow: 0 1px 3px #000; }
 .tr-hud .edge { position: absolute; inset: 0; box-shadow: inset 0 0 60px 18px rgba(255,40,30,.75); opacity: 0; }
 .tr-hud .edge.on { animation: tr-edge-pulse .5s ease-in-out infinite alternate; }
 @keyframes tr-edge-pulse { from { opacity: .15; } to { opacity: 1; } }
@@ -148,7 +153,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.className = 'tr-hud';
-  root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
+  root.innerHTML = `<div class="edge"></div><pre class="debug"></pre><div class="place"><div class="place-title"></div><div class="place-sub"></div></div>
     <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
@@ -166,6 +171,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
+  const placeEl = q('.place'), placeTitle = q('.place-title'), placeSub = q('.place-sub');
   const setClass = (el: HTMLElement, cls: string) => { if (el.className !== cls) el.className = cls; };
   // Only touch the DOM when a value changes.
   let last: Partial<HudState> = {};
@@ -254,6 +260,12 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         heatNotices.replaceChildren(...s.heatNotices.map((t) => Object.assign(document.createElement('div'), { textContent: t })));
       }
       if (last.alarm !== s.alarm) edge.classList.toggle('on', s.alarm);
+      placeEl.style.display = s.place && s.place.alpha > 0 ? '' : 'none';
+      if (s.place) {
+        set(placeTitle, s.place.title); set(placeSub, s.place.sub);
+        const a = s.place.alpha.toFixed(2);
+        if (placeEl.style.opacity !== a) placeEl.style.opacity = a;
+      }
       debug.style.display = s.debug === null ? 'none' : '';
       if (s.debug !== null) set(debug, s.debug);
       last = s;

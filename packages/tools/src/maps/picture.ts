@@ -49,6 +49,14 @@ export function mapPicture(map: MapDef, scenery: SceneryDef | null, scale = 3): 
   }
   for (const r of map.routes) for (let i = 0; i < r.samples.x.length; i++) dot(r.samples.x[i]!, r.samples.y[i]!, 0, [110, 20, 10]);
   dot(map.markers.playerSpawn.x, map.markers.playerSpawn.y, 3, [230, 30, 30]);
+  // Stretches of an open line (G10a): a dashed line at each border and a dot at each sign.
+  for (const st of map.stretches ?? []) {
+    for (const bx of [st.x0, st.x1]) {
+      if (bx <= 0 || bx >= cols) continue;
+      for (let y = 0; y < H; y++) if ((y >> 3) % 2 === 0) set(Math.round(bx * scale), y, [60, 20, 60]);
+    }
+    dot(st.sign.x, st.sign.y, Math.max(2, scale), [60, 20, 60]);
+  }
   // Town spots: a ring round the clearing and a dot at the sign.
   for (const t of map.towns ?? []) {
     for (let a = 0; a < 360; a += 2) dot(t.x + t.radiusTiles * Math.cos((a * Math.PI) / 180), t.y + t.radiusTiles * Math.sin((a * Math.PI) / 180), 0, [240, 220, 160]);

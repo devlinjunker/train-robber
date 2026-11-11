@@ -13,6 +13,34 @@ const range = (inner: z.ZodNumber) => z.tuple([inner, inner]).refine(([a, b]) =>
 export const MAP_THEMES = ['balanced', 'forest', 'rocks', 'mesas', 'water', 'mud'] as const;
 export type MapTheme = (typeof MAP_THEMES)[number];
 
+/** How a stretch of the open line paces the ride: `quiet` rests, `busy` slows you, `big` is a moment. */
+export const STRETCH_PACES = ['quiet', 'busy', 'big'] as const;
+export type StretchPace = (typeof STRETCH_PACES)[number];
+
+/** Each feature's noise threshold is moved by this much in a stretch: positive gives less of it, negative more. */
+const shift = z.number().min(-0.5).max(0.5);
+const count = (max: number) => range(z.number().int().min(0).max(max));
+
+/** One kind of stretch of the open line (G10a): what grows there and how it paces the ride. */
+export const StretchProfileSchema = z.object({
+  /** How often the director picks it, against the other profiles' weights. */
+  weight: z.number().min(0),
+  pace: z.enum(STRETCH_PACES),
+  /** The second word of a stretch's name ("Flats", "Wash"); one is picked per stretch. */
+  names: z.array(z.string().min(1)).min(1),
+  /** Moves each feature's noise threshold for the stretch (see `shift`), after the line's own settings. */
+  shift: z.object({ mud: shift, rocks: shift, forest: shift, lakes: shift, mesas: shift, hills: shift }).strict(),
+  /** Rivers that cross the track in the stretch (each on a bridge, as on a loop). */
+  rivers: count(4),
+  /** Chance of a river running beside the track for most of the stretch, crossable at fords. */
+  riverBeside: unit,
+  /** Cuts through a long mesa, ridges beside the track and free-standing ridges in the stretch. */
+  cuts: count(3),
+  besideTrack: count(4),
+  ridges: count(6),
+}).strict();
+export type StretchProfile = z.infer<typeof StretchProfileSchema>;
+
 export const MapGenSchema = z.object({
   schemaVersion: z.literal(1),
   size: z.object({ cols: z.number().int().min(160).max(1200), rows: z.number().int().min(120).max(1200) }).strict(),
@@ -152,6 +180,29 @@ export const MapGenSchema = z.object({
     trainHeadwaySpreadTiles: z.number().min(0),
     /** The player starts beside the track between these fractions of the way along it. */
     spawnAlong: range(unit),
+    /**
+     * Stretches (G10a): the line is cut into named stretches, each a profile with its own mix of
+     * features, so the land changes as you ride. Off: one theme for the whole line (`mix`), as before.
+     */
+    stretches: z.object({
+      enabled: z.boolean(),
+      /** Each stretch is this long along the track. */
+      lengthTiles: range(z.number().min(100)),
+      /** Thresholds blend from one stretch to the next over this many tiles. */
+      blendTiles: z.number().min(0).max(300),
+      /** The first stretch (where you start) has this pace; empty lets the director pick any. */
+      firstPace: z.enum([...STRETCH_PACES, '']),
+      /** After a `big` stretch the next one is `quiet`; two `big` ones never meet anyway. */
+      quietAfterBig: z.boolean(),
+      /** The first word of a stretch's name ("Coyote", "Dead Man's"). */
+      namePrefixes: z.array(z.string().min(1)).min(1),
+      /** A river beside the track: how far out its middle runs, and the gap between fords along it. */
+      riverBesideGapTiles: range(z.number().min(12)),
+      riverBesideFordTiles: range(z.number().min(10)),
+      /** It is wider than a crossing river, so its deep middle keeps you to the fords. */
+      riverBesideWidthTiles: range(z.number().min(2).max(10)),
+      profiles: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), StretchProfileSchema).refine((p) => Object.keys(p).length >= 2, { message: 'needs at least two profiles' }),
+    }).strict(),
     /** Town spots: a marker and a flat clearing beside the track (towns themselves come in G6). */
     towns: z.object({
       count: range(z.number().int().min(0).max(4)),
