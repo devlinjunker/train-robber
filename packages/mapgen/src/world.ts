@@ -34,7 +34,16 @@ export interface WorldOpts {
   /** Open line only: set pieces (G10b) when enabled, with the line's horseshoe bends. */
   setPieces?: MapGenSettings['line']['setPieces'] | null;
   horseshoes?: readonly Horseshoe[];
+  /** Open line only: lookout buttes (G10) when enabled. */
+  lookouts?: MapGenSettings['line']['lookouts'] | null;
 }
+
+/**
+ * A lookout butte (G10): a flat top of radius `top` round (x, y) at `level`, cliffs all round, a
+ * ramp `half` wide each side from the top's edge (ax, ay) down to (bx, by), and a trail on from
+ * there to the lanes at (ex, ey). `i` is the track sample it faces.
+ */
+export interface Lookout { name: string; i: number; x: number; y: number; top: number; level: number; half: number; ax: number; ay: number; bx: number; by: number; ex: number; ey: number }
 
 export type SetPieceKind = 'horseshoe' | 'grade' | 'canyon';
 
@@ -113,6 +122,8 @@ export interface WorldPlan {
   stretchPlan: StretchPlan | null;
   /** Set pieces along the line (G10b), in order along the track; canyons alone for buildWindow's tile test. */
   setPieces: SetPiece[]; canyons: SetPiece[]; trails: SetPiece[];
+  /** Lookout buttes (G10), in order along the track. */
+  lookouts: Lookout[];
   salts: { mud: number; rocks: number; forest: number; lakes: number; hills: number; strips: number; mesas: number; mesaTops: number; scenery: number; ground: number };
 }
 
@@ -351,6 +362,69 @@ function placeSetPieces(p: WorldPlan, seed: string, c: SetPieceSettings, horsesh
   p.trails = list.filter((q) => q.trail);
 }
 
+/**
+ * Lookout buttes (G10) every `everyTiles` along the line, `offsetTiles` out on a random side: each
+ * clear of the track's other bends, rivers, towns, set pieces, mesa stamps and other lookouts.
+ */
+function placeLookouts(p: WorldPlan, seed: string, c: MapGenSettings['line']['lookouts'], riverDistAt: (x: number, y: number) => number, inMap: (i: number) => boolean): void {
+  const { xs, ys, tangents, n, spacing, rows, cols, s } = p;
+  const r = rng(`${seed}/lookouts`);
+  const names = [...c.names];
+  const lane = s.corridor.laneTiles;
+  let d = r.range(c.everyTiles[0], c.everyTiles[1]) / 2;
+  const length = (n - 1) * spacing;
+  while (d < length) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const i = Math.round(d / spacing) + (attempt ? r.int(-Math.round(120 / spacing), Math.round(120 / spacing)) : 0);
+      if (i < 0 || i >= n || !inMap(i)) continue;
+      const side = r.next() < 0.5 ? -1 : 1;
+      const off = r.range(c.offsetTiles[0], c.offsetTiles[1]), top = r.range(c.topRadiusTiles[0], c.topRadiusTiles[1]);
+      const tg = tangents[i]!;
+      const x = xs[i]! - tg.y * off * side, y = ys[i]! + tg.x * off * side;
+      const reach = top + 4;
+      if (x < reach + 20 || x > cols - reach - 20 || y < s.edgeTiles + reach || y > rows - s.edgeTiles - reach) continue;
+      // Clear of the track everywhere (a bend could come back near it), rivers and towns.
+      let nearest = Infinity;
+      for (const j of p.sampleIndex.find(x - off, y - off, x + off, y + off)) { const ddx = xs[j]! - x, ddy = ys[j]! - y; nearest = Math.min(nearest, Math.sqrt(ddx * ddx + ddy * ddy)); }
+      if (nearest < off - 1) continue;
+      if (riverDistAt(Math.floor(x), Math.floor(y)) < reach + 6) continue;
+      if (p.towns.length && townGap(p.towns, x, y) < reach + 30) continue;
+      const around = Math.round((off + top + 40) / spacing);
+      if (p.setPieces.some((q) => i + around >= q.i0 && i - around <= q.i1)) continue;
+      if (p.lookouts.some((q) => (q.x - x) * (q.x - x) + (q.y - y) * (q.y - y) < 200 * 200)) continue;
+      if (p.putIndex.find(x - reach, y - reach, x + reach, y + reach).length) continue;
+      // The ramp runs from the top's edge toward the track, then a trail on to the lanes.
+      const ux = (xs[i]! - x) / off, uy = (ys[i]! - y) / off;
+      const ax = x + ux * (top - 1), ay = y + uy * (top - 1);
+      const bx = x + ux * (top + c.rampTiles), by = y + uy * (top + c.rampTiles);
+      const ex = xs[i]! - ux * (lane - 1), ey = ys[i]! - uy * (lane - 1);
+      const name = names.length ? names.splice(r.int(0, names.length - 1), 1)[0]! : `${c.names[0]!} ${p.lookouts.length + 1}`;
+      p.lookouts.push({ name, i, x, y, top, level: c.level, half: c.rampWidthTiles / 2, ax, ay, bx, by, ex, ey });
+      break;
+    }
+    d += r.range(c.everyTiles[0], c.everyTiles[1]);
+  }
+}
+
+/** What a lookout makes of the tile centred at (cx, cy): its top, its ramp or its trail; null when none touches it. */
+function lookoutTile(p: WorldPlan, cx: number, cy: number): { height: number; blocked?: true } | null {
+  for (const q of p.lookouts) {
+    const dx = cx - q.x, dy = cy - q.y;
+    if (Math.abs(dx) > 200 || Math.abs(dy) > 200) continue;
+    if (dx * dx + dy * dy <= q.top * q.top) return { height: q.level };
+    const seg = (ax: number, ay: number, bx: number, by: number) => {
+      const vx = bx - ax, vy = by - ay, len2 = vx * vx + vy * vy;
+      const u = Math.max(0, Math.min(1, ((cx - ax) * vx + (cy - ay) * vy) / len2));
+      const ox = cx - ax - vx * u, oy = cy - ay - vy * u;
+      return { u, near: ox * ox + oy * oy <= q.half * q.half };
+    };
+    const ramp = seg(q.ax, q.ay, q.bx, q.by);
+    if (ramp.near) return { height: Math.max(0, Math.round(q.level * (1 - ramp.u))) };
+    if (seg(q.bx, q.by, q.ex, q.ey).near) return { height: 0 };
+  }
+  return null;
+}
+
 /** Lay out the world round a track: see the file comment. Same seed, settings and track, same plan. */
 export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldPlan {
   const { cols, rows, track, closed } = o;
@@ -377,7 +451,7 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     puts: { x: [], y: [], minD: [] }, putIndex: new CellIndex(PUT_CELL),
     spawnClear: new Set(), playerSpawn: { x: 0, y: 0 },
     stretchPlan: !closed && o.stretches?.enabled ? planStretches(seed, o.stretches, xs, spacing) : null,
-    setPieces: [], canyons: [], trails: [],
+    setPieces: [], canyons: [], trails: [], lookouts: [],
     salts: {
       mud: salt('mud'), rocks: salt('rocks'), forest: salt('forest'), lakes: salt('lakes'), hills: salt('hills'), strips: salt('strips'),
       mesas: salt('mesas'), mesaTops: salt('mesa-tops'), scenery: salt('scenery'), ground: salt('ground'),
@@ -645,6 +719,8 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     }
   }
 
+  if (!closed && o.lookouts?.enabled) placeLookouts(p, seed, o.lookouts, riverDistAt, inMap);
+
   // Spawn: on the open side of a stretch, spawnDistanceTiles out, with a clear path to the track.
   const spawn = (() => {
     const r = rng(`${seed}/spawn`);
@@ -790,7 +866,7 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
     if ((closed && (x < s.edgeTiles || x >= cols - s.edgeTiles)) || y < s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
     if (toTown < 0) { zones[t] = Z.open; continue; }
     // Set pieces (G10b): a canyon's floor and rim trail, and the trail across a horseshoe's foot.
-    const piece = setPieceTile(p, near[t]!, d, near[t]! < 0 ? 0 : sideOf(t, x, y), cx, cy);
+    const piece = setPieceTile(p, near[t]!, d, near[t]! < 0 ? 0 : sideOf(t, x, y), cx, cy) ?? (p.lookouts.length ? lookoutTile(p, cx, cy) : null);
     if (piece) {
       if (piece.height >= 0) heights[t] = piece.height;
       zones[t] = piece.blocked ? Z.blocked : river[t] && !deck[t] ? Z.water : Z.open;

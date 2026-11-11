@@ -122,6 +122,8 @@ export type SimEvent =
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   /** Space on a canyon rim (G10b): the player dropped onto car `car`'s roof of the committed train. */
   | { type: 'RimDropped'; tick: number; player: PlayerId; car: number }
+  /** The engine crew spotted a rider on the approach (G10): guards on `side` watch, the train may speed up. */
+  | { type: 'EngineSaw'; tick: number; player: PlayerId; trainId: string; side: TrainSide }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' | 'mount' }
   /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
@@ -349,6 +351,11 @@ export interface RunState {
   guards: GuardState[];
   /** The riderless horse while the player is aboard (U4). */
   horse: HorseCall;
+  /**
+   * The engine crew's watch on the approach (G10): ticks in a row the rider has been in sight, and
+   * whether they spotted the rider this run (once only). Left out until the engine first sees them.
+   */
+  engineSeen?: { ticks: number; saw: boolean };
 }
 
 /** The extraction horse's state, in the run so a snapshot resumes it mid-extraction. */
@@ -482,6 +489,8 @@ export interface TrainState {
   cars: string[];
   /** Set by a cash-out: no commit or switch to this train until `untilTick` (null: never). */
   doorsClosed?: { untilTick: number | null };
+  /** Ticks left of a speed-up after the engine crew spotted a rider (G10 engine sight). */
+  speedUpTicks?: number;
 }
 
 export interface WorldState {
@@ -519,6 +528,8 @@ export interface SimConfig {
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
       /** Dropping from a canyon rim onto a roof (G10b): within `reachTiles` of a car, stumbling `stumbleTicks` on landing. */
       rimDrop: { enabled: boolean; reachTiles: number; stumbleTicks: number };
+      /** The engine crew watching the approach (G10 boarding plan); see the config schema. */
+      engineSight: { enabled: boolean; rangeTiles: number; slowRangeTiles: number; slowSpeedTilesPerTick: number; coneCos: number; seenAfterTicks: number; watchTicks: number; speedUpScale: number; speedUpTicks: number };
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
     health: { max: number; scope: 'day' | 'run' };

@@ -54,6 +54,7 @@
       "grade": { "lengthTiles": [200, 320], "speedScale": 0.6, "rampTiles": 60, "names": ["Grade", "Climb", "Hill"] },
       "canyon": { "lengthTiles": [120, 200], "floorTiles": 4.5, "rimWidthTiles": [6, 8], "rimLevel": 6, "rampTiles": 28, "wallTiles": [8, 14], "names": ["Cut", "Gorge", "Narrows"] }
     },
+    "lookouts": { "enabled": true, "everyTiles": [600, 900], "offsetTiles": [45, 75], "topRadiusTiles": [7, 10], "level": 5, "rampTiles": 22, "rampWidthTiles": 7, "names": ["Eagle Rock", "Sentinel Butte", "Signal Hill", "Watchman Rock", "Hawk's Perch", "Chimney Rock", "Spyglass Butte", "Lookout Point", "Owl Rock", "Steeple Butte", "Smoke Signal Hill", "Lone Sentry"] },
     "towns": { "count": [1, 2], "along": [0.3, 0.9], "minGapTiles": 1200, "clearingRadiusTiles": 18, "gapTiles": 8 }
   }
 }

@@ -84,6 +84,34 @@ export const GameSchema = z.object({
       /** The landing staggers you this long, as a good boarding does. */
       stumbleSec: z.number().min(0),
     }).strict(),
+    /**
+     * The engine crew watching for riders (boarding plan, G10): while you ride up to your committed
+     * train, the engine sees you inside a cone ahead of it and to its sides, out to `rangeTiles`,
+     * where nothing blocked stands between. Behind the engine is blind, so riding up from behind
+     * is the quiet way in. Seen for `seenAfterSec` in a row, the crew spots you once per run: guards
+     * on your side go to the ledge and watch for `watchSec`, and the train speeds up by
+     * `speedUpScale` for `speedUpSec` (1 = no speed-up).
+     */
+    engineSight: z.object({
+      /** On: the engine can spot you on the approach. */
+      enabled: z.boolean(),
+      /** How far the engine sees a rider at speed. */
+      rangeTiles: positive,
+      /** How far it sees a rider going no faster than `slowSpeedTilesPerSec` (riding slow keeps your dust down). */
+      slowRangeTiles: z.number().min(0),
+      /** At or under this speed a rider counts as slow. */
+      slowSpeedTilesPerSec: z.number().min(0),
+      /** Half the cone's width, from straight ahead along the track (90 = everything beside the engine; 180 = no blind spot). */
+      coneHalfAngleDeg: z.number().min(0).max(180),
+      /** You must stay seen this long before the crew spots you. */
+      seenAfterSec: z.number().min(0),
+      /** Guards on your side watch the ledge for this long once you are spotted (0: they stay put). */
+      watchSec: z.number().min(0),
+      /** The train's speed once you are spotted, as a share of normal (1: no change). */
+      speedUpScale: z.number().min(1),
+      /** How long the speed-up lasts. */
+      speedUpSec: z.number().min(0),
+    }).strict(),
     landing: z.object({
       /** How long the stumble after a good landing lasts. */
       stumbleSec: z.number().min(0),
@@ -359,6 +387,16 @@ export const GameSchema = z.object({
     }).partial().catchall(zoomOut),
     /** Seconds the view takes to ease in when a stretch's zoom limit tightens. */
     stretchZoomEaseSec: z.number().min(0),
+    /**
+     * Meet-here markers (boarding plan, G10): hold G and point at the track to drop one, up to
+     * `markersMax` (0 turns them off). Each is named after the nearest place and shows when your
+     * train gets there and when you would, green with `markerMarginSec` or more to spare. Client only.
+     */
+    markersMax: z.number().int().min(0),
+    /** Seconds to spare for a marker to show green; under it amber, and red once the train would beat you. */
+    markerMarginSec: z.number().min(0),
+    /** On a lookout's top (G10), the furthest zoom out (smaller is wider), over any stretch's limit. */
+    lookoutZoomOut: zoomOut,
   }).strict(),
   /**
    * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level

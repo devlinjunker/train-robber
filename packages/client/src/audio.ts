@@ -2,7 +2,7 @@
 // doc: Minimum feedback). Real sound files replace the synth later by changing only this file.
 // Browsers start audio suspended until a key or click, so the bus resumes on the first one.
 
-export type SoundId = 'tick' | 'tickFast' | 'heat' | 'alarm' | 'expired' | 'whistle' | 'hoof';
+export type SoundId = 'tick' | 'tickFast' | 'heat' | 'alarm' | 'expired' | 'whistle' | 'hoof' | 'steam';
 
 interface Tone { type: OscillatorType; from: number; to: number; sec: number; gain: number; repeat?: number }
 
@@ -18,6 +18,8 @@ const TONES: Record<SoundId, Tone> = {
   whistle: { type: 'sine', from: 1400, to: 2300, sec: 0.18, gain: 0.12, repeat: 2 },
   // One hoofbeat, a low thud; the client plays them in a gallop rhythm while the horse is close.
   hoof: { type: 'triangle', from: 140, to: 70, sec: 0.06, gain: 0.12 },
+  // The engine's steam whistle when the crew spots you (G10): two long low blasts.
+  steam: { type: 'sawtooth', from: 480, to: 460, sec: 0.45, gain: 0.07, repeat: 2 },
 };
 
 export interface AudioBus {

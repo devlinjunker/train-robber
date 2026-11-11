@@ -112,6 +112,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
         rimDrop: { enabled: true, reachTiles: 5, stumbleTicks: 24 },
+        engineSight: { enabled: false, rangeTiles: 40, slowRangeTiles: 20, slowSpeedTilesPerTick: 4 / 60, coneCos: -0.342020143326, seenAfterTicks: 30, watchTicks: 480, speedUpScale: 1.2, speedUpTicks: 720 },
       },
       health: { max: 100, scope: 'day' },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },
