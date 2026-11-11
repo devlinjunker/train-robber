@@ -3,6 +3,7 @@
   "id": "line-set-pieces",
   "title": "Set pieces on the open line",
   "question": "G10b: do the horseshoe bend (cut across while the train goes round), the grade (trains slow) and the canyon cut (ride the rim, drop onto a roof) make catching a train more interesting? Is the slowdown on grades and bends worth having?",
+  "pr": 70,
   "base": {
     "map": "line"
   },
