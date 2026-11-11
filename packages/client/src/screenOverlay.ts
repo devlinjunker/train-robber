@@ -16,6 +16,8 @@ const EDGE_MARGIN = 36;
 const MAX_ARROWS = 4;
 /** The town arrow's colour, the same sand as the town rings. */
 const TOWN_COLOUR = 0xe8d9a8;
+/** Stretch sign names (G10a): the board's pale wood. */
+const SIGN_COLOUR = 0xf6e7c1;
 
 /** The next town along an open line: its screen position (the middle of its clearing) and how far it is. */
 export interface TownPointer {
@@ -69,6 +71,8 @@ export interface ScreenOverlayInput {
   trains: readonly TrainPointer[];
   /** Edge arrows for at most this many trains besides the committed one and the switch candidate (default MAX_ARROWS). */
   maxTrainArrows?: number;
+  /** Stretch signs near the rider (G10a): the name over each sign on screen. */
+  signs?: readonly { text: string; sx: number; sy: number }[];
   /** The next town, pointed at off screen and labelled on screen, or null. */
   town?: TownPointer | null;
   /** The player's screen position aboard (their head), or null while mounted. */
@@ -234,6 +238,15 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         if (!t.committed && !t.candidate && !nearest.includes(t)) continue;
         const colour = t.committed ? COMMITTED_COLOUR : t.candidate ? SWITCH_CANDIDATE_COLOUR : 0xffffff;
         edgeArrow(t.sx, t.sy, colour, `${t.name ? `${t.name} ` : ''}${t.service ? `(${t.service}) ` : ''}${t.distanceTiles.toFixed(0)}t${t.shut ? `\n${t.shut.text}` : ''}`, t.shut ? SHUT_COLOUR : colour);
+      }
+      // Stretch signs on screen: the stretch's name painted over the board.
+      for (const sg of input.signs ?? []) {
+        if (sg.sx < 0 || sg.sx > input.width || sg.sy < 0 || sg.sy > input.height) continue;
+        const l = label();
+        l.text = sg.text;
+        l.style.fill = SIGN_COLOUR;
+        l.style.fontSize = 14;
+        l.position.set(sg.sx, sg.sy);
       }
       // The next town: a bigger arrow off screen, a label over its clearing on screen. Its distance
       // counts down as you ride toward it.

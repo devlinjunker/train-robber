@@ -61,7 +61,9 @@ describe('map loading', () => {
     const b = await sessionMap(LINE_MAP_ID, 'abc', config, '');
     expect(a.map.id).toBe('line');
     expect(a.map.size.cols).toBe(1200);
-    expect(a.map.source.file).toMatch(/^line:abc (balanced|forest|rocks|mesas|water|mud) [+-]\d/);
+    // With stretches (G10a) the line picks no theme; with them off it names the theme it picked.
+    expect(a.map.source.file).toBe('line:abc stretches');
+    expect(a.map.stretches?.length).toBeGreaterThan(3);
     expect(a.map.openLine).toBeTruthy();
     expect(a.map.routes.every((r) => !r.closed)).toBe(true);
     expect(a.map).toEqual(b.map);

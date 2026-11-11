@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.5",
+  "version": "0.2.5-g10a-stretches",
   "private": true,
   "type": "module",
   "scripts": {

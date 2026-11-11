@@ -78,6 +78,18 @@ export const MapDefSchema = z.object({
    * `route` and `d` for the line clock; towns and timetables come in G6.
    */
   towns: z.array(z.object({ id: z.string(), route: z.string(), d: z.number().min(0), x: z.number(), y: z.number(), side: z.union([z.literal(1), z.literal(-1)]), radiusTiles: z.number().positive() }).strict()).optional(),
+  /**
+   * Named stretches of an open line (G10a), in order along route `route`: from `d0` to `d1` along it,
+   * and from map x `x0` to `x1` (x0 < x1; on a west line the first stretch is at the east end). Land
+   * between x0 and x1 belongs to the stretch. `profile` names the mapGen stretch profile it used.
+   * View only: the sim never reads it.
+   */
+  stretches: z.array(z.object({
+    id: z.string(), name: z.string(), profile: z.string(), pace: z.enum(['quiet', 'busy', 'big']),
+    route: z.string(), d0: z.number(), d1: z.number(), x0: z.number(), x1: z.number(),
+    /** Where its sign stands beside the track, at its start. */
+    sign: point,
+  }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
   /**

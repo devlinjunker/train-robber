@@ -26,6 +26,8 @@ import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
 import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
+import { createStretchTracker, stretchAt } from './stretches';
+import { SIGN_TOP_Z } from './iso/towns';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -62,6 +64,8 @@ export const HOOFBEAT_TILES = 25;
 const HOOF_RHYTHM = [0.09, 0.09, 0.27];
 /** Hoofbeat volume while you ride, against 1 for the called horse right beside you. */
 export const RIDE_HOOF_VOLUME = 0.3;
+/** Stretch sign names show while the rider is within this many tiles of the sign. */
+const SIGN_LABEL_TILES = 40;
 /** How long "LOST LOOT" floats over the rider after a good mount spills loot. */
 export const LOST_LOOT_SEC = 2;
 
@@ -311,6 +315,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const wantedCfg = config.values.wanted;
   // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
   let queued: Command[] = [];
+  // Stretches of an open line (G10a): the banner on the way in, the zoom limit, and where a run went.
+  const stretchList = map.stretches ?? [];
+  const hudCfg = config.values.hud;
+  const stretches = createStretchTracker(stretchList, { bannerSec: hudCfg.stretchBannerSec, zoom: hudCfg.stretchZoom, zoomOut: hudCfg.stretchZoomOut, easeSec: hudCfg.stretchZoomEaseSec });
+  const placeOf = () => { const h = sim.state.world.horses[0]; return h ? stretchAt(stretchList, h.x)?.name ?? null : null; };
+  let runFrom: string | null = null;
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
   const summaryTracker = createSummaryTracker();
   const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
@@ -361,6 +371,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     }
     else if (e.type === 'RunStarted') {
       switchedAt = performance.now();
+      if (!e.resumed) runFrom = placeOf();
       summary?.hide();
       if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000);
       else if (e.practice) show(`Practice run at wanted level ${e.wantedLevel}: nothing is saved`, 'info', 2500);
@@ -482,13 +493,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       noticeUntil = 0; zoneSec = 0; heatNotices = []; alarmAt = -Infinity; lastTick = null;
+      stretches.reset();
     },
     afterTick(events) {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       for (const e of events) {
         noticeFor(e);
         const done = summaryTracker.event(e);
-        if (done) summary?.show(done);
+        if (done) {
+          const to = placeOf();
+          summary?.show(runFrom || to ? { ...done, where: runFrom && to && runFrom !== to ? `${runFrom} to ${to}` : (runFrom ?? to)! } : done);
+        }
       }
     },
     render(alpha, host) {
@@ -557,6 +572,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if ((phase !== 'idle') !== zoomLocked) {
         zoomLocked = phase !== 'idle';
         if (zoomLocked) { ridingZoom = zoom; zoom = runZoom(mode); } else zoom = ridingZoom;
+      }
+
+      // Stretches: the land's sightlines limit how far the iso view zooms out (hud.stretchZoom), and
+      // `auto` also moves the zoom there off the train when you ride into a new stretch.
+      const focusX = ridden?.x ?? aboardAt?.x ?? cam.x;
+      const place = stretches.update(focusX, now / 1000, dt);
+      if (mode === 'iso' && hudCfg.stretchZoom !== 'off' && place.zoomFloor > 0) {
+        if (hudCfg.stretchZoom === 'auto' && !zoomLocked && place.entered) zoom = hudCfg.stretchZoomOut[place.current!.profile] ?? zoom;
+        if (zoom < place.zoomFloor) zoom = place.zoomFloor;
       }
 
       // Camera: lead the horse along its velocity. Aboard, follow the player, leading by the
@@ -724,8 +748,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const inGrace = !!s.run && s.run.clockRunning && s.run.countdownSec <= 0 && s.run.graceTicks > 0;
       const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const overtimeText = inGrace ? `OUT OF TIME: jump now! ${(Math.max(0, graceMax - s.run!.graceTicks) / tickRateHz).toFixed(1)} s` : null;
+      // Stretch signs near the rider: the name over the board.
+      const signs = iso ? stretchList.filter((st) => Math.hypot(st.sign.x - focusX, st.sign.y - (ridden?.y ?? aboardAt?.y ?? cam.y)) < SIGN_LABEL_TILES)
+        .map((st) => { const p = project(st.sign.x, st.sign.y, SIGN_TOP_Z + 0.6 + isoWorld.groundZ(st.sign.x, st.sign.y)); return { text: st.name, sx: p.x, sy: p.y }; }) : [];
       overlay.update({
-        width: W, height: H,
+        width: W, height: H, signs,
         // The meter's anchor: the horse while riding, you aboard for the mount meter.
         horse: ridden ? project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0)
           : meter && aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 2.4 + playerZ : 0) : null,
@@ -890,11 +917,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,
         lootTotal: lootTotal && (now - lootTotal.at) / 1000 < lootTotalSec ? { title: lootTotal.title, detail: lootTotal.detail } : null,
+        place: place.banner,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
           `map ${map.id} ${map.size.cols}x${map.size.rows}${/^(gen|line):/.test(map.source.file) ? `  (${map.source.file})` : ''}  route ${routeText}`,
+          ...(place.current ? [`stretch ${place.current.id} ${place.current.name} (${place.current.profile}, ${place.current.pace})  zoom limit ${hudCfg.stretchZoom} ${place.zoomFloor ? place.zoomFloor.toFixed(2) : 'none'}`] : []),
           `view ${mode} (V)  zoom ${zoom.toFixed(2)}x${zoomLocked ? ` (run: ${clampRunZoom(0, runZoom(mode), runZoomRange).toFixed(2)}-${clampRunZoom(Infinity, runZoom(mode), runZoomRange).toFixed(2)}x)` : ''}  map overlay ${(iso ? isoWorld.mapOverlay : topdownOverlay).visible ? 'on' : 'off'} (O)  zones ${topdownView.zones.visible ? 'on' : 'off'} (B)`,
           `horse ${horseState.speed.toFixed(2)} tiles/s${horseState.boostTicks > 0 ? ' BOOST' : ''}${horseCfg.throttleModel === 'cruise' ? ` (target ${horseState.cruiseTarget.toFixed(2)})` : ''}  heading ${heading.toFixed(0)}°  at ${horseState.x.toFixed(1)}, ${horseState.y.toFixed(1)} on ${TERRAIN_NAMES[terrainAt(sim.map, horseState.x, horseState.y)]}`,
           `run: ${phase.toUpperCase()}  wanted ${runWantedLevel(s, config)}${isPractice(config) ? ' (forced: practice)' : ''}  saved: wanted ${s.persistent.wantedLevel} bank $${s.persistent.bank} lifetime $${s.persistent.lifetimeEarned}${s.run ? `  train ${s.run.trainId}  jumps ${run?.boardingAttempts ?? 0}` : ''}${run && run.stumbleTicks > 0 ? '  STUMBLE' : ''}${horseState.stunTicks > 0 ? `  STUNNED ${(horseState.stunTicks / tickRateHz).toFixed(1)} s` : ''}${phase === 'aboard' ? `  at ${player.placement.frame} cell ${player.placement.x.toFixed(1)}, ${player.placement.y.toFixed(1)}` : ''}`,

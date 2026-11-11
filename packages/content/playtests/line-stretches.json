@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "id": "line-stretches",
+  "title": "Stretches on the open line",
+  "question": "G10a: does cutting the line into named stretches (open flats, broken country, timber, river valleys, mesa country) give it character and make riding off the train more interesting than one theme for the whole line? Is the zoom limit per stretch good, and should the camera pick the zoom itself?",
+  "pr": 69,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "stretches",
+      "name": "Stretches, zoom limit"
+    },
+    {
+      "id": "auto-zoom",
+      "name": "Stretches, auto zoom",
+      "set": {
+        "hud.stretchZoom": "auto"
+      }
+    },
+    {
+      "id": "long",
+      "name": "Longer stretches (600-1,200)",
+      "set": {
+        "mapGen.line.stretches.lengthTiles": "[600,1200]"
+      }
+    },
+    {
+      "id": "one-theme",
+      "name": "One theme (before)",
+      "set": {
+        "mapGen.line.stretches.enabled": false,
+        "hud.stretchZoom": "off"
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "lootCarried",
+    "banked"
+  ]
+}

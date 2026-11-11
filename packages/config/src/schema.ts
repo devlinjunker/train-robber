@@ -5,6 +5,8 @@ import { CarTemplateSchema, CellTypeSchema, ItemSchema, LootTableSchema } from '
 // derives tick-based values from those suffixes; see derive.ts.
 
 const positive = z.number().positive();
+/** A zoom (0.25 to 3) a stretch lets the iso view zoom out to (G10a). */
+const zoomOut = z.number().min(0.25).max(3);
 const fraction = z.number().min(0).max(1);
 
 export const GameSchema = z.object({
@@ -320,6 +322,32 @@ export const GameSchema = z.object({
     showTrainNames: z.boolean(),
     /** How long the loot total shows in the top right after you get off the train with loot (Devlin, PR #36). */
     lootTotalSec: z.number().min(0),
+    /**
+     * Stretches of an open line (G10a): entering one shows its name as a banner for
+     * `stretchBannerSec` (0 never). `stretchZoom` sets how the camera reads the land's sightlines:
+     * `off` keeps one zoom range everywhere; `cap` limits how far you can zoom out to the stretch
+     * profile's `stretchZoomOut` (open flats wide, timber close), easing in over
+     * `stretchZoomEaseSec` as it tightens; `auto` also moves the zoom itself to that value off the
+     * train. Client only.
+     */
+    stretchBannerSec: z.number().min(0),
+    /** off, cap or auto: how a stretch limits the zoom (see above). */
+    stretchZoom: z.enum(['off', 'cap', 'auto']),
+    /** The furthest zoom out (smaller is wider) per stretch profile id; a profile not listed has no limit. */
+    stretchZoomOut: z.object({
+      /** Open flats: long sightlines, so you can zoom out furthest. */
+      flats: zoomOut,
+      /** Broken country. */
+      broken: zoomOut,
+      /** Timber: trees close round you, so the view stays close. */
+      timber: zoomOut,
+      /** River valleys. */
+      river: zoomOut,
+      /** Mesa country. */
+      mesa: zoomOut,
+    }).partial().catchall(zoomOut),
+    /** Seconds the view takes to ease in when a stretch's zoom limit tightens. */
+    stretchZoomEaseSec: z.number().min(0),
   }).strict(),
   /**
    * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level
