@@ -28,6 +28,7 @@ import { CAR_HEIGHT } from './iso/worldScene';
 import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
 import { createSetPieceTracker, createStretchTracker, stretchAt } from './stretches';
 import { SIGN_TOP_Z } from './iso/towns';
+import { createLookoutTracker, createMarkers, engineCone, nearestOnRoute, placeName as markerPlaceName, readMarkers } from './plan';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -243,6 +244,21 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The inventory panel (I): what you carry, numbered so 1 to 9 drop that item.
   let inventoryOpen = false;
 
+  /** P: a meet-here marker on the track under the mouse, or nearest the rider with no mouse over the game. */
+  const placeMarker = () => {
+    if (hudCfg.markersMax <= 0) return;
+    const h = sim.state.world.horses[0]!;
+    const at = mouse && toWorld ? toWorld(mouse.x, mouse.y) : { x: h.x, y: h.y };
+    let best: { route: string; d: number; x: number; y: number; off: number } | null = null;
+    for (const r of sim.map.routes.values()) {
+      const q = nearestOnRoute(r, at.x, at.y);
+      if (!best || q.off < best.off) best = { route: r.id, ...q };
+    }
+    if (!best || best.off > 30) { show('Point the mouse at the track, then P to mark where to meet the train', 'info', 2200); return; }
+    const name = markerPlaceName(map, best.d, best.x, best.y);
+    const done = markers.toggle(best.route, best.d, best.x, best.y, name);
+    show(done === 'removed' ? 'Marker picked up' : `Marker: ${name}${done === 'replaced' ? ` (oldest dropped, ${hudCfg.markersMax} at most)` : ''}. Shift+P clears them`, 'info', 1800);
+  };
   const onView = (a: ViewAction) => {
     if (a === 'zoomIn' || a === 'zoomOut') {
       const dir = a === 'zoomIn' ? 1 : -1;
@@ -255,6 +271,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
     else if (a === 'toggleInventory') inventoryOpen = !inventoryOpen;
     else if (a === 'toggleMute') audio.muted = !audio.muted;
+    else if (a === 'marker') placeMarker();
+    else if (a === 'clearMarkers') { markers.clear(); show('Markers cleared', 'info', 1200); }
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
@@ -321,6 +339,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const stretches = createStretchTracker(stretchList, { bannerSec: hudCfg.stretchBannerSec, zoom: hudCfg.stretchZoom, zoomOut: hudCfg.stretchZoomOut, easeSec: hudCfg.stretchZoomEaseSec });
   const pieceList = map.setPieces ?? [];
   const pieces = createSetPieceTracker(pieceList, hudCfg.stretchBannerSec);
+  // Planning the boarding (G10): lookouts open the view wide; P drops meet-here markers on the track.
+  const lookoutList = map.lookouts ?? [];
+  const lookouts = createLookoutTracker(lookoutList, hudCfg.stretchBannerSec);
+  const markers = createMarkers(hudCfg.markersMax);
+  // The mouse on the canvas, and the last frame's view, to find the track under it.
+  let mouse: { x: number; y: number } | null = null;
+  app.canvas.addEventListener('pointermove', (e) => { const r = app.canvas.getBoundingClientRect(); mouse = { x: e.clientX - r.left, y: e.clientY - r.top }; });
+  app.canvas.addEventListener('pointerleave', () => { mouse = null; });
+  let toWorld: ((sx: number, sy: number) => { x: number; y: number }) | null = null;
+  // The zoom from before riding up onto a lookout, given back on the way down.
+  let lookoutSavedZoom: number | null = null;
   const placeOf = () => { const h = sim.state.world.horses[0]; return h ? stretchAt(stretchList, h.x)?.name ?? null : null; };
   let runFrom: string | null = null;
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
@@ -427,6 +456,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       spilled = { detail: `-${what}`, at: performance.now() };
     }
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
+    else if (e.type === 'EngineSaw') {
+      audio.play('steam');
+      const es = config.values.boarding.engineSight;
+      show(`The engine crew saw you! Guards watch the ${sideName(e.side)} side${es.speedUpScale > 1 && es.speedUpSec > 0 ? ' and the train speeds up' : ''}. Come up from behind the engine to stay unseen`, 'warn', 3500);
+    }
     else if (e.type === 'GuardLostTrack') show('A guard lost you and is searching', 'good', 2000);
     else if (e.type === 'GuardStateChanged' && e.to === 'alert') show(config.values.ai.guardCatch === 'thrown-off' ? 'Alarm! A guard is coming for you' : 'Alarm! A guard raised the alarm', 'bad', 2200);
     else if (e.type === 'GuardStateChanged' && e.to === 'suspicious' && e.cause === 'noise') {
@@ -466,7 +500,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
-    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.hud.markersMax > 0 ? ['P marker (mouse on the track)'] : []), ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -497,6 +531,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       noticeUntil = 0; zoneSec = 0; heatNotices = []; alarmAt = -Infinity; lastTick = null;
       stretches.reset();
       pieces.reset();
+      lookouts.reset();
     },
     afterTick(events) {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
@@ -587,10 +622,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const place = stretches.update(focusX, now / 1000, dt);
       // A set piece ahead (G10b) takes the banner over from the stretch.
       const pieceBanner = pieces.update(focusX, ridden?.y ?? aboardAt?.y ?? cam.y, now / 1000);
-      if (mode === 'iso' && hudCfg.stretchZoom !== 'off' && place.zoomFloor > 0) {
+      // Up on a lookout (G10) the view opens wide, over the stretch's limit, and its banner shows.
+      const look = ridden ? lookouts.update(ridden.x, ridden.y, now / 1000) : { on: null, banner: null };
+      if (mode === 'iso' && hudCfg.stretchZoom !== 'off' && place.zoomFloor > 0 && !look.on) {
         if (hudCfg.stretchZoom === 'auto' && !zoomLocked && place.entered) zoom = hudCfg.stretchZoomOut[place.current!.profile] ?? zoom;
         if (zoom < place.zoomFloor) zoom = place.zoomFloor;
       }
+      if (look.on && mode === 'iso' && lookoutSavedZoom === null) { lookoutSavedZoom = zoom; zoom = hudCfg.lookoutZoomOut; }
+      else if (!look.on && lookoutSavedZoom !== null) { zoom = lookoutSavedZoom; lookoutSavedZoom = null; }
 
       // Camera: lead the horse along its velocity. Aboard, follow the player, leading by the
       // train's velocity just enough that the ease does not trail behind the moving car.
@@ -621,6 +660,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // The ground under the screen's corners, for culling scenery and the minimap's view box.
       const corners = ([[0, 0], [W, 0], [W, H], [0, H]] as const).map(([sx, sy]) => iso ? screenToWorld(sx, sy, camera)
         : { x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
+      toWorld = iso ? (sx, sy) => screenToWorld(sx, sy, camera) : (sx, sy) => ({ x: (sx - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (sy - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y });
       if (!iso && overlayGround && topdownOverlay.visible) {
         const xs = corners.map((c) => c.x), ys = corners.map((c) => c.y);
         overlayGround.cull({ x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) });
@@ -638,6 +678,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const crouched = s.run?.players[player.id]?.crouched ?? false;
       const showCones = (showDebug || conesMode !== 'off') && runTrain !== null;
       const faintCones = !showDebug && conesMode === 'faint';
+      // The engine crew's view on the approach (G10 engine sight): where riding up gets you seen.
+      const engineCar = phase === 'approach' && config.values.boarding.engineSight.enabled && conesMode !== 'off' && runTrain ? cars.find((c) => c.trainId === runTrain.id && c.index === 0) : undefined;
+      const crewCone = engineCar ? [engineCone(sim.map, config, engineCar, physical ? horseState : null, !!s.run?.engineSeen?.saw)] : [];
       // The footstep ring aboard: how far a guard can hear you, while there are guards to hear.
       let noise: { x: number; y: number; r: number; running: boolean; roof: boolean } | null = null;
       if (noiseRingOn && runTrain && frame && aboardAt && run && !climbing && s.run!.guards.length > 0 && phase === 'aboard') {
@@ -684,7 +727,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
-          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise,
+          cones: showCones ? [...crewCone, ...sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones)] : crewCone.length ? crewCone : null, noise,
           throughGuards: guardViews.filter((v) => seenIds.has(v.id)),
           throughCones: showCones && seenIds.size > 0 ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => seenIds.has(g.id)), cars, runTrain!.id, faintCones) : null,
           boosting: horseState.boostTicks > 0,
@@ -712,7 +755,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           horse, check, rangeTiles: b.rangeTiles, aboard: aboardAt, loot: lootLeft, trainId: s.run?.trainId ?? null,
           horseFlash: hitAge !== null && flashOn(hitAge) ? HIT_COLOUR : horseState.stunTicks > 0 && flashOn(now / 1000) ? 0xffffff : null,
           playerFlash: run?.slip && flashOn(now / 1000) ? HIT_COLOUR : stumbling && flashOn(now / 1000) ? GOOD_COLOUR : null, crouched, focus, onRoof: onRoofNow || (climbing?.progress ?? 0) > 0.5,
-          guards: guardViews, cones: showCones ? sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones) : null, noise, closedTrains,
+          guards: guardViews, cones: showCones ? [...crewCone, ...sightCones(config, runTrain!.cars, guardPoses, cars, runTrain!.id, faintCones)] : crewCone.length ? crewCone : null, noise, closedTrains,
         });
         topdown.scale.set(TOPDOWN_PX * shownZoom);
         topdown.pivot.set(cam.x, cam.y);
@@ -759,10 +802,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const overtimeText = inGrace ? `OUT OF TIME: jump now! ${(Math.max(0, graceMax - s.run!.graceTicks) / tickRateHz).toFixed(1)} s` : null;
       // Stretch signs near the rider: the name over the board.
-      const signs = iso ? [...stretchList, ...pieceList].filter((st) => Math.hypot(st.sign.x - focusX, st.sign.y - (ridden?.y ?? aboardAt?.y ?? cam.y)) < SIGN_LABEL_TILES)
+      const signs = iso ? [...stretchList, ...pieceList, ...lookoutList].filter((st) => Math.hypot(st.sign.x - focusX, st.sign.y - (ridden?.y ?? aboardAt?.y ?? cam.y)) < SIGN_LABEL_TILES)
         .map((st) => { const p = project(st.sign.x, st.sign.y, SIGN_TOP_Z + 0.6 + isoWorld.groundZ(st.sign.x, st.sign.y)); return { text: st.name, sx: p.x, sy: p.y }; }) : [];
+      // Meet-here markers (G10): each pinned on the track with its train's time and yours; not aboard.
+      if (aboardPhase && markers.list.length) markers.clear();
+      const markerViews = markers.list.length ? readMarkers(s, sim.map, config, markers.list, physical ? horseState : null, hudCfg.markerMarginSec)
+        .map((r) => { const p = project(r.marker.x, r.marker.y, iso ? isoWorld.groundZ(r.marker.x, r.marker.y) : 0); return { sx: p.x, sy: p.y, text: r.text, colour: r.colour }; }) : [];
       overlay.update({
-        width: W, height: H, signs,
+        width: W, height: H, signs, markers: markerViews,
         // The meter's anchor: the horse while riding, you aboard for the mount meter.
         horse: ridden ? project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0)
           : meter && aboardAt ? project(aboardAt.x, aboardAt.y, iso ? 2.4 + playerZ : 0) : null,
@@ -928,7 +975,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,
         lootTotal: lootTotal && (now - lootTotal.at) / 1000 < lootTotalSec ? { title: lootTotal.title, detail: lootTotal.detail } : null,
-        place: pieceBanner ?? place.banner,
+        place: pieceBanner ?? look.banner ?? place.banner,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,

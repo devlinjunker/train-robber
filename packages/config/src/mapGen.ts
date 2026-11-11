@@ -258,6 +258,23 @@ export const MapGenSchema = z.object({
         names: z.array(z.string().min(1)).min(1),
       }).strict(),
     }).strict(),
+    /**
+     * Lookouts (G10 boarding plan): named buttes off the track, a flat top `level` high with cliffs
+     * all round and a ramp down toward the track, and a cleared trail from the ramp to the lanes.
+     * From the top the view opens wide (`hud.lookoutZoomOut`), so you can see trains coming and
+     * plan where to meet them. One every `everyTiles` along the track, `offsetTiles` out.
+     */
+    lookouts: z.object({
+      enabled: z.boolean(),
+      everyTiles: range(z.number().min(100)),
+      /** How far the top's centre is from the track. */
+      offsetTiles: range(z.number().min(20)),
+      topRadiusTiles: range(z.number().min(4).max(20)),
+      level: z.number().int().min(2).max(8),
+      rampTiles: z.number().min(6),
+      rampWidthTiles: z.number().min(4).max(16),
+      names: z.array(z.string().min(1)).min(1),
+    }).strict(),
     /** Town spots: a marker and a flat clearing beside the track (towns themselves come in G6). */
     towns: z.object({
       count: range(z.number().int().min(0).max(4)),

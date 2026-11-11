@@ -22,7 +22,7 @@ export const GENERATED_MAP_ID = 'gen';
 /** The map id of a generated open line (`?map=line`). */
 export const LINE_MAP_ID = 'line';
 /** Bump when a change makes the same seed and settings give a different open line. */
-export const LINE_GENERATOR_VERSION = 4;
+export const LINE_GENERATOR_VERSION = 5;
 
 export interface GeneratedMap {
   /** On an open line, `terrain` builds any chunk of it on demand. */
@@ -211,7 +211,7 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
     rivers: { ...m.rivers, count: scaleRange(m.rivers.count, trackScale) },
     mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
   };
-  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns, stretches: l.stretches, setPieces: l.setPieces, horseshoes: track.horseshoes });
+  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns, stretches: l.stretches, setPieces: l.setPieces, horseshoes: track.horseshoes, lookouts: l.lookouts });
   applyTrackSpeed(plan, track.route, l.setPieces);
   // `west`: the same line mirrored, so trains run right to left.
   const west = l.direction === 'west';
@@ -232,12 +232,17 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
     // Mirrored, the same ground lies on the other side of travel.
     side: (west ? -c.side : c.side) as 1 | -1, inner: c.inner, outer: r4(c.outer), rampTiles: r4(c.ramp * plan.spacing),
   })) : undefined;
+  // Lookouts (G10): mirrored with the line; the sign stands at the foot of the trail by the track.
+  const lookouts = plan.lookouts.length ? plan.lookouts.map((q, k) => ({
+    id: `lookout${k + 1}`, name: q.name, x: west ? mx(q.x) : r4(q.x), y: r4(q.y), topRadiusTiles: r4(q.top),
+    sign: { x: west ? mx(q.ex) : r4(q.ex), y: r4(q.ey) },
+  })) : undefined;
   const terrain = new LineChunks(plan, west);
   const built = whole ? wholeMap(cols, rows, terrain) : null;
   const parsed = MapDefSchema.parse({
     schemaVersion: 1, id: LINE_MAP_ID, source, size: { cols, rows },
     zoneLegend: [...ZONES], ...(built ? { zones: built.zones, elevation: built.elevation } : {}),
-    routes: [route], speedZones: [], towns, ...(stretches ? { stretches } : {}), ...(pieces ? { setPieces: pieces } : {}), ...(rims ? { rims } : {}), markers,
+    routes: [route], speedZones: [], towns, ...(stretches ? { stretches } : {}), ...(pieces ? { setPieces: pieces } : {}), ...(rims ? { rims } : {}), ...(lookouts ? { lookouts } : {}), markers,
     openLine: { headwayTiles: l.trainHeadwayTiles, ...(l.trainHeadwaySpreadTiles > 0 ? { headwaySpreadTiles: Math.min(l.trainHeadwaySpreadTiles, l.trainHeadwayTiles * 0.9) } : {}) },
     generated: { generator: LINE_MAP_ID, version, seed, settings, chunkTiles: CHUNK_TILES },
   });

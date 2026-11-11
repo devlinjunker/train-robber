@@ -13,6 +13,7 @@ const base = {
     failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
     rimDrop: { enabled: true, reachTiles: 5, stumbleSec: 0.8 },
+    engineSight: { enabled: true, rangeTiles: 40, slowRangeTiles: 20, slowSpeedTilesPerSec: 4, coneHalfAngleDeg: 110, seenAfterSec: 0.5, watchSec: 8, speedUpScale: 1.2, speedUpSec: 12 },
   },
   health: { max: 100, scope: 'day' },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },
@@ -49,7 +50,7 @@ const base = {
   trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
   carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
-  hud: { showTrainNames: true, lootTotalSec: 4, stretchBannerSec: 4, stretchZoom: 'cap', stretchZoomOut: { flats: 0.35 }, stretchZoomEaseSec: 3 },
+  hud: { showTrainNames: true, lootTotalSec: 4, stretchBannerSec: 4, stretchZoom: 'cap', stretchZoomOut: { flats: 0.35 }, stretchZoomEaseSec: 3, markersMax: 3, markerMarginSec: 5, lookoutZoomOut: 0.25 },
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
   wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
   outcomePolicy: {

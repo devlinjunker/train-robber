@@ -171,6 +171,8 @@ export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undef
   run.loot = generateLoot(state, config, train);
   run.nextLootId = run.loot.length;
   run.guards = generateGuards(state, config, train);
+  // The new train's crew has not seen you yet.
+  delete run.engineSeen;
   ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
 }
 

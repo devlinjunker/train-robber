@@ -73,6 +73,8 @@ export interface ScreenOverlayInput {
   maxTrainArrows?: number;
   /** Stretch signs near the rider (G10a): the name over each sign on screen. */
   signs?: readonly { text: string; sx: number; sy: number }[];
+  /** Meet-here markers (G10): a pin on the track on screen, an edge arrow off it, with the times in their colour. */
+  markers?: readonly { sx: number; sy: number; text: string; colour: number }[];
   /** The next town, pointed at off screen and labelled on screen, or null. */
   town?: TownPointer | null;
   /** The player's screen position aboard (their head), or null while mounted. */
@@ -247,6 +249,19 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
         l.style.fill = SIGN_COLOUR;
         l.style.fontSize = 14;
         l.position.set(sg.sx, sg.sy);
+      }
+      // Meet-here markers: a flag on a post where it stands on screen, else an arrow on the edge.
+      for (const mk of input.markers ?? []) {
+        const inside = mk.sx >= 0 && mk.sx <= input.width && mk.sy >= 0 && mk.sy <= input.height;
+        if (!inside) { edgeArrow(mk.sx, mk.sy, mk.colour, mk.text, mk.colour); continue; }
+        arrows.rect(mk.sx - 1.5, mk.sy - 34, 3, 34).fill(0x2a2018);
+        arrows.poly([mk.sx + 1.5, mk.sy - 34, mk.sx + 20, mk.sy - 28, mk.sx + 1.5, mk.sy - 22]).fill(mk.colour).stroke({ width: 1.5, color: 0x000000 });
+        const l = label();
+        l.text = mk.text;
+        l.style.fill = mk.colour;
+        l.style.fontSize = 14;
+        l.position.set(mk.sx, mk.sy - 56);
+        keepOnScreen(l, input.width, input.height);
       }
       // The next town: a bigger arrow off screen, a label over its clearing on screen. Its distance
       // counts down as you ride toward it.

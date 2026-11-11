@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "id": "boarding-plan",
+  "title": "Planning the boarding",
+  "question": "G10 boarding plan: does the engine crew's sight cone (come up from behind, or get seen and the train speeds up) make the approach a choice? Do meet-here markers (P) and lookouts help you plan where to catch the train?",
+  "pr": 71,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "plan",
+      "name": "Engine sight, markers, lookouts"
+    },
+    {
+      "id": "no-crew",
+      "name": "No engine sight",
+      "set": {
+        "boarding.engineSight.enabled": false
+      }
+    },
+    {
+      "id": "watch-only",
+      "name": "Seen: guards watch, no speed-up",
+      "set": {
+        "boarding.engineSight.speedUpScale": 1
+      }
+    },
+    {
+      "id": "no-plan",
+      "name": "None of it (before)",
+      "set": {
+        "boarding.engineSight.enabled": false,
+        "hud.markersMax": 0,
+        "mapGen.line.lookouts.enabled": false
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "lootCarried",
+    "banked"
+  ]
+}

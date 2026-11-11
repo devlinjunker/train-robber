@@ -144,17 +144,18 @@ describe('open lines are deterministic', () => {
     const { map, scenery } = generateLine('pinned-line-1', settings);
     expect(sha(map)).toBe(PINNED.map);
     expect(sha(scenery)).toBe(PINNED.scenery);
-    expect(sha(map.zones)).toBe('e38b881f419f97e0');
+    expect(sha(map.zones)).toBe('53e621780f6a0752');
     expect(sha(map.stretches)).toBe('44b21d37206c7a2d');
     expect(sha(map.setPieces)).toBe('0e5b0ebe0442b8d1');
     expect(sha(map.routes)).toBe('446d79204162ebb3');
+    expect(sha(map.lookouts)).toBe('31108b3fc33302d2');
   });
 
   it('with stretches and set pieces off, a line is tile for tile the G3 line', () => {
     // G4 built the tiles in chunks and added `generated` to the map; G10a added stretches and G10b
-    // set pieces, which move the map and scenery pins. With both off the tiles, routes and markers
-    // are still exactly the G3 ones.
-    const off = resolveMapGen(defaults, { line: { stretches: { enabled: false }, setPieces: { enabled: false } } });
+    // set pieces and G10 lookouts, which move the map and scenery pins. With all three off the
+    // tiles, routes and markers are still exactly the G3 ones.
+    const off = resolveMapGen(defaults, { line: { stretches: { enabled: false }, setPieces: { enabled: false }, lookouts: { enabled: false } } });
     const { map } = generateLine('pinned-line-1', off);
     expect(map.stretches).toBeUndefined();
     expect(sha(map.zones)).toBe('9569c6973a0b3bb7');
@@ -164,7 +165,7 @@ describe('open lines are deterministic', () => {
   });
 });
 
-const PINNED = { map: '5c6aba5df01c8b55', scenery: 'b7a85228b1daeb32' };
+const PINNED = { map: 'c42d7da0b7f6c1f9', scenery: '2d9b6ce458c81690' };
 
 describe('the line clock', () => {
   const { map } = generateLine('line-clock', settings);

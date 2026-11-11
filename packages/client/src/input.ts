@@ -7,7 +7,7 @@ import type { Command, Steering } from '@train-robber/sim';
 /** 1 to 9 drop that item from the open inventory (I). */
 export type SlotAction = `slot${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}`;
 export type GameAction = 'commit' | 'jump' | 'cancel' | 'retry' | 'switch' | 'drop' | 'heat' | 'alarm' | 'boost' | 'crouch' | 'cashOut' | SlotAction;
-export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'toggleInventory' | 'exportLogs' | 'addNote' | 'toggleMute';
+export type ViewAction = 'zoomIn' | 'zoomOut' | 'toggleView' | 'toggleMapOverlay' | 'toggleZones' | 'toggleDebug' | 'toggleMinimap' | 'toggleInventory' | 'exportLogs' | 'addNote' | 'toggleMute' | 'marker' | 'clearMarkers';
 export type Action = GameAction | ViewAction;
 
 /** Bindings live in the client, not sim config. */
@@ -22,14 +22,16 @@ export const BINDINGS: Readonly<Record<string, Action>> = {
   KeyH: 'heat', KeyU: 'toggleMute',
   // I shows what you carry; with it open, 1 to 9 drop that item.
   KeyI: 'toggleInventory',
+  // P drops a meet-here marker on the track under the mouse (or picks one up); Shift+P clears them (G10).
+  KeyP: 'marker',
   ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`Digit${i + 1}`, `slot${i + 1}` as SlotAction])),
 };
 const SLOT_ACTIONS = Array.from({ length: 9 }, (_, i) => `slot${i + 1}` as SlotAction);
 const GAME_ACTIONS = new Set<Action>(['commit', 'jump', 'cancel', 'retry', 'switch', 'drop', 'heat', 'alarm', 'boost', 'crouch', 'cashOut', ...SLOT_ACTIONS]);
 
-/** The action a key press means; Shift+H is the alarm debug key. */
+/** The action a key press means; Shift+H is the alarm debug key and Shift+P clears the markers. */
 export function actionFor(code: string, shift: boolean): Action | undefined {
-  return code === 'KeyH' && shift ? 'alarm' : BINDINGS[code];
+  return code === 'KeyH' && shift ? 'alarm' : code === 'KeyP' && shift ? 'clearMarkers' : BINDINGS[code];
 }
 // Tab would move focus off the canvas.
 const NO_SCROLL = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab']);

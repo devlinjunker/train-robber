@@ -119,7 +119,13 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
     before?.set(t.id, t.d);
     // An open line's distance is not clamped: a train runs on past the end until it is removed.
     // Grades and speed zones slow it (world.trainsFollowTrackSpeed), by the scale under its engine.
-    const step = def.speedTilesPerTick * (config.values.world.trainsFollowTrackSpeed ? speedScaleAt(route, t.d) : 1);
+    // A crew that spotted a rider speeds up for a while (boarding.engineSight).
+    let step = def.speedTilesPerTick * (config.values.world.trainsFollowTrackSpeed ? speedScaleAt(route, t.d) : 1);
+    if (t.speedUpTicks) {
+      step *= config.values.boarding.engineSight.speedUpScale;
+      t.speedUpTicks -= 1;
+      if (t.speedUpTicks <= 0) delete t.speedUpTicks;
+    }
     t.d = route.closed ? wrapDistance(route, t.d + step) : t.d + step;
   }
   if (before && map.network) junctionSystem(state, map.routes, map.network, config, before);
@@ -211,8 +217,8 @@ export function trainSpeed(config: SimConfig, type: string): number {
 }
 
 /** A train's speed now in tiles per second: its full speed, slowed on a grade or speed zone (see advanceTrains). */
-export function trainSpeedNow(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route' | 'd'>): number {
-  const v = trainSpeed(config, train.type);
+export function trainSpeedNow(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route' | 'd' | 'speedUpTicks'>): number {
+  const v = trainSpeed(config, train.type) * (train.speedUpTicks ? config.values.boarding.engineSight.speedUpScale : 1);
   if (!config.values.world.trainsFollowTrackSpeed) return v;
   return v * speedScaleAt(routeOf(map, config, train).route, train.d);
 }

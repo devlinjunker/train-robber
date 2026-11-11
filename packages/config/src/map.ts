@@ -106,6 +106,11 @@ export const MapDefSchema = z.object({
    * the track (1 when the tangent crossed with the offset is >= 0: the right of travel, y running
    * down) from `inner` to `outer` tiles out. A rider there may drop onto a car roof below.
    */
+  /**
+   * Lookouts (G10 boarding plan): buttes off the track with a flat top centred at (x, y),
+   * `topRadiusTiles` across, and a sign at the foot of the trail up. View only.
+   */
+  lookouts: z.array(z.object({ id: z.string(), name: z.string(), x: z.number(), y: z.number(), topRadiusTiles: z.number().positive(), sign: point }).strict()).optional(),
   rims: z.array(z.object({
     route: z.string(), d0: z.number(), d1: z.number(), side: z.union([z.literal(1), z.literal(-1)]),
     inner: z.number().min(0), outer: z.number().positive(),

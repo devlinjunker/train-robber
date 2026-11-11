@@ -956,3 +956,22 @@ function patrol(grid: TrainGrid, g: GuardState, w: Walker, ai: SimConfig['values
   }
   g.waypoint = next;
 }
+
+/**
+ * The engine crew spotted a rider on `side` (G10 engine sight): every guard not already alert goes
+ * to its own car's ledge on that side and watches there for at least `watchTicks`.
+ */
+export function alertGuardsToSide(ctx: GuardCtx, side: 'left' | 'right', watchTicks: number): void {
+  const run = ctx.state.run;
+  if (!run || watchTicks <= 0) return;
+  const train = ctx.state.world.trains.find((t) => t.id === run.trainId);
+  if (!train) return;
+  const grid = trainGrid(ctx.config, train.cars);
+  for (const g of run.guards) {
+    if (g.state === 'alert') continue;
+    const rows = grid.carRows[g.car] ?? 1;
+    if (g.state === 'unaware') setState(ctx, g, 'suspicious', 'noise');
+    g.lastKnown = { car: g.car, x: g.x, y: side === 'left' ? -0.05 : rows + 0.05, roof: false };
+    g.calmTicks = -watchTicks;
+  }
+}

@@ -12,6 +12,7 @@ import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 import { climb, roofJump, roofSystem } from './world/roof';
+import { engineSightSystem } from './world/engineSight';
 
 export interface SimOptions {
   config: SimConfig;
@@ -152,6 +153,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       const aboardPhase = state.run?.phase === 'aboard' || state.run?.phase === 'extracting';
       const mountJumps = aboardPhase ? jumps : new Set<PlayerId>();
       boardingSystem(ctx, aboardPhase ? new Set<PlayerId>() : jumps);
+      // 4a. The engine crew watching the approach (G10).
+      engineSightSystem(ctx);
       walkAboard(state, config);
       // 5a. Roofs: ladders, roof walking, gap jumps and slips (a bad jump or a slip is a fall).
       const offRoof = roofSystem(ctx);

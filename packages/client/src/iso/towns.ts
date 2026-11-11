@@ -19,9 +19,9 @@ export function drawTowns(map: MapDef, surfaceZ: (x: number, y: number) => numbe
     for (const dx of [-1, 1]) drawBox(g, { x: t.x + dx, y: t.y, ux: 1, uy: 0, halfLength: 0.08, halfWidth: 0.08, z0: z, z1: z + 2.4 }, POST);
     drawBox(g, { x: t.x, y: t.y, ux: 1, uy: 0, halfLength: 1.4, halfWidth: 0.06, z0: z + 1.5, z1: z + 2.3 }, BOARD);
   }
-  // Stretch and set piece signs (G10a, G10b): one post and a board where each named stretch or set piece begins; the name is drawn
+  // Stretch and set piece signs (G10a, G10b) and lookout signs (G10): one post and a board where each named stretch or set piece begins or a lookout trail leaves the track; the name is drawn
   // over it on screen (screenOverlay `signs`).
-  for (const st of [...(map.stretches ?? []), ...(map.setPieces ?? [])]) {
+  for (const st of [...(map.stretches ?? []), ...(map.setPieces ?? []), ...(map.lookouts ?? [])]) {
     const { x, y } = st.sign, z = surfaceZ(x, y);
     drawBox(g, { x, y, ux: 1, uy: 0, halfLength: 0.08, halfWidth: 0.08, z0: z, z1: z + SIGN_TOP_Z }, POST);
     drawBox(g, { x, y, ux: 0.7071, uy: -0.7071, halfLength: 0.9, halfWidth: 0.05, z0: z + SIGN_TOP_Z - 0.7, z1: z + SIGN_TOP_Z }, BOARD);
