@@ -280,7 +280,7 @@ function placeSetPieces(p: WorldPlan, seed: string, c: SetPieceSettings, horsesh
   const { xs, ys, tangents, n, spacing, rows, s } = p;
   const nearest = (q: Vec) => {
     let best = 0, bd = Infinity;
-    for (let i = 0; i < n; i++) { const d = (xs[i]! - q.x) ** 2 + (ys[i]! - q.y) ** 2; if (d < bd) { bd = d; best = i; } }
+    for (let i = 0; i < n; i++) { const d = (xs[i]! - q.x) * (xs[i]! - q.x) + (ys[i]! - q.y) * (ys[i]! - q.y); if (d < bd) { bd = d; best = i; } }
     return best;
   };
   const blank = { side: 1 as const, inner: 0, outer: 0, level: 0, ramp: 0, wall: [0, 0] as [number, number], trail: null };
@@ -670,6 +670,8 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     const [lo, hi] = o.spawnAlong ? [Math.round(o.spawnAlong[0] * (n - 1)), Math.round(o.spawnAlong[1] * (n - 1))] : [0, n - 1];
     for (let attempt = 0; attempt < 40; attempt++) {
       const i = r.int(lo, hi);
+      // Not in a canyon cut or on its ramps (G10b), where the walls hem the track in.
+      if (attempt < 30 && p.canyons.some((c) => i >= c.i0 - c.ramp - 40 && i <= c.i1 + c.ramp + 40)) continue;
       const st = stretchOf[i]! < 0 ? null : stretches[stretchOf[i]!]!;
       const side = !st || st.side === 0 ? (r.next() < 0.5 ? -1 : 1) : -st.side;
       first ??= { i, side };

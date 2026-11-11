@@ -2,7 +2,7 @@
 // on an open line, trains enter and leave and a whole run plays through.
 // Shared by the hand-made maps test and the generated maps test.
 import type { MapDef } from '@train-robber/config';
-import { boardingCheck, carCatalog, routeOf, Terrain, terrainAt, trackAt, carTemplate, cellOpen, commitTarget, mountCheck, createSim, distanceToTrain, meterResult, parseCarFrame, type Command, type GameState, type Sim, type SimConfig } from '@train-robber/sim';
+import { boardingCheck, carCatalog, routeOf, Terrain, terrainAt, trackAt, carTemplate, cellOpen, commitTarget, mountCheck, createSim, distanceToTrain, meterResult, parseCarFrame, travelAt, type Command, type GameState, type Sim, type SimConfig } from '@train-robber/sim';
 import { loadConfig } from '../content';
 import { checkInvariants } from '../bots';
 import { riderCommands } from '../golden';
@@ -12,7 +12,9 @@ const mapTrainsConfig = () => loadConfig({ preset: 'map-trains' });
 type Config = ReturnType<typeof mapTrainsConfig>;
 /** The slowest train speed in tiles per tick, so a lap at it covers every train's route. */
 const slowest = (config: Config) => Math.min(...Object.values(config.values.trains).map((t) => t.speedTilesPerTick));
-const lapTicks = (map: MapDef, config: Config) => Math.ceil(Math.max(...map.routes.map((r) => r.length)) / slowest(config));
+/** A route's length counted as time: grades and horseshoe bends (G10b) slow trains, so they count for more. */
+const travelLength = (r: MapDef['routes'][number]) => (r.closed ? r.length : travelAt(r, r.length));
+const lapTicks = (map: MapDef, config: Config) => Math.ceil(Math.max(...map.routes.map(travelLength)) / slowest(config));
 
 /** Spawn mounted at playerSpawn, start the map's trains, and run a full lap of the longest route. */
 export function lapProblems(map: MapDef, seed: string, config = mapTrainsConfig()): string[] {
@@ -57,7 +59,8 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
   if (start < 2) out.push(`${start} trains at the start`);
   // With a headway spread the number running drifts between the counts at the widest and narrowest gaps.
   const { headwayTiles: h, headwaySpreadTiles: spread = 0 } = map.openLine;
-  const L = map.routes[0]!.length;
+  // Trains enter a headway apart at full speed, so the count goes by time on the line.
+  const L = travelLength(map.routes[0]!);
   const fewest = Math.min(start, Math.floor(L / (h + spread))) - 1, most = Math.max(start, Math.ceil(L / (h - spread))) + 1;
   const seen = new Set(sim.state.world.trains.map((t) => t.id));
   let left = 0;

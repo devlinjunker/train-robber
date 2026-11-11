@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "line-set-pieces",
+  "title": "Set pieces on the open line",
+  "question": "G10b: do the horseshoe bend (cut across while the train goes round), the grade (trains slow) and the canyon cut (ride the rim, drop onto a roof) make catching a train more interesting? Is the slowdown on grades and bends worth having?",
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "set-pieces",
+      "name": "Set pieces"
+    },
+    {
+      "id": "flat-speed",
+      "name": "Trains ignore grades and bends",
+      "set": {
+        "world.trainsFollowTrackSpeed": false
+      }
+    },
+    {
+      "id": "more",
+      "name": "More set pieces",
+      "set": {
+        "mapGen.line.setPieces.horseshoe.chance": 0.35,
+        "mapGen.line.setPieces.gapTiles": 80
+      }
+    },
+    {
+      "id": "none",
+      "name": "No set pieces (before)",
+      "set": {
+        "mapGen.line.setPieces.enabled": false
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "lootCarried",
+    "banked"
+  ]
+}

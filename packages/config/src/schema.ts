@@ -77,6 +77,7 @@ export const GameSchema = z.object({
      */
     /** Dropping from a canyon rim onto a car roof (G10b): Space on the rim trail, no meter. */
     rimDrop: z.object({
+      /** On: Space on a canyon rim trail drops you onto the roof of a car passing below. */
       enabled: z.boolean(),
       /** A car must be this close to the rider (to the nearest point of its body). */
       reachTiles: positive,

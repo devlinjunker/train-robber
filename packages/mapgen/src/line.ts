@@ -76,7 +76,7 @@ export function* growLine(seed: string, s: LineSettings, rows: number): Generato
           if (!bend.points.every((q) => q.y >= lo && q.y <= hi)) continue;
           // Clear of the line's older track all the way round.
           const old = laid.length - recent;
-          if (old > 0 && bend.points.some((q) => laid.slice(0, old).some((o) => (o.x - q.x) ** 2 + (o.y - q.y) ** 2 < gap2))) continue;
+          if (old > 0 && bend.points.some((q) => laid.slice(0, old).some((o) => (o.x - q.x) * (o.x - q.x) + (o.y - q.y) * (o.y - q.y) < gap2))) continue;
           heading = 0;
           p = { ...bend.points[bend.points.length - 1]! };
           for (const q of bend.points) laid.push({ ...q });
