@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "distraction-rocks",
+  "title": "Distraction rocks",
+  "question": "Core loop PR: G throws a rock the way you are moving and guards near where it lands go to look. Does it give you a way to reach a guarded prize? How many rocks per run feel right?",
+  "setups": [
+    {
+      "id": "none",
+      "name": "No rocks",
+      "set": {
+        "verbs.throw.perRun": 0
+      }
+    },
+    {
+      "id": "two",
+      "name": "2 rocks (default)"
+    },
+    {
+      "id": "five",
+      "name": "5 rocks",
+      "set": {
+        "verbs.throw.perRun": 5
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLeft",
+    "heat"
+  ],
+  "status": "open"
+}

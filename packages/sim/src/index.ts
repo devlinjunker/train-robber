@@ -19,6 +19,7 @@ export * from './world/mount';
 export * from './world/path';
 export * from './world/guards';
 export * from './world/roof';
+export * from './world/distract';
 export * from './run';
 export * from './extraction';
 export * from './rules/outcome';

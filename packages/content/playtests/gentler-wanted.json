@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "gentler-wanted",
+  "title": "Gentler wanted",
+  "question": "Core loop PR (Devlin, 2026-11-10: +1 wanted for being thrown off or missing the stop is tough): should a bad run only cost that run? Compare the default with no wanted for being thrown off, and with neither.",
+  "setups": [
+    {
+      "id": "default",
+      "name": "Default (+1 for each)"
+    },
+    {
+      "id": "no-throw",
+      "name": "No wanted for thrown off",
+      "set": {
+        "wanted.perThrowOff": 0
+      }
+    },
+    {
+      "id": "neither",
+      "name": "No wanted for either",
+      "set": {
+        "wanted.perThrowOff": 0,
+        "outcomePolicy.expired.wantedDelta": 0
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "wanted",
+    "banked",
+    "lootLost"
+  ],
+  "status": "open"
+}

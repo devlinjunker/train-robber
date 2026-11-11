@@ -4,10 +4,10 @@
 //
 // The player's placement keeps its car frame, with `layer: 'roof'`: x along the car's roof, y across
 // it. Climbing, jumps and slips live in the run's player state, so a snapshot resumes mid-jump.
-import type { CarEnd, FallCause, GameState, PlayerRunState, PlayerState, SimConfig, SimEvent } from '../types';
+import type { CarEnd, FallCause, GameState, LootState, PlayerRunState, PlayerState, SimConfig, SimEvent, TrainState } from '../types';
 import { carFrame, parseCarFrame } from './frames';
 import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
-import { carrySpeedScale, carriedWeight } from './loot';
+import { carriedSpeedScale, isPrize } from './loot';
 import type { WorldMap } from './map';
 import { curvePull } from './curve';
 import { WALKER_RADIUS, walkerFits } from './separate';
@@ -52,6 +52,58 @@ export function ladderInReach(state: GameState, config: SimConfig, p: PlayerStat
   return best;
 }
 
+/**
+ * The cars of a train that get a roof hatch for a run (`outside.roof.hatch.cars`): the cars a prize
+ * was placed in (`prize`), every car (`all`) or none. Off with roofs off.
+ */
+export function hatchCars(config: SimConfig, train: TrainState, loot: readonly LootState[]): number[] {
+  const rc = config.values.outside.roof;
+  if (!rc.enabled || rc.hatch.cars === 'none') return [];
+  if (rc.hatch.cars === 'all') return train.cars.map((_, k) => k);
+  return [...new Set(loot.filter((l) => isPrize(config, l.item)).map((l) => l.car))].sort((a, b) => a - b);
+}
+
+const hatchCache = new WeakMap<object, Map<string, { x: number; y: number } | null>>();
+
+/**
+ * Where car `car`'s hatch is, in its frame: the centre of the walkable inside cell nearest the
+ * middle of the car (so you drop onto the floor, never into a crate). The same point on the roof
+ * above. Null when the car has no inside floor.
+ */
+export function hatchSpot(config: SimConfig, cars: readonly string[], car: number): { x: number; y: number } | null {
+  let byKey = hatchCache.get(config.values);
+  if (!byKey) { byKey = new Map(); hatchCache.set(config.values, byKey); }
+  const key = `${cars.join(',')}#${car}`;
+  if (byKey.has(key)) return byKey.get(key)!;
+  const g = trainGrid(config, cars);
+  const cols = g.carCols[car] ?? 0, rows = g.carRows[car] ?? 0;
+  let best: { x: number; y: number } | null = null, bestD = Infinity;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = c + 0.5, y = r + 0.5;
+      const i = gridCell(g, g.offsets[car]! + x, y);
+      if (i < 0 || g.space[i] !== Space.Inside || g.blocksMove[i]) continue;
+      const d = (x - cols / 2) ** 2 + (y - rows / 2) ** 2;
+      if (d < bestD - 1e-9) { bestD = d; best = { x, y }; }
+    }
+  }
+  byKey.set(key, best);
+  return best;
+}
+
+/** The hatch a player could go through now: in their car, within `hatch.reachTiles`, from the roof above it or the floor under it. */
+export function hatchInReach(state: GameState, config: SimConfig, p: PlayerState): { car: number; x: number; y: number } | null {
+  const run = state.run;
+  const f = parseCarFrame(p.placement.frame);
+  if (!run || !f || f.trainId !== run.trainId || !(run.hatchCars ?? []).includes(f.car)) return null;
+  const train = state.world.trains.find((t) => t.id === f.trainId);
+  if (!train || !config.values.outside.roof.enabled) return null;
+  const spot = hatchSpot(config, train.cars, f.car);
+  if (!spot) return null;
+  const reach = config.values.outside.roof.hatch.reachTiles;
+  return (spot.x - p.placement.x) ** 2 + (spot.y - p.placement.y) ** 2 <= reach * reach ? { car: f.car, ...spot } : null;
+}
+
 /** E at a ladder: start climbing it. Refused off a run, mid-jump or mid-slip, already climbing, or with no ladder in reach. */
 export function climb(ctx: RoofCtx & { emit(ev: SimEvent): void }, p: PlayerState, reject: (reason: 'not aboard' | 'busy' | 'no ladder' | 'disabled') => void): void {
   const run = ctx.state.run;
@@ -60,14 +112,20 @@ export function climb(ctx: RoofCtx & { emit(ev: SimEvent): void }, p: PlayerStat
   if (!ctx.config.values.outside.roof.enabled) return reject('disabled');
   if (rp.climb || rp.air || rp.slip) return reject('busy');
   const l = ladderInReach(ctx.state, ctx.config, p);
-  if (!l) return reject('no ladder');
-  rp.climb = { ticks: Math.max(1, ctx.config.values.outside.roof.climbTicks), car: l.car, end: l.end, to: p.placement.layer === 'roof' ? 'deck' : 'roof' };
+  const to = p.placement.layer === 'roof' ? 'deck' : 'roof';
+  if (l) rp.climb = { ticks: Math.max(1, ctx.config.values.outside.roof.climbTicks), car: l.car, end: l.end, to };
+  else {
+    // No ladder here: a roof hatch over the prize car (core loop PR), from above or below.
+    const h = hatchInReach(ctx.state, ctx.config, p);
+    if (!h) return reject('no ladder');
+    rp.climb = { ticks: Math.max(1, ctx.config.values.outside.roof.hatch.climbTicks), car: h.car, end: 'hatch', to };
+  }
   rp.search = null;
 }
 
 /** The roof walking speed this tick, in tiles per tick, before the move axes: run speed scaled by what is carried. */
 function roofSpeed(config: SimConfig, rp: PlayerRunState): number {
-  return config.values.outside.roof.speedTilesPerTick * carrySpeedScale(config, carriedWeight(config, rp.carried));
+  return config.values.outside.roof.speedTilesPerTick * carriedSpeedScale(config, rp.carried);
 }
 
 /** The move axes in the car frame (+x toward the rear, +y toward the right side), at most length 1, and their length before that. */
@@ -169,6 +227,15 @@ export function roofSystem(ctx: RoofCtx): { p: PlayerState; cause: FallCause } |
       if (--rp.climb.ticks > 0) continue;
       const { car, end, to } = rp.climb;
       rp.climb = null;
+      if (end === 'hatch') {
+        const spot = hatchSpot(config, train.cars, car);
+        if (!spot) continue;
+        p.placement = { frame: carFrame(train.id, car), x: spot.x, y: spot.y, layer: to === 'roof' ? 'roof' : 'interior' };
+        // Dropping in is loud, like any drop off a roof.
+        if (to === 'deck') rp.stumbleTicks = Math.max(rp.stumbleTicks, rc.dropStumbleTicks);
+        ctx.emit({ type: 'Climbed', tick: state.tick, player: p.id, car, end, to });
+        continue;
+      }
       const l = trainLadders(config, train.cars).find((q) => q.car === car && q.end === end);
       if (!l) continue;
       if (to === 'roof') p.placement = { frame: carFrame(train.id, car), x: l.roofX, y: l.y, layer: 'roof' };

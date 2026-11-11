@@ -2,8 +2,8 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
-  HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carriedSpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchNoiseTiles, searchTicksForLoot,
+  HORSE_RADIUS, hatchInReach, hatchSpot, rocksLeft, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
@@ -294,7 +294,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     // At the foot or the top of a ladder, E climbs it (not while already climbing).
     climbable: () => {
       const p = sim.state.players[0]!, rp = sim.state.run?.players[p.id];
-      return !!rp && !rp.climb && !rp.air && ladderInReach(sim.state, config, p) !== null;
+      return !!rp && !rp.climb && !rp.air && (ladderInReach(sim.state, config, p) !== null || hatchInReach(sim.state, config, p) !== null);
     },
   };
 
@@ -337,6 +337,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let lostOnThrow: string[] = [], lostValue = 0;
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
   let spilled: { detail: string; at: number; title?: string } | null = null;
+  // Where the last distraction rock landed (car frame) and when, for its ring.
+  let thrownAt: { car: number; x: number; y: number; at: number } | null = null;
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0, caughtBanked = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
@@ -427,6 +429,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const heard = e.cause !== 'rock' && config.values.outside.roof.fallAlert.enabled ? ' The guards nearby heard you fall' : '';
       show(`${e.cause === 'jump' ? 'Bad jump: you fell off the train!' : e.cause === 'slip' ? 'You slipped off the roof!' : 'A rock knocked you off the ledge!'}${heard}`, 'bad', 2500);
     }
+    else if (e.type === 'Climbed' && e.end === 'hatch') show(e.to === 'roof' ? 'Out through the hatch onto the roof' : 'Dropped in through the hatch: that was loud', e.to === 'roof' ? 'info' : 'warn', 1800);
+    else if (e.type === 'DistractionThrown') {
+      thrownAt = { car: e.car, x: e.x, y: e.y, at: performance.now() };
+      show(`${e.heard ? `Rock thrown: ${e.heard} guard${e.heard === 1 ? '' : 's'} went to look` : 'Rock thrown: no guard heard it'}  ·  ${e.left} left`, e.heard ? 'good' : 'info', 2000);
+    }
     else if (e.type === 'Climbed') show(e.to === 'roof' ? 'On the roof: guards inside cannot see you. Space jumps the gaps, E at a ladder climbs down' : 'Climbed down', 'info', e.to === 'roof' ? 3000 : 1200);
     else if (e.type === 'RoofLanded' && e.on === 'roof') { if (e.jumped) show('Clean jump', 'good', 1200); }
     else if (e.type === 'RoofLanded') show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}${e.jumped ? '. Run (Shift) to clear the gap' : ''}`, 'warn', 2500);
@@ -453,7 +460,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
-    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders and hatches', 'Space jump on roofs'] : []), ...(config.values.verbs.throw.perRun > 0 ? ['G throw a rock (while moving)'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -608,7 +615,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       let noise: { x: number; y: number; r: number; running: boolean; roof: boolean } | null = null;
       if (noiseRingOn && runTrain && frame && aboardAt && run && !climbing && s.run!.guards.length > 0 && phase === 'aboard') {
         const grid = trainGrid(config, runTrain.cars);
-        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x), crouched, run.search !== null, run.stumbleTicks > 0, run.thudTicks > 0, run.air !== null);
+        const r = noiseRadius(config, grid, player, toTrain(grid, frame.car, player.placement.x), crouched, searchNoiseTiles(s, config, run), run.stumbleTicks > 0, run.thudTicks > 0, run.air !== null);
         const walkR = onRoofNow ? roofCfg.noise.walkRadiusTiles : config.values.ai.noise.walkRadiusTiles;
         if (r > 0) noise = { x: aboardAt.x, y: aboardAt.y, r, running: r > walkR * 1.01, roof: onRoofNow };
       }
@@ -640,6 +647,16 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           if (Math.hypot(glx - plx, g.y - ply) <= config.values.ai.sight.rangeTiles && lineOfSight(runGrid, plx, ply, glx, g.y)) seenIds.add(g.id);
         }
       }
+      // Roof hatches on the run's train, and where the last rock landed, in world space.
+      const openCar = aboardCar && !onRoofNow && climbing == null ? aboardCar.index : -1;
+      const hatches = runTrain && s.run ? (s.run.hatchCars ?? []).flatMap((k) => {
+        const pose = cars.find((c) => c.trainId === runTrain.id && c.index === k), spot = hatchSpot(config, runTrain.cars, k);
+        if (!pose || !spot) return [];
+        const at = carToWorld(pose, spot.x, spot.y);
+        return [{ x: at.x, y: at.y, ux: pose.ux, uy: pose.uy, open: k === openCar }];
+      }) : [];
+      const rockPose = thrownAt && runTrain ? cars.find((c) => c.trainId === runTrain.id && c.index === thrownAt!.car) : undefined;
+      const rock = thrownAt && rockPose ? { ...carToWorld(rockPose, thrownAt.x, thrownAt.y), age: (now - thrownAt.at) / 1000 } : null;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -650,7 +667,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
-          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise,
+          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise, hatches, rock,
           throughGuards: guardViews.filter((v) => seenIds.has(v.id)),
           throughCones: showCones && seenIds.size > 0 ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => seenIds.has(g.id)), cars, runTrain!.id, faintCones) : null,
           boosting: horseState.boostTicks > 0,
@@ -814,6 +831,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       } : null;
       const outsideSpace = aboardPhase ? playerSpace(s, config, player) : null;
       const ladder = aboardPhase && !riding && run && !run.climb && !run.air ? ladderInReach(s, config, player) : null;
+      const hatch = aboardPhase && !riding && run && !run.climb && !run.air && !ladder ? hatchInReach(s, config, player) : null;
       // Walking toward a roof end with another car beyond it: too slow to clear the gap (Devlin, PR #36 playtest).
       const walkingAtGap = (() => {
         if (!onRoofNow || !run || run.air || run.climb || run.slip || !runTrain) return false;
@@ -832,13 +850,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
         : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
-            : aboardPhase ? run?.climb ? `Climbing ${run.climb.to === 'roof' ? 'up to the roof' : 'down'}...`
+            : aboardPhase ? run?.climb ? run.climb.end === 'hatch' ? `${run.climb.to === 'roof' ? 'Climbing out through the hatch' : 'Lowering yourself through the hatch'}...` : `Climbing ${run.climb.to === 'roof' ? 'up to the roof' : 'down'}...`
               : run?.air ? 'In the air!'
               : run?.slip ? 'SLIPPING: push away from the edge to lean into the curve'
               : stumbling ? 'Stumbling: you landed off balance'
               : mountPrompt ? mountPrompt
               : searching ? `Searching... keep holding E (${(searchTicks / tickRateHz).toFixed(1)} s)`
                 : reachLoot ? lootPrompt(reachLoot.item, reachLoot.hidden)
+                  : onRoofNow && hatch ? 'E: drop in through the hatch (loud, and you stagger as you land)'
+                  : hatch ? 'E: climb out through the roof hatch'
                   : onRoofNow ? `ON THE ROOF: guards inside cannot see you, the one below can hear you. ${ladder ? 'E: climb down here' : walkingAtGap ? 'Walking is too slow to clear the gap: hold Shift to run, then Space' : 'Slower going; run (Shift) and Space to jump the gap'}${crouched ? '  ·  crouched: quiet, low on the edges' : ''}`
                   : ladder ? 'E: climb the ladder to the roof'
                   : outsideSpace === Space.Ledge ? 'On the ledge: slow and quiet, but guards see you through the windows and doors. Watch for trackside rocks'
@@ -854,7 +874,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const weight = carriedWeight(config, carried);
       const carry = run ? {
         value: carriedValue(config, carried), weight, items: carried.length, maxWeight: config.values.carry.maxWeight, maxItems: config.values.carry.maxItems,
-        limit: config.values.carry.limitEnabled, speed: carrySpeedScale(config, weight),
+        limit: config.values.carry.limitEnabled, speed: carriedSpeedScale(config, carried),
+        rocks: config.values.verbs.throw.perRun > 0 ? rocksLeft(config, run.throwsUsed ?? 0) : null,
+        // Carrying something with a guard after you: say what being caught would cost.
+        atRisk: carried.length > 0 && (s.run?.guards ?? []).some((g) => g.state === 'alert'),
       } : null;
       const heading = ((Math.atan2(horseState.hx, -horseState.hy) * 180) / Math.PI + 360) % 360;
       const train = s.world.trains.find((t) => t.id === readTrain);

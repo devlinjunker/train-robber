@@ -1,6 +1,6 @@
 // What the views need from the sim's roof state (sneaking PR 3): where the player is on a ladder,
 // and where a roof jump now would come down.
-import { carriedWeight, carrySpeedScale, gridWalkable, roofCarAt, toTrain, trainGrid, trainLadders, type GameState, type PlayerState, type SimConfig } from '@train-robber/sim';
+import { carriedSpeedScale, gridWalkable, roofCarAt, toTrain, trainGrid, trainLadders, type GameState, type PlayerState, type SimConfig } from '@train-robber/sim';
 
 /** A point in one car's frame of the run's train. */
 export interface CarPoint { car: number; x: number; y: number }
@@ -36,7 +36,7 @@ export function jumpLanding(state: Readonly<GameState>, config: SimConfig, p: Pl
     if (n < 0.05) return null;
     if (n > 1) { mx /= n; my /= n; }
     const rc = config.values.outside.roof;
-    const base = rc.speedTilesPerTick * carrySpeedScale(config, carriedWeight(config, rp.carried));
+    const base = rc.speedTilesPerTick * carriedSpeedScale(config, rp.carried);
     const speed = rp.crouched ? base * config.values.player.crouch.speedScale : base * Math.min(1, n);
     const air = Math.max(1, rc.jump.airTicks);
     const step = (speed + rc.jump.pushTiles / air) * air;

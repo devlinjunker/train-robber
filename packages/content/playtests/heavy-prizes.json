@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "heavy-prizes",
+  "title": "Heavy prizes",
+  "question": "Core loop PR: carrying a prize slows your walk (carry.prizeSpeedScale). Does it make getting the prize out tense, or just slow?",
+  "setups": [
+    {
+      "id": "off",
+      "name": "Normal speed",
+      "set": {
+        "carry.prizeSpeedScale": 1
+      }
+    },
+    {
+      "id": "default",
+      "name": "0.7x (default)"
+    },
+    {
+      "id": "half",
+      "name": "0.5x",
+      "set": {
+        "carry.prizeSpeedScale": 0.5
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLost",
+    "length"
+  ],
+  "status": "open"
+}

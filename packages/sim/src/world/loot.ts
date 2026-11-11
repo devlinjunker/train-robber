@@ -35,6 +35,31 @@ export function carrySpeedScale(config: SimConfig, weight: number): number {
   return 1 - (1 - c.minSpeedScale) * t;
 }
 
+/** Whether an item is a prize (category `prize`: the strongbox, the registered mail sack). */
+export function isPrize(config: SimConfig, item: string): boolean {
+  return config.values.items[item]?.category === 'prize';
+}
+
+/**
+ * Walk speed scale for what is carried: the weight slowdown (`carrySpeedScale`), times
+ * `carry.prizeSpeedScale` while any prize is among it (core loop PR: a prize is heavy to get out).
+ */
+export function carriedSpeedScale(config: SimConfig, carried: readonly string[]): number {
+  const prize = carried.some((id) => isPrize(config, id)) ? config.values.carry.prizeSpeedScale : 1;
+  return carrySpeedScale(config, carriedWeight(config, carried)) * prize;
+}
+
+/**
+ * How far the search in progress carries: `ai.noise.searchRadiusTiles`, or for a prize
+ * `loot.prize.searchNoiseTiles` when that is further; 0 with no search.
+ */
+export function searchNoiseTiles(state: GameState, config: SimConfig, rp: Pick<PlayerRunState, 'search'>): number {
+  if (!rp.search) return 0;
+  const base = config.values.ai.noise.searchRadiusTiles;
+  const l = state.run?.loot.find((q) => q.id === rp.search!.loot);
+  return l && !l.hidden && isPrize(config, l.item) ? Math.max(base, config.values.loot.prize.searchNoiseTiles) : base;
+}
+
 /** Why picking up `item` would break a carry cap, or null when it fits (or the limit is off). */
 export function carryRefusal(config: SimConfig, carried: readonly string[], item: string): 'too heavy' | 'too many items' | null {
   const c = config.values.carry;
@@ -62,12 +87,15 @@ export function nearestLoot(state: GameState, p: PlayerState, maxDist: number): 
 
 /**
  * Ticks of holding E on loot: a hidden stash takes `verbs.search.hiddenSearchTimeSec` to reveal what
- * is in it; visible `item` takes its own search time, else the verb's. Both times `verbs.search.timeScale`; at least 1.
+ * is in it; visible `item` takes its own search time, else the verb's. Both times `verbs.search.timeScale`, and
+ * a visible prize also times `loot.prize.searchTimeScale`; at least 1.
  */
 export function searchTicksFor(config: SimConfig, item: string, hidden = false): number {
   const s = config.values.verbs.search;
   const base = hidden ? s.hiddenSearchTimeTicks : config.values.items[item]?.searchTimeTicks ?? s.searchTimeTicks;
-  return Math.max(1, Math.round(base * s.timeScale));
+  // A prize takes longer to get open (core loop PR); a hidden stash is only revealed at the plain time.
+  const prize = !hidden && isPrize(config, item) ? config.values.loot.prize.searchTimeScale : 1;
+  return Math.max(1, Math.round(base * s.timeScale * prize));
 }
 
 /** `searchTicksFor` for a loot entry (its item, and whether it is still a hidden stash). */

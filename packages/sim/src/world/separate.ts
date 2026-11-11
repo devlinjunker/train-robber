@@ -4,7 +4,7 @@
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
 import { gridCell, gridWalkable, fromTrain, onRoof, Space, toTrain, trainGrid, type TrainGrid } from './guards';
-import { carrySpeedScale, carriedWeight } from './loot';
+import { carriedSpeedScale } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
@@ -182,7 +182,7 @@ export function walkAboard(state: GameState, config: SimConfig): void {
       run.stumbleTicks -= 1;
     }
     if (run) {
-      speed *= carrySpeedScale(config, carriedWeight(config, run.carried));
+      speed *= carriedSpeedScale(config, run.carried);
       if (run.search) speed *= config.values.verbs.search.walkSpeedScale;
     }
     let mx = -axis(p.move.x), my = axis(p.move.y);

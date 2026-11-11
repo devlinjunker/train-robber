@@ -71,7 +71,12 @@ function previewJump(sim: Sim, config: SimConfig, map: SimMap): BoardingResult |
 export function recordGolden(): string {
   const config = loadConfig({ preset: 'alpha-default', variants: { boardingFailure: 'time-only', trainMix: 'map', guardCatch: 'heat-only' },
     // Pinned to the first three layouts so new mail-car layouts don't change the golden story.
-    overrides: { trains: { 'mail-express': { layouts: ['mail-car-a', 'mail-car-b', 'mail-car-c'] } } } });
+    // The core loop PR's prize changes and distractions are pinned off so the golden story keeps its loot.
+    overrides: {
+      trains: { 'mail-express': { layouts: ['mail-car-a', 'mail-car-b', 'mail-car-c'] } },
+      loot: { prizePlacement: 'any', prize: { searchTimeScale: 1, searchNoiseTiles: 0 } }, carry: { prizeSpeedScale: 1 },
+      verbs: { throw: { perRun: 0 } }, outside: { roof: { hatch: { cars: 'none' } } },
+    } });
   const map = loadMapDef(DEFAULT_MAP);
   const lines: string[] = [];
   const header: RunHeader = {

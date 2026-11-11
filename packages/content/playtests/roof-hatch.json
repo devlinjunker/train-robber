@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "roof-hatch",
+  "title": "Roof hatch into the prize car",
+  "question": "Core loop PR: the car with a prize gets a hatch in its roof (E over it drops you in, loud; E under it climbs out). Is it a useful second way in, or out when a guard is coming?",
+  "setups": [
+    {
+      "id": "none",
+      "name": "No hatches",
+      "set": {
+        "outside.roof.hatch.cars": "none"
+      }
+    },
+    {
+      "id": "prize",
+      "name": "Prize cars (default)"
+    },
+    {
+      "id": "all",
+      "name": "Every car",
+      "set": {
+        "outside.roof.hatch.cars": "all"
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLeft",
+    "length"
+  ],
+  "status": "open"
+}
