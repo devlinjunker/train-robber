@@ -5,7 +5,7 @@ import type { BoardingResult, CommitRejection, GameState, HorseState, MeterState
 import { carCatalog, carTemplate, entryPointWorld, type CarPose, type Side } from './cars';
 import { distanceToBox } from './collide';
 import type { WorldMap } from './map';
-import { carPosesOf, trainSpeed } from './trains';
+import { carPosesOf, trainSpeedNow } from './trains';
 
 /**
  * The boarding rule's verdict. `too far` refuses a jump; `too fast` and `too slow` allow it on
@@ -67,7 +67,7 @@ export function boardingCheck(state: GameState, map: WorldMap, config: SimConfig
     }
   }
   if (!best) return out;
-  out.speedDelta = (h.hx * best.ux + h.hy * best.uy) * h.speed - trainSpeed(config, train.type);
+  out.speedDelta = (h.hx * best.ux + h.hy * best.uy) * h.speed - trainSpeedNow(map, config, train);
   if (out.distance > b.rangeTiles) return out;
   const tol = b.speedToleranceTilesPerSec;
   out.state = out.speedDelta < -tol ? 'too slow' : out.speedDelta > tol ? 'too fast' : 'eligible';

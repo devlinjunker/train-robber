@@ -1,6 +1,6 @@
 {
   "name": "@train-robber/game",
-  "version": "0.2.5-g10a-stretches",
+  "version": "0.2.5-g10b-set-pieces",
   "private": true,
   "type": "module",
   "scripts": {

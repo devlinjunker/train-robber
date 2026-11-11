@@ -75,6 +75,15 @@ export const GameSchema = z.object({
      * A good landing stumbles: walk speed is scaled for a moment after boarding, and the player
      * staggers `goodStumbleInTiles` in from the door, out in the open. A perfect landing stays in the doorway.
      */
+    /** Dropping from a canyon rim onto a car roof (G10b): Space on the rim trail, no meter. */
+    rimDrop: z.object({
+      /** On: Space on a canyon rim trail drops you onto the roof of a car passing below. */
+      enabled: z.boolean(),
+      /** A car must be this close to the rider (to the nearest point of its body). */
+      reachTiles: positive,
+      /** The landing staggers you this long, as a good boarding does. */
+      stumbleSec: z.number().min(0),
+    }).strict(),
     landing: z.object({
       /** How long the stumble after a good landing lasts. */
       stumbleSec: z.number().min(0),
@@ -130,6 +139,8 @@ export const GameSchema = z.object({
   world: z.object({
     /** How boarding moves the player: `separate` (the only one built) keeps the train's own map apart from the ground; `continuous` is not built yet. */
     mode: z.enum(['separate', 'continuous']),
+    /** Trains slow down where the track says to (a grade, a horseshoe bend: `speedScale` on the route samples). Off, every train runs its flat speed everywhere as before (G10b). */
+    trainsFollowTrackSpeed: z.boolean(),
   }).strict(),
   /** The whistle, the riderless horse and the mount jump (U4; phase 2 M4). */
   extraction: z.object({

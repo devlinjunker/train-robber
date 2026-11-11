@@ -11,6 +11,7 @@
 import { ELEVATION_MAX, SCENERY_KINDS, ZONES, type MapDef, type MapGenSettings, type SceneryDef, type SceneryKind, type Zone } from '@train-robber/config';
 import { dcos, dsin, fbm, hash3, hashString, PI, rng } from './dmath';
 import { columnThresholds, planStretches, type StretchPlan } from './stretches';
+import type { Horseshoe } from './line';
 import type { Track, Vec } from './track';
 
 /** Levels between neighbours that make a cliff; the higher tile is blocked, as in build-maps. */
@@ -30,6 +31,23 @@ export interface WorldOpts {
   towns: MapGenSettings['line']['towns'] | null;
   /** Open line only: cut the line into stretches (G10a) when these are enabled. */
   stretches?: MapGenSettings['line']['stretches'] | null;
+  /** Open line only: set pieces (G10b) when enabled, with the line's horseshoe bends. */
+  setPieces?: MapGenSettings['line']['setPieces'] | null;
+  horseshoes?: readonly Horseshoe[];
+}
+
+export type SetPieceKind = 'horseshoe' | 'grade' | 'canyon';
+
+/**
+ * A set piece on the line (G10b) over track samples [i0, i1]. A canyon's rim trail runs on `side`
+ * (+1 when tangent x (offset) >= 0, as `sideOf` in buildWindow) from `inner` to `outer` out, at
+ * `level`, and comes down over `ramp` samples past each end. A horseshoe keeps `trail` open: a
+ * straight band `half` wide each side from (ax, ay) to (bx, by) across its foot.
+ */
+export interface SetPiece {
+  kind: SetPieceKind; name: string; i0: number; i1: number;
+  side: 1 | -1; inner: number; outer: number; level: number; ramp: number; wall: [number, number];
+  trail: { ax: number; ay: number; bx: number; by: number; half: number } | null;
 }
 
 export type Town = NonNullable<MapDef['towns']>[number];
@@ -93,6 +111,8 @@ export interface WorldPlan {
   playerSpawn: Vec;
   /** The line's stretches (G10a), or null on a loop or with stretches off. */
   stretchPlan: StretchPlan | null;
+  /** Set pieces along the line (G10b), in order along the track; canyons alone for buildWindow's tile test. */
+  setPieces: SetPiece[]; canyons: SetPiece[]; trails: SetPiece[];
   salts: { mud: number; rocks: number; forest: number; lakes: number; hills: number; strips: number; mesas: number; mesaTops: number; scenery: number; ground: number };
 }
 
@@ -249,6 +269,88 @@ function riversBeside(p: WorldPlan, seed: string, distAt: (q: Vec) => number, st
   }
 }
 
+type SetPieceSettings = MapGenSettings['line']['setPieces'];
+
+/**
+ * Set pieces (G10b): the line's horseshoe bends as laid, then a grade or a canyon cut in a stretch
+ * by its profile's chances, each clear of the others by `gapTiles`, of towns by `townGapTiles`,
+ * and on the map. Canyons also keep clear of rivers. Names come last, in order along the track.
+ */
+function placeSetPieces(p: WorldPlan, seed: string, c: SetPieceSettings, horseshoes: readonly Horseshoe[], riverDistAt: (x: number, y: number) => number, inMap: (i: number) => boolean): void {
+  const { xs, ys, tangents, n, spacing, rows, s } = p;
+  const nearest = (q: Vec) => {
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < n; i++) { const d = (xs[i]! - q.x) * (xs[i]! - q.x) + (ys[i]! - q.y) * (ys[i]! - q.y); if (d < bd) { bd = d; best = i; } }
+    return best;
+  };
+  const blank = { side: 1 as const, inner: 0, outer: 0, level: 0, ramp: 0, wall: [0, 0] as [number, number], trail: null };
+  const list: SetPiece[] = [];
+  for (const h of horseshoes) {
+    const i0 = nearest(h.from), i1 = nearest(h.to);
+    if (i1 <= i0) continue;
+    list.push({ ...blank, kind: 'horseshoe', name: '', i0, i1, trail: { ax: h.from.x, ay: h.from.y, bx: h.to.x, by: h.to.y, half: c.horseshoe.trailWidthTiles / 2 } });
+  }
+  const free = (a: number, b: number) => list.every((q) => a > q.i1 + c.gapTiles / spacing || b < q.i0 - c.gapTiles / spacing)
+    && p.towns.every((t) => t.d < a * spacing - c.townGapTiles || t.d > b * spacing + c.townGapTiles);
+  const onMapAt = (i: number, off: number) => {
+    const tg = tangents[i]!;
+    for (const side of [-1, 1]) {
+      const y = ys[i]! + tg.x * off * side;
+      if (y < s.edgeTiles + 2 || y > rows - s.edgeTiles - 2) return false;
+    }
+    return true;
+  };
+  for (const st of p.stretchPlan?.list ?? []) {
+    const r = rng(`${seed}/set-pieces/${st.index}`);
+    for (const kind of ['canyon', 'grade'] as const) {
+      if (r.next() >= st.profile[kind]) continue;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const k = c[kind];
+        const len = Math.ceil(r.range(k.lengthTiles[0], k.lengthTiles[1]) / spacing);
+        const margin = Math.ceil((kind === 'canyon' ? c.canyon.rampTiles + 10 : c.grade.rampTiles) / spacing);
+        const lo = st.i0 + margin, hi = Math.min(st.i1, n) - margin - len;
+        if (hi < lo) break;
+        const i0 = r.int(lo, hi), i1 = i0 + len;
+        if (!free(i0 - margin, i1 + margin)) continue;
+        let ok = true;
+        for (let i = i0 - margin; i <= i1 + margin && ok; i++) if (!inMap(i)) ok = false;
+        if (!ok) continue;
+        if (kind === 'grade') { list.push({ ...blank, kind, name: '', i0, i1 }); break; }
+        const cc = c.canyon;
+        const rim = r.range(cc.rimWidthTiles[0], cc.rimWidthTiles[1]);
+        const wall: [number, number] = [r.range(cc.wallTiles[0], cc.wallTiles[1]), r.range(cc.wallTiles[0], cc.wallTiles[1])];
+        const side: 1 | -1 = r.next() < 0.5 ? -1 : 1;
+        const reach = cc.floorTiles + rim + Math.max(wall[0], wall[1]) + 4;
+        for (let i = i0 - margin; i <= i1 + margin && ok; i += 4) {
+          if (!onMapAt(i, reach) || riverDistAt(Math.floor(xs[i]!), Math.floor(ys[i]!)) < reach + 4) ok = false;
+        }
+        if (!ok) continue;
+        list.push({ ...blank, kind, name: '', i0, i1, side, inner: cc.floorTiles, outer: cc.floorTiles + rim, level: cc.rimLevel, ramp: Math.ceil(cc.rampTiles / spacing), wall });
+        // The lanes through the cut are the floor: no mud bank or rock line along it.
+        for (let j = Math.max(0, i0 - margin); j <= Math.min(n - 1, i1 + margin); j++) p.stretchOf[j] = -1;
+        break;
+      }
+    }
+  }
+  list.sort((a, b) => a.i0 - b.i0);
+  // Names: a prefix not used yet while some are left, then the kind's word.
+  const r = rng(`${seed}/set-pieces/names`);
+  const names = new Set<string>(), prefixes = new Set<string>();
+  for (const q of list) {
+    const words = c[q.kind].names;
+    let name = '', prefix = '';
+    for (let tries = 0; tries < 12 && (!name || names.has(name) || (prefixes.has(prefix) && prefixes.size < c.namePrefixes.length)); tries++) {
+      prefix = c.namePrefixes[r.int(0, c.namePrefixes.length - 1)]!;
+      name = `${prefix} ${words[r.int(0, words.length - 1)]!}`;
+    }
+    names.add(name); prefixes.add(prefix);
+    q.name = name;
+  }
+  p.setPieces = list;
+  p.canyons = list.filter((q) => q.kind === 'canyon');
+  p.trails = list.filter((q) => q.trail);
+}
+
 /** Lay out the world round a track: see the file comment. Same seed, settings and track, same plan. */
 export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldPlan {
   const { cols, rows, track, closed } = o;
@@ -275,6 +377,7 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     puts: { x: [], y: [], minD: [] }, putIndex: new CellIndex(PUT_CELL),
     spawnClear: new Set(), playerSpawn: { x: 0, y: 0 },
     stretchPlan: !closed && o.stretches?.enabled ? planStretches(seed, o.stretches, xs, spacing) : null,
+    setPieces: [], canyons: [], trails: [],
     salts: {
       mud: salt('mud'), rocks: salt('rocks'), forest: salt('forest'), lakes: salt('lakes'), hills: salt('hills'), strips: salt('strips'),
       mesas: salt('mesas'), mesaTops: salt('mesa-tops'), scenery: salt('scenery'), ground: salt('ground'),
@@ -457,6 +560,9 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     towns.forEach((t, k) => { t.id = `town${k + 1}`; });
   }
 
+  if (!closed && o.setPieces?.enabled) placeSetPieces(p, seed, o.setPieces, o.horseshoes ?? [], riverDistAt, inMap);
+  const inSetPiece = (a: number, b: number, gap: number) => p.setPieces.some((q) => a <= q.i1 + gap / spacing && b >= q.i0 - gap / spacing);
+
   // Long mesas, stamped as shapes on top of the noise clumps: free-standing ridges, ridges that run
   // beside the track, and cuts where the track runs through a long mesa between two cliff walls.
   // Each stamp is kept; a window marks the tiles it covers that pass the tests in `put`.
@@ -479,6 +585,12 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
         for (let off = gap; off <= gap + w; off += 0.5) put(xs[j]! - tg.y * off * side, ys[j]! + tg.x * off * side, gap - 0.5);
       }
     };
+    // Canyon cuts (G10b): the wall behind the rim trail, and the wall on the other side right by the cars.
+    for (const c of p.canyons) {
+      const len = (c.i1 - c.i0) * spacing;
+      alongTrack(c.i0, len, c.side, c.outer, c.wall[0]);
+      alongTrack(c.i0, len, -c.side, c.inner, c.wall[1]);
+    }
     // Cuts: the track runs through a long mesa, cliffs both sides just outside the riding lanes.
     const plan = p.stretchPlan;
     const used: number[] = [];
@@ -492,7 +604,7 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
       const i = r.int(job.lo, job.hi);
       const len = r.range(m.cutLengthTiles[0], m.cutLengthTiles[1]);
       const mid = i * spacing + len / 2;
-      if (used.some((u) => sDist(u, mid) < len + 40)) continue;
+      if (used.some((u) => sDist(u, mid) < len + 40) || inSetPiece(i, i + len / spacing, 40)) continue;
       // Not across a river or a town: every sample in the cut must be well clear of water and on the map.
       let wet = false;
       for (let k = 0; k * spacing <= len && !wet; k++) {
@@ -558,6 +670,8 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
     const [lo, hi] = o.spawnAlong ? [Math.round(o.spawnAlong[0] * (n - 1)), Math.round(o.spawnAlong[1] * (n - 1))] : [0, n - 1];
     for (let attempt = 0; attempt < 40; attempt++) {
       const i = r.int(lo, hi);
+      // Not in a canyon cut or on its ramps (G10b), where the walls hem the track in.
+      if (attempt < 30 && p.canyons.some((c) => i >= c.i0 - c.ramp - 40 && i <= c.i1 + c.ramp + 40)) continue;
       const st = stretchOf[i]! < 0 ? null : stretches[stretchOf[i]!]!;
       const side = !st || st.side === 0 ? (r.next() < 0.5 ? -1 : 1) : -st.side;
       first ??= { i, side };
@@ -580,6 +694,38 @@ export function planWorld(seed: string, s: MapGenSettings, o: WorldOpts): WorldP
  * and (with `scenery`) the scenery on them. Built from the plan and the tiles' positions alone, so
  * any window gives the same tiles as any other window over them.
  */
+/**
+ * What a set piece makes of a tile: open ground at `height` (-1 keeps the land's height), or null
+ * when no set piece touches it. `i` is the tile's nearest track sample (-1 beyond the band), `d` its
+ * distance to the track and `side` which side it is on.
+ */
+function setPieceTile(p: WorldPlan, i: number, d: number, side: number, cx: number, cy: number): { height: number; blocked?: true } | null {
+  if (i >= 0) {
+    for (const c of p.canyons) {
+      if (i < c.i0 - c.ramp || i > c.i1 + c.ramp) continue;
+      const inCut = i >= c.i0 && i <= c.i1;
+      // The floor, on past the ends so the walls' rounded ends never reach the cars.
+      if (d < c.inner) return { height: 0 };
+      if (side === c.side && d >= c.inner && d < c.outer) {
+        const k = inCut ? 1 : i < c.i0 ? (i - (c.i0 - c.ramp)) / c.ramp : (c.i1 + c.ramp - i) / c.ramp;
+        return { height: Math.max(0, Math.min(c.level, Math.round(c.level * k))) };
+      }
+      // The walls, solid along the cut whatever grew there (the mesa stamps carry them on past the band).
+      if (inCut && (side === c.side ? d >= c.outer && d < c.outer + c.wall[0] : d >= c.inner && d < c.inner + c.wall[1])) {
+        return { height: Math.min(ELEVATION_MAX, c.level + 2), blocked: true };
+      }
+    }
+  }
+  for (const q of p.trails) {
+    const tr = q.trail!;
+    const vx = tr.bx - tr.ax, vy = tr.by - tr.ay, len2 = vx * vx + vy * vy;
+    const u = Math.max(0, Math.min(1, ((cx - tr.ax) * vx + (cy - tr.ay) * vy) / len2));
+    const dx = cx - tr.ax - vx * u, dy = cy - tr.ay - vy * u;
+    if (dx * dx + dy * dy <= tr.half * tr.half) return { height: 0 };
+  }
+  return null;
+}
+
 export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: number, opts: { spawnClear: boolean; scenery: boolean } = { spawnClear: true, scenery: true }): WorldWindow {
   const { cols, rows, s, closed, xs, ys, tangents, stretches, stretchOf, towns, salts } = p;
   // One tile more all round (inside the map) for the cliff test.
@@ -643,6 +789,13 @@ export function buildWindow(p: WorldPlan, x0: number, y0: number, w: number, h: 
     // A line enters and leaves through the west and east edges, so only a loop blocks those.
     if ((closed && (x < s.edgeTiles || x >= cols - s.edgeTiles)) || y < s.edgeTiles || y >= rows - s.edgeTiles) { zones[t] = Z.blocked; continue; }
     if (toTown < 0) { zones[t] = Z.open; continue; }
+    // Set pieces (G10b): a canyon's floor and rim trail, and the trail across a horseshoe's foot.
+    const piece = setPieceTile(p, near[t]!, d, near[t]! < 0 ? 0 : sideOf(t, x, y), cx, cy);
+    if (piece) {
+      if (piece.height >= 0) heights[t] = piece.height;
+      zones[t] = piece.blocked ? Z.blocked : river[t] && !deck[t] ? Z.water : Z.open;
+      continue;
+    }
     // Mesas: sandstone plateaus that rise by a cliff all round (drawn by iso/mesa.ts), on rock.
     if ((mesaMask[t] || (fbm(cx, cy, s.mesas.scaleTiles, salts.mesas) > th.mesas[col]! && d > s.mesas.trackGapTiles)) && riverDist[t]! > 3 && lake <= lakesT - 0.04) {
       const [lo, hi] = s.mesas.topLevels;

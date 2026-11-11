@@ -2,7 +2,7 @@
 // commands, and keeps the HUD. It reads sim state and events and never decides an outcome.
 import { Application, Container, Text } from 'pixi.js';
 import {
-  boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
+  boardingCheck, boardingResistanceActive, rimDropCheck, onRim, trainSpeedNow, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
   type Command, type Sim, type SimEvent, type TrainState,
@@ -26,7 +26,7 @@ import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
 import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
-import { createStretchTracker, stretchAt } from './stretches';
+import { createSetPieceTracker, createStretchTracker, stretchAt } from './stretches';
 import { SIGN_TOP_Z } from './iso/towns';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
@@ -319,6 +319,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const stretchList = map.stretches ?? [];
   const hudCfg = config.values.hud;
   const stretches = createStretchTracker(stretchList, { bannerSec: hudCfg.stretchBannerSec, zoom: hudCfg.stretchZoom, zoomOut: hudCfg.stretchZoomOut, easeSec: hudCfg.stretchZoomEaseSec });
+  const pieceList = map.setPieces ?? [];
+  const pieces = createSetPieceTracker(pieceList, hudCfg.stretchBannerSec);
   const placeOf = () => { const h = sim.state.world.horses[0]; return h ? stretchAt(stretchList, h.x)?.name ?? null : null; };
   let runFrom: string | null = null;
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
@@ -494,6 +496,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       noticeUntil = 0; zoneSec = 0; heatNotices = []; alarmAt = -Infinity; lastTick = null;
       stretches.reset();
+      pieces.reset();
     },
     afterTick(events) {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
@@ -523,6 +526,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // A shut train (a cash-out, or thrown off) cannot be boarded: no boarding readout or meter for it.
       const readShut = !!readTrain && doorsClosed(s, s.world.trains.find((t) => t.id === readTrain)!);
       const check = physical && riding && readTrain && !readShut ? boardingCheck(s, sim.map, config, readTrain, horseState) : null;
+      // On a canyon rim (G10b): Space drops onto the roof below when a car is in reach.
+      const rimRoute = phase === 'approach' && riding && physical && s.run && sim.map.rims.length ? s.world.trains.find((t) => t.id === s.run!.trainId) : null;
+      const onRimNow = !!rimRoute && onRim(sim.map, rimRoute.route ?? config.values.trains[rimRoute.type]!.route, horseState.x, horseState.y);
+      const rimDrop = onRimNow && check?.state === 'too far' ? rimDropCheck(s, sim.map, config, s.run!.trainId, horseState) : null;
       const extracting = phase === 'extracting';
       const call = s.run?.horse ?? null;
       const mount = extracting ? mountCheck(s, sim.map, config, player) : null;
@@ -578,6 +585,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // `auto` also moves the zoom there off the train when you ride into a new stretch.
       const focusX = ridden?.x ?? aboardAt?.x ?? cam.x;
       const place = stretches.update(focusX, now / 1000, dt);
+      // A set piece ahead (G10b) takes the banner over from the stretch.
+      const pieceBanner = pieces.update(focusX, ridden?.y ?? aboardAt?.y ?? cam.y, now / 1000);
       if (mode === 'iso' && hudCfg.stretchZoom !== 'off' && place.zoomFloor > 0) {
         if (hudCfg.stretchZoom === 'auto' && !zoomLocked && place.entered) zoom = hudCfg.stretchZoomOut[place.current!.profile] ?? zoom;
         if (zoom < place.zoomFloor) zoom = place.zoomFloor;
@@ -588,7 +597,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const camTarget = ridden ? lookAheadTarget(ridden.x, ridden.y, ridden.hx, ridden.hy, horseState.speed)
         : aboardAt && aboardCar ? (() => {
           const type = s.world.trains.find((t) => t.id === aboardCar.trainId)?.type;
-          const v = (type ? trainSpeed(config, type) : 0) / FOLLOW_RATE;
+          const t = s.world.trains.find((q) => q.id === aboardCar.trainId);
+          const v = (t ? trainSpeedNow(sim.map, config, t) : type ? trainSpeed(config, type) : 0) / FOLLOW_RATE;
           return { x: aboardAt.x + aboardCar.ux * v, y: aboardAt.y + aboardCar.uy * v };
         })() : null;
       if (camTarget) follow(cam, camTarget, dt, Math.hypot(camTarget.x - cam.x, camTarget.y - cam.y) > SNAP_TILES);
@@ -749,7 +759,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const overtimeText = inGrace ? `OUT OF TIME: jump now! ${(Math.max(0, graceMax - s.run!.graceTicks) / tickRateHz).toFixed(1)} s` : null;
       // Stretch signs near the rider: the name over the board.
-      const signs = iso ? stretchList.filter((st) => Math.hypot(st.sign.x - focusX, st.sign.y - (ridden?.y ?? aboardAt?.y ?? cam.y)) < SIGN_LABEL_TILES)
+      const signs = iso ? [...stretchList, ...pieceList].filter((st) => Math.hypot(st.sign.x - focusX, st.sign.y - (ridden?.y ?? aboardAt?.y ?? cam.y)) < SIGN_LABEL_TILES)
         .map((st) => { const p = project(st.sign.x, st.sign.y, SIGN_TOP_Z + 0.6 + isoWorld.groundZ(st.sign.x, st.sign.y)); return { text: st.name, sx: p.x, sy: p.y }; }) : [];
       overlay.update({
         width: W, height: H, signs,
@@ -857,7 +867,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       })();
       const basePrompt = phase === 'idle'
         ? target ? '' : `Ride within ${commitCfg.rangeTiles} tiles of a train to commit`
-        : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!' : 'Ride beside a door and match the train\'s speed'
+        : phase === 'approach' ? readShut ? 'The train shut its doors: Tab to another train' : check && check.state !== 'too far' ? 'Space: jump!'
+          : rimDrop ? 'Space: drop onto the roof!' : onRimNow ? 'On the rim: wait for a car below, then Space to drop onto its roof' : 'Ride beside a door and match the train\'s speed'
           : phase === 'boarding' ? 'Thrown clear: the horse is stunned'
             : aboardPhase ? run?.climb ? `Climbing ${run.climb.to === 'roof' ? 'up to the roof' : 'down'}...`
               : run?.air ? 'In the air!'
@@ -917,7 +928,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,
         lootTotal: lootTotal && (now - lootTotal.at) / 1000 < lootTotalSec ? { title: lootTotal.title, detail: lootTotal.detail } : null,
-        place: place.banner,
+        place: pieceBanner ?? place.banner,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,

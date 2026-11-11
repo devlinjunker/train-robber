@@ -1,7 +1,7 @@
 {
   "name": "train-robber",
   "private": true,
-  "version": "0.2.5-g10a-stretches",
+  "version": "0.2.5-g10b-set-pieces",
   "type": "module",
   "workspaces": [
     "packages/*",

@@ -3,7 +3,7 @@
   "sim": { "tickRateHz": 60 },
   "logging": { "hashEverySec": 1, "events": ["RunStarted", "RunPhaseChanged", "TrainSwitched", "BoardingAttempt", "DamageDealt", "CommandRejected", "HeatChanged", "RunEnded", "PersistentChanged", "LootPickedUp", "LootRefused", "LootRevealed", "LootDropped", "SearchCancelled", "HorseWhistled", "HorseArrived", "HorseDeparted", "HorseSideChanged", "HorseBlocked", "MountAttempt", "LootSpilled", "GuardStateChanged", "PlayerSpotted", "ThrownOff", "FellOff", "HorseBoosted"] },
   "player": { "speedTilesPerSec": 8, "crouch": { "speedScale": 0.25 } },
-  "world": { "mode": "separate" },
+  "world": { "mode": "separate", "trainsFollowTrackSpeed": true },
   "horse": {
     "maxSpeed": 14, "accel": 7, "brake": 12, "dragTilesPerSec2": 3, "cruiseTargetRateTilesPerSec2": 10,
     "slowZoneSpeedScale": 0.5, "waterSpeedScale": 0.25, "turnRateDegPerSec": 120, "steering": "heading", "throttleModel": "hold",
@@ -48,7 +48,8 @@
     "speedToleranceTilesPerSec": 2,
     "meter": { "sweepPeriodSec": 1.3, "matchedSweepPeriodSec": 1.85, "zoneWidths": [0.03, 0.15] },
     "failure": { "stunSec": 1.5, "damageFraction": 0.15, "horseSpeedScale": 0.5 },
-    "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33, "goodStumbleInTiles": 2 }
+    "landing": { "stumbleSec": 1.5, "stumbleSpeedScale": 0.33, "goodStumbleInTiles": 2 },
+    "rimDrop": { "enabled": true, "reachTiles": 5, "stumbleSec": 0.8 }
   },
   "health": { "max": 100, "scope": "day" },
   "collision": { "damageFraction": 0.45, "obstacleDamageFraction": 0.1, "scrapeDamageFraction": 0.01, "minImpactTilesPerSec": 2, "fullImpactTilesPerSec": 8, "offRunMinImpactTilesPerSec": 6, "cooldownSec": 1 },

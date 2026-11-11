@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { resolveMapGen } from '@train-robber/config';
 import { generateLine, generateLineTrack, growLine, LINE_MAP_ID } from '@train-robber/mapgen';
-import { countdownSystem, createSim, lineClock, LINE_CLOCK_MIN_SEC, routeOf, trainSpeed, type RunState } from '@train-robber/sim';
+import { countdownSystem, createSim, lineClock, LINE_CLOCK_MIN_SEC, routeOf, trainSpeed, travelAt, type RunState } from '@train-robber/sim';
 import { CONTENT_DIR, loadConfig, readJson } from '../src/content';
 import { mapProblems, minRadius } from '../src/maps/checks';
 import { lineRunProblems, lineTrafficProblems } from '../src/maps/simChecks';
@@ -144,16 +144,17 @@ describe('open lines are deterministic', () => {
     const { map, scenery } = generateLine('pinned-line-1', settings);
     expect(sha(map)).toBe(PINNED.map);
     expect(sha(scenery)).toBe(PINNED.scenery);
-    expect(sha(map.zones)).toBe('1c7afc6ad163806a');
-    expect(sha(map.stretches)).toBe('3b2d4f4c0e4deff4');
-    expect(sha(map.routes)).toBe('69a90b6ca7b0618e');
+    expect(sha(map.zones)).toBe('e38b881f419f97e0');
+    expect(sha(map.stretches)).toBe('44b21d37206c7a2d');
+    expect(sha(map.setPieces)).toBe('0e5b0ebe0442b8d1');
+    expect(sha(map.routes)).toBe('446d79204162ebb3');
   });
 
-  it('with stretches off, a line is tile for tile the G3 line', () => {
-    // G4 built the tiles in chunks and added `generated` to the map; G10a added stretches, which
-    // move the map and scenery pins. With stretches off the tiles, routes and markers are still
-    // exactly the G3 ones.
-    const off = resolveMapGen(defaults, { line: { stretches: { enabled: false } } });
+  it('with stretches and set pieces off, a line is tile for tile the G3 line', () => {
+    // G4 built the tiles in chunks and added `generated` to the map; G10a added stretches and G10b
+    // set pieces, which move the map and scenery pins. With both off the tiles, routes and markers
+    // are still exactly the G3 ones.
+    const off = resolveMapGen(defaults, { line: { stretches: { enabled: false }, setPieces: { enabled: false } } });
     const { map } = generateLine('pinned-line-1', off);
     expect(map.stretches).toBeUndefined();
     expect(sha(map.zones)).toBe('9569c6973a0b3bb7');
@@ -163,7 +164,7 @@ describe('open lines are deterministic', () => {
   });
 });
 
-const PINNED = { map: 'acffd6da23a1a6c2', scenery: '442792f3f9232ca6' };
+const PINNED = { map: '5c6aba5df01c8b55', scenery: 'b7a85228b1daeb32' };
 
 describe('the line clock', () => {
   const { map } = generateLine('line-clock', settings);
@@ -176,10 +177,12 @@ describe('the line clock', () => {
       const c = lineClock(sim.map, config, train)!;
       const { route } = routeOf(sim.map, config, train);
       const d = c.to === 'end' ? route.length : sim.map.towns.find((t) => t.id === c.to)!.d;
-      expect(c.sec).toBeCloseTo((d - train.d) / trainSpeed(config, train.type), 6);
+      // Time to get there, slower over grades and horseshoe bends (G10b).
+      const secTo = (to: number) => (travelAt(route, to) - travelAt(route, train.d)) / trainSpeed(config, train.type);
+      expect(c.sec).toBeCloseTo(secTo(d), 6);
       if (c.to !== 'end') expect(c.sec).toBeGreaterThanOrEqual(LINE_CLOCK_MIN_SEC);
       // No town between the train and the one it counts to, other than ones too close to count.
-      for (const t of sim.map.towns) if (t.d < d && t.d > train.d) expect((t.d - train.d) / trainSpeed(config, train.type)).toBeLessThan(LINE_CLOCK_MIN_SEC);
+      for (const t of sim.map.towns) if (t.d < d && t.d > train.d) expect(secTo(t.d)).toBeLessThan(LINE_CLOCK_MIN_SEC);
     }
   });
 

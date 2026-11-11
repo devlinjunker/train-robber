@@ -79,3 +79,34 @@ export function createStretchTracker(list: readonly MapStretch[], o: StretchOpti
     reset() { current = null; shown = null; shownAt = -Infinity; lastAnnounced.clear(); floor = 0; },
   };
 }
+
+export type MapSetPiece = NonNullable<MapDef['setPieces']>[number];
+
+/** What each set piece reads as under its name on the banner. */
+export const SET_PIECE_TEXT: Record<MapSetPiece['kind'], string> = {
+  horseshoe: 'the track loops away: cut straight across',
+  grade: 'trains slow on the climb',
+  canyon: 'no room beside the cars: ride the rim and drop on',
+};
+
+/**
+ * Set pieces (G10b) announce themselves on the banner as the focus comes into their box, once per
+ * REANNOUNCE_SEC each, for `bannerSec`. The banner is null when none is showing.
+ */
+export function createSetPieceTracker(list: readonly MapSetPiece[], bannerSec: number) {
+  let shown: MapSetPiece | null = null, shownAt = -Infinity, inside: MapSetPiece | null = null;
+  const lastAnnounced = new Map<string, number>();
+  return {
+    update(x: number, y: number, nowSec: number): StretchView['banner'] {
+      const here = list.find((q) => x >= q.box.x0 && x <= q.box.x1 && y >= q.box.y0 && y <= q.box.y1) ?? null;
+      if (here && here !== inside && bannerSec > 0 && nowSec - (lastAnnounced.get(here.id) ?? -Infinity) > REANNOUNCE_SEC) {
+        shown = here; shownAt = nowSec; lastAnnounced.set(here.id, nowSec);
+      }
+      inside = here;
+      const age = nowSec - shownAt;
+      if (!shown || age >= bannerSec) return null;
+      return { title: shown.name, sub: SET_PIECE_TEXT[shown.kind], alpha: Math.max(0, Math.min(1, age / FADE_SEC, (bannerSec - age) / FADE_SEC)) };
+    },
+    reset() { shown = null; shownAt = -Infinity; inside = null; lastAnnounced.clear(); },
+  };
+}

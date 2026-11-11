@@ -12,6 +12,7 @@ const base = {
     meter: { sweepPeriodSec: 1.2, matchedSweepPeriodSec: 1.8, zoneWidths: [0.1, 0.25] },
     failure: { stunSec: 1.5, damageFraction: 0.25, horseSpeedScale: 0.5 },
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
+    rimDrop: { enabled: true, reachTiles: 5, stumbleSec: 0.8 },
   },
   health: { max: 100, scope: 'day' },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },
@@ -30,7 +31,7 @@ const base = {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
     doorReachTiles: 1.5, meter: { sweepPeriodSec: 1.85, zoneWidths: [0.03, 0.15] }, mountSpill: 'random', spillShare: 0.3, pathCellTiles: 3, stuckSec: 3, passThroughBeyondTiles: 30, goodMountStunSec: 1,
   },
-  world: { mode: 'separate' },
+  world: { mode: 'separate', trainsFollowTrackSpeed: true },
   outside: {
     ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.33, seeThroughDoorways: true,
     platformSpeedTilesPerSec: 4, ledgeSpeedTilesPerSec: 1.2, platformNoise: 1, ledgeNoiseRadiusTiles: 1.5, scrape: { glanceTiles: 0.3, knockOff: true, closeDoors: false },

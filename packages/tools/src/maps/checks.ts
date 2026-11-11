@@ -1,5 +1,6 @@
 // Rules every playable map keeps, hand-made or generated: closed routes (or, on an open line,
-// open ones that run off the map at both ends) with no curve tighter than the cars allow, rock and water off the cars, one side of every track open to ride beside,
+// open ones that run off the map at both ends) with no curve tighter than the cars allow, rock and water off the cars, one side of every track open to ride beside
+// (but through a canyon cut, whose rim trail is the way past),
 // and a track the rider can reach from the spawn. Each check returns its problems (empty is a pass),
 // so the hand-made maps test and the generated maps test share them.
 import { decodeZones, ZONES, type MapDef, type SceneryDef } from '@train-robber/config';
@@ -66,6 +67,9 @@ export function corridorProblems(map: MapDef, scenery: SceneryDef | null, limit 
     const { x: xs, y: ys, tx, ty } = route.samples;
     const at = (i: number, side: number, d: number) => zone(Math.floor(xs[i]! - ty[i]! * d * side), Math.floor(ys[i]! + tx[i]! * d * side));
     const onBridge = (i: number) => (scenery?.bridges ?? []).some((b) => xs[i]! >= b.x - 1 && xs[i]! <= b.x + b.w + 1 && ys[i]! >= b.y - 1 && ys[i]! <= b.y + b.h + 1);
+    // Through a canyon cut (G10b) the lanes close up on purpose: the rim trail above is the way.
+    const rims = (map.rims ?? []).filter((r) => r.route === route.id);
+    const inCanyon = (i: number) => rims.some((r) => i * route.spacing >= r.d0 - r.rampTiles && i * route.spacing <= r.d1 + r.rampTiles);
     for (let i = 0; i < xs.length && out.length < limit; i++) {
       if (!route.closed && !inside(xs[i]!, ys[i]!)) continue;
       for (let d = 0; d <= CAR_CLEAR_TILES; d += 0.25) {
@@ -76,6 +80,7 @@ export function corridorProblems(map: MapDef, scenery: SceneryDef | null, limit 
       }
       const open = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open');
       const wet = (side: number) => LANE_TILES.every((d) => at(i, side, d) === 'open' || at(i, side, d) === 'water');
+      if (inCanyon(i)) continue;
       if (onBridge(i) ? !(wet(-1) || wet(1)) : !(open(-1) || open(1))) out.push(`${route.id}: no ${onBridge(i) ? 'lane beside bridge' : 'open lane beside'} sample ${i} (${xs[i]}, ${ys[i]})`);
     }
   }

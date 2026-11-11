@@ -90,6 +90,28 @@ export const MapDefSchema = z.object({
     /** Where its sign stands beside the track, at its start. */
     sign: point,
   }).strict()).optional(),
+  /**
+   * Set pieces of an open line (G10b), in order along route `route` from `d0` to `d1`: a horseshoe
+   * bend, a grade or a canyon cut. `box` bounds the track it covers, for the banner. View only.
+   */
+  setPieces: z.array(z.object({
+    id: z.string(), kind: z.enum(['horseshoe', 'grade', 'canyon']), name: z.string(),
+    route: z.string(), d0: z.number(), d1: z.number(),
+    box: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }).strict(),
+    /** Where its sign stands beside the track, just before it. */
+    sign: point,
+  }).strict()).optional(),
+  /**
+   * Canyon rims (G10b), read by the sim: from `d0` to `d1` along route `route`, a trail on `side` of
+   * the track (1 when the tangent crossed with the offset is >= 0: the right of travel, y running
+   * down) from `inner` to `outer` tiles out. A rider there may drop onto a car roof below.
+   */
+  rims: z.array(z.object({
+    route: z.string(), d0: z.number(), d1: z.number(), side: z.union([z.literal(1), z.literal(-1)]),
+    inner: z.number().min(0), outer: z.number().positive(),
+    /** The trail comes down to the ground over this many tiles past each end; the lanes are shut along those too. */
+    rampTiles: z.number().min(0),
+  }).strict()).optional(),
   /** The player starts mounted at playerSpawn; there is no separate horse spawn. */
   markers: z.object({ playerSpawn: point }).catchall(point),
   /**

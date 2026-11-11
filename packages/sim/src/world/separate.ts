@@ -7,7 +7,7 @@ import { gridCell, gridWalkable, fromTrain, onRoof, Space, toTrain, trainGrid, t
 import { carrySpeedScale, carriedWeight } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
-import { carPosesOf, trainSpeed } from './trains';
+import { carPosesOf, trainSpeedNow } from './trains';
 
 export interface Vec2 { x: number; y: number }
 
@@ -100,7 +100,7 @@ export function createSeparateWorld(map: WorldMap, config: SimConfig): WorldMode
     trainAnchor(state, trainId) {
       const cars = carPosesOf(state, map, config, trainId);
       const train = state.world.trains.find((t) => t.id === trainId)!;
-      const speed = trainSpeed(config, train.type);
+      const speed = trainSpeedNow(map, config, train);
       const engine = cars[0]!;
       return {
         pos: { x: engine.x, y: engine.y },

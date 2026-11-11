@@ -14,10 +14,12 @@ import { generateGuards } from './world/guards';
 import { carriedValue } from './world/loot';
 import type { WorldMap } from './world/map';
 import { WORLD_FRAME, parseCarFrame, playerSpace, trainCars, walkerFits, type WorldModel } from './world/separate';
-import { atLineEnd, carPosesOf, onMapRange, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
+import { atLineEnd, carPosesOf, onMapRange, pinTrain, routeOf, trainLengthOf, trainSpeedNow, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
 import { freshRoofState } from './world/roof';
+import { rimDropCheck, type RimDrop } from './world/rim';
+import { carFrame } from './world/separate';
 
 export interface RunCtx {
   state: GameState;
@@ -402,7 +404,12 @@ export function boardingSystem(ctx: RunCtx, jumps: ReadonlySet<PlayerId>): void 
     const check = boardingCheck(state, map, config, run.trainId, h);
     if (jumped) {
       // In range is enough to try; a speed mismatch only means the faster meter.
-      if (check.state === 'too far') {
+      // On a canyon rim (G10b), Space drops onto the roof below instead.
+      const drop = check.state === 'too far' ? rimDropCheck(state, map, config, run.trainId, h) : null;
+      if (drop) {
+        rimDrop(ctx, p, drop);
+        continue;
+      } else if (check.state === 'too far') {
         reject(ctx, p.id, 'jump', 'too far');
       } else {
         resolveJump(ctx, p, h, check.car!, check.entry!);
@@ -449,6 +456,29 @@ function resolveJump(ctx: RunCtx, p: PlayerState, h: HorseState, car: number, en
     p.health = Math.max(0, p.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause: 'boarding' });
   }
+}
+
+/** Space on a canyon rim: down onto the roof below, staggering a moment, and the horse runs off as after boarding. */
+function rimDrop(ctx: RunCtx, p: PlayerState, drop: RimDrop): void {
+  const { state, config } = ctx;
+  const run = state.run!;
+  const rp = run.players[p.id]!;
+  rp.boardingAttempts += 1;
+  setPhase(ctx, p.id, 'boarding');
+  ctx.emit({ type: 'RimDropped', tick: state.tick, player: p.id, car: drop.car });
+  // Enter by the car's first door (that settles the horse), then up onto the roof where you fell.
+  const cars = trainCars(state, run.trainId);
+  const entry = carTemplate(carCatalog(config), cars[drop.car]!).entryPoints[0]!;
+  ctx.world.enterTrain(state, p.id, { trainId: run.trainId, car: drop.car, entry: entry.id });
+  rp.crouched = false;
+  Object.assign(rp, freshRoofState());
+  p.placement = { frame: carFrame(run.trainId, drop.car), x: drop.x, y: drop.y, layer: 'roof' };
+  rp.thudTicks = config.values.outside.roof.noise.landTicks;
+  rp.stumbleTicks = config.values.boarding.rimDrop.stumbleTicks;
+  ctx.emit({ type: 'RoofLanded', tick: state.tick, player: p.id, car: drop.car, on: 'roof', jumped: true });
+  run.horse = { ...freshHorseCall(), state: 'leaving', ticks: config.values.horse.runOffTicks };
+  rollMeterZones(state, rp.meter, config.values.extraction.meter.zoneWidths);
+  setPhase(ctx, p.id, 'aboard');
 }
 
 /** Steps a player who just landed at a side door up to `tiles` in toward the car's middle row, stopping short of anything in the way. */
@@ -515,7 +545,7 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
   run.horse = freshHorseCall();
   remount(state, p, at.x, at.y, car.ux, car.uy);
   const h = horseOf(state, p);
-  h.speed = trainSpeed(config, train.type) * b.failure.horseSpeedScale;
+  h.speed = trainSpeedNow(map, config, train) * b.failure.horseSpeedScale;
   h.cruiseTarget = h.speed;
   h.stunTicks = b.failure.stunTicks;
   rp.search = null;

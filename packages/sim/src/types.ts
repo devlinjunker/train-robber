@@ -120,6 +120,8 @@ export type SimEvent =
   | { type: 'CommandRejected'; tick: number; player: PlayerId; command: Command['type']; reason: RejectReason }
   /** `meter` is the sampled position, 0 to 1. */
   | { type: 'BoardingAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
+  /** Space on a canyon rim (G10b): the player dropped onto car `car`'s roof of the committed train. */
+  | { type: 'RimDropped'; tick: number; player: PlayerId; car: number }
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'boarding' | 'mount' }
   /** An alert guard caught the player (guardCatch `thrown-off`): the failed-boarding damage. */
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'thrownOff' }
@@ -501,7 +503,7 @@ export interface SimConfig {
   values: {
     sim: { tickRateHz: number };
     player: { speedTilesPerTick: number; crouch: { speedScale: number } };
-    world: { mode: 'separate' | 'continuous' };
+    world: { mode: 'separate' | 'continuous'; trainsFollowTrackSpeed: boolean };
     /**
      * `auto`: an idle player commits as soon as a train is in range, with no key press.
      * `switchRangeTiles`: how close another train must be to switch the commitment to it with Tab.
@@ -515,6 +517,8 @@ export interface SimConfig {
       meter: { sweepPeriodTicks: number; matchedSweepPeriodTicks: number; zoneWidths: readonly [number, number] };
       failure: { stunTicks: number; damageFraction: number; horseSpeedScale: number };
       landing: { stumbleTicks: number; stumbleSpeedScale: number; goodStumbleInTiles: number };
+      /** Dropping from a canyon rim onto a roof (G10b): within `reachTiles` of a car, stumbling `stumbleTicks` on landing. */
+      rimDrop: { enabled: boolean; reachTiles: number; stumbleTicks: number };
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
     health: { max: number; scope: 'day' | 'run' };

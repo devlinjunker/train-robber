@@ -9,7 +9,7 @@ import { carCatalog, carSpacing, placeCars, trainLength, type CarPose } from './
 import { pickTrainCars, trainCarsSeed } from './generate';
 import type { MapTrain, WorldMap } from './map';
 import { junctionSystem } from './junctions';
-import { wrapDistance, type TrackRoute } from './track';
+import { speedScaleAt, wrapDistance, type TrackRoute } from './track';
 
 /** A train's config and route: the route the map placed it on, else the one its type names. */
 export function routeOf(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route'>) {
@@ -118,7 +118,9 @@ export function advanceTrains(state: GameState, map: WorldMap, config: SimConfig
     const { def, route } = routeOf(map, config, t);
     before?.set(t.id, t.d);
     // An open line's distance is not clamped: a train runs on past the end until it is removed.
-    t.d = route.closed ? wrapDistance(route, t.d + def.speedTilesPerTick) : t.d + def.speedTilesPerTick;
+    // Grades and speed zones slow it (world.trainsFollowTrackSpeed), by the scale under its engine.
+    const step = def.speedTilesPerTick * (config.values.world.trainsFollowTrackSpeed ? speedScaleAt(route, t.d) : 1);
+    t.d = route.closed ? wrapDistance(route, t.d + step) : t.d + step;
   }
   if (before && map.network) junctionSystem(state, map.routes, map.network, config, before);
   if (map.openLine) lineTraffic(state, map, config);
@@ -203,7 +205,14 @@ export function trainLengthOf(config: SimConfig, train: Pick<TrainState, 'cars'>
   return trainLength(train.cars, carCatalog(config), carSpacing(config), config.values.outside.platformDepthTiles);
 }
 
-/** A train's speed along its route in tiles per second. */
+/** A train type's full speed along its route in tiles per second. */
 export function trainSpeed(config: SimConfig, type: string): number {
   return config.values.trains[type]!.speedTilesPerTick * config.values.sim.tickRateHz;
+}
+
+/** A train's speed now in tiles per second: its full speed, slowed on a grade or speed zone (see advanceTrains). */
+export function trainSpeedNow(map: WorldMap, config: SimConfig, train: Pick<TrainState, 'type' | 'route' | 'd'>): number {
+  const v = trainSpeed(config, train.type);
+  if (!config.values.world.trainsFollowTrackSpeed) return v;
+  return v * speedScaleAt(routeOf(map, config, train).route, train.d);
 }

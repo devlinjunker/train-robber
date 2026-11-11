@@ -38,6 +38,9 @@ export const StretchProfileSchema = z.object({
   cuts: count(3),
   besideTrack: count(4),
   ridges: count(6),
+  /** Chance of a grade (trains slow) and of a canyon cut with a rim trail in the stretch (G10b set pieces). */
+  grade: unit,
+  canyon: unit,
 }).strict();
 export type StretchProfile = z.infer<typeof StretchProfileSchema>;
 
@@ -202,6 +205,58 @@ export const MapGenSchema = z.object({
       /** It is wider than a crossing river, so its deep middle keeps you to the fords. */
       riverBesideWidthTiles: range(z.number().min(2).max(10)),
       profiles: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), StretchProfileSchema).refine((p) => Object.keys(p).length >= 2, { message: 'needs at least two profiles' }),
+    }).strict(),
+    /**
+     * Set pieces (G10b): named moments on the line. A horseshoe bend (the track loops away and back,
+     * the horse cuts straight across), a grade (trains slow) and a canyon cut (the lanes close up; a
+     * trail along the rim lets you drop onto the roofs). Grades and canyons need stretches; each
+     * stretch's profile sets their chances.
+     */
+    setPieces: z.object({
+      enabled: z.boolean(),
+      /** The first word of a set piece's name ("Coyote Grade"); the second comes from its kind's `names`. */
+      namePrefixes: z.array(z.string().min(1)).min(1),
+      /** Set pieces are at least this far apart along the track. */
+      gapTiles: z.number().min(0),
+      /** And at least this far along the track from a town. */
+      townGapTiles: z.number().min(0),
+      horseshoe: z.object({
+        /** Chance that a piece of line is a horseshoe bend instead (from piece `fromPiece` on). */
+        chance: unit,
+        fromPiece: z.number().int().min(0),
+        /** Horseshoes are at least this far apart along the map. */
+        minGapTiles: z.number().min(0),
+        /** How far each leg runs straight away from the line before the turn at the top. */
+        legTiles: range(z.number().min(0)),
+        /** How far the top runs straight between its two turns (0: one round turn). */
+        topTiles: range(z.number().min(0)),
+        /** Trains run at this share of their speed round the bend. */
+        speedScale: z.number().min(0.2).max(1),
+        /** The trail straight across the bottom of the bend, kept open for the horse. */
+        trailWidthTiles: z.number().min(2).max(30),
+        names: z.array(z.string().min(1)).min(1),
+      }).strict(),
+      grade: z.object({
+        lengthTiles: range(z.number().min(40)),
+        /** Trains slow to this share of their speed on the grade... */
+        speedScale: z.number().min(0.2).max(1),
+        /** ...easing down to it and back up over this many tiles at each end. */
+        rampTiles: z.number().min(1),
+        names: z.array(z.string().min(1)).min(1),
+      }).strict(),
+      canyon: z.object({
+        lengthTiles: range(z.number().min(40)),
+        /** The cut's walls stand this far out from the track's centre: too close to ride beside the cars. */
+        floorTiles: z.number().min(4).max(12),
+        /** The rim trail along the top of one wall, this wide, at this height (view levels). */
+        rimWidthTiles: range(z.number().min(3).max(16)),
+        rimLevel: z.number().int().min(2).max(8),
+        /** The rim trail comes down to the ground over this many tiles past each end of the cut. */
+        rampTiles: z.number().min(6),
+        /** How thick the walls behind the rim and on the other side are. */
+        wallTiles: range(z.number().min(2)),
+        names: z.array(z.string().min(1)).min(1),
+      }).strict(),
     }).strict(),
     /** Town spots: a marker and a flat clearing beside the track (towns themselves come in G6). */
     towns: z.object({
