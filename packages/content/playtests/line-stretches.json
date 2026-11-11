@@ -3,6 +3,7 @@
   "id": "line-stretches",
   "title": "Stretches on the open line",
   "question": "G10a: does cutting the line into named stretches (open flats, broken country, timber, river valleys, mesa country) give it character and make riding off the train more interesting than one theme for the whole line? Is the zoom limit per stretch good, and should the camera pick the zoom itself?",
+  "pr": 69,
   "base": {
     "map": "line"
   },
