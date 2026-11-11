@@ -47,7 +47,10 @@ export function mapPicture(map: MapDef, scenery: SceneryDef | null, scale = 3): 
   for (const b of scenery?.bridges ?? []) {
     for (let y = Math.round(b.y * scale); y < Math.round((b.y + b.h) * scale); y++) for (let x = Math.round(b.x * scale); x < Math.round((b.x + b.w) * scale); x++) set(x, y, [130, 90, 50]);
   }
-  for (const r of map.routes) for (let i = 0; i < r.samples.x.length; i++) dot(r.samples.x[i]!, r.samples.y[i]!, 0, [110, 20, 10]);
+  // Track: red, paler where trains slow (G10b grades and horseshoe bends).
+  for (const r of map.routes) for (let i = 0; i < r.samples.x.length; i++) dot(r.samples.x[i]!, r.samples.y[i]!, 0, (r.samples.speedScale?.[i] ?? 1) < 1 ? [240, 140, 40] : [110, 20, 10]);
+  // Set pieces (G10b): a blue dot at each sign.
+  for (const q of map.setPieces ?? []) dot(q.sign.x, q.sign.y, Math.max(2, scale), [30, 60, 200]);
   dot(map.markers.playerSpawn.x, map.markers.playerSpawn.y, 3, [230, 30, 30]);
   // Stretches of an open line (G10a): a dashed line at each border and a dot at each sign.
   for (const st of map.stretches ?? []) {

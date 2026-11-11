@@ -27,7 +27,11 @@ export interface SimMap {
   openLine?: { headwayTiles: number; headwaySpreadTiles?: number };
   /** Town spots along an open line: where on which route (MapDef.towns). */
   towns?: readonly MapTown[];
+  /** Canyon rims (MapDef.rims, G10b): trails above a cut a rider may drop from onto a roof. */
+  rims?: readonly MapRim[];
 }
+
+export interface MapRim { route: string; d0: number; d1: number; side: 1 | -1; inner: number; outer: number }
 
 export interface MapTown { id: string; route: string; d: number }
 
@@ -62,6 +66,8 @@ export interface WorldMap {
   openLine: { headwayTiles: number; headwaySpreadTiles?: number } | null;
   /** Town spots, sorted by distance along their route; empty on maps without towns. */
   towns: readonly MapTown[];
+  /** Canyon rims; empty on maps without any. */
+  rims: readonly MapRim[];
 }
 
 /**
@@ -100,10 +106,12 @@ export class TerrainChunks {
 export function mapHash(map: SimMap): string {
   if (map.generated) return hashState({ id: map.id, generated: map.generated });
   const r = (route: SimRoute) => {
-    const { x, y, s, tx, ty } = route.samples;
-    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty }, ...(route.legs ? { legs: route.legs } : {}) };
+    const { x, y, s, tx, ty, speedScale } = route.samples;
+    // Track speed only counts where it slows trains, so maps that never slow keep their hashes.
+    const slow = speedScale && speedScale.some((v) => v < 1) ? { speedScale } : {};
+    return { id: route.id, closed: route.closed, length: route.length, spacing: route.spacing, samples: { x, y, s, tx, ty, ...slow }, ...(route.legs ? { legs: route.legs } : {}) };
   };
-  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}), ...(map.openLine ? { openLine: map.openLine } : {}), ...(map.towns?.length ? { towns: map.towns.map(({ id, route, d }) => ({ id, route, d })) } : {}) });
+  return hashState({ id: map.id, size: map.size, zoneLegend: map.zoneLegend, zones: map.zones, routes: map.routes.map(r), playerSpawn: map.markers.playerSpawn, ...(map.trains ? { trains: map.trains } : {}), ...(map.openLine ? { openLine: map.openLine } : {}), ...(map.towns?.length ? { towns: map.towns.map(({ id, route, d }) => ({ id, route, d })) } : {}), ...(map.rims?.length ? { rims: map.rims.map(({ route, d0, d1, side, inner, outer }) => ({ route, d0, d1, side, inner, outer })) } : {}) });
 }
 
 export function prepareMap(map: SimMap): WorldMap {
@@ -134,6 +142,7 @@ export function prepareMap(map: SimMap): WorldMap {
     playerSpawn: { ...map.markers.playerSpawn },
     openLine: map.openLine ? { ...map.openLine } : null,
     towns: (map.towns ?? []).map(({ id, route, d }) => ({ id, route, d })).sort((a, b) => a.d - b.d),
+    rims: (map.rims ?? []).map(({ route, d0, d1, side, inner, outer }) => ({ route, d0, d1, side, inner, outer })),
   };
 }
 

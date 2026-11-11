@@ -15,7 +15,7 @@ export interface TrackRoute {
    * Columnar samples: sample i sits at (x[i], y[i]) at distance s[i], and (tx[i], ty[i])
    * is the unit tangent of the segment from sample i to the next.
    */
-  samples: { x: readonly number[]; y: readonly number[]; s: readonly number[]; tx: readonly number[]; ty: readonly number[] };
+  samples: { x: readonly number[]; y: readonly number[]; s: readonly number[]; tx: readonly number[]; ty: readonly number[]; speedScale?: readonly number[] };
 }
 
 /** One stretch of a service: segment `segment` from distance `start`, junction `from` to junction `to`. */
@@ -35,6 +35,52 @@ export interface TrackPoint {
   /** Unit tangent in the direction of travel. */
   tx: number;
   ty: number;
+}
+
+/** True when some sample slows trains (a grade or a speed zone). */
+export function hasSlowTrack(route: TrackRoute): boolean {
+  const sc = route.samples.speedScale;
+  return !!sc && sc.some((v) => v < 1);
+}
+
+/** Sample index at distance d (already wrapped or clamped). */
+function sampleIndex(route: TrackRoute, dist: number): number {
+  const n = route.samples.s.length;
+  const i = Math.floor(dist / route.spacing);
+  return i < 0 ? 0 : i > n - 1 ? n - 1 : i;
+}
+
+/**
+ * The share of its full speed a train runs at with its engine at distance `d` (G10b: grades and
+ * speed zones slow trains): the sample's `speedScale`, 1 off the ends of an open route or on a
+ * route without one.
+ */
+export function speedScaleAt(route: TrackRoute, d: number): number {
+  const sc = route.samples.speedScale;
+  if (!sc || (!route.closed && (d < 0 || d > route.length))) return 1;
+  return sc[sampleIndex(route, wrapDistance(route, d))]!;
+}
+
+const travelCache = new WeakMap<object, Float64Array>();
+/**
+ * Time-weighted distance along an open route from 0 to `d`: each tile counts 1 / speedScale, so
+ * (travel(b) - travel(a)) / speed is the time a train takes from a to b. Equal to `d` on track that
+ * never slows; straight on past either end.
+ */
+export function travelAt(route: TrackRoute, d: number): number {
+  const sc = route.samples.speedScale;
+  if (!sc || !hasSlowTrack(route)) return d;
+  let cum = travelCache.get(route.samples);
+  if (!cum) {
+    cum = new Float64Array(sc.length + 1);
+    for (let i = 0; i < sc.length; i++) cum[i + 1] = cum[i]! + route.spacing / sc[i]!;
+    travelCache.set(route.samples, cum);
+  }
+  if (d <= 0) return d;
+  const n = sc.length, end = n * route.spacing;
+  if (d >= end) return cum[n]! + (d - end);
+  const i = Math.floor(d / route.spacing);
+  return cum[i]! + (d - i * route.spacing) / sc[i]!;
 }
 
 /** Wrap a distance onto a closed route, or clamp it onto an open one. */

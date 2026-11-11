@@ -4,6 +4,7 @@ import type { GameState, HeatCause, HeatSource, PlayerState, RunState, SimConfig
 import type { WorldMap } from '../world/map';
 import { escaping } from '../world/mount';
 import { routeOf, trainSpeed } from '../world/trains';
+import { travelAt, type TrackRoute } from '../world/track';
 
 /** What these helpers need from the tick; the run system's context satisfies it. */
 export interface HeatCtx {
@@ -36,7 +37,8 @@ export function lineClock(map: WorldMap, config: SimConfig, train: TrainState): 
   if (!map.openLine || (config.values.countdown.lineClock ?? 'town') !== 'town') return null;
   const { route } = routeOf(map, config, train);
   const speed = trainSpeed(config, train.type);
-  const town = map.towns.find((t) => t.route === route.id && (t.d - train.d) / speed >= LINE_CLOCK_MIN_SEC);
+  const at = travelOf(route, config, train.d);
+  const town = map.towns.find((t) => t.route === route.id && (travelOf(route, config, t.d) - at) / speed >= LINE_CLOCK_MIN_SEC);
   const to = town?.id ?? 'end';
   return { to, sec: lineClockSec(map, config, train, to) };
 }
@@ -45,7 +47,12 @@ export function lineClock(map: WorldMap, config: SimConfig, train: TrainState): 
 export function lineClockSec(map: WorldMap, config: SimConfig, train: TrainState, to: string): number {
   const { route } = routeOf(map, config, train);
   const d = map.towns.find((t) => t.id === to)?.d ?? route.length;
-  return Math.max(0, (d - train.d) / trainSpeed(config, train.type));
+  return Math.max(0, (travelOf(route, config, d) - travelOf(route, config, train.d)) / trainSpeed(config, train.type));
+}
+
+/** Distance along the route weighted by how slow the track is there (see travelAt), or plain distance when trains ignore it. */
+function travelOf(route: TrackRoute, config: SimConfig, d: number): number {
+  return config.values.world.trainsFollowTrackSpeed ? travelAt(route, d) : d;
 }
 
 /**

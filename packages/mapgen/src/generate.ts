@@ -22,7 +22,7 @@ export const GENERATED_MAP_ID = 'gen';
 /** The map id of a generated open line (`?map=line`). */
 export const LINE_MAP_ID = 'line';
 /** Bump when a change makes the same seed and settings give a different open line. */
-export const LINE_GENERATOR_VERSION = 3;
+export const LINE_GENERATOR_VERSION = 4;
 
 export interface GeneratedMap {
   /** On an open line, `terrain` builds any chunk of it on demand. */
@@ -211,7 +211,8 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
     rivers: { ...m.rivers, count: scaleRange(m.rivers.count, trackScale) },
     mesas: { ...m.mesas, cuts: scaleRange(m.mesas.cuts, trackScale), besideTrack: scaleRange(m.mesas.besideTrack, trackScale), ridges: scaleRange(m.mesas.ridges, areaScale) },
   };
-  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns, stretches: l.stretches });
+  const plan = planWorld(seed, s, { cols, rows, track, closed: false, trackScale, areaScale, spawnAlong: l.spawnAlong, towns: l.towns, stretches: l.stretches, setPieces: l.setPieces, horseshoes: track.horseshoes });
+  applyTrackSpeed(plan, track.route, l.setPieces);
   // `west`: the same line mirrored, so trains run right to left.
   const west = l.direction === 'west';
   const mx = (x: number) => r4(cols - x);
@@ -225,12 +226,18 @@ export function generateLine(seed: string, given: MapGenSettings, opts: { whole?
   const markers: Record<string, Vec> = { playerSpawn };
   for (const t of towns) markers[t.id] = { x: t.x, y: t.y };
   const stretches = plan.stretchPlan ? lineStretches(plan, route.id, west) : undefined;
+  const pieces = plan.setPieces.length ? lineSetPieces(plan, route.id, west) : undefined;
+  const rims = plan.canyons.length ? plan.canyons.map((c) => ({
+    route: route.id, d0: r4(c.i0 * plan.spacing), d1: r4(c.i1 * plan.spacing),
+    // Mirrored, the same ground lies on the other side of travel.
+    side: (west ? -c.side : c.side) as 1 | -1, inner: c.inner, outer: r4(c.outer), rampTiles: r4(c.ramp * plan.spacing),
+  })) : undefined;
   const terrain = new LineChunks(plan, west);
   const built = whole ? wholeMap(cols, rows, terrain) : null;
   const parsed = MapDefSchema.parse({
     schemaVersion: 1, id: LINE_MAP_ID, source, size: { cols, rows },
     zoneLegend: [...ZONES], ...(built ? { zones: built.zones, elevation: built.elevation } : {}),
-    routes: [route], speedZones: [], towns, ...(stretches ? { stretches } : {}), markers,
+    routes: [route], speedZones: [], towns, ...(stretches ? { stretches } : {}), ...(pieces ? { setPieces: pieces } : {}), ...(rims ? { rims } : {}), markers,
     openLine: { headwayTiles: l.trainHeadwayTiles, ...(l.trainHeadwaySpreadTiles > 0 ? { headwaySpreadTiles: Math.min(l.trainHeadwaySpreadTiles, l.trainHeadwayTiles * 0.9) } : {}) },
     generated: { generator: LINE_MAP_ID, version, seed, settings, chunkTiles: CHUNK_TILES },
   });
@@ -263,6 +270,50 @@ function lineStretches(plan: WorldPlan, routeId: string, west: boolean): NonNull
       x0: r4(west ? cols - x1 : x0), x1: r4(west ? cols - x0 : x1),
       // Mirrored, travel runs west, so the left of travel flips with it and stays on the left.
       sign: west ? { x: r4(cols - (xs[i]! - tg.y * SIGN_OUT_TILES)), y: r4(ys[i]! + tg.x * SIGN_OUT_TILES) } : { x: r4(sx), y: r4(sy) },
+    };
+  });
+}
+
+/**
+ * Trains slow on set pieces (G10b): to the grade's speedScale on a grade and the horseshoe's round a
+ * bend, easing down and back up over the grade's rampTiles at each end. Writes the route's samples.
+ */
+function applyTrackSpeed(plan: WorldPlan, route: Route, c: MapGenSettings['line']['setPieces']): void {
+  const sc = route.samples.speedScale;
+  if (!sc || !plan.setPieces.length) return;
+  const ramp = Math.max(1, Math.round(c.grade.rampTiles / plan.spacing));
+  for (const q of plan.setPieces) {
+    const low = q.kind === 'grade' ? c.grade.speedScale : q.kind === 'horseshoe' ? c.horseshoe.speedScale : 1;
+    if (low >= 1) continue;
+    for (let i = Math.max(0, q.i0 - ramp); i <= Math.min(sc.length - 1, q.i1 + ramp); i++) {
+      const out = i < q.i0 ? (q.i0 - i) / ramp : i > q.i1 ? (i - q.i1) / ramp : 0;
+      const u = 1 - out, eased = u * u * (3 - 2 * u);
+      sc[i] = Math.min(sc[i]!, r4(1 - (1 - low) * eased));
+    }
+  }
+}
+
+/** Set pieces' signs stand this far before them along the track, this far out on the left of travel. */
+const PIECE_SIGN_BEFORE_TILES = 24;
+/** A set piece's box reaches this far past its track, so its banner shows as you come up to it. */
+const PIECE_BOX_PAD_TILES = 30;
+
+/** The map's set pieces (see MapDef `setPieces`), mirrored on a west line. */
+function lineSetPieces(plan: WorldPlan, routeId: string, west: boolean): NonNullable<MapDef['setPieces']> {
+  const { cols, xs, ys, tangents, spacing, n } = plan;
+  const mx = (x: number) => r4(west ? cols - x : x);
+  return plan.setPieces.map((q, k) => {
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (let i = q.i0; i <= q.i1; i++) { x0 = Math.min(x0, xs[i]!); x1 = Math.max(x1, xs[i]!); y0 = Math.min(y0, ys[i]!); y1 = Math.max(y1, ys[i]!); }
+    const i = Math.max(0, Math.min(n - 1, q.i0 - Math.round(PIECE_SIGN_BEFORE_TILES / spacing)));
+    const tg = tangents[i]!;
+    // Left of travel on the east line is (ty, -tx); mirrored, the left flips with travel.
+    const sx = xs[i]! + (west ? -1 : 1) * tg.y * SIGN_OUT_TILES, sy = ys[i]! - (west ? -1 : 1) * tg.x * SIGN_OUT_TILES;
+    const bx0 = mx(x0 - PIECE_BOX_PAD_TILES), bx1 = mx(x1 + PIECE_BOX_PAD_TILES);
+    return {
+      id: `piece${k + 1}`, kind: q.kind, name: q.name, route: routeId, d0: r4(q.i0 * spacing), d1: r4(q.i1 * spacing),
+      box: { x0: Math.min(bx0, bx1), x1: Math.max(bx0, bx1), y0: r4(y0 - PIECE_BOX_PAD_TILES), y1: r4(y1 + PIECE_BOX_PAD_TILES) },
+      sign: { x: mx(sx), y: r4(sy) },
     };
   });
 }

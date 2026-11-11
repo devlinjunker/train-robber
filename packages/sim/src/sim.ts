@@ -2,7 +2,7 @@ import { seedRng } from './rng';
 import { hashState } from './hash';
 import type { GameState, InputFrame, PersistentState, PlayerId, SimConfig, SimEvent, TickResult } from './types';
 import { prepareMap, type SimMap, type WorldMap } from './world/map';
-import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './world/trains';
+import { advanceTrains, allCarPoses, trainSpeedNow, spawnInitialTrains } from './world/trains';
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
@@ -134,7 +134,7 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       }
       // 2. Train scheduler, then 3. riding against the cars where they now are, and what the crashes cost.
       advanceTrains(state, map, config);
-      const speedOf = (id: string) => trainSpeed(config, state.world.trains.find((t) => t.id === id)!.type);
+      const speedOf = (id: string) => trainSpeedNow(map, config, state.world.trains.find((t) => t.id === id)!);
       // A horse whose rider is aboard is riderless, steered by the extraction AI.
       // The horse runs into a car's end platforms as well as its body.
       const platform = config.values.outside.platformDepthTiles;

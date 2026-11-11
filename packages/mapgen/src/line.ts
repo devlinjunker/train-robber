@@ -12,7 +12,11 @@ import { catmullRom, DENSE_PER_TILE, dist, lerp, r4, r6, SAMPLE_SPACING_TILES, t
 export type LineSettings = MapGenSettings['line'];
 
 /** One piece of the line: its control points (after the end of the piece before) and the heading it ends on. */
-export interface LinePiece { index: number; points: Vec[]; heading: number; end: Vec }
+export interface LinePiece {
+  index: number; points: Vec[]; heading: number; end: Vec;
+  /** Set when the piece is a horseshoe bend (G10b): `dir` -1 loops north, 1 south; it leaves the line at `from` and rejoins it at `to`, both heading east. */
+  horseshoe?: { dir: 1 | -1; from: Vec; to: Vec };
+}
 
 const DEG = PI / 180;
 /** Turns per control point are held this far under stepTiles / minRadiusTiles: where a turn starts or stops at a control point, the smoothed curve bends about twice as tight there (measured over 200 seeds). */
@@ -57,7 +61,33 @@ export function* growLine(seed: string, s: LineSettings, rows: number): Generato
   };
   // The first point is a phantom before the start, so the first stretch of curve has a lead-in.
   yield { index: -1, points: [{ ...p }], heading, end: { ...p } };
+  const hs = s.setPieces.enabled ? s.setPieces.horseshoe : null;
+  let lastHorseshoeX = -Infinity;
   for (let index = 0; ; index++) {
+    // A horseshoe bend instead of an ordinary piece, where it fits (G10b).
+    if (hs && index >= hs.fromPiece && hs.chance > 0 && p.x - lastHorseshoeX >= hs.minGapTiles) {
+      const hr = rng(`${seed}/line/${index}/horseshoe`);
+      if (hr.next() < hs.chance) {
+        const leg = hr.range(hs.legTiles[0], hs.legTiles[1]), top = hr.range(hs.topTiles[0], hs.topTiles[1]);
+        const first: 1 | -1 = p.y > mid ? -1 : 1;
+        let laidBend = false;
+        for (const dir of [first, (first === 1 ? -1 : 1) as 1 | -1]) {
+          const bend = horseshoePoints(p, heading, dir, leg, top, s.stepTiles, maxTurn);
+          if (!bend.points.every((q) => q.y >= lo && q.y <= hi)) continue;
+          // Clear of the line's older track all the way round.
+          const old = laid.length - recent;
+          if (old > 0 && bend.points.some((q) => laid.slice(0, old).some((o) => (o.x - q.x) ** 2 + (o.y - q.y) ** 2 < gap2))) continue;
+          heading = 0;
+          p = { ...bend.points[bend.points.length - 1]! };
+          for (const q of bend.points) laid.push({ ...q });
+          lastHorseshoeX = p.x;
+          laidBend = true;
+          yield { index, points: bend.points, heading, end: { ...p }, horseshoe: { dir, from: bend.from, to: bend.to } };
+          break;
+        }
+        if (laidBend) continue;
+      }
+    }
     const r = rng(`${seed}/line/${index}`);
     const len = r.range(s.pieceTiles[0], s.pieceTiles[1]);
     const steps = Math.max(2, Math.round(len / s.stepTiles));
@@ -86,20 +116,46 @@ export function* growLine(seed: string, s: LineSettings, rows: number): Generato
   }
 }
 
-/** Control points from the start of the line until one lies `beyondX` east (it and the next are kept as the curve's end). */
-export function lineControlPoints(seed: string, s: LineSettings, rows: number, beyondX: number): { points: Vec[]; pieces: number } {
+/**
+ * The control points of a horseshoe bend from `start` heading `heading`: straighten to east, turn
+ * a quarter toward `dir` (-1 north), run `leg`, turn back east, run `top`, turn a quarter the other
+ * way, run `leg` back, turn east. Every turn is at most `maxTurn` per point, as in `growLine`, and
+ * the two halves mirror, so it rejoins the line on the height it left it.
+ */
+function horseshoePoints(start: Vec, heading: number, dir: 1 | -1, leg: number, top: number, step: number, maxTurn: number): { points: Vec[]; from: Vec; to: Vec } {
   const points: Vec[] = [];
+  let h = heading, q = { ...start };
+  const advance = () => { q = { x: q.x + step * dcos(h), y: q.y + step * dsin(h) }; points.push({ ...q }); };
+  const turnTo = (target: number) => { while (Math.abs(target - h) > 1e-9) { h += clamp(target - h, -maxTurn, maxTurn); advance(); } };
+  const run = (len: number) => { for (let k = Math.round(len / step); k > 0; k--) advance(); };
+  turnTo(0);
+  advance();
+  const from = { ...q };
+  turnTo((dir * PI) / 2); run(leg); turnTo(0); run(top); turnTo((-dir * PI) / 2); run(leg); turnTo(0);
+  const to = { ...q };
+  advance();
+  return { points, from, to };
+}
+
+/** Control points from the start of the line until one lies `beyondX` east (it and the next are kept as the curve's end). */
+export function lineControlPoints(seed: string, s: LineSettings, rows: number, beyondX: number): { points: Vec[]; pieces: number; horseshoes: Horseshoe[] } {
+  const points: Vec[] = [];
+  const horseshoes: Horseshoe[] = [];
   let pieces = 0, past = 0;
   for (const piece of growLine(seed, s, rows)) {
     if (piece.index >= 0) pieces++;
+    if (piece.horseshoe && piece.horseshoe.to.x < beyondX) horseshoes.push({ piece: piece.index, ...piece.horseshoe });
     for (const q of piece.points) {
       points.push(q);
       if (q.x >= beyondX) past++;
-      if (past >= 2) return { points, pieces };
+      if (past >= 2) return { points, pieces, horseshoes };
     }
   }
-  return { points, pieces };
+  return { points, pieces, horseshoes };
 }
+
+/** A horseshoe bend on the line: the piece it is, the way it loops, and where it leaves and rejoins. */
+export interface Horseshoe { piece: number; dir: 1 | -1; from: Vec; to: Vec }
 
 /**
  * Bake control points into an open route: a centripetal Catmull-Rom curve through points 1 to n-2
@@ -163,7 +219,7 @@ export function bakeOpen(id: string, control: readonly Vec[]): Track {
 }
 
 /** The line across a map `cols` x `rows`: from leadInTiles off the west edge to leadInTiles past the east edge. */
-export function generateLineTrack(seed: string, s: LineSettings, cols: number, rows: number): Track & { pieces: number } {
-  const { points, pieces } = lineControlPoints(seed, s, rows, cols + s.leadInTiles);
-  return { ...bakeOpen('main', points), pieces };
+export function generateLineTrack(seed: string, s: LineSettings, cols: number, rows: number): Track & { pieces: number; horseshoes: Horseshoe[] } {
+  const { points, pieces, horseshoes } = lineControlPoints(seed, s, rows, cols + s.leadInTiles);
+  return { ...bakeOpen('main', points), pieces, horseshoes };
 }

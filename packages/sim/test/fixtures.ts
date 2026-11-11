@@ -104,13 +104,14 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
     values: {
       sim: { tickRateHz: 60 },
       player: { speedTilesPerTick: 8 / 60, crouch: { speedScale: 0.25 } },
-      world: { mode: 'separate' },
+      world: { mode: 'separate', trainsFollowTrackSpeed: true },
       commit: { rangeTiles: 12, timerSec: null, closeRangeTiles: null, promptSwitch: false, cancelInPlace: false, switchRangeTiles: 30, autoSwitch: false, autoSwitchMarginTiles: 4 },
       boarding: {
         rangeTiles: 2, speedToleranceTilesPerSec: 2,
         meter: { sweepPeriodTicks: 72, matchedSweepPeriodTicks: 108, zoneWidths: [0.1, 0.25] },
         failure: { stunTicks: 90, damageFraction: 0.25, horseSpeedScale: 0.5 },
         landing: { stumbleTicks: 30, stumbleSpeedScale: 0.5, goodStumbleInTiles: 0 },
+        rimDrop: { enabled: true, reachTiles: 5, stumbleTicks: 24 },
       },
       health: { max: 100, scope: 'day' },
       collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownTicks: 60 },

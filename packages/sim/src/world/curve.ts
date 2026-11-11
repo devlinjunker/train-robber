@@ -3,7 +3,7 @@ import type { GameState, SimConfig } from '../types';
 import { carCatalog, carSpacing, carTemplate } from './cars';
 import type { WorldMap } from './map';
 import { trackAt } from './track';
-import { routeOf, trainSpeed } from './trains';
+import { routeOf, trainSpeedNow } from './trains';
 
 /**
  * The pull of the curve on car `car` of a train, in tiles/s² across the car frame: + pushes toward
@@ -21,6 +21,6 @@ export function curvePull(state: GameState, map: WorldMap, config: SimConfig, tr
   const a = trackAt(route, t.d - off), b = trackAt(route, t.d - off - len);
   // Turning right (the front tangent clockwise of the rear one on screen) throws you to the left.
   const cross = b.tx * a.ty - b.ty * a.tx;
-  const v = trainSpeed(config, t.type);
+  const v = trainSpeedNow(map, config, t);
   return len > 0 ? -(v * v * cross) / len : 0;
 }

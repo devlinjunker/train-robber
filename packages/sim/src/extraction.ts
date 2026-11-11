@@ -10,7 +10,7 @@ import { terrainAt, type WorldMap } from './world/map';
 import { laneTarget, mountCheck, playerSide } from './world/mount';
 import { avoids, cellCentre, cellOf, findPath, lineClear, pathGrid } from './world/path';
 import type { HorseIntent } from './world/riding';
-import { carPosesOf, onMapRange, routeOf, trainLengthOf, trainSpeed } from './world/trains';
+import { carPosesOf, onMapRange, routeOf, trainLengthOf, trainSpeedNow } from './world/trains';
 import { carSpacing } from './world/cars';
 import { trackAt } from './world/track';
 import { endRun, horseOf, reject, setPhase, type RunCtx } from './run';
@@ -60,7 +60,7 @@ export function horseStart(ctx: RunCtx, p: PlayerState, trainId: string, side: T
   const { state, map, config } = ctx;
   const train = state.world.trains.find((t) => t.id === trainId)!;
   const { route } = routeOf(map, config, train);
-  const closing = Math.max(1, config.values.horse.maxSpeed - trainSpeed(config, train.type));
+  const closing = Math.max(1, config.values.horse.maxSpeed - trainSpeedNow(map, config, train));
   const cars = carPosesOf(state, map, config, trainId);
   const f = parseCarFrame(p.placement.frame);
   let ahead = 0;
@@ -83,7 +83,7 @@ export function horseStart(ctx: RunCtx, p: PlayerState, trainId: string, side: T
  * the other side of the car sends it there. After the pace window, wait out the cooldown.
  */
 export function whistle(ctx: RunCtx, p: PlayerState): void {
-  const { state, config } = ctx;
+  const { state, map, config } = ctx;
   const run = state.run;
   const side = playerSide(state, config, p);
   if (!run || !run.players[p.id] || (run.phase !== 'aboard' && run.phase !== 'extracting') || !side) return reject(ctx, p.id, 'whistle', 'not aboard');
@@ -101,7 +101,7 @@ export function whistle(ctx: RunCtx, p: PlayerState): void {
   const delaySec = lo + next01(ctx, 'horse') * (hi - lo);
   const start = horseStart(ctx, p, run.trainId, side, delaySec);
   const h = horseOf(state, p);
-  const trainV = trainSpeed(config, state.world.trains.find((t) => t.id === run.trainId)!.type);
+  const trainV = trainSpeedNow(map, config, state.world.trains.find((t) => t.id === run.trainId)!);
   Object.assign(h, { x: start.x, y: start.y, hx: start.hx, hy: start.hy, speed: trainV, cruiseTarget: trainV, stunTicks: 0, mode: 'physical' as const });
   call.whistles += 1;
   Object.assign(call, { state: 'approaching', side, ticks: 0, whistleTick: state.tick, delaySec, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0 });
@@ -136,7 +136,7 @@ export function horseIntent(ctx: RunCtx): (p: PlayerState, h: HorseState) => Hor
     const train = state.world.trains.find((t) => t.id === run.trainId);
     if (!train) return null;
     const cars = carPosesOf(state, map, config, train.id);
-    const trainV = trainSpeed(config, train.type);
+    const trainV = trainSpeedNow(map, config, train);
     const max = config.values.horse.maxSpeed;
     if (call.state === 'leaving' || call.state === 'away') {
       // Run off away from the track: out from the nearest car, and back from it. After the pace
