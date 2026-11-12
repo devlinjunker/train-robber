@@ -52,7 +52,8 @@ export function initialTrains(state: GameState, map: WorldMap, config: SimConfig
     if (!route) throw new Error(`train ${mix.mailTrain} runs on route ${mail.route}, which map ${map.id} does not have`);
     slots = Array.from({ length: mix.trainCount }, (_, i) => ({ type: mix.mailTrain, route: mail.route, d: (route.length * i) / mix.trainCount }));
   }
-  const blanks = Math.min(slots.length - 1, Math.round(slots.length * mix.blankShare));
+  // `all-mail` means no blank trains whatever blankShare says (`?set=trainMix.mode=all-mail` keeps the preset's 0.5).
+  const blanks = mix.mode === 'all-mail' ? 0 : Math.min(slots.length - 1, Math.round(slots.length * mix.blankShare));
   const order = slots.map((_, i) => i);
   for (let i = order.length - 1; i > 0; i--) {
     const j = nextInt(state.rng, 'schedule', i + 1);

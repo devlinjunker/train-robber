@@ -6,8 +6,9 @@
 import { MapDefSchema, SceneryDefSchema, resolveMapGen, type MapDef, type ResolvedConfig, type SceneryDef } from '@train-robber/config';
 import { generateLine, generateMap, GENERATED_MAP_ID, LINE_MAP_ID } from '@train-robber/mapgen';
 import mapGenDefaults from '@train-robber/content/base/map-gen.json';
+import { DEFAULT_MAP } from './setup';
 
-export const DEFAULT_MAP = 'alpha-flats';
+export { DEFAULT_MAP };
 
 type Loader = () => Promise<unknown>;
 const builtMaps = import.meta.glob('../../../packages/content/base/maps/*.json', { import: 'default' }) as Record<string, Loader>;

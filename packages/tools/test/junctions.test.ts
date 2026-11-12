@@ -106,7 +106,7 @@ describe('segments and services in build-maps', () => {
  * is longer than this map's 120-tile shared segment, so it could never pick a branch.
  */
 function watch(map: MapDef, seed: string, ticks: number) {
-  const config = loadConfig({ preset: 'alpha-default', overrides: { trains: { 'mail-express': { carCount: 2 } } } });
+  const config = loadConfig({ preset: 'alpha-default', overrides: { trains: { 'mail-express': { carCount: 2 }, blank: { carCount: 3 } } } });
   const sim = createSim({ config, map, seed, playerIds: [1] });
   let closest = Infinity, jump = 0;
   const switches: string[] = [];

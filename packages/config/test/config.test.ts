@@ -190,6 +190,24 @@ describe('presets that build on others', () => {
     expect(r.values.loot.densityScale).toBe(4);
     expect(r.values.health.max).toBe(80);
   });
+  it('pick per map with mapVariants, unless a preset further down picks the group or the URL does', () => {
+    const c = content({
+      presets: [
+        { file: 'presets/p.json', data: { schemaVersion: 1, id: 'p', variants: { boardingFailure: 'time-and-damage' }, mapVariants: { flats: { boardingFailure: 'time-only' } } } },
+        { file: 'presets/keeps.json', data: { schemaVersion: 1, id: 'keeps', extends: 'p', variants: {} } },
+        { file: 'presets/own.json', data: { schemaVersion: 1, id: 'own', extends: 'p', variants: { boardingFailure: 'time-and-damage' } } },
+      ],
+    });
+    const l = loadContent(c);
+    expect(resolveConfig(l, { preset: 'p' }).variants.boardingFailure).toBe('time-and-damage');
+    expect(resolveConfig(l, { preset: 'p', map: 'other' }).variants.boardingFailure).toBe('time-and-damage');
+    expect(resolveConfig(l, { preset: 'p', map: 'flats' }).variants.boardingFailure).toBe('time-only');
+    expect(resolveConfig(l, { preset: 'keeps', map: 'flats' }).variants.boardingFailure).toBe('time-only');
+    expect(resolveConfig(l, { preset: 'own', map: 'flats' }).variants.boardingFailure).toBe('time-and-damage');
+    expect(resolveConfig(l, { preset: 'p', map: 'flats', variants: { boardingFailure: 'time-and-damage' } }).variants.boardingFailure).toBe('time-and-damage');
+    const bad = content({ presets: [{ file: 'presets/p.json', data: { schemaVersion: 1, id: 'p', variants: { boardingFailure: 'time-only' }, mapVariants: { flats: { boardingFailure: 'nope' } } } }] });
+    expect(() => loadContent(bad)).toThrow(/presets\/p.json at mapVariants.flats.boardingFailure: unknown variant boardingFailure:nope/);
+  });
   it('lose to URL variants and overrides', () => {
     const r = resolveConfig(loadContent(withChild({ values: { countdown: { scale: 4 } } })), {
       preset: 'child', variants: { boardingFailure: 'time-and-damage' }, overrides: { countdown: { scale: 1.5 } },
