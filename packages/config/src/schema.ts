@@ -103,6 +103,21 @@ export const GameSchema = z.object({
     trainsPerDay: z.number().int().min(0),
     /** Days a life lasts: when the last one ends alive (making camp, or dusk), the outlaw rides off with a poster of their own. 0: no end but death. */
     days: z.number().int().min(0),
+    /**
+     * Tickets out of the territory (Devlin, 2026-11-12), cheapest first (a list: set it in a preset).
+     * At camp, T buys one with banked cash and the outlaw rides off alive: each is an ending of its
+     * own, with its name stamped on the poster. Empty: no way out but death (or `days`).
+     */
+    tickets: z.array(z.object({
+      /** Recorded on the poster and in the endings a save has reached. */
+      id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes'),
+      /** Shown when buying, e.g. "Slip away quietly". */
+      name: z.string().min(1),
+      /** Stamped across the poster, e.g. "SLIPPED AWAY". */
+      stamp: z.string().min(1),
+      /** Dollars off the bank. */
+      price: z.number().min(0),
+    }).strict()),
     /** Each new outlaw gets a new map seed (host). False keeps the same seed for every life, for A/B testing. */
     seedPerLife: z.boolean(),
     /** With `permadeath`, the day number, health and trains this day survive a page reload (host), so a reload is not a free heal. */

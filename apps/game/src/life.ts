@@ -92,18 +92,22 @@ export function lifeEvent(life: LifeRecord, e: SimEvent): LifeRecord {
 }
 
 /** The poster for a life that just ended (`LifeEnded`). */
-export function posterFor(life: LifeRecord, e: Extract<SimEvent, { type: 'LifeEnded' }>, how: { cause: string; place: string }, score: ScoreConfig, meta: { endedAt: string; preset: string; gameVersion: string }): Poster {
+export function posterFor(life: LifeRecord, e: Extract<SimEvent, { type: 'LifeEnded' }>, how: { cause: string; place: string }, score: ScoreConfig, meta: { endedAt: string; preset: string; gameVersion: string; tickets?: readonly { id: string; name: string; stamp: string }[] }): Poster {
   const cash = lifeCash(life, e.persistent.lifetimeEarned);
   const died = e.cause === 'died';
+  const t = e.ticket ? meta.tickets?.find((x) => x.id === e.ticket) : undefined;
+  const ticket = e.ticket ? { id: e.ticket, name: t?.name ?? e.ticket, stamp: t?.stamp ?? 'RODE OFF' } : undefined;
   return {
     lifeId: life.id, name: life.name, nickname: life.nickname, face: life.face, ending: e.cause,
     reward: lifeScore(cash, life.robberies, e.days, score), cash, robberies: life.robberies, bestHaul: life.bestHaul,
     days: e.days, maxWanted: Math.max(life.maxWanted, e.persistent.wantedLevel),
-    cause: died ? how.cause : 'rode off alive', place: how.place,
+    cause: died ? how.cause : ticket ? `bought a ticket out: ${ticket.name}` : 'rode off alive', place: how.place, ...(ticket ? { ticket } : {}),
     endedAt: meta.endedAt, seed: life.seed, startedAt: life.startedAt, preset: meta.preset, gameVersion: meta.gameVersion,
   };
 }
 
 /** The wall keeps this many posters, newest first. */
 export const POSTER_WALL_SIZE = 200;
+/** The endings a save has reached (ticket ids, for unlocks later), with this poster's added. */
+export const addEnding = (endings: readonly string[], p: Poster): string[] => p.ticket && !endings.includes(p.ticket.id) ? [...endings, p.ticket.id] : [...endings];
 export const addPoster = (wall: readonly Poster[], p: Poster): Poster[] => [p, ...wall].slice(0, POSTER_WALL_SIZE);

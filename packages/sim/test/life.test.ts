@@ -7,7 +7,9 @@ import { testConfig, testMap } from './fixtures';
 const SPAWN = { x: 116, y: 22 };
 const map = testMap(undefined, SPAWN);
 const base = testConfig();
-const withLife = (life: SimConfig['values']['life'], more: Partial<SimConfig['values']> = {}): SimConfig => ({ ...base, values: { ...base.values, life, ...more } });
+type Life = SimConfig['values']['life'];
+const withLife = (life: Omit<Life, 'tickets'> & Partial<Pick<Life, 'tickets'>>, more: Partial<SimConfig['values']> = {}): SimConfig => ({ ...base, values: { ...base.values, life: { tickets: [], ...life }, ...more } });
+const TICKETS = [{ id: 'slip-away', name: 'Slip away', price: 200 }, { id: 'legend', name: 'Legend', price: 1000 }];
 
 /** Camping allowed anywhere, at once: no distance from the line, no train sight, a one-tick hold. */
 const CAMP_ANYWHERE = { ...base.values.bank, atCamp: true, campHoldTicks: 1, campDistanceTiles: 0, campDistancePerWantedTiles: 0, trainSightTiles: 0, coverMinTiles: 0 };
@@ -131,6 +133,31 @@ describe('life', () => {
     const ev = step(sim);
     expect(ev.find((e) => e.type === 'SaddlebagLost')).toMatchObject({ value: 80 });
     expect(me(sim).saddlebag.value).toBe(0);
+  });
+
+  it('a ticket bought at camp spends the bank and rides off alive with that ending', () => {
+    const sim = setup(withLife({ mode: 'permadeath', trainsPerDay: 0, days: 0, tickets: TICKETS }, { bank: CAMP_ANYWHERE }));
+    // Not at camp yet: refused.
+    let ev = step(sim, { type: 'buyTicket', ticket: 'slip-away' });
+    expect(ev.find((e) => e.type === 'CommandRejected')).toMatchObject({ command: 'buyTicket', reason: 'not at camp' });
+    me(sim).campHeld = true;
+    step(sim);
+    expect(me(sim).campedAt).not.toBeNull();
+    ev = step(sim, { type: 'buyTicket', ticket: 'legend' });
+    expect(ev.find((e) => e.type === 'CommandRejected')).toMatchObject({ reason: 'cannot afford' });
+    ev = step(sim, { type: 'buyTicket', ticket: 'nope' });
+    expect(ev.find((e) => e.type === 'CommandRejected')).toMatchObject({ reason: 'no such ticket' });
+    ev = step(sim, { type: 'buyTicket', ticket: 'slip-away' });
+    expect(ev.find((e) => e.type === 'PersistentChanged')).toMatchObject({ outcome: 'ticket', before: { bank: 300 }, after: { bank: 100, lifetimeEarned: 500 } });
+    expect(ev.find((e) => e.type === 'LifeEnded')).toMatchObject({ cause: 'rodeOff', ticket: 'slip-away', persistent: { bank: 100, lifetimeEarned: 500 } });
+    expect(S(sim).persistent).toEqual({ wantedLevel: 0, bank: 0, lifetimeEarned: 500 });
+    expect(me(sim)).toMatchObject({ day: 1, campedAt: null });
+  });
+
+  it('practice never buys a ticket', () => {
+    const sim = setup(withLife({ mode: 'permadeath', trainsPerDay: 0, days: 0, tickets: TICKETS }, { bank: CAMP_ANYWHERE, wanted: { ...base.values.wanted, forceLevel: 1 } }));
+    me(sim).campedAt = { x: 0, y: 0 };
+    expect(step(sim, { type: 'buyTicket', ticket: 'slip-away' }).find((e) => e.type === 'CommandRejected')).toMatchObject({ reason: 'practice' });
   });
 
   it('a resumed day starts where it was left, with health kept within 1 to max', () => {

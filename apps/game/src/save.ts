@@ -46,6 +46,11 @@ export interface SaveData {
   life: LifeRecord;
   /** Every finished life, newest first (at most POSTER_WALL_SIZE). */
   posters: Poster[];
+  /**
+   * Every ending (ticket out, `life.tickets` id) any outlaw on this save has reached, in the order
+   * first reached. Kept for later unlocks for the next outlaw; nothing reads it yet.
+   */
+  endings: string[];
 }
 
 /** Why a load started fresh, for the notice the player sees. */
@@ -71,7 +76,7 @@ export type KeyValueStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'
 /** A random save id, short enough to show on the Playtests page. */
 export const newSaveId = (): string => Math.random().toString(36).slice(2, 10);
 
-export const emptySave = (saveId: string, life: LifeRecord): SaveData => ({ version: SAVE_VERSION, saveId, persistent: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, leaderboard: [], life, posters: [] });
+export const emptySave = (saveId: string, life: LifeRecord): SaveData => ({ version: SAVE_VERSION, saveId, persistent: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, leaderboard: [], life, posters: [], endings: [] });
 
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
@@ -82,7 +87,7 @@ const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isF
 const MIGRATIONS: Record<number, (raw: Record<string, unknown>) => Record<string, unknown>> = {
   0: (raw) => ({ version: 1, persistent: { wantedLevel: raw.wantedLevel, bank: raw.bank, lifetimeEarned: raw.lifetimeEarned }, leaderboard: [] }),
   // Version 2 (roguelite life): the save so far becomes the first outlaw's life, made on load.
-  1: (raw) => ({ ...raw, version: 2, life: null, posters: [] }),
+  1: (raw) => ({ ...raw, version: 2, life: null, posters: [], endings: [] }),
 };
 
 const isStr = (v: unknown): v is string => typeof v === 'string';
@@ -125,7 +130,7 @@ export function parseSave(text: string): { data: Omit<SaveData, 'life'> & { life
   // A bad leaderboard row is dropped rather than losing the whole save.
   const leaderboard = board.filter((e): e is LeaderboardEntry => typeof e === 'object' && e !== null && isCount((e as LeaderboardEntry).score) && typeof (e as LeaderboardEntry).seed === 'string');
   const posters = Array.isArray(obj.posters) ? obj.posters.filter(isPoster).slice(0, POSTER_WALL_SIZE) : [];
-  return { data: { version: SAVE_VERSION, saveId: typeof obj.saveId === 'string' ? obj.saveId : '', persistent: { wantedLevel: p.wantedLevel, bank: p.bank, lifetimeEarned: p.lifetimeEarned }, leaderboard, life: parseLife(obj.life), posters } };
+  return { data: { version: SAVE_VERSION, saveId: typeof obj.saveId === 'string' ? obj.saveId : '', persistent: { wantedLevel: p.wantedLevel, bank: p.bank, lifetimeEarned: p.lifetimeEarned }, leaderboard, life: parseLife(obj.life), posters, endings: Array.isArray(obj.endings) ? obj.endings.filter(isStr) : [] } };
 }
 
 /** The best runs first, at most LEADERBOARD_SIZE; a run that banked nothing is not a score. */

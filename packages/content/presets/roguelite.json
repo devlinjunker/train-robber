@@ -3,5 +3,31 @@
   "id": "roguelite",
   "extends": "alpha-default",
   "variants": {},
-  "values": { "life": { "mode": "permadeath", "trainsPerDay": 0, "days": 5 } }
+  "values": {
+    "life": {
+      "mode": "permadeath",
+      "trainsPerDay": 0,
+      "days": 0,
+      "tickets": [
+        {
+          "id": "slip-away",
+          "name": "Slip away quietly",
+          "stamp": "SLIPPED AWAY",
+          "price": 1500
+        },
+        {
+          "id": "in-style",
+          "name": "Leave in style",
+          "stamp": "LEFT IN STYLE",
+          "price": 4000
+        },
+        {
+          "id": "legend",
+          "name": "Vanish as a legend",
+          "stamp": "VANISHED: A LEGEND",
+          "price": 10000
+        }
+      ]
+    }
+  }
 }

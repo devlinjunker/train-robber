@@ -13,7 +13,7 @@ import { getTester } from './tester';
 import { installLogDrop, replaySourceFromUrl } from './logDrop';
 import { bootReplay } from './replay';
 import { addToLeaderboard, LocalStorageStore, newSaveId, type KeyValueStorage, type LoadResult, type SaveData } from './save';
-import { addPoster, lifeCash, lifeEvent, lifeScore, newLife, posterFor } from './life';
+import { addEnding, addPoster, lifeCash, lifeEvent, lifeScore, newLife, posterFor } from './life';
 import { installLeaveNotes, leaveNotesEnabled, type LeaveNotes } from './leaveNotes';
 
 const MAX_CATCHUP = 5;
@@ -216,11 +216,11 @@ async function boot() {
   const lifeEnded = (e: Extract<SimEvent, { type: 'LifeEnded' }>, events: readonly SimEvent[]) => {
     const how = e.cause === 'died' ? client.describeDeath(events) : { cause: '', place: client.describePlace() };
     const now = new Date().toISOString();
-    const poster = posterFor(save.life, e, how, config.values.score, { endedAt: now, preset: config.preset, gameVersion: header.gameVersion });
+    const poster = posterFor(save.life, e, how, config.values.score, { endedAt: now, preset: config.preset, gameVersion: header.gameVersion, tickets: lifeCfg.tickets });
     endedLife = { id: save.life.id, name: fullName(save.life), score: poster.reward, ended: e.cause };
     // The next outlaw: a new seed per life (life.seedPerLife), cash counted from lifetime earned now.
     const next = newLife(newSaveId(), lifeCfg.seedPerLife ? newSaveId() : save.life.seed, e.persistent.lifetimeEarned, now);
-    save = { ...save, posters: addPoster(save.posters, poster), life: next, persistent: { ...sim.state.persistent } };
+    save = { ...save, posters: addPoster(save.posters, poster), endings: addEnding(save.endings, poster), life: next, persistent: { ...sim.state.persistent } };
     if (saving) void store.save(save);
     if (!config.values.poster.show) { client.notify(`${poster.name} ${e.cause === 'died' ? 'is dead' : 'rode off alive'}. A new outlaw rides: ${fullName(next)}`, 'info', 4000); return; }
     // A new seed needs a new map: reload into the next outlaw's life. The same seed rides on here.

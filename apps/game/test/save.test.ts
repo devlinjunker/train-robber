@@ -29,7 +29,7 @@ describe('LocalStorageStore', () => {
     expect(first.data.saveId).toMatch(/^id\d+$/);
     // The new save is written at once, so the next load keeps its id.
     expect((await s.load()).data.saveId).toBe(first.data.saveId);
-    const data: SaveData = { version: SAVE_VERSION, saveId: 'abc', persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)], life: { ...LIFE, robberies: 2, day: { day: 3, health: 40, trainsToday: 1 } }, posters: [] };
+    const data: SaveData = { version: SAVE_VERSION, saveId: 'abc', persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)], life: { ...LIFE, robberies: 2, day: { day: 3, health: 40, trainsToday: 1 } }, posters: [], endings: ['slip-away'] };
     await s.save(data);
     expect(JSON.parse(m.getItem(SAVE_KEY)!).version).toBe(SAVE_VERSION);
     expect(await s.load()).toEqual({ data });
@@ -40,7 +40,7 @@ describe('LocalStorageStore', () => {
     m.setItem(SAVE_KEY, JSON.stringify({ wantedLevel: 1, bank: 50, lifetimeEarned: 75 }));
     const r = await s.load();
     expect(r.problem).toBeUndefined();
-    expect(r.data).toEqual({ version: 2, saveId: r.data.saveId, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [], life: r.data.life, posters: [] });
+    expect(r.data).toEqual({ version: 2, saveId: r.data.saveId, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [], life: r.data.life, posters: [], endings: [] });
     // The old save becomes the first outlaw's life, which counts every dollar already earned.
     expect(r.data.life.earnedAtStart).toBe(0);
     // A save without an id gets one, kept from then on.
@@ -85,7 +85,7 @@ describe('LocalStorageStore', () => {
 
   it('reset backs up the old save and starts fresh', async () => {
     const { m, s } = store();
-    await s.save({ version: 2, saveId: 'old', persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [], life: LIFE, posters: [] });
+    await s.save({ version: 2, saveId: 'old', persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [], life: LIFE, posters: [], endings: [] });
     const key = await s.reset();
     expect(key).toBe(`${BACKUP_KEY_PREFIX}${NOW}`);
     expect(JSON.parse(m.getItem(key!)!).persistent.wantedLevel).toBe(4);
@@ -112,7 +112,7 @@ describe('save version 2 (roguelite life)', () => {
     m.setItem(SAVE_KEY, JSON.stringify({ version: 1, saveId: 'v1', persistent: { wantedLevel: 2, bank: 80, lifetimeEarned: 300 }, leaderboard: [entry(80)] }));
     const r = await s.load();
     expect(r.problem).toBeUndefined();
-    expect(r.data).toMatchObject({ version: 2, saveId: 'v1', persistent: { wantedLevel: 2, bank: 80, lifetimeEarned: 300 }, leaderboard: [entry(80)], posters: [] });
+    expect(r.data).toMatchObject({ version: 2, saveId: 'v1', persistent: { wantedLevel: 2, bank: 80, lifetimeEarned: 300 }, leaderboard: [entry(80)], posters: [], endings: [] });
     expect((await s.load()).data.life).toEqual(r.data.life);
   });
 

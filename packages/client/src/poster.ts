@@ -10,8 +10,10 @@ export interface PosterView {
   name: string;
   nickname: string;
   face: PosterFace;
-  /** `died`: DECEASED across it. `rodeOff`: the outlaw survived their last day. */
+  /** `died`: DECEASED across it. `rodeOff`: the outlaw got out alive (a ticket, or the last day of a `life.days` life). */
   ending: 'died' | 'rodeOff';
+  /** The ticket out they bought (`life.tickets`), whose stamp goes across the poster. */
+  ticket?: { id: string; name: string; stamp: string };
   /** The life score. */
   reward: number;
   /** Cash banked in the life. */
@@ -76,6 +78,8 @@ export function posterReward(v: number): string {
 }
 const money = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+/** What is stamped across a poster: DECEASED, the ticket's stamp, or RODE OFF. */
+export const posterStamp = (p: Pick<PosterView, 'ending' | 'ticket'>): string => p.ending === 'died' ? 'DECEASED' : p.ticket?.stamp ?? 'RODE OFF';
 export const fullName = (p: { name: string; nickname: string }) => p.nickname ? `“${p.nickname}” ${p.name}` : p.name;
 
 /** The face as an SVG woodcut: head, eyes, then whichever hat, beard, scar and bandana the seed picked. */
@@ -107,6 +111,54 @@ export function faceSvg(f: PosterFace): string {
     + '</g></svg>';
 }
 
+const TICKET_CSS = `
+.tr-tickets { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 2; width: min(380px, calc(100vw - 32px)); box-sizing: border-box;
+  background: #3b2a18; border: 1px solid #8a6a3a; color: #f1e3c0; padding: 12px 14px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; box-shadow: 0 6px 24px #0008; }
+.tr-tickets h2 { margin: 0 0 4px; font: 700 20px Georgia, serif; }
+.tr-tickets .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+.tr-tickets .row b { display: block; } .tr-tickets .muted { color: #cdb98a; font-size: 12px; }
+.tr-tickets button { font: 13px ui-monospace, Menlo, Consolas, monospace; padding: 4px 10px; cursor: pointer; white-space: nowrap; }
+`;
+
+/** The tickets out of the territory, bought at camp (T): each tier with its price, and Buy where the bank covers it. */
+export function createTicketPanel(parent: HTMLElement = document.body) {
+  const style = document.createElement('style');
+  style.textContent = TICKET_CSS;
+  document.head.appendChild(style);
+  const root = document.createElement('div');
+  root.className = 'tr-tickets';
+  root.style.display = 'none';
+  parent.appendChild(root);
+  const hide = () => { root.style.display = 'none'; root.innerHTML = ''; };
+  return {
+    show(tickets: readonly { id: string; name: string; stamp: string; price: number }[], bank: number, onBuy: (id: string) => void) {
+      root.innerHTML = `<h2>A ticket out of the territory</h2><div class="muted">Bank ${money(bank)}. Buying one ends this outlaw's life: they get out alive, and the ticket is stamped on their poster.</div>`;
+      for (const t of tickets) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `<div><b>${esc(t.name)}</b><span class="muted">${money(t.price)} · "${esc(t.stamp)}"</span></div>`;
+        const b = document.createElement('button');
+        b.textContent = bank >= t.price ? 'Buy' : `${money(t.price - bank)} short`;
+        b.disabled = bank < t.price;
+        b.addEventListener('click', (ev) => { (ev.currentTarget as HTMLButtonElement).blur(); hide(); onBuy(t.id); });
+        row.append(b);
+        root.append(row);
+      }
+      const close = document.createElement('div');
+      close.className = 'row';
+      close.innerHTML = '<span class="muted">T closes</span>';
+      const c = document.createElement('button');
+      c.textContent = 'Not yet';
+      c.addEventListener('click', (ev) => { (ev.currentTarget as HTMLButtonElement).blur(); hide(); });
+      close.append(c);
+      root.append(close);
+      root.style.display = '';
+    },
+    hide,
+    get open() { return root.style.display !== 'none'; },
+  };
+}
+
 export function createPosterPanel(opts: PosterPanelOptions, parent: HTMLElement = document.body) {
   const style = document.createElement('style');
   style.textContent = CSS;
@@ -124,7 +176,7 @@ export function createPosterPanel(opts: PosterPanelOptions, parent: HTMLElement 
   };
   const facts = (p: PosterView) => [
     `For: ${plural(p.robberies, 'train robbery').replace('robberys', 'robberies')}${p.bestHaul > 0 ? `, best haul ${money(p.bestHaul)}` : ''}`,
-    `${p.ending === 'died' ? 'Last seen' : 'Rode off'} ${esc(p.place)}${p.ending === 'died' ? `, ${esc(p.cause)}` : ''}`,
+    p.ending === 'died' ? `Last seen ${esc(p.place)}, ${esc(p.cause)}` : p.ticket ? `${esc(p.ticket.name)}, ${esc(p.place)}` : `Rode off ${esc(p.place)}`,
     `Rode ${plural(p.days, 'day')}, max wanted ${'★'.repeat(p.maxWanted)}${'☆'.repeat(Math.max(0, opts.maxWantedLevel - p.maxWanted))}`,
   ];
 
@@ -135,8 +187,8 @@ export function createPosterPanel(opts: PosterPanelOptions, parent: HTMLElement 
       const card = document.createElement('div');
       card.className = 'tr-poster';
       const dead = p.ending === 'died';
-      card.innerHTML = `<h1>WANTED</h1><div class="sub">${dead ? 'dead or alive' : 'alive'}</div>${faceSvg(p.face)}`
-        + `<div class="stamp${dead ? '' : ' alive'}">${dead ? 'DECEASED' : 'RODE OFF'}</div>`
+      card.innerHTML = `<h1>WANTED</h1><div class="sub">${dead ? 'dead or alive' : 'gone from the territory'}</div>${faceSvg(p.face)}`
+        + `<div class="stamp${dead ? '' : ' alive'}">${esc(posterStamp(p))}</div>`
         + `<div class="name">${esc(fullName(p))}</div>`
         + `<div class="reward">REWARD ${posterReward(p.reward)}</div>`
         + `<div class="facts">${facts(p).join('<br>')}</div>`
@@ -167,12 +219,12 @@ export function createPosterPanel(opts: PosterPanelOptions, parent: HTMLElement 
       if (posters.length === 0) {
         wall.insertAdjacentHTML('beforeend', '<div class="empty">No posters yet. When an outlaw dies or rides off, their poster goes up here.</div>');
       } else {
-        wall.insertAdjacentHTML('beforeend', `<table class="top"><tr><td colspan="4"><b>Top lives</b></td></tr>${top.map((p, i) => `<tr><td>#${i + 1}</td><td>${posterReward(p.reward)}</td><td>${esc(fullName(p))}</td><td>${p.ending === 'died' ? 'deceased' : 'rode off'}, ${plural(p.days, 'day')}</td></tr>`).join('')}</table>`);
+        wall.insertAdjacentHTML('beforeend', `<table class="top"><tr><td colspan="4"><b>Top lives</b></td></tr>${top.map((p, i) => `<tr><td>#${i + 1}</td><td>${posterReward(p.reward)}</td><td>${esc(fullName(p))}</td><td>${esc(posterStamp(p).toLowerCase())}, ${plural(p.days, 'day')}</td></tr>`).join('')}</table>`);
         const cards = document.createElement('div');
         cards.className = 'cards';
-        cards.innerHTML = posters.map((p) => `<div class="card${p === best ? ' best' : ''}">${p === best ? '<span class="tag best-tag">BEST</span>' : ''}<span class="tag${p.ending === 'died' ? '' : ' alive'}">${p.ending === 'died' ? 'DECEASED' : 'RODE OFF'}</span>`
+        cards.innerHTML = posters.map((p) => `<div class="card${p === best ? ' best' : ''}">${p === best ? '<span class="tag best-tag">BEST</span>' : ''}<span class="tag${p.ending === 'died' ? '' : ' alive'}">${esc(posterStamp(p))}</span>`
           + `<div class="w">WANTED</div>${faceSvg(p.face)}<div class="n">${esc(fullName(p))}</div><div class="r">${posterReward(p.reward)}</div>`
-          + `<div class="f">${plural(p.robberies, 'robbery').replace('robberys', 'robberies')} · ${plural(p.days, 'day')}<br>${p.ending === 'died' ? `${esc(p.cause)}, ${esc(p.place)}` : `rode off ${esc(p.place)}`}</div></div>`).join('');
+          + `<div class="f">${plural(p.robberies, 'robbery').replace('robberys', 'robberies')} · ${plural(p.days, 'day')}<br>${p.ending === 'died' ? `${esc(p.cause)}, ${esc(p.place)}` : `${esc(p.ticket?.name ?? 'rode off')}, ${esc(p.place)}`}</div></div>`).join('');
         wall.append(cards);
       }
       back.append(wall);

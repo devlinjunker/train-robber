@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SimEvent } from '@train-robber/sim';
-import { addPoster, lifeCash, lifeEvent, lifeScore, newLife, outlawFor, posterFor, POSTER_WALL_SIZE } from '../src/life';
+import { addEnding, addPoster, lifeCash, lifeEvent, lifeScore, newLife, outlawFor, posterFor, POSTER_WALL_SIZE } from '../src/life';
 
 const NOW = '2026-11-12T03:00:00.000Z';
 const SCORE = { cashWeight: 1, perRobbery: 0, perDay: 0 };
@@ -53,6 +53,15 @@ describe('posters', () => {
     expect(died).toMatchObject({ ending: 'died', reward: 600, cash: 600, robberies: 4, bestHaul: 220, days: 3, maxWanted: 3, cause: 'crushed under a train', place: 'near Town 2', name: life.name, lifeId: 'l' });
     const rode = posterFor(life, { type: 'LifeEnded', tick: 9, player: 1, cause: 'rodeOff', days: 3, persistent: { wantedLevel: 1, bank: 0, lifetimeEarned: 100 } }, { cause: '', place: 'near Town 1' }, SCORE, meta);
     expect(rode).toMatchObject({ ending: 'rodeOff', reward: 0, cause: 'rode off alive', maxWanted: 2 });
+  });
+
+  it('a ticket out stamps its tier on the poster and is recorded as an ending reached', () => {
+    const life = newLife('l', 's', 0, NOW);
+    const tickets = [{ id: 'in-style', name: 'Leave in style', stamp: 'LEFT IN STYLE' }];
+    const p = posterFor(life, { type: 'LifeEnded', tick: 9, player: 1, cause: 'rodeOff', days: 4, persistent: { wantedLevel: 2, bank: 100, lifetimeEarned: 4500 }, ticket: 'in-style' }, { cause: '', place: 'near Town 3' }, SCORE, { endedAt: NOW, preset: 'roguelite', gameVersion: 'v', tickets });
+    expect(p).toMatchObject({ ending: 'rodeOff', reward: 4500, cause: 'bought a ticket out: Leave in style', ticket: { id: 'in-style', name: 'Leave in style', stamp: 'LEFT IN STYLE' } });
+    expect(addEnding([], p)).toEqual(['in-style']);
+    expect(addEnding(['in-style'], p)).toEqual(['in-style']);
   });
 
   it('the wall keeps the newest first, at most POSTER_WALL_SIZE', () => {

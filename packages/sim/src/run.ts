@@ -250,9 +250,9 @@ const permadeath = (ctx: RunCtx): boolean => ctx.config.values.life.mode === 'pe
  * stood, then a new outlaw at the spawn on day 1 with bank 0 and wanted 0. Lifetime earned is the
  * player's total over every life, so it carries on (the host scores a life by how much it rose).
  */
-function endLife(ctx: RunCtx, p: PlayerState, cause: 'died' | 'rodeOff'): void {
+function endLife(ctx: RunCtx, p: PlayerState, cause: 'died' | 'rodeOff', ticket?: string): void {
   const { state } = ctx;
-  ctx.emit({ type: 'LifeEnded', tick: state.tick, player: p.id, cause, days: p.day, persistent: { ...state.persistent } });
+  ctx.emit({ type: 'LifeEnded', tick: state.tick, player: p.id, cause, days: p.day, persistent: { ...state.persistent }, ...(ticket ? { ticket } : {}) });
   state.persistent = { ...state.persistent, wantedLevel: 0, bank: 0 };
   p.saddlebag = emptySaddlebag();
   p.campedAt = null;
@@ -263,6 +263,27 @@ function endLife(ctx: RunCtx, p: PlayerState, cause: 'died' | 'rodeOff'): void {
   p.commitHold = null;
   p.commitTimer = null;
   ctx.emit({ type: 'DayStarted', tick: state.tick, player: p.id, day: p.day, health: p.health });
+}
+
+/**
+ * T at camp (Devlin, 2026-11-12): buy a ticket out of the territory. Each `life.tickets` tier is an
+ * ending of its own at a rising price; the price comes off the bank (lifetime earned, the life's
+ * score, does not drop) and the outlaw rides off alive. Practice never buys one.
+ */
+export function buyTicket(ctx: RunCtx, p: PlayerState, id: string): void {
+  const { state, config } = ctx;
+  const no = (why: 'practice' | 'no such ticket' | 'run active' | 'not at camp' | 'cannot afford') => reject(ctx, p.id, 'buyTicket', why);
+  if (isPractice(config)) return no('practice');
+  const ticket = config.values.life.tickets.find((t) => t.id === id);
+  if (!ticket) return no('no such ticket');
+  if (state.run) return no('run active');
+  if (!p.campedAt) return no('not at camp');
+  if (state.persistent.bank < ticket.price) return no('cannot afford');
+  const before = state.persistent;
+  const after = { ...before, bank: before.bank - ticket.price };
+  state.persistent = after;
+  ctx.emit({ type: 'PersistentChanged', tick: state.tick, outcome: 'ticket', before, after: { ...after } });
+  endLife(ctx, p, 'rodeOff', ticket.id);
 }
 
 /**

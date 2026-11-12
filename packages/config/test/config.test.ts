@@ -14,7 +14,7 @@ const base = {
     landing: { stumbleSec: 0.5, stumbleSpeedScale: 0.5, goodStumbleInTiles: 2 },
   },
   health: { max: 100, scope: 'day' },
-  life: { mode: 'day', trainsPerDay: 0, days: 0, seedPerLife: true, resumeOnReload: true },
+  life: { mode: 'day', trainsPerDay: 0, days: 0, tickets: [], seedPerLife: true, resumeOnReload: true },
   score: { cashWeight: 1, perRobbery: 0, perDay: 0 },
   poster: { show: true, nameSet: 'western' },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },

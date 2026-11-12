@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "life-permadeath",
   "title": "One outlaw's life (permadeath)",
-  "question": "From the life PR: with permadeath, three trains a day and a three-day life, does a death feel fair, do you start another life straight away, and does the poster make you care? Against today's endless days.",
+  "question": "From the life PR: with permadeath and a ticket out of the territory bought at camp (T, three tiers at $1,500 / $4,000 / $10,000), does a death feel fair, do you push for a bigger ticket or cash out early, and does the poster make you care? Against today's endless days.",
   "pr": 73,
   "base": {
     "map": "line"

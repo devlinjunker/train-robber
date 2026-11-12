@@ -26,6 +26,7 @@ import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
 import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
+import { createTicketPanel } from './poster';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -273,6 +274,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
     else if (a === 'toggleInventory') inventoryOpen = !inventoryOpen;
     else if (a === 'toggleMute') audio.muted = !audio.muted;
+    else if (a === 'tickets') openTickets();
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
@@ -333,6 +335,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const wantedCfg = config.values.wanted;
   // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
   let queued: Command[] = [];
+  // T at camp: the tickets out of the territory (roguelite life).
+  const ticketPanel = createTicketPanel();
+  const openTickets = () => {
+    if (ticketPanel.open) return ticketPanel.hide();
+    const tickets = config.values.life.tickets, p = sim.state.players[0]!;
+    if (replay || tickets.length === 0) return;
+    if (isPractice(config)) return show('Practice: no tickets out', 'warn', 2000);
+    if (sim.state.run) return show('Finish this robbery first: tickets are bought at camp', 'warn', 2000);
+    if (!p.campedAt) return show('Make camp first (hold C well off the line) to buy a ticket out', 'warn', 2500);
+    keyboard.release();
+    ticketPanel.show(tickets, sim.state.persistent.bank, (id) => { queued.push({ type: 'buyTicket', ticket: id }); });
+  };
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
   const summaryTracker = createSummaryTracker();
   const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
@@ -385,6 +399,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           : e.reason === 'moving' ? 'Stop the horse to make camp' : e.reason === 'already camped' ? 'You are already camped here: ride off to break camp'
             : e.reason === 'run active' ? 'Not with a train committed: Esc first' : e.reason === 'not mounted' ? 'Make camp from the horse' : 'Making camp is turned off', 'warn', 2500);
     }
+    else if (e.type === 'CommandRejected' && e.command === 'buyTicket') show(e.reason === 'not at camp' ? 'Make camp first to buy a ticket out' : e.reason === 'cannot afford' ? 'Not enough in the bank for that ticket' : `Ticket: ${e.reason}`, 'warn', 2000);
     else if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
@@ -913,7 +928,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // Making camp (stakes PR): off a run on the horse, whether you can camp here, and the hold's progress.
       const campHere = bankAtCamp && !s.run && physical ? campView(s, sim.map, config, player) : null;
       const campWhy = campHere ? campCheck(s, sim.map, config, player) : null;
-      const campHint = !campHere || player.campedAt ? '' : player.campHoldTicks > 0
+      const tickets = config.values.life.tickets;
+      const campHint = !campHere ? '' : player.campedAt ? (tickets.length && !isPractice(config) ? `At camp  ·  T: a ticket out of the territory (from $${tickets[0]!.price})` : '') : player.campHoldTicks > 0
         ? `Making camp... ${Math.round((player.campHoldTicks / Math.max(1, config.values.bank.campHoldTicks)) * 100)}%`
         : campWhy === 'too close to the line' ? `Too close to the line to camp (${Math.floor(campHere.distance)} of ${Math.ceil(campHere.need)} tiles${campHere.cover ? ', in cover' : ''})`
           : campWhy === 'train sees you' ? 'The train you robbed can see you'
