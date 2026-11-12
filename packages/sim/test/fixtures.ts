@@ -122,9 +122,9 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
-      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, lootBonusPerLevel: 0, payDown: { enabled: true, costPerLevel: 100 } },
-      // Banking at run end, as before the stakes PR; bank tests turn `atPlace` on.
-      bank: { atPlace: false, campRadiusTiles: 8, townReachTiles: 4, crashSpillShare: 0.25, crashSpillMinImpactTilesPerSec: 6, campEndsDay: false },
+      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, lootBonusPerLevel: 0 },
+      // Banking at run end, as before the stakes PR; bank tests turn `atCamp` on.
+      bank: { atCamp: false, campHoldTicks: 180, campStopSpeedTilesPerSec: 1, campLeaveTiles: 10, campDistanceTiles: 40, campDistancePerWantedTiles: 10, coverDistanceScale: 0.5, coverRadiusTiles: 3, coverMinTiles: 6, trainSightTiles: 40, crashSpillShare: 0.25, crashSpillMinImpactTilesPerSec: 6 },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
         cancelled: { bankRunLoot: false, wantedDelta: 0 },

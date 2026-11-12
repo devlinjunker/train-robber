@@ -13,7 +13,7 @@
       "id": "before",
       "name": "Before: bank on F, 15% throws, no bonus",
       "set": {
-        "bank.atPlace": false,
+        "bank.atCamp": false,
         "ai.thrownOffDamageFraction": 0.15,
         "wanted.lootBonusPerLevel": 0
       }

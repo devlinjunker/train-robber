@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
-import { loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
+import { bankSaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -224,12 +224,15 @@ function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean, cause: 'died' | 'ca
 }
 
 /**
- * Making camp (Devlin, 2026-11-12, stakes PR): banking at the camp with no run on ends the day there,
- * refilling health and starting the next day, as a death does but without the losses.
+ * Making camp where you are (Devlin, 2026-11-12, stakes PR; `campSystem` says when): the saddlebag
+ * banks, then the day ends there, refilling health and starting the next day, as a death does but
+ * without the losses. The rider stays at camp (`campedAt`) until they ride off or commit.
  */
 export function makeCamp(ctx: RunCtx, p: PlayerState): void {
   if (ctx.state.run) return;
+  bankSaddlebag(ctx, p);
   newDay(ctx, p, false, 'camp');
+  p.campedAt = { x: p.placement.x, y: p.placement.y };
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
@@ -251,12 +254,14 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
   const practice = isPractice(ctx.config);
   const before = state.persistent;
-  // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atPlace` it goes in
+  // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atCamp` it goes in
   // the saddlebag to bank at a camp or town instead of banking here.
   const multiplier = lootMultiplier(ctx.config, runWantedLevel(state, ctx.config));
-  const atPlace = ctx.config.values.bank.atPlace;
+  const atPlace = ctx.config.values.bank.atCamp;
   const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff, lootMultiplier: multiplier, atPlace }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
   if (result.stashed > 0) stash(p, result.stashed, run.players[p.id]?.carried.length ?? 0);
+  // The train you robbed must not see you make camp.
+  if (result.stashed > 0 || result.banked > 0) p.robbedTrain = run.trainId;
   const after = practice ? before : result.persistent;
   // What the robbery left behind: every item still in the train, searched or not.
   const left = run.loot.filter((l) => !l.taken);

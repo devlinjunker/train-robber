@@ -15,7 +15,7 @@ export interface RunSummary {
   wantedBonus?: number;
   /** The wanted bonus on the loot (`lootMultiplier`), 1 when absent. */
   lootMultiplier?: number;
-  /** `bank.atPlace` (stakes PR): loot the outcome would bank goes to the saddlebag (`stashed`) instead. */
+  /** `bank.atCamp` (stakes PR): loot the outcome would bank goes to the saddlebag (`stashed`) instead, banked when you make camp. */
   atPlace?: boolean;
 }
 
@@ -23,7 +23,7 @@ export interface OutcomeResult {
   persistent: PersistentState;
   /** The loot value that went into the bank and lifetime earned. */
   banked: number;
-  /** With `atPlace`: the loot value for the saddlebag instead (wanted bonus included), banked later at a place. */
+  /** With `atPlace`: the loot value for the saddlebag instead (wanted bonus included), banked later when you make camp. */
   stashed: number;
 }
 

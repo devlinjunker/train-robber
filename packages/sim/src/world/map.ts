@@ -29,8 +29,7 @@ export interface SimMap {
   towns?: readonly MapTown[];
 }
 
-/** `x`, `y` and `radiusTiles` (the clearing) are set on generated lines; a town with them is a bank place (stakes PR). */
-export interface MapTown { id: string; route: string; d: number; x?: number; y?: number; radiusTiles?: number }
+export interface MapTown { id: string; route: string; d: number }
 
 export interface MapTrain { type: string; route: string; d: number }
 
@@ -134,7 +133,7 @@ export function prepareMap(map: SimMap): WorldMap {
     trains: map.trains?.map((t) => ({ ...t })),
     playerSpawn: { ...map.markers.playerSpawn },
     openLine: map.openLine ? { ...map.openLine } : null,
-    towns: (map.towns ?? []).map(({ id, route, d, x, y, radiusTiles }) => ({ id, route, d, ...(x !== undefined && y !== undefined ? { x, y, radiusTiles: radiusTiles ?? 0 } : {}) })).sort((a, b) => a.d - b.d),
+    towns: (map.towns ?? []).map(({ id, route, d }) => ({ id, route, d })).sort((a, b) => a.d - b.d),
   };
 }
 
