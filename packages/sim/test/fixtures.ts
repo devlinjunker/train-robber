@@ -98,7 +98,7 @@ export const NO_OUTSIDE: Values['outside'] = {
 export const OUTSIDE: Values['outside'] = { ...NO_OUTSIDE, ledges: true, platformDepthTiles: 1, couplingGapTiles: 1, gangwayWidthTiles: 3, ledgeWidthTiles: 0.5, seeThroughDoorways: true, ledgeNoiseRadiusTiles: 1.5 };
 
 /** The G8 day clock off, with the shipped numbers, as base config ships it. */
-export const DAY_OFF: Values['day'] = { clock: false, lengthSec: 720, duskSec: 120, nightGraceSec: 60, nightLossShare: 0.5, lastTrain: { enabled: true, lootMult: 1.5, extraGuards: 1, startHeat: 10 } };
+export const DAY_OFF: Values['day'] = { clock: false, lengthSec: 720, duskSec: 120, nightGraceSec: 60, nightLossShare: 0.5, dawnHour: 6, nightfallHour: 20, lastTrain: { enabled: true, lootMult: 1.5, extraGuards: 1, startHeat: 10 } };
 
 export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: Partial<Omit<Values, 'horse'>> = {}): SimConfig {
   const rad = (120 * Math.PI) / 180 / 60, guardRad = (240 * Math.PI) / 180 / 60;

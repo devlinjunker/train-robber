@@ -1,7 +1,7 @@
 // G8 day clock: dusk marks the last train, nightfall stops new commits, a run on holds the clock,
 // and the grace to make camp ends the day with part of the saddlebag lost.
 import { describe, it, expect } from 'vitest';
-import { createSim, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
+import { createSim, timeOfDay, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
 import { DAY_OFF, testConfig, testMap } from './fixtures';
 
 const SPAWN = { x: 116, y: 22 };
@@ -102,6 +102,14 @@ describe('day clock', () => {
     me(sim).health = 0;
     step(sim);
     expect(me(sim)).toMatchObject({ day: 4, dayTicks: 1 });
+  });
+
+  it('the time of day runs from dawnHour to nightfallHour over the day', () => {
+    const cfg = withDay();
+    expect(timeOfDay(cfg, 0)).toBe(6 * 60);
+    expect(timeOfDay(cfg, 60)).toBe(13 * 60);
+    expect(timeOfDay(cfg, 120)).toBe(20 * 60);
+    expect(timeOfDay(cfg, 150)).toBe(20 * 60 + 210);
   });
 
   it('practice marks no last train', () => {

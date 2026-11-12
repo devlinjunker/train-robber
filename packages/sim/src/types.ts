@@ -593,7 +593,7 @@ export interface SimConfig {
      * of the saddlebag and the day ends where you are.
      */
     day: {
-      clock: boolean; lengthSec: number; duskSec: number; nightGraceSec: number; nightLossShare: number;
+      clock: boolean; lengthSec: number; duskSec: number; nightGraceSec: number; nightLossShare: number; dawnHour: number; nightfallHour: number;
       lastTrain: { enabled: boolean; lootMult: number; extraGuards: number; startHeat: number };
     };
     /**

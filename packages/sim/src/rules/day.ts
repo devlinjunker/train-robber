@@ -27,6 +27,11 @@ export interface DayClock {
   graceLeftSec: number | null;
   /** 0 at dawn to 1 at nightfall, for a sun bar. */
   daylight: number;
+  /**
+   * The time of day in game minutes after midnight: `day.dawnHour` at dawn to `day.nightfallHour` at
+   * nightfall, at the same rate on into the night. For the HUD clock and, later, timetables and tips.
+   */
+  minutes: number;
 }
 
 const ticks = (config: SimConfig, sec: number) => Math.max(0, Math.round(sec * config.values.sim.tickRateHz));
@@ -46,6 +51,13 @@ export function isNight(config: SimConfig, p: PlayerState): boolean {
   return dayClockOn(config) && p.dayTicks >= dayMarks(config).nightfall;
 }
 
+/** Game minutes after midnight `ticks` into the day: dawnHour at 0, nightfallHour at nightfall, the same rate after. */
+export function timeOfDay(config: SimConfig, ticks: number): number {
+  const d = config.values.day;
+  const perTick = ((d.nightfallHour - d.dawnHour) * 60) / dayMarks(config).nightfall;
+  return d.dawnHour * 60 + ticks * perTick;
+}
+
 /** The clock as the HUD shows it. */
 export function dayClock(config: SimConfig, p: PlayerState): DayClock {
   const m = dayMarks(config);
@@ -57,6 +69,7 @@ export function dayClock(config: SimConfig, p: PlayerState): DayClock {
     toNightfallSec: Math.max(0, (m.nightfall - t) / hz),
     graceLeftSec: phase === 'night' ? Math.max(0, (m.graceEnd - t) / hz) : null,
     daylight: Math.min(1, t / m.nightfall),
+    minutes: timeOfDay(config, t),
   };
 }
 

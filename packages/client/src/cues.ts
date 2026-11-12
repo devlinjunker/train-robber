@@ -80,6 +80,13 @@ export function dayLabel(life: { trainsPerDay: number; days: number }, p: { day:
 /** m:ss for the sun bar. */
 const clockText = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
+/** A clock face reading for game minutes after midnight, to the nearest 5 minutes: `2:40 PM`. */
+export function clockFace(minutes: number): string {
+  const m = (Math.round(minutes / 5) * 5) % (24 * 60);
+  const h = Math.floor(m / 60), mm = m % 60;
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(mm).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
 /**
  * G8: the sun bar beside health, from the sim's day clock. By day it counts down to dusk; at dusk to
  * nightfall, with a warm wash rising to `DUSK_TINT`; at night it counts the grace to make camp (held
@@ -87,9 +94,14 @@ const clockText = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); retu
  */
 export const DUSK_TINT = 0.35, NIGHT_TINT = 0.6;
 export function sunView(
-  clock: { phase: 'day' | 'dusk' | 'night'; toNightfallSec: number; graceLeftSec: number | null; daylight: number },
+  clock: { phase: 'day' | 'dusk' | 'night'; toNightfallSec: number; graceLeftSec: number | null; daylight: number; minutes: number },
   duskSec: number, onRun: boolean,
-): { phase: 'day' | 'dusk' | 'night'; share: number; text: string; tint: number } {
+): { phase: 'day' | 'dusk' | 'night'; share: number; text: string; tint: number; time: string } {
+  const time = clockFace(clock.minutes);
+  return { ...sunParts(clock, duskSec, onRun), time };
+}
+
+function sunParts(clock: { phase: 'day' | 'dusk' | 'night'; toNightfallSec: number; graceLeftSec: number | null; daylight: number }, duskSec: number, onRun: boolean): { phase: 'day' | 'dusk' | 'night'; share: number; text: string; tint: number } {
   const share = 1 - clock.daylight;
   if (clock.phase === 'day') return { phase: 'day', share, text: `${clockText(clock.toNightfallSec - duskSec)} to dusk`, tint: 0 };
   if (clock.phase === 'dusk') {

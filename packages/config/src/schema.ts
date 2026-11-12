@@ -141,6 +141,10 @@ export const GameSchema = z.object({
     nightGraceSec: z.number().min(0),
     /** Share of the saddlebag's value (and items, rounded up) lost when the grace runs out. */
     nightLossShare: fraction,
+    /** The HUD clock's hour at dawn (24 h): the day's `lengthSec` maps onto dawnHour to nightfallHour, for timetables and train tips. */
+    dawnHour: z.number().min(0).max(24),
+    /** The clock's hour at nightfall (24 h), after dawnHour. */
+    nightfallHour: z.number().min(0).max(30),
     /** The last train at dusk: richer and better guarded, tied to the loot multiplier and heat, not the wanted level. */
     lastTrain: z.object({
       /** Mark one at dusk. */
