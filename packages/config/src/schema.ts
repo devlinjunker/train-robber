@@ -592,6 +592,8 @@ export const GameSchema = z.object({
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({
+    /** guards variant group: false puts no guards on any train, for testing the train without them (on when absent). */
+    guardsEnabled: z.boolean().optional(),
     /** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off the train. */
     guardCatch: z.enum(['heat-only', 'thrown-off']),
     /** Walking a patrol route, and going back to it or to the post. */

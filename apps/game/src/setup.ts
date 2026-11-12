@@ -11,8 +11,10 @@ import carTemplates from '@train-robber/content/base/car-templates.json';
 import schemaSource from '../../../packages/config/src/schema.ts?raw';
 
 const DEFAULT_PRESET = 'alpha-default';
-/** The map a URL without ?map= plays (map.ts re-exports it). */
-export const DEFAULT_MAP = 'alpha-flats';
+/** The map a URL without ?map= plays (map.ts re-exports it): the open line (Devlin, 2026-11-12). Experiments and PR links name alpha-flats to test one mechanic. */
+export const DEFAULT_MAP = 'line';
+/** The map before the line was the default: logs that name no map were played on it. */
+export const LEGACY_MAP = 'alpha-flats';
 
 const files = (mods: Record<string, unknown>): ContentFile[] =>
   Object.entries(mods).sort(([a], [b]) => a.localeCompare(b)).map(([file, data]) => ({ file, data: (data as { default: unknown }).default }));

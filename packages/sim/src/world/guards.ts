@@ -42,6 +42,7 @@ export interface GuardCtx {
  * without it `perCar` counts the train's `carCount`.
  */
 export function guardCount(config: SimConfig, trainType: string, wantedLevel: number, guardedCars?: number): number {
+  if (config.values.ai.guardsEnabled === false) return 0;
   const def = config.values.trains[trainType];
   const perCar = Math.round((def?.guards?.perCar ?? 0) * (guardedCars ?? def?.carCount ?? 0));
   return Math.max(0, (def?.guards?.base ?? 0) + perCar + wantedGuardBonus(config, trainType, wantedLevel));

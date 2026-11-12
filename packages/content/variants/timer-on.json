@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "on",
+  "group": "timer",
+  "label": "Run countdown",
+  "help": "A run has its countdown and expires when it runs out.",
+  "question": "Test the train without the run timer?",
+  "patch": {}
+}

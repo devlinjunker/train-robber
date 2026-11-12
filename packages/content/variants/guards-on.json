@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "on",
+  "group": "guards",
+  "label": "Guards aboard",
+  "help": "Trains carry their guards as configured.",
+  "question": "Test the train without guards?",
+  "patch": {}
+}
