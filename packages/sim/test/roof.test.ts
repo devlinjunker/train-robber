@@ -344,6 +344,27 @@ describe("Devlin's PR #36 playtest notes", () => {
     expect(see(8)).toBe(false);
   });
 
+  it('a short jump onto the coupling alerts every guard in the car you land on, wherever they are in it (Devlin, PR #61)', () => {
+    for (const landedCar of [true, false]) {
+      const cfg = roofConfig({ guards: 1, roof: { fallAlert: { ...ROOF.fallAlert, landedCar } } });
+      const sim = at(cfg, 2.3, 2.5, 'roof');
+      // The coupling belongs to the car in front (the engine, car 0): its guard is at the far end.
+      Object.assign(S(sim).run!.guards[0]!, { car: 0, x: 1.5, y: 1.5, fx: -1, fy: 0, post: { car: 0, x: 1.5, y: 1.5, fx: -1, fy: 0 }, patrol: null });
+      const run = { type: 'move', x: 127, y: 0 } as const;
+      step(sim, run);
+      const ev = [...step(sim, run, { type: 'jump' }), ...steps(sim, 30)];
+      const landed = ofType(ev, 'RoofLanded');
+      expect(landed).toEqual([expect.objectContaining({ on: 'coupling', jumped: true })]);
+      const gd = S(sim).run!.guards[0]!;
+      if (landedCar) {
+        expect(ofType(ev, 'GuardStateChanged')[0]).toMatchObject({ to: 'suspicious', cause: 'noise' });
+        expect(gd.lastKnown).toMatchObject({ car: landed[0]!.car, roof: false });
+      } else {
+        expect(gd.state).toBe('unaware');
+      }
+    }
+  });
+
   it('falling off a roof alerts the guards nearby, who head for where you went over; off, they never notice', () => {
     for (const enabled of [true, false]) {
       const cfg = roofConfig({ guards: 1, roof: { fallAlert: { ...ROOF.fallAlert, enabled } } });

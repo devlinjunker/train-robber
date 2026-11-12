@@ -6,6 +6,9 @@
   "pr": 35,
   "base": {
     "preset": "fall-test",
+    "set": {
+      "trains.mail-express.guards.perCar": 0
+    },
     "map": "rock-cut"
   },
   "setups": [
@@ -33,5 +36,7 @@
     "lootCarried",
     "banked",
     "damage"
-  ]
+  ],
+  "status": "done",
+  "conclusion": "Half seems like a good compromise. Losing nothing definitely doesn't seem right. Losing everything seems too harsh"
 }

@@ -27,5 +27,7 @@
     "lootLost",
     "heat",
     "damage"
-  ]
+  ],
+  "status": "done",
+  "conclusion": "Yes it seems like the roof fall should alert guards, that is an interesting mechanic, it should alert all guards in the car that you land on though"
 }
