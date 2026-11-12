@@ -25,3 +25,4 @@ export * from './rules/outcome';
 export * from './rules/heat';
 export * from './replay';
 export * from './rules/bank';
+export * from './rules/day';

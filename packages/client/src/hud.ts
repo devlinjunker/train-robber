@@ -52,10 +52,25 @@ export interface HudState {
   lootTotal?: { title: string; detail: string } | null;
   /** Stakes PR: loot riding in the saddlebag and where to bank it; null hides it. */
   saddlebag?: { text: string } | null;
+  /**
+   * G8 day clock: `share` of daylight left, the text beside the sun bar, and `tint` (0 to 1) for the
+   * warm dusk to dark night wash over the screen; null hides both (clock off).
+   */
+  sun?: { phase: 'day' | 'dusk' | 'night'; share: number; text: string; tint: number } | null;
 }
 
 const CSS = `
 .tr-hud { position: fixed; inset: 0; pointer-events: none; font: 14px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #fff; }
+.tr-hud .daylight { position: absolute; inset: 0; opacity: 0; transition: background-color 2s linear; }
+.tr-hud .daylight.dusk { background: #ff7a2a; mix-blend-mode: multiply; }
+.tr-hud .daylight.night { background: #10204a; mix-blend-mode: multiply; }
+.tr-hud .sun { display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,.55); padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }
+.tr-hud .sun-bar { width: 90px; height: 8px; background: #222; border: 1px solid #fff6; border-radius: 3px; overflow: hidden; }
+.tr-hud .sun-bar > div { height: 100%; background: #ffd34d; }
+.tr-hud .sun.dusk { color: #ffb066; }
+.tr-hud .sun.dusk .sun-bar > div { background: #ff8a3d; }
+.tr-hud .sun.night { color: #9fb8ff; }
+.tr-hud .sun.night .sun-bar > div { background: #9fb8ff; }
 .tr-hud .top { position: absolute; top: 40px; right: 8px; display: flex; gap: 14px; align-items: center;
   background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 8px; }
 .tr-hud .phase { font-weight: 700; letter-spacing: .06em; }
@@ -151,12 +166,12 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   document.head.appendChild(style);
   const root = document.createElement('div');
   root.className = 'tr-hud';
-  root.innerHTML = `<div class="edge"></div><pre class="debug"></pre>
+  root.innerHTML = `<div class="daylight"></div><div class="edge"></div><pre class="debug"></pre>
     <div class="clock calm"><div class="clock-head"><span class="phase"></span><span class="wanted"></span><span class="bank"></span></div><div class="clock-row"><span class="clock-time"></span><div class="clock-bar"><div></div></div><span class="clock-rate"></span></div>
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="saddlebag"></div><div class="horse-call"></div></div>
+    <div class="side"><div class="sun"><span class="sun-icon">☀</span><span class="sun-text"></span><div class="sun-bar"><div></div></div></div><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="saddlebag"></div><div class="horse-call"></div></div>
     <div class="bottom"><div class="inv"></div><div class="ask"><div class="ask-title"></div><div class="ask-bar"><div></div></div><div class="ask-hint"></div></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
@@ -166,6 +181,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
     hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
   const wantedEl = q('.wanted'), bankEl = q('.bank'), bagEl = q('.saddlebag');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
+  const sunEl = q('.sun'), sunIcon = q('.sun-icon'), sunText = q('.sun-text'), sunFill = q<HTMLDivElement>('.sun-bar > div'), daylight = q<HTMLDivElement>('.daylight');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
   const heatRow = q('.heat-row'), heatLabel = q('.heat-label'), heatFill = q<HTMLDivElement>('.heat-bar > div'), heatNotices = q('.heat-notices'), edge = q('.edge');
@@ -192,6 +208,17 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         const pct = Math.max(0, Math.min(100, (s.health.now / s.health.max) * 100));
         bar.style.width = `${pct}%`;
         set(hpText, `${s.health.now}/${s.health.max}${s.health.label ? `  ${s.health.label}` : s.health.day !== undefined ? `  day ${s.health.day}` : ''}`);
+      }
+      sunEl.style.display = s.sun ? '' : 'none';
+      daylight.style.display = s.sun ? '' : 'none';
+      if (s.sun) {
+        setClass(sunEl, `sun ${s.sun.phase}`);
+        setClass(daylight, `daylight ${s.sun.phase === 'night' ? 'night' : 'dusk'}`);
+        set(sunIcon, s.sun.phase === 'night' ? '☾' : '☀');
+        set(sunText, s.sun.text);
+        sunFill.style.width = `${Math.round(Math.max(0, Math.min(1, s.sun.share)) * 100)}%`;
+        const op = (Math.round(Math.max(0, Math.min(1, s.sun.tint)) * 100) / 100).toString();
+        if (daylight.style.opacity !== op) daylight.style.opacity = op;
       }
       boostEl.style.display = s.boost ? '' : 'none';
       if (s.boost) {

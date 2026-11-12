@@ -462,7 +462,9 @@ export function isSearching(g: GuardState, config: SimConfig): boolean {
 export function generateGuards(state: GameState, config: SimConfig, train: TrainState): GuardState[] {
   const catalog = carCatalog(config);
   const guarded = train.cars.filter((id) => carTemplate(catalog, id).guardSpawns.length > 0).length;
-  const n = guardCount(config, train.type, runWantedLevel(state, config), guarded);
+  // G8: the day's last train carries `day.lastTrain.extraGuards` more.
+  const extra = train.lastTrain ? config.values.day.lastTrain.extraGuards : 0;
+  const n = guardCount(config, train.type, runWantedLevel(state, config), guarded) + extra;
   if (n <= 0) return [];
   const spawns: { car: number; spawn: ReturnType<typeof carTemplate>['guardSpawns'][number] }[] = [];
   train.cars.forEach((id, car) => { for (const spawn of carTemplate(catalog, id).guardSpawns) spawns.push({ car, spawn }); });

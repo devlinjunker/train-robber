@@ -98,7 +98,7 @@ function parseLife(v: unknown): LifeRecord | null {
   if (!isObj(v) || !isStr(v.id) || !v.id || !isStr(v.seed) || !isStr(v.name) || !isStr(v.nickname) || !isFace(v.face) || !isStr(v.startedAt)) return null;
   if (![v.earnedAtStart, v.robberies, v.bestHaul, v.maxWanted].every(isCount)) return null;
   const d = v.day;
-  const day = isObj(d) && isCount(d.day) && isCount(d.health) && isCount(d.trainsToday) ? { day: d.day, health: d.health, trainsToday: d.trainsToday } : null;
+  const day = isObj(d) && isCount(d.day) && isCount(d.health) && isCount(d.trainsToday) ? { day: d.day, health: d.health, trainsToday: d.trainsToday, ...(isCount(d.dayTicks) ? { dayTicks: d.dayTicks } : {}) } : null;
   return { ...(v as unknown as LifeRecord), day };
 }
 const isPoster = (v: unknown): v is Poster => isObj(v) && isStr(v.lifeId) && isStr(v.name) && isFace(v.face) && (v.ending === 'died' || v.ending === 'rodeOff') && isCount(v.reward) && isCount(v.days) && isStr(v.endedAt);

@@ -109,7 +109,7 @@ export type JumpRejection = 'too far' | 'no run' | 'stunned' | 'aboard' | 'doors
 export type MountRejection = 'no horse' | 'not at a door' | 'horse too far';
 /** Why a whistle was refused. */
 export type WhistleRejection = 'not aboard' | 'cooling down' | 'horse coming';
-export type CommitRejection = 'run active' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
+export type CommitRejection = 'run active' | 'nightfall' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a `switchTrain` was refused; `aboard` also covers a run that has ended. */
 export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no such train' | 'train taken' | 'doors closed' | 'out of range' | 'no train in range';
 /** Why a climb was refused. */
@@ -127,7 +127,7 @@ export type SimEvent =
   /** `countdownSec` is the run's whole countdown (null with `countdown.enabled` off). */
   /** `resumed`: the commit picked up a run cancelled in place on this train (clock, heat, health and meter carried over). */
   /** `wantedLevel` is the level the run uses; `practice` marks a run at `wanted.forceLevel`, which saves nothing (G9). */
-  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; day: number; resumed?: true; practice?: true }
+  | { type: 'RunStarted'; tick: number; player: PlayerId; runNumber: number; trainId: string; countdownSec: number | null; wantedLevel: number; day: number; resumed?: true; practice?: true; lastTrain?: true }
   | { type: 'RunPhaseChanged'; tick: number; player: PlayerId; from: RunPhase; to: RunPhase }
   /** The run's committed train changed; the run itself, its start tick and health carry on. */
   | { type: 'TrainSwitched'; tick: number; player: PlayerId; from: string; to: string }
@@ -148,7 +148,11 @@ export type SimEvent =
    * also ends `died`), `camp` when the rider banked at the camp with no run on (making camp:
    * `bank.campEndsDay`, stakes PR), `dusk` when the day's `life.trainsPerDay` runs have ended.
    */
-  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp' | 'dusk'; onRun: boolean }
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp' | 'dusk' | 'nightfall'; onRun: boolean }
+  /** G8 day clock: dusk began for this player (`day.duskSec` before nightfall); `lastTrain` names the train marked as the day's last, or null when none was free. */
+  | { type: 'DuskStarted'; tick: number; player: PlayerId; day: number; lastTrain: string | null }
+  /** G8 day clock: the light is gone. No new commits; a run on holds the clock until it ends, then `graceSec` to make camp. */
+  | { type: 'Nightfall'; tick: number; player: PlayerId; day: number; onRun: boolean; graceSec: number }
   /**
    * The outlaw's life ended (`life`): `died` under `permadeath`, `rodeOff` when the last day of a
    * `life.days` life ended alive (making camp or dusk), or the outlaw bought `ticket` out of the
@@ -173,11 +177,11 @@ export type SimEvent =
    * to bank when you make camp; `cashOut` is then 0. `lootMultiplier` is the wanted bonus both include
    * (1 + `wanted.lootBonusPerLevel` x the run's wanted level).
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; stashed: number; lootMultiplier: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true }
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; stashed: number; lootMultiplier: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true; lastTrain?: true }
   /** Making camp banked the saddlebag: `value` from `items` items over `runs` robberies; `place` is `camp`. PersistentChanged (`banked`) follows. */
   | { type: 'LootBanked'; tick: number; player: PlayerId; value: number; items: number; runs: number; place: string; practice?: true }
   /** Saddlebag loot lost on the ride: a crash spilled a share of it, or dying lost all of it. */
-  | { type: 'SaddlebagLost'; tick: number; player: PlayerId; value: number; items: number; cause: 'crash' | 'died' }
+  | { type: 'SaddlebagLost'; tick: number; player: PlayerId; value: number; items: number; cause: 'crash' | 'died' | 'nightfall' }
 
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
@@ -298,7 +302,7 @@ export interface GuardState {
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
 
 /** Where a player's day stands, so a host can carry it across a page reload (`life.resumeOnReload`). */
-export interface DayState { day: number; health: number; trainsToday: number }
+export interface DayState { day: number; health: number; trainsToday: number; /** G8: ticks into the day (absent in older saves: dawn). */ dayTicks?: number }
 
 /** The boarding meter: a marker sweeping back and forth over a track from 0 to 1. */
 export interface MeterState {
@@ -473,6 +477,11 @@ export interface PlayerState {
   day: number;
   /** Runs ended this day that count toward `life.trainsPerDay` (not cancels, retries or practice). */
   trainsToday: number;
+  /**
+   * G8 day clock: ticks since dawn. Runs to nightfall (`day.lengthSec`), holds there while a run is on,
+   * then counts the grace to make camp. Only moves with `day.clock` on.
+   */
+  dayTicks: number;
   /** Ticks before another collision can hurt, so one crash costs health once. */
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
@@ -536,6 +545,8 @@ export interface TrainState {
   cars: string[];
   /** Set by a cash-out: no commit or switch to this train until `untilTick` (null: never). */
   doorsClosed?: { untilTick: number | null };
+  /** G8: marked at dusk as the day's last train (richer, better guarded); cleared when a robbery of it ends. */
+  lastTrain?: true;
 }
 
 export interface WorldState {
@@ -576,6 +587,15 @@ export interface SimConfig {
     health: { max: number; scope: 'day' | 'run' };
     /** One outlaw's life: `permadeath` makes dying end it; `trainsPerDay` runs make a day, `days` days a life (0: no limit). */
     life: { mode: 'day' | 'permadeath'; trainsPerDay: number; days: number; tickets: readonly { id: string; name: string; price: number }[] };
+    /**
+     * G8 day clock (2026-11-12): dawn to nightfall in `lengthSec`, the last `duskSec` of it dusk, when the
+     * day's last train is marked. After nightfall, `nightGraceSec` to make camp, or lose `nightLossShare`
+     * of the saddlebag and the day ends where you are.
+     */
+    day: {
+      clock: boolean; lengthSec: number; duskSec: number; nightGraceSec: number; nightLossShare: number;
+      lastTrain: { enabled: boolean; lootMult: number; extraGuards: number; startHeat: number };
+    };
     /**
      * Running into a train or blocked ground. On a run, from `minImpactTilesPerSec`; off a run (day
      * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.

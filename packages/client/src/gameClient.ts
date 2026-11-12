@@ -4,7 +4,7 @@ import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
-  isPractice, runWantedLevel, campCheck, campView,
+  isPractice, runWantedLevel, campCheck, campView, dayClock, dayClockOn,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -16,7 +16,7 @@ import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
 import { createScreenOverlay, type DistanceCue, type MeterView, type TownPointer, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
-import { collisionNotice, dayLabel, deathCause, mapTitle, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
+import { collisionNotice, dayLabel, sunView, deathCause, mapTitle, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { createAudioBus } from './audio';
 import { heatNotice, tickBucket } from './clock';
@@ -376,7 +376,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
   let caughtTook: Extract<SimEvent, { type: 'RunEnded' }> | null = null;
-  let dayEndedBy: 'died' | 'camp' | 'dusk' | 'life' = 'died';
+  let dayEndedBy: 'died' | 'camp' | 'dusk' | 'nightfall' | 'life' = 'died';
   // Stakes PR: a bank place's name on screen, and what a run's end did with the loot.
   const bonusText = (m: number) => m > 1 ? ` (x${Math.round(m * 100) / 100} wanted bonus)` : '';
   const tookText = (e: Extract<SimEvent, { type: 'RunEnded' }>) => e.stashed > 0
@@ -400,6 +400,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
             : e.reason === 'run active' ? 'Not with a train committed: Esc first' : e.reason === 'not mounted' ? 'Make camp from the horse' : 'Making camp is turned off', 'warn', 2500);
     }
     else if (e.type === 'CommandRejected' && e.command === 'buyTicket') show(e.reason === 'not at camp' ? 'Make camp first to buy a ticket out' : e.reason === 'cannot afford' ? 'Not enough in the bank for that ticket' : `Ticket: ${e.reason}`, 'warn', 2000);
+    else if (e.type === 'CommandRejected' && e.reason === 'nightfall') show('Night has fallen: no more trains today. Make camp', 'warn', 2000);
     else if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
@@ -449,13 +450,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       show(`Banked $${e.value} at camp${e.practice ? ' (practice: not saved)' : ''}`, 'good', 3500);
       lootTotal = { title: `BANKED: $${e.value}`, detail: `${e.items} item${e.items === 1 ? '' : 's'} from ${e.runs} robber${e.runs === 1 ? 'y' : 'ies'}`, at: performance.now() };
     }
-    else if (e.type === 'SaddlebagLost') show(e.cause === 'crash' ? `Crash! $${e.value} spilled from your saddlebag` : `Your saddlebag ($${e.value}) is lost with you`, 'bad', 2500);
+    else if (e.type === 'SaddlebagLost') show(e.cause === 'crash' ? `Crash! $${e.value} spilled from your saddlebag` : e.cause === 'nightfall' ? `Night caught you in the open: $${e.value} lost from your saddlebag` : `Your saddlebag ($${e.value}) is lost with you`, 'bad', 3000);
+    // G8 day clock: dusk brings out the day's last train; nightfall ends the trains for the day.
+    else if (e.type === 'DuskStarted') show(e.lastTrain ? 'Dusk: the last train of the day is out, marked LAST TRAIN. Richer, better guarded' : 'Dusk: the light is going', 'warn', 4000);
+    else if (e.type === 'Nightfall') show(e.onRun ? 'Nightfall: finish this robbery, then make camp' : `Nightfall: no more trains. Make camp within ${Math.round(e.graceSec)} s or lose part of your saddlebag`, 'warn', 4500);
     else if (e.type === 'DayEnded') dayEndedBy = e.cause;
     // A life that ended gets the host's poster or notice instead.
     else if (e.type === 'LifeEnded') dayEndedBy = 'life';
     else if (e.type === 'DayStarted') {
       const day = `Day ${e.day}${config.values.life.days > 0 ? ` of ${config.values.life.days}` : ''}`;
       if (dayEndedBy === 'camp') show(`Made camp: health refilled. ${day} starts`, 'good', 4000);
+      else if (dayEndedBy === 'nightfall') show(`The night passes where you stopped. Health refilled, ${day.toLowerCase()} starts at dawn`, 'info', 4000);
       else if (dayEndedBy === 'dusk') show(`Dusk: that was the day's last train. Health refilled, ${day.toLowerCase()} starts`, 'good', 4000);
       else if (dayEndedBy === 'died') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     }
@@ -773,7 +778,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           }
           if (!best) continue;
           const p = project(best.x, best.y, 1);
-          const shutText = doorsShutText(t);
+          const shutText = doorsShutText(t) ?? (t.lastTrain ? 'LAST TRAIN' : null);
           const shutAt = shutText ? project(best.x, best.y, iso ? 4.2 + isoWorld.groundZ(best.x, best.y) : 0) : null;
           trains.push({ ...(shutText && shutAt ? { shut: { text: shutText, x: shutAt.x, y: shutAt.y - (iso ? 0 : 24) } } : {}), id: t.id, name: trainName(t.id), ...(sim.map.network && showNames ? { service: t.route ?? config.values.trains[t.type]?.route } : {}), sx: p.x, sy: p.y, distanceTiles: distanceToTrain(s, sim.map, config, t.id, horseState.x, horseState.y), committed: s.run?.trainId === t.id, candidate: candidate === t.id });
         }
@@ -970,6 +975,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
+        sun: dayClockOn(config) ? sunView(dayClock(config, player), config.values.day.duskSec, !!s.run?.players[player.id]) : null,
         clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },

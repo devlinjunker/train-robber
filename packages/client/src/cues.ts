@@ -76,3 +76,25 @@ export function dayLabel(life: { trainsPerDay: number; days: number }, p: { day:
   const day = `day ${p.day}${life.days > 0 ? `/${life.days}` : ''}`;
   return life.trainsPerDay > 0 ? `${day} · train ${Math.min(p.trainsToday + 1, life.trainsPerDay)}/${life.trainsPerDay}` : day;
 }
+
+/** m:ss for the sun bar. */
+const clockText = (sec: number) => { const s = Math.max(0, Math.ceil(sec)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+/**
+ * G8: the sun bar beside health, from the sim's day clock. By day it counts down to dusk; at dusk to
+ * nightfall, with a warm wash rising to `DUSK_TINT`; at night it counts the grace to make camp (held
+ * while a robbery is on) under a dark wash.
+ */
+export const DUSK_TINT = 0.35, NIGHT_TINT = 0.6;
+export function sunView(
+  clock: { phase: 'day' | 'dusk' | 'night'; toNightfallSec: number; graceLeftSec: number | null; daylight: number },
+  duskSec: number, onRun: boolean,
+): { phase: 'day' | 'dusk' | 'night'; share: number; text: string; tint: number } {
+  const share = 1 - clock.daylight;
+  if (clock.phase === 'day') return { phase: 'day', share, text: `${clockText(clock.toNightfallSec - duskSec)} to dusk`, tint: 0 };
+  if (clock.phase === 'dusk') {
+    const into = duskSec > 0 ? 1 - clock.toNightfallSec / duskSec : 1;
+    return { phase: 'dusk', share, text: `dusk ${clockText(clock.toNightfallSec)}`, tint: DUSK_TINT * Math.max(0, Math.min(1, into)) };
+  }
+  return { phase: 'night', share: 0, text: onRun ? 'night: finish up' : `make camp ${clockText(clock.graceLeftSec ?? 0)}`, tint: NIGHT_TINT };
+}

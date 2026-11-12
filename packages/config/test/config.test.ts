@@ -15,6 +15,7 @@ const base = {
   },
   health: { max: 100, scope: 'day' },
   life: { mode: 'day', trainsPerDay: 0, days: 0, tickets: [], seedPerLife: true, resumeOnReload: true },
+  day: { clock: false, lengthSec: 720, duskSec: 120, nightGraceSec: 60, nightLossShare: 0.5, lastTrain: { enabled: true, lootMult: 1.5, extraGuards: 1, startHeat: 10 } },
   score: { cashWeight: 1, perRobbery: 0, perDay: 0 },
   poster: { show: true, nameSet: 'western' },
   collision: { damageFraction: 0.1, obstacleDamageFraction: 0.1, scrapeDamageFraction: 0.01, minImpactTilesPerSec: 2, fullImpactTilesPerSec: 8, offRunMinImpactTilesPerSec: 6, cooldownSec: 1 },

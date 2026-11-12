@@ -123,6 +123,36 @@ export const GameSchema = z.object({
     /** With `permadeath`, the day number, health and trains this day survive a page reload (host), so a reload is not a free heal. */
     resumeOnReload: z.boolean(),
   }).strict(),
+  /**
+   * G8 day clock (2026-11-12): a budget of daylight for a few trains. Dawn to nightfall takes
+   * `lengthSec`; the last `duskSec` of it is dusk, when one free train near you is marked as the day's
+   * last train. A run on at nightfall holds the clock until it ends (dusk waits for a robbery). After
+   * nightfall nothing new can be committed to, and you have `nightGraceSec` to make camp, or the day
+   * ends where you are and `nightLossShare` of the saddlebag is lost.
+   */
+  day: z.object({
+    /** Run the day clock. Off: days end only by making camp, dying or `life.trainsPerDay` (as before). */
+    clock: z.boolean(),
+    /** Dawn to nightfall, in seconds of play. */
+    lengthSec: positive,
+    /** How long dusk lasts before nightfall; the last train is marked when it starts. */
+    duskSec: z.number().min(0),
+    /** After nightfall (and after any run on then ends), seconds to make camp before the day ends anyway. */
+    nightGraceSec: z.number().min(0),
+    /** Share of the saddlebag's value (and items, rounded up) lost when the grace runs out. */
+    nightLossShare: fraction,
+    /** The last train at dusk: richer and better guarded, tied to the loot multiplier and heat, not the wanted level. */
+    lastTrain: z.object({
+      /** Mark one at dusk. */
+      enabled: z.boolean(),
+      /** Loot robbed off it is worth this much more (on top of the wanted bonus). */
+      lootMult: z.number().min(1),
+      /** Guards it gets beyond its usual count. */
+      extraGuards: z.number().int().min(0),
+      /** Heat a run on it starts with, so guards and the clock are sharper from the start. */
+      startHeat: z.number().min(0),
+    }).strict(),
+  }).strict(),
   /** The life score on the poster and the top lives (host): banked cash x `cashWeight`, plus `perRobbery` per robbery that took loot, plus `perDay` per day begun. */
   score: z.object({
     /** Points per dollar banked during the life. */

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "last-train",
+  "title": "How much the last train at dusk pays",
+  "question": "From the day clock PR: at dusk one train near you is marked as the last train, with an extra guard and some heat from the start. Is it worth the risk, and do you try for it or make camp?",
+  "pr": 74,
+  "base": {
+    "map": "line",
+    "preset": "short-day"
+  },
+  "setups": [
+    {
+      "id": "x125",
+      "name": "x1.25 loot",
+      "set": {
+        "day.lastTrain.lootMult": 1.25
+      }
+    },
+    {
+      "id": "x15",
+      "name": "x1.5 loot (default)"
+    },
+    {
+      "id": "x2",
+      "name": "x2 loot",
+      "set": {
+        "day.lastTrain.lootMult": 2
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLost",
+    "heat",
+    "damage"
+  ]
+}

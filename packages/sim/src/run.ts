@@ -3,6 +3,7 @@
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
 import { bankSaddlebag, emptySaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
+import { isNight } from './rules/day';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -63,6 +64,8 @@ export function autoCommitSystem(ctx: RunCtx): void {
   const { state, map, config } = ctx;
   const { timerSec, switchTimerSec, closeRangeTiles, rangeTiles, promptSwitch } = config.values.commit;
   for (const p of state.players) {
+    // G8: after nightfall the prompt offers nothing to commit to (a run on can still switch).
+    if (!state.run && isNight(config, p)) { p.commitTimer = null; continue; }
     // The train left by an in-place cancel only commits again on E until the rider leaves its range.
     if (p.commitHold && (state.run || !state.world.trains.some((t) => t.id === p.commitHold)
       || distanceToTrain(state, map, config, p.commitHold, horseOf(state, p).x, horseOf(state, p).y) > rangeTiles)) p.commitHold = null;
@@ -98,6 +101,8 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   const { state, map, config } = ctx;
   const h = horseOf(state, p);
   if (state.run) return reject(ctx, p.id, command, 'run active');
+  // G8: after nightfall the day's trains are done; make camp.
+  if (isNight(config, p)) return reject(ctx, p.id, command, 'nightfall');
   const id = trainId ?? commitTarget(state, map, config, h);
   if (!id) return reject(ctx, p.id, command, 'no train in range');
   const why = commitCheck(state, map, config, h, id);
@@ -122,10 +127,12 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   // then place its guards on the layouts' guard spawns.
   const loot = generateLoot(state, config, train);
   const guards = generateGuards(state, config, train);
+  // G8: the day's last train starts its run hotter.
+  const last = !!train.lastTrain;
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0, thrownOffs: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
+    heat: last ? Math.min(config.values.heat.maxHeat, config.values.day.lastTrain.startHeat) : 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
   const resume = p.resumeRuns.find((r) => r.trainId === id);
@@ -141,7 +148,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   ctx.emit({
     type: 'RunStarted', tick: state.tick, player: p.id, runNumber: state.runCount, trainId: id,
     countdownSec: cd.enabled ? state.run.countdownSec : null, wantedLevel: runWantedLevel(state, config), day: p.day, ...(resume ? { resumed: true as const } : {}),
-    ...(isPractice(config) ? { practice: true as const } : {}),
+    ...(isPractice(config) ? { practice: true as const } : {}), ...(last ? { lastTrain: true as const } : {}),
   });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
 }
@@ -240,6 +247,7 @@ function startDay(ctx: RunCtx, p: PlayerState, day: number): void {
   p.hitCooldownTicks = 0;
   p.lastHitDamage = 0;
   p.trainsToday = 0;
+  p.dayTicks = 0;
 }
 
 /** Dying ends the life rather than the day: `life.mode: permadeath`, outside practice. */
@@ -302,11 +310,11 @@ export function duskSystem(ctx: RunCtx): void {
 }
 
 /**
- * A day the outlaw lived through ends (`camp`: making camp; `dusk` after the day's trains; a day
- * clock later calls this too): `DayEnded`, then either the next day at full health
+ * A day the outlaw lived through ends (`camp`: making camp; `dusk` after the day's trains;
+ * `nightfall`: the G8 day clock's grace ran out): `DayEnded`, then either the next day at full health
  * where the rider is, or, after the last day of a `life.days` life, the outlaw rides off alive.
  */
-export function endDayAlive(ctx: RunCtx, p: PlayerState, cause: 'camp' | 'dusk'): boolean {
+export function endDayAlive(ctx: RunCtx, p: PlayerState, cause: 'camp' | 'dusk' | 'nightfall'): boolean {
   ctx.emit({ type: 'DayEnded', tick: ctx.state.tick, player: p.id, day: p.day, cause, onRun: !!ctx.state.run?.players[p.id] });
   const life = ctx.config.values.life;
   if (life.days > 0 && p.day >= life.days && !isPractice(ctx.config)) { endLife(ctx, p, 'rodeOff'); return true; }
@@ -339,7 +347,11 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   const before = state.persistent;
   // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atCamp` it goes in
   // the saddlebag to bank at a camp or town instead of banking here.
-  const multiplier = lootMultiplier(ctx.config, runWantedLevel(state, ctx.config));
+  // G8: the day's last train pays `day.lastTrain.lootMult` on top; a robbery that played out uses it up.
+  const lastTrainOf = state.world.trains.find((t) => t.id === run.trainId);
+  const last = !!lastTrainOf?.lastTrain;
+  const multiplier = lootMultiplier(ctx.config, runWantedLevel(state, ctx.config)) * (last ? ctx.config.values.day.lastTrain.lootMult : 1);
+  if (last && outcome !== 'cancelled') delete lastTrainOf!.lastTrain;
   const atPlace = ctx.config.values.bank.atCamp;
   const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff, lootMultiplier: multiplier, atPlace }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
   if (result.stashed > 0) stash(p, result.stashed, run.players[p.id]?.carried.length ?? 0);
@@ -354,7 +366,7 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
     stashed: result.stashed, lootMultiplier: multiplier, lootLeftValue, lootLeftItems: left.length,
-    ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
+    ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}), ...(last ? { lastTrain: true as const } : {}),
   });
   // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
   state.persistent = after;

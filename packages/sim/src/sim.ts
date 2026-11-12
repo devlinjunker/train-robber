@@ -7,12 +7,13 @@ import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, makeCamp, buyTicket, debugHeat, quickRetry, reject, runEndSystem, duskSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, makeCamp, buyTicket, endDayAlive, debugHeat, quickRetry, reject, runEndSystem, duskSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
 import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 import { climb, roofJump, roofSystem } from './world/roof';
 import { campCommand, campSystem, emptySaddlebag } from './rules/bank';
+import { dayClockSystem, nightLoss } from './rules/day';
 
 export interface SimOptions {
   config: SimConfig;
@@ -69,11 +70,11 @@ export function createSim(opts: SimOptions): Sim {
 }
 
 /** A player's starting day: day 1 at full health, or a resumed one with health kept within 1 to max. */
-function startDay(config: SimConfig, d: DayState | undefined): DayState {
+function startDay(config: SimConfig, d: DayState | undefined): Required<DayState> {
   const max = config.values.health.max;
-  if (!d) return { day: 1, health: max, trainsToday: 0 };
-  const whole = (v: number, lo: number) => (Number.isFinite(v) ? Math.max(lo, Math.floor(v)) : lo);
-  return { day: whole(d.day, 1), health: Math.min(max, Math.max(1, Number.isFinite(d.health) ? d.health : max)), trainsToday: whole(d.trainsToday, 0) };
+  if (!d) return { day: 1, health: max, trainsToday: 0, dayTicks: 0 };
+  const whole = (v: number | undefined, lo: number) => (v !== undefined && Number.isFinite(v) ? Math.max(lo, Math.floor(v)) : lo);
+  return { day: whole(d.day, 1), health: Math.min(max, Math.max(1, Number.isFinite(d.health) ? d.health : max)), trainsToday: whole(d.trainsToday, 0), dayTicks: whole(d.dayTicks, 0) };
 }
 
 export function restoreSim(state: GameState, config: SimConfig, simMap: SimMap): Sim {
@@ -182,7 +183,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       runEndSystem(ctx);
       // 12. Making camp: a rider who held C long enough where camping is allowed banks the saddlebag and ends the day (stakes PR).
       for (const p of campSystem(ctx)) makeCamp(ctx, p);
-      // 13. Dusk after the day's trains (`life.trainsPerDay`).
+      // 13. The G8 day clock (dusk, the last train, nightfall), then dusk after the day's trains (`life.trainsPerDay`).
+      for (const p of dayClockSystem(ctx)) { nightLoss(ctx, p); endDayAlive(ctx, p, 'nightfall'); }
       duskSystem(ctx);
       state.tick += 1;
       return { tick: state.tick, events };
