@@ -70,7 +70,7 @@ export interface RunRecord extends SessionMeta {
   /** Loot value banked by an extraction (after any spill); 0 for other outcomes, missing on records from before extraction. */
   cashOut?: number;
   /**
-   * Stakes PR (`bank.atPlace`): the loot value the run put in the saddlebag (wanted bonus included)
+   * Stakes PR (`bank.atCamp`): the loot value the run put in the saddlebag (wanted bonus included)
    * instead of banking it, and what became of it: banked at `bankedAt` (camp or a town id), or lost
    * when you died first. Missing on older records and on runs that stashed nothing.
    */

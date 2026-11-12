@@ -791,7 +791,7 @@ function saveCell(r: RunRecord): string {
 /** What the run put in the saddlebag (stakes PR) and what became of it. */
 function saddlebagCell(r: RunRecord): string {
   if (!r.stashed) return '–';
-  const fate = r.stashFate === 'banked' ? `banked at ${r.bankedAt === 'camp' ? 'camp' : r.bankedAt ?? '?'}` : r.stashFate === 'lost' ? 'lost (died first)' : 'not banked yet';
+  const fate = r.stashFate === 'banked' ? 'banked at camp' : r.stashFate === 'lost' ? 'lost (died first)' : 'not banked yet';
   return `${money(r.stashed)}, ${fate}`;
 }
 

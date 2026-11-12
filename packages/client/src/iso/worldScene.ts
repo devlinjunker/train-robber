@@ -176,8 +176,6 @@ export interface SceneContent {
     /** Whether a train's car has a ladder at that end (only some cars do, `ladderCarShare`); absent, every car. */
     hasLadder?(trainId: string, index: number, end: 'front' | 'rear'): boolean;
   };
-  /** Stakes PR (`bank.atPlace`): the camp round the player spawn where loot banks; none when absent. */
-  camp?: { radiusTiles: number } | null;
 }
 
 export interface WorldScene {
@@ -396,7 +394,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const rocks = createRocks(map, land, field, forest, region, sortedHooks, tiles);
   const mesas = createMesas(map, field, land, () => rocks.chunks, objects, lazyDraw, sortedHooks);
   const mud = createMud();
-  const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined, content.camp ?? null);
+  const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined);
   root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, towns, land, objects, zoneOverlay, markers, mesas.masks);
   overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));

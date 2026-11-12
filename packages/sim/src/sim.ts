@@ -12,7 +12,7 @@ import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 import { climb, roofJump, roofSystem } from './world/roof';
-import { bankSystem, emptySaddlebag, payWanted } from './rules/bank';
+import { campCommand, campSystem, emptySaddlebag } from './rules/bank';
 
 export interface SimOptions {
   config: SimConfig;
@@ -60,7 +60,7 @@ export function createSim(opts: SimOptions): Sim {
     world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
       id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false, commitTimer: null, commitHold: null, resumeRuns: [],
-      ...startDay(opts.config, i === 0 ? opts.dayAtStart : undefined), hitCooldownTicks: 0, lastHitDamage: 0, saddlebag: emptySaddlebag(),
+      ...startDay(opts.config, i === 0 ? opts.dayAtStart : undefined), hitCooldownTicks: 0, lastHitDamage: 0, saddlebag: emptySaddlebag(), campHeld: false, campHoldTicks: 0, campedAt: null, robbedTrain: null,
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
@@ -138,8 +138,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             boost(ctx, p);
           } else if (c.type === 'cashOut') {
             cashOut(ctx, p);
-          } else if (c.type === 'payWanted') {
-            payWanted(ctx, p);
+          } else if (c.type === 'camp') {
+            campCommand(ctx, p, c.held);
           } else if (c.type === 'crouch') {
             crouch(ctx, p, c.on);
           }
@@ -178,8 +178,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       lootSystem(ctx, drops);
       countdownSystem(ctx);
       runEndSystem(ctx);
-      // 12. Banking: a rider inside a camp or town banks the saddlebag (stakes PR).
-      for (const p of bankSystem(ctx)) makeCamp(ctx, p);
+      // 12. Making camp: a rider who held C long enough where camping is allowed banks the saddlebag and ends the day (stakes PR).
+      for (const p of campSystem(ctx)) makeCamp(ctx, p);
       // 13. Dusk after the day's trains (`life.trainsPerDay`).
       duskSystem(ctx);
       state.tick += 1;

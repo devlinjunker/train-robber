@@ -9,6 +9,9 @@ const map = testMap(undefined, SPAWN);
 const base = testConfig();
 const withLife = (life: SimConfig['values']['life'], more: Partial<SimConfig['values']> = {}): SimConfig => ({ ...base, values: { ...base.values, life, ...more } });
 
+/** Camping allowed anywhere, at once: no distance from the line, no train sight, a one-tick hold. */
+const CAMP_ANYWHERE = { ...base.values.bank, atCamp: true, campHoldTicks: 1, campDistanceTiles: 0, campDistancePerWantedTiles: 0, trainSightTiles: 0, coverMinTiles: 0 };
+
 const S = (sim: Sim) => sim.state as GameState;
 const me = (sim: Sim) => S(sim).players[0]!;
 const step = (sim: Sim, ...commands: Command[]) => sim.step([{ player: 1, commands }]).events;
@@ -97,23 +100,28 @@ describe('life', () => {
   });
 
   it('making camp on the last day of a life rides off alive, after banking the saddlebag', () => {
-    const bank = { ...base.values.bank, atPlace: true, campEndsDay: true };
+    const bank = CAMP_ANYWHERE;
     const sim = setup(withLife({ mode: 'permadeath', trainsPerDay: 0, days: 2 }, { bank }), { day: 2, health: 30, trainsToday: 0 });
     me(sim).saddlebag = { value: 120, items: 2, runs: 1 };
+    me(sim).campHeld = true;
     const ev = step(sim);
     expect(ev.map((e) => e.type).filter((t) => ['LootBanked', 'PersistentChanged', 'DayEnded', 'LifeEnded', 'DayStarted'].includes(t))).toEqual(['LootBanked', 'PersistentChanged', 'DayEnded', 'LifeEnded', 'DayStarted']);
     expect(ev.find((e) => e.type === 'DayEnded')).toMatchObject({ cause: 'camp', day: 2 });
     expect(ev.find((e) => e.type === 'LifeEnded')).toMatchObject({ cause: 'rodeOff', days: 2, persistent: { bank: 420, lifetimeEarned: 620 } });
     expect(S(sim).persistent).toEqual({ wantedLevel: 0, bank: 0, lifetimeEarned: 620 });
+    // The next outlaw starts at the spawn, not camped where the last one left.
+    expect(me(sim).campedAt).toBeNull();
   });
 
   it('making camp before the last day just starts the next day', () => {
-    const bank = { ...base.values.bank, atPlace: true, campEndsDay: true };
+    const bank = CAMP_ANYWHERE;
     const sim = setup(withLife({ mode: 'permadeath', trainsPerDay: 0, days: 3 }, { bank }), { day: 1, health: 30, trainsToday: 0 });
     me(sim).saddlebag = { value: 50, items: 1, runs: 1 };
+    me(sim).campHeld = true;
     const ev = step(sim);
     expect(ev.some((e) => e.type === 'LifeEnded')).toBe(false);
     expect(me(sim)).toMatchObject({ day: 2, health: 100 });
+    expect(me(sim).campedAt).not.toBeNull();
   });
 
   it('permadeath loses the saddlebag with the outlaw', () => {

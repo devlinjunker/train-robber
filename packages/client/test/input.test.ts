@@ -19,10 +19,12 @@ describe('Shift: boost riding; C: crouch aboard', () => {
     expect(actionFor('KeyH', true)).toBe('alarm');
   });
 
-  it('riding, Shift boosts and C does nothing; aboard, Shift only runs and C toggles crouch from what the sim says', () => {
+  it('riding, Shift boosts and holding C makes camp (stakes PR); aboard, Shift only runs and C toggles crouch from what the sim says', () => {
     const m = new InputMapper();
     expect(m.commands(snap(['ShiftLeft'], ['boost']), iso())).toEqual([{ type: 'boost' }]);
-    expect(m.commands(snap([], ['crouch']), iso())).toEqual([]);
+    expect(m.commands(snap(['KeyC'], ['crouch']), iso())).toEqual([{ type: 'camp', held: true }]);
+    expect(m.commands(snap(['KeyC']), iso())).toEqual([]);
+    expect(m.commands(snap([]), iso())).toEqual([{ type: 'camp', held: false }]);
     expect(m.commands(snap([], ['boost']), iso({ aboard: true }))).toEqual([]);
     expect(m.commands(snap([], ['crouch']), iso({ aboard: true }))).toEqual([{ type: 'crouch', on: true }]);
     expect(m.commands(snap([], ['crouch']), iso({ aboard: true, crouched: () => true }))).toEqual([{ type: 'crouch', on: false }]);

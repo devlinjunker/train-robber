@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
-import { emptySaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
+import { bankSaddlebag, emptySaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -221,12 +221,16 @@ function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
 }
 
 /**
- * Making camp (Devlin, 2026-11-12, stakes PR): banking at the camp with no run on ends the day there,
- * refilling health and starting the next day, as a death does but without the losses.
+ * Making camp where you are (Devlin, 2026-11-12, stakes PR; `campSystem` says when): the saddlebag
+ * banks, then the day ends there, refilling health and starting the next day, as a death does but
+ * without the losses. The rider stays at camp (`campedAt`) until they ride off or commit.
  */
 export function makeCamp(ctx: RunCtx, p: PlayerState): void {
   if (ctx.state.run) return;
-  endDayAlive(ctx, p, 'camp');
+  bankSaddlebag(ctx, p);
+  // The camp's last day can end the life (`life.days`): the next outlaw starts at the spawn, not here.
+  if (endDayAlive(ctx, p, 'camp')) return;
+  p.campedAt = { x: p.placement.x, y: p.placement.y };
 }
 
 /** Day `day` begins: full health, no hit cooldown, no trains yet. */
@@ -251,6 +255,8 @@ function endLife(ctx: RunCtx, p: PlayerState, cause: 'died' | 'rodeOff'): void {
   ctx.emit({ type: 'LifeEnded', tick: state.tick, player: p.id, cause, days: p.day, persistent: { ...state.persistent } });
   state.persistent = { ...state.persistent, wantedLevel: 0, bank: 0 };
   p.saddlebag = emptySaddlebag();
+  p.campedAt = null;
+  p.campHoldTicks = 0;
   resetToSpawn(ctx, p);
   startDay(ctx, p, 1);
   p.resumeRuns = [];
@@ -269,7 +275,8 @@ export function duskSystem(ctx: RunCtx): void {
   if (!(life.trainsPerDay > 0) || ctx.state.run) return;
   for (const p of ctx.state.players) {
     if (p.trainsToday < life.trainsPerDay) continue;
-    return endDayAlive(ctx, p, 'dusk');
+    endDayAlive(ctx, p, 'dusk');
+    return;
   }
 }
 
@@ -278,15 +285,16 @@ export function duskSystem(ctx: RunCtx): void {
  * clock later calls this too): `DayEnded`, then either the next day at full health
  * where the rider is, or, after the last day of a `life.days` life, the outlaw rides off alive.
  */
-export function endDayAlive(ctx: RunCtx, p: PlayerState, cause: 'camp' | 'dusk'): void {
+export function endDayAlive(ctx: RunCtx, p: PlayerState, cause: 'camp' | 'dusk'): boolean {
   ctx.emit({ type: 'DayEnded', tick: ctx.state.tick, player: p.id, day: p.day, cause, onRun: !!ctx.state.run?.players[p.id] });
   const life = ctx.config.values.life;
-  if (life.days > 0 && p.day >= life.days && !isPractice(ctx.config)) return endLife(ctx, p, 'rodeOff');
+  if (life.days > 0 && p.day >= life.days && !isPractice(ctx.config)) { endLife(ctx, p, 'rodeOff'); return true; }
   startDay(ctx, p, p.day + 1);
   p.resumeRuns = [];
   p.commitHold = null;
   p.commitTimer = null;
   ctx.emit({ type: 'DayStarted', tick: ctx.state.tick, player: p.id, day: p.day, health: p.health });
+  return false;
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
@@ -308,12 +316,14 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
   const practice = isPractice(ctx.config);
   const before = state.persistent;
-  // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atPlace` it goes in
+  // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atCamp` it goes in
   // the saddlebag to bank at a camp or town instead of banking here.
   const multiplier = lootMultiplier(ctx.config, runWantedLevel(state, ctx.config));
-  const atPlace = ctx.config.values.bank.atPlace;
+  const atPlace = ctx.config.values.bank.atCamp;
   const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff, lootMultiplier: multiplier, atPlace }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
   if (result.stashed > 0) stash(p, result.stashed, run.players[p.id]?.carried.length ?? 0);
+  // The train you robbed must not see you make camp.
+  if (result.stashed > 0 || result.banked > 0) p.robbedTrain = run.trainId;
   const after = practice ? before : result.persistent;
   // What the robbery left behind: every item still in the train, searched or not.
   const left = run.loot.filter((l) => !l.taken);

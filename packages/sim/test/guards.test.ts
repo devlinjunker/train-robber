@@ -2,7 +2,7 @@
 // and the horse boost.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, createSim, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
+  canSee, createSim, makeCamp, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
   type Command, type GameState, type GuardState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { asciiCar, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
@@ -565,9 +565,9 @@ describe('horse boost', () => {
 });
 
 // Stakes PR: loot banks at a place (camp or town), a guard's throw costs more health, and wanted pays.
-describe('stakes: banking at a place, throw-off health, wanted bonus', () => {
+describe('stakes: the saddlebag, throw-off health, wanted bonus', () => {
   const withBank = (cfg: SimConfig, bank: Partial<Values['bank']> = {}, wanted: Partial<Values['wanted']> = {}): SimConfig =>
-    ({ ...cfg, values: { ...cfg.values, bank: { ...cfg.values.bank, atPlace: true, campRadiusTiles: 1, ...bank }, wanted: { ...cfg.values.wanted, ...wanted } } });
+    ({ ...cfg, values: { ...cfg.values, bank: { ...cfg.values.bank, atCamp: true, ...bank }, wanted: { ...cfg.values.wanted, ...wanted } } });
   const thrown = (cfg: SimConfig) => {
     const sim = aboardAt(cfg, 5.5, 2.5);
     S(sim).persistent = { wantedLevel: 2, bank: 10, lifetimeEarned: 10 };
@@ -581,7 +581,7 @@ describe('stakes: banking at a place, throw-off health, wanted bonus', () => {
     const hit = ofType(steps(sim, 60 * 6), 'DamageDealt').find((e) => e.cause === 'thrownOff');
     expect(hit).toMatchObject({ amount: 40, health: 60 });
   });
-  it('caught puts what the guard left in the saddlebag, with the wanted bonus, and banks nothing until the camp', () => {
+  it('caught puts what the guard left in the saddlebag, with the wanted bonus, and banks nothing until you make camp', () => {
     const cfg = withBank(guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } }), {}, { lootBonusPerLevel: 0.5 });
     const sim = thrown(cfg);
     const ev = steps(sim, 60 * 6);
@@ -591,12 +591,13 @@ describe('stakes: banking at a place, throw-off health, wanted bonus', () => {
     expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'caught', after: { wantedLevel: 3, bank: 10, lifetimeEarned: 10 } });
     const p = S(sim).players[0]!;
     expect(p.saddlebag).toEqual({ value: value * 2, items: 2, runs: 1 });
-    // Ride into the camp: it banks there.
-    const h = S(sim).world.horses[0]!;
-    Object.assign(h, { x: SPAWN.x, y: SPAWN.y, speed: 0, cruiseTarget: 0 });
-    p.placement = { ...p.placement, x: SPAWN.x, y: SPAWN.y };
-    const bank = step(sim);
+    expect(p.robbedTrain).toBe(S(sim).world.trains[0]!.id);
+    // Make camp where you are: makeCamp banks it and ends the day.
+    const bank: SimEvent[] = [];
+    const ctx = { state: S(sim), map: sim.map, config: cfg, world: sim.world, emit: (e: SimEvent) => void bank.push(e) };
+    makeCamp(ctx, p);
     expect(ofType(bank, 'LootBanked')[0]).toMatchObject({ value: value * 2, items: 2, runs: 1, place: 'camp' });
+    expect(ofType(bank, 'DayEnded')[0]).toMatchObject({ cause: 'camp' });
     expect(ofType(bank, 'PersistentChanged')[0]).toMatchObject({ outcome: 'banked', before: { bank: 10, lifetimeEarned: 10 }, after: { wantedLevel: 3, bank: 10 + value * 2, lifetimeEarned: 10 + value * 2 } });
     expect(p.saddlebag.value).toBe(0);
   });
@@ -612,7 +613,6 @@ describe('stakes: banking at a place, throw-off health, wanted bonus', () => {
     p.health = 0;
     const died = step(sim);
     expect(ofType(died, 'SaddlebagLost')[0]).toMatchObject({ value, items: 2, cause: 'died' });
-    // Back at the spawn (the camp) with an empty saddlebag: nothing banks.
     expect(ofType(died, 'LootBanked')).toHaveLength(0);
     expect(S(sim).persistent.bank).toBe(10);
   });

@@ -124,7 +124,7 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
       const stashed = v.stashed ?? 0;
       const rows: [string, string][] = [
         ...(stashed > 0
-          ? [['In your saddlebag', `${money(stashed)}${bonus} <span class="muted">ride to camp or a town to bank it</span>`] as [string, string]]
+          ? [['In your saddlebag', `${money(stashed)}${bonus} <span class="muted">hold C to make camp, well off the line, to bank it</span>`] as [string, string]]
           : [['Loot banked', `${lootText}${v.banked > 0 ? bonus : ''}`] as [string, string]]),
         ...(v.lost > 0 ? [['Lost on the way', money(v.lost)] as [string, string]] : []),
         ['Items picked up', String(v.picked)],
