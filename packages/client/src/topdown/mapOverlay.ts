@@ -88,7 +88,7 @@ export function createStreamedOverlayGround(map: MapDef, tiles: MapTiles, scener
  * false leaves the zones, elevation and scenery out (a streamed map draws them near the view, see
  * createStreamedOverlayGround).
  */
-export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null, withGround = true): Container {
+export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null, withGround = true, camp: { radiusTiles: number } | null = null): Container {
   const layer = new Container();
   layer.label = 'map-overlay';
   const { cols, rows } = map.size;
@@ -116,6 +116,8 @@ export function drawMapOverlay(map: MapDef, scenery: SceneryDef | null = null, w
   markers.fill({ color: 0xb46bff });
   // Town spots on an open line: a ring round each clearing.
   for (const t of map.towns ?? []) markers.circle(t.x, t.y, t.radiusTiles).stroke({ width: 0.4, color: 0xe8d9a8, alpha: 0.8 });
+  // The camp where loot banks (stakes PR), round the player spawn.
+  if (camp) markers.circle(map.markers.playerSpawn.x, map.markers.playerSpawn.y, camp.radiusTiles).stroke({ width: 0.4, color: 0xffc857, alpha: 0.9 });
 
   // Junctions: a ring and the shared tangent, labelled with their id, as are segments at their middle.
   const junctions = new Graphics();

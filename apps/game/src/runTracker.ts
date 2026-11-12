@@ -69,6 +69,14 @@ export interface RunRecord extends SessionMeta {
   lootItems?: number;
   /** Loot value banked by an extraction (after any spill); 0 for other outcomes, missing on records from before extraction. */
   cashOut?: number;
+  /**
+   * Stakes PR (`bank.atPlace`): the loot value the run put in the saddlebag (wanted bonus included)
+   * instead of banking it, and what became of it: banked at `bankedAt` (camp or a town id), or lost
+   * when you died first. Missing on older records and on runs that stashed nothing.
+   */
+  stashed?: number;
+  stashFate?: 'banked' | 'lost';
+  bankedAt?: string;
   /** Whistles and mount jumps made; missing on records from before extraction. */
   whistles?: number;
   mountAttempts?: number;
@@ -93,7 +101,7 @@ export interface RunRecord extends SessionMeta {
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
+interface Open { stashed: number; runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
 
 export interface RunTracker {
   /**
@@ -117,6 +125,16 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
   let last: RunRecord | null = null;
   // The last run cancelled on each train, which a resumed commit to that train picks up.
   const cancelledOn = new Map<string, string>();
+  // Runs whose stash is still riding in the saddlebag, latest record by id: banking or dying settles them.
+  const unsettled = new Map<string, RunRecord>();
+  const settle = (fate: 'banked' | 'lost', place: string | undefined, ended: RunRecord[]) => {
+    for (const rec of unsettled.values()) {
+      const next: RunRecord = { ...rec, stashFate: fate, ...(place ? { bankedAt: place } : {}) };
+      if (last?.id === rec.id) last = next;
+      ended.push(next);
+    }
+    unsettled.clear();
+  };
 
   const build = (o: Open, outcome: TrackedOutcome, durationTicks: number, now: string): RunRecord => ({
     ...meta, id: `${meta.session}#${o.runNumber}`, runNumber: o.runNumber, trainId: o.trainId, startTick: o.startTick, startedAt: o.startedAt, endedAt: now,
@@ -125,7 +143,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
-    lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
+    lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, ...(o.stashed > 0 ? { stashed: o.stashed } : {}), whistles: o.whistles, mountAttempts: o.mounts,
     ...(o.lootLeftValue === undefined ? {} : { lootLeftValue: o.lootLeftValue, lootLeftItems: o.lootLeftItems }),
     lootLost: o.lootLost, wantedLevel: o.wantedLevel, ...(o.day !== undefined ? { day: o.day } : {}), practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
   });
@@ -144,12 +162,16 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         if (ev.type === 'PersistentChanged') {
           if (last && !open && last.wantedAfter === undefined) {
             last = { ...last, wantedAfter: ev.after.wantedLevel, bankAfter: ev.after.bank, lifetimeAfter: ev.after.lifetimeEarned, practice: last.practice || !!ev.practice };
+            if (unsettled.has(last.id)) unsettled.set(last.id, last);
             ended.push(last);
           }
           continue;
         }
+        // The saddlebag banked at a place, or was lost with you: mark every run it held.
+        if (ev.type === 'LootBanked') { settle('banked', ev.place, ended); continue; }
+        if (ev.type === 'SaddlebagLost' && ev.cause === 'died') { settle('lost', undefined, ended); continue; }
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
+          open = { stashed: 0, runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
             ...(ev.resumed && cancelledOn.has(ev.trainId) ? { resumedFrom: cancelledOn.get(ev.trainId)! } : {}) };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
@@ -168,9 +190,10 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         else if (ev.type === 'HorseWhistled' || ev.type === 'HorseSideChanged') open.whistles++;
         else if (ev.type === 'MountAttempt') open.mounts++;
         else if (ev.type === 'RunEnded') {
-          open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
+          open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut; open.stashed = ev.stashed ?? 0;
           if (ev.lootLeftValue !== undefined) { open.lootLeftValue = ev.lootLeftValue; open.lootLeftItems = ev.lootLeftItems; }
           const rec = close(open, ev.retry ? 'retry' : ev.outcome, ev.durationTicks, now);
+          if (rec.stashed) unsettled.set(rec.id, rec);
           if (ev.outcome === 'cancelled' && !ev.retry) cancelledOn.set(rec.trainId, rec.id); else cancelledOn.delete(rec.trainId);
           ended.push(rec);
         }
@@ -181,6 +204,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
       if (open) { open.notes.push({ t: tick, text }); return build(open, 'abandoned', tick - open.startTick, now); }
       if (!last) return null;
       last = { ...last, notes: [...last.notes, { t: tick, text }] };
+      if (unsettled.has(last.id)) unsettled.set(last.id, last);
       return last;
     },
     abandon(tick, now) {

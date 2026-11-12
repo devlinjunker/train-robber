@@ -454,7 +454,7 @@ async function main() {
       ['Setup (vs default)', diffLabel(r)], ['Preset', r.preset], ['Variants', Object.entries(r.variants).map(([g, id]) => `${g}:${id}`).join(' ')],
       ['?set= values', setupKey(r).split(' · set ')[1] ?? '–'],
       ['Outcome', r.outcome], ['Length', duration(r.durationSec)], ['Started', when(r.startedAt)],
-      ['Carried at end', loot(r.lootValue, r.lootItems)], ['Banked', money(r.cashOut)], ['Left on train', loot(r.lootLeftValue, r.lootLeftItems)], ['Lost on the way', money(r.lootLost)],
+      ['Carried at end', loot(r.lootValue, r.lootItems)], ['Banked', money(r.cashOut)], ['Saddlebag', saddlebagCell(r)], ['Left on train', loot(r.lootLeftValue, r.lootLeftItems)], ['Lost on the way', money(r.lootLost)],
       ['Wanted', r.wantedLevel === undefined ? '–' : r.practice ? `${r.wantedLevel} (practice: nothing saved)` : `${r.wantedLevel} at start, ${r.wantedAfter ?? '–'} after`],
       ['Bank after', r.practice ? '– (practice)' : money(r.bankAfter)], ['Lifetime earned after', r.practice ? '– (practice)' : money(r.lifetimeAfter)],
       ['Save', r.saveId ? `${r.saveId}${r.day !== undefined ? `, day ${r.day}` : ''}` : '–'], ['Resumes', r.resumedFrom ?? '–'],
@@ -785,6 +785,13 @@ function resumedCell(r: RunRecord): string {
 function saveCell(r: RunRecord): string {
   if (!r.saveId) return '';
   return `<div class="muted"><a href="#" data-save="${esc(r.saveId)}" title="Show only the runs on this save">save ${esc(r.saveId.slice(0, 6))}</a>${r.day !== undefined ? ` · day ${r.day}` : ''}</div>`;
+}
+
+/** What the run put in the saddlebag (stakes PR) and what became of it. */
+function saddlebagCell(r: RunRecord): string {
+  if (!r.stashed) return '–';
+  const fate = r.stashFate === 'banked' ? `banked at ${r.bankedAt === 'camp' ? 'camp' : r.bankedAt ?? '?'}` : r.stashFate === 'lost' ? 'lost (died first)' : 'not banked yet';
+  return `${money(r.stashed)}, ${fate}`;
 }
 
 /** The run's wanted level and what the outcome did to it: `1 → 2`, `3 practice`, or – before M5. */

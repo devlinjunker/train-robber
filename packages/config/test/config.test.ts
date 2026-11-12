@@ -24,7 +24,7 @@ const base = {
   ai: {
     guardCatch: 'heat-only', patrolSpeedTilesPerSec: 1.5, patrolPauseSec: 1.5, chaseSpeedTilesPerSec: 5, turnRateDegPerSec: 240,
     sight: { rangeTiles: 7, ledgeRangeTiles: 30, coneHalfAngleDeg: 40, crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: true, suspiciousApproach: true,
+    alertAfterSec: 1, calmSec: 4, alertCalmSec: 6, loseSightSec: 3, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, thrownOffDamageFraction: 0.35, fellLootShare: 0.5, suspiciousStepOutside: true, suspiciousApproach: true,
   },
   extraction: {
     arrivalDelaySec: [5, 20], paceWindowSec: 10, rewhistleCooldownSec: 5, laneOffsetTiles: 2, dropBackSec: 3, alongsideRangeTiles: 3, mountRangeTiles: 4,
@@ -50,7 +50,7 @@ const base = {
   verbs: { search: { searchTimeSec: 1.2, hiddenSearchTimeSec: 1.8, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
   hud: { showTrainNames: true, lootTotalSec: 4 },
   audio: { volume: 1, tickVolume: 1, tickEverySec: 30, finalCountdownSec: 30, finalTickEverySec: 1 },
-  wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
+  wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, lootBonusPerLevel: 0.25, payDown: { enabled: true, costPerLevel: 100 } },
   outcomePolicy: {
     died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
     cancelled: { bankRunLoot: false, wantedDelta: 0 },
@@ -59,6 +59,7 @@ const base = {
     cashedOut: { bankRunLoot: true, wantedDelta: 0 },
     caught: { bankRunLoot: true, wantedDelta: 0 },
   },
+  bank: { atPlace: true, campRadiusTiles: 8, townReachTiles: 4, crashSpillShare: 0.25, crashSpillMinImpactTilesPerSec: 6, campEndsDay: true },
   cashOut: { enabled: true, closeDoors: true, closeDoorsOnThrownOff: true, shutDoorsEndRun: true, doorsReopenSec: 0 },
 };
 

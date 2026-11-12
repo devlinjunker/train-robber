@@ -1,7 +1,8 @@
 // The run lifecycle (idle, approach, boarding, aboard, extracting, ended) and tick system 4, boarding.
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
-import { applyOutcome, isPractice, runWantedLevel } from './rules/outcome';
+import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
+import { loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -207,9 +208,11 @@ export function remount(state: GameState, p: PlayerState, x: number, y: number, 
  * the spawn). With `health.scope: run` the next commit would refill it anyway; the day still counts.
  * Saved runs from in-place cancels belong to the day that ended.
  */
-function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
+function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean, cause: 'died' | 'camp' = 'died'): void {
   const tick = ctx.state.tick;
-  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause: 'died', onRun });
+  // Whatever was riding in the saddlebag is lost with you (stakes PR).
+  if (cause === 'died') loseSaddlebag(ctx, p);
+  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause, onRun });
   p.day += 1;
   p.health = ctx.config.values.health.max;
   p.hitCooldownTicks = 0;
@@ -218,6 +221,15 @@ function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
   p.commitHold = null;
   p.commitTimer = null;
   ctx.emit({ type: 'DayStarted', tick, player: p.id, day: p.day, health: p.health });
+}
+
+/**
+ * Making camp (Devlin, 2026-11-12, stakes PR): banking at the camp with no run on ends the day there,
+ * refilling health and starting the next day, as a death does but without the losses.
+ */
+export function makeCamp(ctx: RunCtx, p: PlayerState): void {
+  if (ctx.state.run) return;
+  newDay(ctx, p, false, 'camp');
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
@@ -239,7 +251,12 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   // A `wanted.forceLevel` run is practice: it banks and saves nothing (G9).
   const practice = isPractice(ctx.config);
   const before = state.persistent;
-  const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
+  // Loot robbed at a higher wanted level is worth more (stakes PR); with `bank.atPlace` it goes in
+  // the saddlebag to bank at a camp or town instead of banking here.
+  const multiplier = lootMultiplier(ctx.config, runWantedLevel(state, ctx.config));
+  const atPlace = ctx.config.values.bank.atPlace;
+  const result = applyOutcome(before, outcome, { cashOut, wantedBonus: run.thrownOffs * ctx.config.values.wanted.perThrowOff, lootMultiplier: multiplier, atPlace }, ctx.config.values.outcomePolicy, ctx.config.values.wanted.maxLevel);
+  if (result.stashed > 0) stash(p, result.stashed, run.players[p.id]?.carried.length ?? 0);
   const after = practice ? before : result.persistent;
   // What the robbery left behind: every item still in the train, searched or not.
   const left = run.loot.filter((l) => !l.taken);
@@ -248,7 +265,7 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
     type: 'RunEnded', tick: state.tick, player: p.id, outcome, durationTicks: state.tick - run.startedTick,
     boardingAttempts: run.players[p.id]?.boardingAttempts ?? 0, retry,
     countdownLeftSec: ctx.config.values.countdown.enabled ? Math.round(run.countdownSec * 1000) / 1000 : null, heat: run.heat, cashOut: result.banked,
-    lootLeftValue, lootLeftItems: left.length,
+    stashed: result.stashed, lootMultiplier: multiplier, lootLeftValue, lootLeftItems: left.length,
     ...(endOfLine ? { endOfLine: true as const } : {}), ...(practice ? { practice: true as const } : {}),
   });
   // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
@@ -540,7 +557,9 @@ export function throwOff(ctx: RunCtx, p: PlayerState, guard: number | null, fall
   // The train shuts its doors behind you: cash out (F) or switch to another train.
   // A fall off a ledge leaves them open unless `outside.scrape.closeDoors` (Devlin, 2026-10-21).
   if (guard === null ? config.values.outside.scrape.closeDoors : config.values.cashOut.closeDoorsOnThrownOff) shutDoors(ctx, train);
-  const amount = config.values.health.max * b.failure.damageFraction;
+  // A guard's throw hurts more than a fall (stakes PR): `ai.thrownOffDamageFraction`, so a few of
+  // them can end the day.
+  const amount = config.values.health.max * (guard === null ? b.failure.damageFraction : config.values.ai.thrownOffDamageFraction);
   if (amount > 0) {
     p.health = Math.max(0, p.health - amount);
     ctx.emit({ type: 'DamageDealt', tick: state.tick, target: p.id, amount, health: p.health, cause });
@@ -655,6 +674,8 @@ export function collisionSystem(ctx: RunCtx, impacts: readonly Impact[]): void {
       type: 'DamageDealt', tick: state.tick, target: i.player, amount, health: p.health, cause: 'collision', against: i.target,
       kind: i.impact < c.minImpactTilesPerSec ? 'scrape' : 'crash', impact: i.impact,
     });
+    // A crash on the getaway spills some of the saddlebag (stakes PR); a scrape does not.
+    if (i.impact >= Math.max(c.minImpactTilesPerSec, config.values.bank.crashSpillMinImpactTilesPerSec)) spillSaddlebag(ctx, p);
   }
 }
 

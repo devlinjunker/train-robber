@@ -12,6 +12,10 @@ export interface RunSummaryView {
   heat: number;
   /** What the outcome banked (or, in practice, would have banked). */
   banked: number;
+  /** Stakes PR: what went into the saddlebag instead, to bank at a camp or town (0 when it banked here). */
+  stashed?: number;
+  /** The wanted bonus on the loot (1 + `wanted.lootBonusPerLevel` x the run's level). */
+  lootMultiplier?: number;
   /** Loot value lost on the way: thrown off, falls and mount spills. */
   lost: number;
   /** Items picked up during the run. */
@@ -66,7 +70,7 @@ export function createSummaryTracker() {
         ended = null;
         if (r.retry) return null;
         return {
-          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, banked: r.cashOut, lost, picked,
+          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, banked: r.cashOut, stashed: r.stashed, lootMultiplier: r.lootMultiplier, lost, picked,
           before: e.before, after: e.after, wantedLevel, practice: practice || !!e.practice, endOfLine: !!r.endOfLine,
         };
       }
@@ -116,8 +120,12 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
           : `${v.before.wantedLevel} → ${v.after.wantedLevel} <span class="up">${dWanted > 0 ? '+' : ''}${dWanted}</span>`;
       const lootText = v.banked > 0 ? (v.practice ? `${money(v.banked)} <span class="muted">(practice: not banked)</span>` : money(v.banked))
         : v.outcome === 'extracted' || v.outcome === 'cashedOut' ? '$0' : '$0 <span class="muted">(loot lost)</span>';
+      const bonus = (v.lootMultiplier ?? 1) > 1 ? ` <span class="muted">(x${Math.round((v.lootMultiplier ?? 1) * 100) / 100} wanted bonus)</span>` : '';
+      const stashed = v.stashed ?? 0;
       const rows: [string, string][] = [
-        ['Loot banked', lootText],
+        ...(stashed > 0
+          ? [['In your saddlebag', `${money(stashed)}${bonus} <span class="muted">ride to camp or a town to bank it</span>`] as [string, string]]
+          : [['Loot banked', `${lootText}${v.banked > 0 ? bonus : ''}`] as [string, string]]),
         ...(v.lost > 0 ? [['Lost on the way', money(v.lost)] as [string, string]] : []),
         ['Items picked up', String(v.picked)],
         ['Time', time],

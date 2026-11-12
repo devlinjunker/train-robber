@@ -65,7 +65,12 @@ export type Command =
    * ladder, climb onto that car's roof; on a roof by a ladder at its end, climb down to the platform.
    * Climbing takes `outside.roof.climbSec`. Space on the roof is the gap jump (`jump`).
    */
-  | { type: 'climb' };
+  | { type: 'climb' }
+  /**
+   * P on the horse at a bank place (camp or town, stakes PR): pay `wanted.payDown.costPerLevel` x the
+   * wanted level from the bank to drop one star.
+   */
+  | { type: 'payWanted' };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -73,6 +78,8 @@ export interface InputFrame { player: PlayerId; commands: Command[] }
 export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting' | 'ended';
 /** `caught`: a guard threw you off with nothing left to carry and the train shut its doors (Devlin, PR #46 playtest). */
 export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut' | 'caught';
+/** What changed the persistent state: a run's outcome, banking the saddlebag at a place, or paying wanted down (stakes PR). */
+export type PersistentCause = RunOutcome | 'banked' | 'paidWanted';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -105,7 +112,9 @@ export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no su
 /** Why a climb was refused. */
 export type ClimbRejection = 'no ladder' | 'busy';
 /** `on the roof`: a drop up on a roof, mid-jump or on a ladder. */
-export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
+export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out' | BankRejection;
+/** Why a `payWanted` was refused. */
+export type BankRejection = 'not at a bank' | 'not wanted' | 'cannot afford' | 'practice';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -129,9 +138,12 @@ export type SimEvent =
   | { type: 'DamageDealt'; tick: number; target: PlayerId; amount: number; health: number; cause: 'collision'; against: CollisionTarget; kind: 'crash' | 'scrape'; impact: number }
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
-  /** Health ran out (`health.scope: day`): the day ends; `onRun` when a run was on (it also ends `died`). */
-  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died'; onRun: boolean }
-  /** A new day at full health, back at the spawn. */
+  /**
+   * The day ends: health ran out (`died`; `onRun` when a run was on, which also ends `died`), or the
+   * rider banked at the camp with no run on (`camp`, making camp: `bank.campEndsDay`, stakes PR).
+   */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp'; onRun: boolean }
+  /** A new day at full health, at the spawn (after a death, or making camp there). */
   | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
@@ -142,7 +154,18 @@ export type SimEvent =
    * outcome would have banked, but nothing was saved (G9). `lootLeftValue` and `lootLeftItems` are
    * the loot still in the committed train when the run ended (hidden or not), for the Playtests page.
    */
-  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true }
+  /**
+   * `stashed` (stakes PR, `bank.atPlace`): the value that went into the saddlebag instead of the bank,
+   * to bank at a camp or town; `cashOut` is then 0. `lootMultiplier` is the wanted bonus both include
+   * (1 + `wanted.lootBonusPerLevel` x the run's wanted level).
+   */
+  | { type: 'RunEnded'; tick: number; player: PlayerId; outcome: RunOutcome; durationTicks: number; boardingAttempts: number; retry: boolean; countdownLeftSec: number | null; heat: number; cashOut: number; stashed: number; lootMultiplier: number; lootLeftValue: number; lootLeftItems: number; endOfLine?: true; practice?: true }
+  /** Riding into a bank place banked the saddlebag: `value` from `items` items over `runs` robberies; `place` is `camp` or a town id. PersistentChanged (`banked`) follows. */
+  | { type: 'LootBanked'; tick: number; player: PlayerId; value: number; items: number; runs: number; place: string; practice?: true }
+  /** Saddlebag loot lost on the ride: a crash spilled a share of it, or dying lost all of it. */
+  | { type: 'SaddlebagLost'; tick: number; player: PlayerId; value: number; items: number; cause: 'crash' | 'died' }
+  /** P at a bank place paid `cost` from the bank to drop the wanted level to `level`. PersistentChanged (`paidWanted`) follows. */
+  | { type: 'WantedPaidDown'; tick: number; player: PlayerId; cost: number; level: number; place: string }
   /**
    * A whistle placed the horse behind the train: `delaySec` was drawn from the horse stream, and the
    * horse starts delay x closing speed back from the player's place in the train (at least a few
@@ -165,7 +188,7 @@ export type SimEvent =
    * Emitted at every run end, changed or not (phase 2 M5): the host saves `after`. `outcome` is how
    * the run ended. `practice`: a `wanted.forceLevel` run, so `after` equals `before` and nothing is saved.
    */
-  | { type: 'PersistentChanged'; tick: number; outcome: RunOutcome; before: PersistentState; after: PersistentState; practice?: true }
+  | { type: 'PersistentChanged'; tick: number; outcome: PersistentCause; before: PersistentState; after: PersistentState; practice?: true }
   /** A search finished and the item was taken. `car` is the car index in the train, `loot` the loot id. */
   | { type: 'LootPickedUp'; tick: number; player: PlayerId; item: string; value: number; weight: number; car: number; loot: number }
   /** A search finished but taking the item would break a carry cap, so it stays. */
@@ -436,7 +459,15 @@ export interface PlayerState {
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
   lastHitDamage: number;
+  /**
+   * Loot got off a train but not yet banked (stakes PR, `bank.atPlace`): its value (wanted bonus
+   * included), item count and the robberies it came from. Riding into a camp or town banks it;
+   * dying loses it and crashes spill some. Not saved across a reload.
+   */
+  saddlebag: Saddlebag;
 }
+
+export interface Saddlebag { value: number; items: number; runs: number }
 
 export interface HorseState {
   id: number;
@@ -561,7 +592,9 @@ export interface SimConfig {
       boardingResistanceAt?: number | null;
     };
     /** Wanted level 0 to `maxLevel` (phase 2 M5). `forceLevel` set: practice runs at that level that save nothing. */
-    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number };
+    wanted: { maxLevel: number; guardBonus: readonly number[]; forceLevel?: number | null; perThrowOff: number; lootBonusPerLevel: number; payDown: { enabled: boolean; costPerLevel: number } };
+    /** Banking at a place (stakes PR): see `Saddlebag`. */
+    bank: { atPlace: boolean; campRadiusTiles: number; townReachTiles: number; crashSpillShare: number; crashSpillMinImpactTilesPerSec: number; campEndsDay: boolean };
     outcomePolicy: {
       died: { bankRunLoot: boolean; wantedDelta: number; bankLossFraction: number; reset: readonly ('wantedLevel' | 'bank' | 'lifetimeEarned' | 'upgrades')[] };
       cancelled: { bankRunLoot: boolean; wantedDelta: number };
@@ -613,6 +646,7 @@ export interface SimConfig {
       loseSightTicks: number;
       catchRangeTiles: number;
       thrownOffLootShare: number;
+      thrownOffDamageFraction: number;
       fellLootShare: number;
       suspiciousStepOutside: boolean;
       suspiciousApproach: boolean;

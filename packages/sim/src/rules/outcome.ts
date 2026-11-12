@@ -13,12 +13,23 @@ export interface RunSummary {
   cashOut: number;
   /** Wanted levels the run picked up on the way (`wanted.perThrowOff` per guard throw-off), added to the outcome's `wantedDelta`. */
   wantedBonus?: number;
+  /** The wanted bonus on the loot (`lootMultiplier`), 1 when absent. */
+  lootMultiplier?: number;
+  /** `bank.atPlace` (stakes PR): loot the outcome would bank goes to the saddlebag (`stashed`) instead. */
+  atPlace?: boolean;
 }
 
 export interface OutcomeResult {
   persistent: PersistentState;
   /** The loot value that went into the bank and lifetime earned. */
   banked: number;
+  /** With `atPlace`: the loot value for the saddlebag instead (wanted bonus included), banked later at a place. */
+  stashed: number;
+}
+
+/** The wanted bonus on loot robbed at `level` stars: 1 + `wanted.lootBonusPerLevel` x level. */
+export function lootMultiplier(config: SimConfig, level: number): number {
+  return 1 + config.values.wanted.lootBonusPerLevel * Math.max(0, level);
 }
 
 /**
@@ -31,7 +42,9 @@ export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, s
   const next = { ...persistent };
   const p = policy[outcome];
   next.wantedLevel = Math.max(0, Math.min(maxWantedLevel, next.wantedLevel + p.wantedDelta + (summary.wantedBonus ?? 0)));
-  const banked = p.bankRunLoot ? Math.max(0, Math.floor(summary.cashOut)) : 0;
+  const value = p.bankRunLoot ? Math.max(0, Math.floor(summary.cashOut * (summary.lootMultiplier ?? 1))) : 0;
+  const banked = summary.atPlace ? 0 : value;
+  const stashed = summary.atPlace ? value : 0;
   next.bank += banked;
   next.lifetimeEarned += banked;
   if (outcome === 'died') {
@@ -40,7 +53,7 @@ export function applyOutcome(persistent: PersistentState, outcome: RunOutcome, s
     for (const key of died.reset) if (key !== 'upgrades') next[key] = 0;
   }
   next.lifetimeEarned = Math.max(persistent.lifetimeEarned, next.lifetimeEarned);
-  return { persistent: next, banked };
+  return { persistent: next, banked, stashed };
 }
 
 /** Whether runs are practice: `wanted.forceLevel` is set, so they save nothing (G9). */

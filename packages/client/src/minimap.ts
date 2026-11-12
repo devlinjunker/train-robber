@@ -41,6 +41,8 @@ export interface MinimapInput {
   rider: { x: number; y: number; hx: number; hy: number } | null;
   /** The ground under the screen's corners, in world tiles, clockwise from the top left. */
   view: readonly { x: number; y: number }[];
+  /** Draw the camp at the spawn (stakes PR, `bank.atPlace`). */
+  camp?: boolean;
 }
 
 /** One pixel per tile: zones, forest floor, bridges and track. */
@@ -254,6 +256,14 @@ export function createMinimap(map: MapDef, scenery: SceneryDef | null, tiles?: M
         if (windowed && (t.x < x0 - t.radiusTiles || t.x > x0 + span + t.radiusTiles)) continue;
         const [x, y] = toMap(mode, t.x, t.y);
         marks.circle(x, y, 5).fill({ color: TOWN, alpha: 0.9 }).stroke({ width: 1.5, color: 0x000000 });
+      }
+      // The camp where loot banks (stakes PR): a gold dot at the spawn.
+      if (input.camp) {
+        const c = map.markers.playerSpawn;
+        if (!windowed || (c.x >= x0 && c.x <= x0 + span)) {
+          const [x, y] = toMap(mode, c.x, c.y);
+          marks.circle(x, y, 5).fill({ color: 0xffc857, alpha: 0.95 }).stroke({ width: 1.5, color: 0x000000 });
+        }
       }
       // Trains: each car a short stroke along its axis.
       for (const committed of [false, true]) {

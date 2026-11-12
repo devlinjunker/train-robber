@@ -4,7 +4,7 @@ import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carrySpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchTicksForLoot,
   HORSE_RADIUS, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
-  isPractice, runWantedLevel,
+  isPractice, runWantedLevel, bankPlaceAt, nearestBankPlace, payDownCost,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
 import type { MapDef, ResolvedConfig, SceneryDef } from '@train-robber/config';
@@ -194,7 +194,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const t = sim.state.world.trains.find((q) => q.id === trainId);
       return !!t && trainLadders(config, t.cars).some((l) => l.car === index && l.end === end);
     } },
-    boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1 };
+    boostDust: Number.isFinite(boostDustParam) && boostDustParam >= 0 ? boostDustParam : 1,
+    camp: config.values.bank.atPlace ? { radiusTiles: config.values.bank.campRadiusTiles } : null };
   const search = config.values.verbs.search;
   // Train names on the off-screen arrows and prompts: hidden by default (`hud.showTrainNames`, G17); `?trainNames=on` or `off` overrides.
   const namesParam = params.get('trainNames');
@@ -338,8 +339,17 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
   let spilled: { detail: string; at: number; title?: string } | null = null;
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
-  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0, caughtBanked = 0;
+  let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
+  let caughtTook: Extract<SimEvent, { type: 'RunEnded' }> | null = null;
+  let dayEndedBy: 'died' | 'camp' = 'died';
+  // Stakes PR: a bank place's name on screen, and what a run's end did with the loot.
+  const bankPlaceName = (id: string) => id === 'camp' ? 'camp' : placeName(id).toLowerCase().replace(/^t/, 'T');
+  const bonusText = (m: number) => m > 1 ? ` (x${Math.round(m * 100) / 100} wanted bonus)` : '';
+  const tookText = (e: Extract<SimEvent, { type: 'RunEnded' }>) => e.stashed > 0
+    ? `$${e.stashed} in your saddlebag${bonusText(e.lootMultiplier)}: ride to camp${towns.length ? ' or a town' : ''} to bank it`
+    : `$${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}${bonusText(e.lootMultiplier)}`;
   const lootTotalSec = config.values.hud.lootTotalSec;
+  const bankAtPlace = config.values.bank.atPlace;
   // What the player just hit: blocked ground beside the horse, or (on a ledge) beside the player on the car.
   const obstacleHit = () => {
     const p = sim.state.players[0]!, car = carOf(p.placement.frame);
@@ -348,7 +358,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     return isoWorld.obstacleAt(h.x, h.y, HORSE_RADIUS + 0.25);
   };
   const noticeFor = (e: SimEvent) => {
-    if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
+    if (e.type === 'CommandRejected' && e.command === 'payWanted') {
+      show(e.reason === 'not at a bank' ? 'Pay off the law at your camp or in a town' : e.reason === 'not wanted' ? 'Nobody wants you yet' : e.reason === 'cannot afford' ? `Not enough in the bank: dropping a star costs $${payDownCost(config, sim.state.persistent.wantedLevel)}` : e.reason === 'practice' ? 'Practice run: nothing to pay off' : 'Paying off the law is turned off', 'warn', 2000);
+    }
+    else if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
       show(`jump ${e.attempt}: ${landingCue(e.result).notice}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
@@ -375,22 +388,35 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
       show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') {
-      show(`Extracted! $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}`, 'good', 3500);
-      if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `extracted with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
+      show(`Extracted! ${tookText(e)}`, 'good', 4000);
+      const got = e.cashOut + e.stashed;
+      if (got > 0) lootTotal = { title: `LOOT: $${got}`, detail: `extracted with ${carriedCount} item${carriedCount === 1 ? '' : 's'}${bonusText(e.lootMultiplier)}`, at: performance.now() };
     }
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
-      if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `got away with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
+      const got = e.cashOut + e.stashed;
+      if (got > 0) lootTotal = { title: `LOOT: $${got}`, detail: `got away with ${carriedCount} item${carriedCount === 1 ? '' : 's'}${bonusText(e.lootMultiplier)}`, at: performance.now() };
       const c = config.values.cashOut;
-      show(`Got away: $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 3500);
+      show(`Got away: ${tookText(e)}${!c.closeDoors ? '' : c.doorsReopenSec > 0 ? `. That train has shut its doors for ${c.doorsReopenSec} s` : '. That train has shut its doors for good'}`, 'good', 4000);
     }
     // The caught notice waits for PersistentChanged (right after), which has the wanted change.
-    else if (e.type === 'RunEnded' && e.outcome === 'caught') caughtBanked = e.cashOut;
+    else if (e.type === 'RunEnded' && e.outcome === 'caught') caughtTook = e;
     else if (e.type === 'PersistentChanged' && e.outcome === 'caught') {
       const d = e.after.wantedLevel - e.before.wantedLevel;
-      const kept = caughtBanked > 0 ? `, $${caughtBanked} ${e.practice ? 'kept (practice: not banked)' : 'banked'}` : ', loot lost';
+      const kept = caughtTook && caughtTook.cashOut + caughtTook.stashed > 0 ? `, ${tookText(caughtTook)}` : ', loot lost';
       show(`Caught: thrown off and the doors shut. Run over${kept}${e.practice ? ' (practice: nothing saved)' : d ? `, wanted level ${d > 0 ? '+' : ''}${d}` : ''}`, 'bad', 3500);
     }
-    else if (e.type === 'DayStarted') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
+    // Stakes PR: the saddlebag banks at a camp or town, spills in crashes and is lost if you die.
+    else if (e.type === 'LootBanked') {
+      show(`Banked $${e.value} at ${bankPlaceName(e.place)}${e.practice ? ' (practice: not saved)' : ''}`, 'good', 3500);
+      lootTotal = { title: `BANKED: $${e.value}`, detail: `${e.items} item${e.items === 1 ? '' : 's'} from ${e.runs} robber${e.runs === 1 ? 'y' : 'ies'}`, at: performance.now() };
+    }
+    else if (e.type === 'SaddlebagLost') show(e.cause === 'crash' ? `Crash! $${e.value} spilled from your saddlebag` : `Your saddlebag ($${e.value}) is lost with you`, 'bad', 2500);
+    else if (e.type === 'WantedPaidDown') show(`Paid off the law for $${e.cost}: wanted level now ${e.level}`, 'good', 3000);
+    else if (e.type === 'DayEnded') dayEndedBy = e.cause;
+    else if (e.type === 'DayStarted') {
+      if (dayEndedBy === 'camp') show(`Made camp: loot banked, health refilled. Day ${e.day} starts`, 'good', 4000);
+      else show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
+    }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
     else if (e.type === 'LootRefused') show(`${e.reason === 'too heavy' ? 'Too heavy' : 'Carrying too many items'}: ${itemName(e.item)} stays. X drops your last item`, 'bad', 2500);
@@ -453,7 +479,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
-    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders', 'Space jump on roofs'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), ...(config.values.wanted.payDown.enabled ? ['P pay off wanted (camp or town)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -579,7 +605,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       topdown.visible = !iso;
       if (!iso && !topdownDrawn) {
         if (overlayGround) topdownOverlay.addChild(overlayGround.layer);
-        topdownOverlay.addChild(drawMapOverlay(map, scenery, !overlayGround));
+        topdownOverlay.addChild(drawMapOverlay(map, scenery, !overlayGround, sceneContent.camp));
         topdownDrawn = true;
       }
       let project: (x: number, y: number, z: number) => { x: number; y: number };
@@ -714,6 +740,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           town = { name: `TOWN ${i + 1}`, sx: p.x, sy: p.y, distanceTiles: Math.hypot(t.x - ridden.x, t.y - ridden.y) };
         }
       }
+      // Stakes PR: with loot in the saddlebag the pointer shows the nearest place to bank it instead.
+      if (ridden && bankAtPlace && player.saddlebag.value > 0) {
+        const near = nearestBankPlace(sim.map, config, ridden.x, ridden.y);
+        const p = project(near.place.x, near.place.y, iso ? isoWorld.groundZ(near.place.x, near.place.y) : 0);
+        town = { name: `BANK: ${bankPlaceName(near.place.id).toUpperCase()}`, sx: p.x, sy: p.y, distanceTiles: near.distanceTiles };
+      }
       // The line cue, on the far side of the run's train in iso.
       let distanceCue: DistanceCue | null = null;
       if (ridden && gap && distanceCueMode === 'line' && gap.distance <= DISTANCE_CUE_TILES && iso && depthOf(ridden.x, ridden.y) < depthOf(gap.car.x, gap.car.y)) {
@@ -742,7 +774,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       });
       if (minimap.root.visible) {
         minimap.update({
-          mode, screenWidth: W, cars, committedTrain: s.run?.trainId ?? null,
+          mode, screenWidth: W, cars, committedTrain: s.run?.trainId ?? null, camp: bankAtPlace,
           rider: ridden ? ridden : aboardAt && aboardCar ? { ...aboardAt, hx: aboardCar.ux, hy: aboardCar.uy } : null,
           view: corners,
         });
@@ -848,9 +880,20 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const carried = run?.carried ?? [];
       if (run) carriedCount = carried.length;
       // Thrown off with loot: F gets away with it (cashOut).
-      const cashHint = (phase === 'approach' || phase === 'boarding') && carried.length > 0 && config.values.cashOut.enabled ? `F: get away with $${carriedValue(config, carried)}` : '';
+      const cashHint = (phase === 'approach' || phase === 'boarding') && carried.length > 0 && config.values.cashOut.enabled
+        ? bankAtPlace ? `F: ride off with $${carriedValue(config, carried)} (bank it at camp${towns.length ? ' or a town' : ''})` : `F: get away with $${carriedValue(config, carried)}` : '';
+      // At a bank place with stars on you: P pays one off (stakes PR).
+      const atBank = physical && !aboardPhase ? bankPlaceAt(sim.map, config, horseState.x, horseState.y) : null;
+      const wantedNow = s.persistent.wantedLevel;
+      const payHint = atBank && config.values.wanted.payDown.enabled && wantedNow > 0 && !isPractice(config)
+        ? `P: pay $${payDownCost(config, wantedNow)} to drop a star${s.persistent.bank < payDownCost(config, wantedNow) ? ' (not enough banked)' : ''}` : '';
       const switchPrompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
-      const prompt = [switchPrompt, cashHint].filter(Boolean).join('  ·  ');
+      const prompt = [switchPrompt, cashHint, payHint].filter(Boolean).join('  ·  ');
+      const bag = player.saddlebag;
+      const saddlebag = bankAtPlace && bag.value > 0 ? (() => {
+        const near = nearestBankPlace(sim.map, config, horseState.x, horseState.y);
+        return { text: `SADDLEBAG $${bag.value}  ·  bank at ${bankPlaceName(near.place.id)} ${Math.round(near.distanceTiles)} tiles` };
+      })() : null;
       const weight = carriedWeight(config, carried);
       const carry = run ? {
         value: carriedValue(config, carried), weight, items: carried.length, maxWeight: config.values.carry.maxWeight, maxItems: config.values.carry.maxItems,
@@ -886,6 +929,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },
         // The saved bank (a replay shows the bank its log started from, as it changed).
         bank: s.persistent.bank,
+        saddlebag,
         heatNotices: heatNotices.map((n) => n.text),
         alarm: now - alarmAt < ALARM_EDGE_MS,
         horse: horseLine,

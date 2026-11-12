@@ -88,7 +88,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'stashed', 'stashFate', 'bankedAt', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -103,6 +103,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
       notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
       cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
+      stashed: r.stashed, stashFate: r.stashFate, bankedAt: r.bankedAt,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });
@@ -214,7 +215,8 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
     }
     case 'length': return duration(avgOf(rs, (r) => r.durationSec));
     case 'lootCarried': return money(avgOf(rs, (r) => r.lootValue));
-    case 'banked': return money(avgOf(rs, (r) => r.cashOut));
+    // What reached the bank: at the run's end, or later from the saddlebag (stakes PR).
+    case 'banked': return money(avgOf(rs, (r) => r.cashOut === undefined ? undefined : r.cashOut + (r.stashFate === 'banked' ? r.stashed ?? 0 : 0)));
     case 'lootLeft': return money(avgOf(rs, (r) => r.lootLeftValue));
     case 'lootLost': return money(avgOf(rs, (r) => r.lootLost));
     case 'wanted': {

@@ -107,6 +107,24 @@ describe('run tracker', () => {
     expect(third!.resumedFrom).toBeUndefined();
     expect(toCsv([second!]).split('\n')[1]).toContain('save42');
   });
+  it('stakes PR: records what a run put in the saddlebag, then where it banked or that it was lost', () => {
+    const t = createRunTracker(meta);
+    const run = (n: number, stashed: number) => {
+      t.events([ev({ type: 'RunStarted', tick: n * 100, player: 1, runNumber: n, trainId: 'mail-1', countdownSec: 150, wantedLevel: 1 })], 'T');
+      return t.events([
+        ev({ type: 'RunEnded', tick: n * 100 + 50, player: 1, outcome: 'extracted', durationTicks: 50, boardingAttempts: 1, retry: false, countdownLeftSec: 50, heat: 5, cashOut: 0, stashed, lootMultiplier: 1.25 }),
+        ev({ type: 'PersistentChanged', tick: n * 100 + 50, outcome: 'extracted', before: { wantedLevel: 1, bank: 0, lifetimeEarned: 0 }, after: { wantedLevel: 1, bank: 0, lifetimeEarned: 0 } }),
+      ], 'T');
+    };
+    expect(run(1, 50)[1]).toMatchObject({ stashed: 50, cashOut: 0, wantedAfter: 1 });
+    run(2, 30);
+    const banked = t.events([ev({ type: 'LootBanked', tick: 400, player: 1, value: 80, items: 3, runs: 2, place: 'town2' })], 'T');
+    expect(banked.map((r) => [r.runNumber, r.stashFate, r.bankedAt])).toEqual([[1, 'banked', 'town2'], [2, 'banked', 'town2']]);
+    expect(banked[0]).toMatchObject({ wantedAfter: 1 });
+    run(3, 20);
+    const lost = t.events([ev({ type: 'SaddlebagLost', tick: 500, player: 1, value: 20, items: 1, cause: 'died' })], 'T');
+    expect(lost.map((r) => [r.runNumber, r.stashFate])).toEqual([[3, 'lost']]);
+  });
   it('a note after a run updates the last run', () => {
     const { t } = playOne();
     expect(t.note(200, 'later', 'T3')?.notes.map((n) => n.text)).toEqual(['felt fine', 'later']);

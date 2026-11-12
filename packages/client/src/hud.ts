@@ -50,6 +50,8 @@ export interface HudState {
   boost?: { state: 'ready' | 'active' | 'cooldown'; share: number; text: string } | null;
   /** Just off the train with loot (extracted or got away): the total banked, top right, for `hud.lootTotalSec`; null hides it. */
   lootTotal?: { title: string; detail: string } | null;
+  /** Stakes PR: loot riding in the saddlebag and where to bank it; null hides it. */
+  saddlebag?: { text: string } | null;
 }
 
 const CSS = `
@@ -66,6 +68,7 @@ const CSS = `
 /* On narrow screens the countdown panel spans the top, so health and carry drop below it. */
 @media (max-width: 1000px) { .tr-hud .top { top: 118px; } .tr-hud .side { top: 158px; } }
 .tr-hud .carry { background: rgba(0,0,0,.55); padding: 4px 12px; border-radius: 8px; font-weight: 700; }
+.tr-hud .saddlebag { background: rgba(70,45,10,.8); padding: 4px 12px; border-radius: 8px; font-weight: 700; color: #ffd27a; }
 .tr-hud .heart { color: #ff5a4e; font-size: 18px; line-height: 1; }
 .tr-hud .inv { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin: 0 auto 8px; max-width: min(92vw, 900px); }
 .tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
@@ -153,7 +156,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
       <div class="heat-row cool"><span class="heat-label"></span><div class="heat-bar"><div></div>${HEAT_BANDS.slice(0, -1).map((b) => `<span class="tick" style="left:${b.upTo * 100}%"></span>`).join('')}</div></div>
       <div class="heat-notices"></div></div>
     <div class="top"><span class="hit">!</span><span class="hp-label heart" title="health" aria-label="health">♥</span><div class="health"><div></div></div><span class="hp-text"></span></div>
-    <div class="side"><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="horse-call"></div></div>
+    <div class="side"><div class="loot-total"><div class="lt-title"></div><div class="lt-detail"></div></div><div class="boost"><span class="boost-text"></span><div class="boost-bar"><div></div></div></div><div class="carry"></div><div class="saddlebag"></div><div class="horse-call"></div></div>
     <div class="bottom"><div class="inv"></div><div class="ask"><div class="ask-title"></div><div class="ask-bar"><div></div></div><div class="ask-hint"></div></div><div class="prompt"></div><div class="notice"></div><div class="controls"></div></div>`;
   parent.appendChild(root);
   const q = <T extends HTMLElement>(sel: string) => root.querySelector(sel) as T;
@@ -161,7 +164,7 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
   const debug = q('.debug'), phase = q('.phase'), bar = q<HTMLDivElement>('.health > div'),
     lootEl = q('.loot-total'), lootTitle = q('.lt-title'), lootDetail = q('.lt-detail'),
     hpText = q('.hp-text'), carryEl = q('.carry'), horseEl = q('.horse-call'), invEl = q('.inv'), prompt = q('.prompt'), notice = q('.notice'), controls = q('.controls');
-  const wantedEl = q('.wanted'), bankEl = q('.bank');
+  const wantedEl = q('.wanted'), bankEl = q('.bank'), bagEl = q('.saddlebag');
   const clock = q('.clock'), clockTime = q('.clock-time'), clockFill = q<HTMLDivElement>('.clock-bar > div'), clockRate = q('.clock-rate');
   const boostEl = q('.boost'), boostText = q('.boost-text'), boostFill = q<HTMLDivElement>('.boost-bar > div');
   const ask = q('.ask'), askTitle = q('.ask-title'), askBar = q('.ask-bar'), askFill = q<HTMLDivElement>('.ask-bar > div'), askHint = q('.ask-hint');
@@ -196,6 +199,8 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         set(boostText, s.boost.text);
         boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, s.boost.share)) * 100)}%`;
       }
+      bagEl.style.display = s.saddlebag ? '' : 'none';
+      if (s.saddlebag) set(bagEl, s.saddlebag.text);
       carryEl.style.display = s.carry ? '' : 'none';
       if (s.carry) {
         const c = s.carry;
