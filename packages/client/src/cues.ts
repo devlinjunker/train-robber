@@ -53,3 +53,26 @@ export function collisionNotice(against: 'train' | 'obstacle', kind: 'crash' | '
 
 /** On/off for a flash at `hz` blinks per second, `ageSec` after it started. */
 export const flashOn = (ageSec: number, hz = 8): boolean => Math.floor(ageSec * hz) % 2 === 0;
+
+/** A map id in words: `alpha-flats` -> `Alpha Flats`. */
+export const mapTitle = (id: string): string => id.split(/[-_]/).filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ');
+
+/** What a fatal hit reads as on the wanted poster ("crushed under a train", "rode into a rock"). */
+export function deathCause(hit: { cause: 'boarding' | 'mount' | 'thrownOff' | 'fell' | 'collision'; against?: 'train' | 'obstacle'; kind?: 'crash' | 'scrape' }, obstacle: ObstacleKind = 'rock'): string {
+  switch (hit.cause) {
+    case 'boarding': return 'fell under the wheels jumping for a train';
+    case 'mount': return 'fell jumping for the horse';
+    case 'thrownOff': return 'thrown from a moving train by a guard';
+    case 'fell': return 'fell from a moving train';
+    case 'collision': return hit.against === 'train' ? (hit.kind === 'scrape' ? 'dragged along a train' : 'crushed under a train') : `rode into a ${obstacle}`;
+  }
+}
+
+/**
+ * The HUD's day text: `day 2`, with a `life.days` life `day 2/3`, and with `life.trainsPerDay`
+ * the train the rider is on or about to rob, `train 1/3`.
+ */
+export function dayLabel(life: { trainsPerDay: number; days: number }, p: { day: number; trainsToday: number }): string {
+  const day = `day ${p.day}${life.days > 0 ? `/${life.days}` : ''}`;
+  return life.trainsPerDay > 0 ? `${day} · train ${Math.min(p.trainsToday + 1, life.trainsPerDay)}/${life.trainsPerDay}` : day;
+}

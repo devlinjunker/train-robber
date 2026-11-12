@@ -16,7 +16,7 @@ import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
 import { createScreenOverlay, type DistanceCue, type MeterView, type TownPointer, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
-import { collisionNotice, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
+import { collisionNotice, dayLabel, deathCause, mapTitle, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { createAudioBus } from './audio';
 import { heatNotice, tickBucket } from './clock';
@@ -26,6 +26,7 @@ import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
 import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
+import { createTicketPanel } from './poster';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -88,6 +89,13 @@ export interface GameClient {
   reset(): void;
   /** Show a notice from the host (a save that could not be read, a reset save). */
   notify(text: string, kind: NoticeKind, ms: number): void;
+  /**
+   * How and where the player died, for the wanted poster: the last hit in `events` (this tick's,
+   * read before `afterTick`) or else the last one seen, and the nearest town or the map's name.
+   */
+  describeDeath(events: readonly SimEvent[]): { cause: string; place: string };
+  /** Where the rider is, in poster words ("near Town 2", "on Alpha Flats"). */
+  describePlace(): string;
 }
 
 export interface GameClientOptions {
@@ -163,6 +171,21 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       if (e < best) { best = e; d = ds[i]!; }
     }
     return d;
+  };
+  // The last hit, for the poster's cause of death.
+  let lastHit: Extract<SimEvent, { type: 'DamageDealt' }> | null = null;
+  /** The rider's place in poster words: near the closest town on an open line, else on the map. */
+  const describePlace = (): string => {
+    const h = sim.state.world.horses[0]!;
+    const p = sim.state.players[0]!, car = carOf(p.placement.frame);
+    const at = car ? carToWorld(car, p.placement.x, p.placement.y) : { x: h.x, y: h.y };
+    if (towns.length && lineRoute) {
+      const d = alongLine(at.x, at.y);
+      let best = 0;
+      towns.forEach((t, i) => { if (Math.abs(t.d - d) < Math.abs(towns[best]!.d - d)) best = i; });
+      return `near Town ${best + 1}`;
+    }
+    return `on ${opts.map.openLine ? 'the open line' : mapTitle(opts.map.id)}`;
   };
   /** A town's name on screen, numbered along the line; `end` is the end of the line. */
   const placeName = (id: string) => id === 'end' ? 'END OF LINE' : `TOWN ${towns.findIndex((t) => t.id === id) + 1}`;
@@ -251,6 +274,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (a === 'toggleMinimap') minimap.root.visible = !minimap.root.visible;
     else if (a === 'toggleInventory') inventoryOpen = !inventoryOpen;
     else if (a === 'toggleMute') audio.muted = !audio.muted;
+    else if (a === 'tickets') openTickets();
     else if (a === 'addNote') { if (opts.onAddNote) { opts.onAddNote(); keyboard.release(); } }
     else if (opts.onExportLogs) { opts.onExportLogs(); keyboard.release(); }
   };
@@ -311,6 +335,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const wantedCfg = config.values.wanted;
   // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
   let queued: Command[] = [];
+  // T at camp: the tickets out of the territory (roguelite life).
+  const ticketPanel = createTicketPanel();
+  const openTickets = () => {
+    if (ticketPanel.open) return ticketPanel.hide();
+    const tickets = config.values.life.tickets, p = sim.state.players[0]!;
+    if (replay || tickets.length === 0) return;
+    if (isPractice(config)) return show('Practice: no tickets out', 'warn', 2000);
+    if (sim.state.run) return show('Finish this robbery first: tickets are bought at camp', 'warn', 2000);
+    if (!p.campedAt) return show('Make camp first (hold C well off the line) to buy a ticket out', 'warn', 2500);
+    keyboard.release();
+    ticketPanel.show(tickets, sim.state.persistent.bank, (id) => { queued.push({ type: 'buyTicket', ticket: id }); });
+  };
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
   const summaryTracker = createSummaryTracker();
   const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
@@ -340,7 +376,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
   let caughtTook: Extract<SimEvent, { type: 'RunEnded' }> | null = null;
-  let dayEndedBy: 'died' | 'camp' = 'died';
+  let dayEndedBy: 'died' | 'camp' | 'dusk' | 'life' = 'died';
   // Stakes PR: a bank place's name on screen, and what a run's end did with the loot.
   const bonusText = (m: number) => m > 1 ? ` (x${Math.round(m * 100) / 100} wanted bonus)` : '';
   const tookText = (e: Extract<SimEvent, { type: 'RunEnded' }>) => e.stashed > 0
@@ -363,6 +399,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           : e.reason === 'moving' ? 'Stop the horse to make camp' : e.reason === 'already camped' ? 'You are already camped here: ride off to break camp'
             : e.reason === 'run active' ? 'Not with a train committed: Esc first' : e.reason === 'not mounted' ? 'Make camp from the horse' : 'Making camp is turned off', 'warn', 2500);
     }
+    else if (e.type === 'CommandRejected' && e.command === 'buyTicket') show(e.reason === 'not at camp' ? 'Make camp first to buy a ticket out' : e.reason === 'cannot afford' ? 'Not enough in the bank for that ticket' : `Ticket: ${e.reason}`, 'warn', 2000);
     else if (e.type === 'CommandRejected') show(`${e.command}: ${e.reason}`, 'bad', 1500);
     else if (e.type === 'BoardingAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
@@ -414,9 +451,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     }
     else if (e.type === 'SaddlebagLost') show(e.cause === 'crash' ? `Crash! $${e.value} spilled from your saddlebag` : `Your saddlebag ($${e.value}) is lost with you`, 'bad', 2500);
     else if (e.type === 'DayEnded') dayEndedBy = e.cause;
+    // A life that ended gets the host's poster or notice instead.
+    else if (e.type === 'LifeEnded') dayEndedBy = 'life';
     else if (e.type === 'DayStarted') {
-      if (dayEndedBy === 'camp') show(`Made camp: health refilled. Day ${e.day} starts`, 'good', 4000);
-      else show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
+      const day = `Day ${e.day}${config.values.life.days > 0 ? ` of ${config.values.life.days}` : ''}`;
+      if (dayEndedBy === 'camp') show(`Made camp: health refilled. ${day} starts`, 'good', 4000);
+      else if (dayEndedBy === 'dusk') show(`Dusk: that was the day's last train. Health refilled, ${day.toLowerCase()} starts`, 'good', 4000);
+      else if (dayEndedBy === 'died') show(`You died: day ${e.day} starts back at the spawn, health refilled`, 'bad', 3500);
     }
     else if (e.type === 'RunEnded') show(e.outcome === 'died' ? 'You died - back to the spawn' : e.retry ? 'Quick retry: catch the train' : 'Run cancelled', e.outcome === 'died' ? 'bad' : 'info', 2500);
     else if (e.type === 'LootPickedUp') show(`+ ${itemName(e.item)}: $${e.value}, weight ${e.weight}`, 'good', 1800);
@@ -505,6 +546,12 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       return out;
     },
     notify: (text, kind, ms) => show(text, kind, ms),
+    describeDeath(events) {
+      let hit: Extract<SimEvent, { type: 'DamageDealt' }> | null = lastHit;
+      for (const e of events) if (e.type === 'DamageDealt') hit = e;
+      return { cause: hit ? deathCause(hit, hit.cause === 'collision' && hit.against === 'obstacle' ? obstacleHit() : undefined) : 'died on the line', place: describePlace() };
+    },
+    describePlace: () => describePlace(),
     reset() {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
@@ -513,6 +560,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     afterTick(events) {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       for (const e of events) {
+        if (e.type === 'DamageDealt') lastHit = e;
         noticeFor(e);
         const done = summaryTracker.event(e);
         if (done) summary?.show(done);
@@ -880,7 +928,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       // Making camp (stakes PR): off a run on the horse, whether you can camp here, and the hold's progress.
       const campHere = bankAtCamp && !s.run && physical ? campView(s, sim.map, config, player) : null;
       const campWhy = campHere ? campCheck(s, sim.map, config, player) : null;
-      const campHint = !campHere || player.campedAt ? '' : player.campHoldTicks > 0
+      const tickets = config.values.life.tickets;
+      const campHint = !campHere ? '' : player.campedAt ? (tickets.length && !isPractice(config) ? `At camp  ·  T: a ticket out of the territory (from $${tickets[0]!.price})` : '') : player.campHoldTicks > 0
         ? `Making camp... ${Math.round((player.campHoldTicks / Math.max(1, config.values.bank.campHoldTicks)) * 100)}%`
         : campWhy === 'too close to the line' ? `Too close to the line to camp (${Math.floor(campHere.distance)} of ${Math.ceil(campHere.need)} tiles${campHere.cover ? ', in cover' : ''})`
           : campWhy === 'train sees you' ? 'The train you robbed can see you'
@@ -910,7 +959,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         phase,
         boost: boostView,
         // A day's health bar is always up; a run's only during the run.
-        health: run || config.values.health.scope === 'day' ? { now: player.health, max: config.values.health.max, ...(config.values.health.scope === 'day' ? { day: player.day } : {}) } : null,
+        health: run || config.values.health.scope === 'day' ? { now: player.health, max: config.values.health.max, ...(config.values.health.scope === 'day' ? { day: player.day, label: dayLabel(config.values.life, player) } : {}) } : null,
         carry,
         inventory: !inventoryOpen ? null : carried.length === 0 ? { title: 'Inventory: empty  (I closes)', items: [] }
           : { title: 'Inventory: 1-9 drops that item  (I closes)', items: [...carried.slice(0, 9).map((id, i) => `${i + 1}  ${itemName(id)}  $${config.values.items[id]?.value ?? 0}  wt ${config.values.items[id]?.weight ?? 0}`),

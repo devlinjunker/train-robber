@@ -71,7 +71,9 @@ export type Command =
    * `bank.campHoldSec`, if far enough off the line and out of the robbed train's sight. Sent with
    * `held: true` on press and `held: false` on release.
    */
-  | { type: 'camp'; held: boolean };
+  | { type: 'camp'; held: boolean }
+  /** At camp, buy the `life.tickets` entry `ticket` out of the territory: the outlaw rides off alive. */
+  | { type: 'buyTicket'; ticket: string };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -80,7 +82,7 @@ export type RunPhase = 'idle' | 'approach' | 'boarding' | 'aboard' | 'extracting
 /** `caught`: a guard threw you off with nothing left to carry and the train shut its doors (Devlin, PR #46 playtest). */
 export type RunOutcome = 'died' | 'cancelled' | 'expired' | 'extracted' | 'cashedOut' | 'caught';
 /** What changed the persistent state: a run's outcome, or banking the saddlebag by making camp (stakes PR). */
-export type PersistentCause = RunOutcome | 'banked';
+export type PersistentCause = RunOutcome | 'banked' | 'ticket';
 /**
  * What raised heat: an event-based source from `heat.sources`, time spent aboard
  * (`heat.sources.timeAboardPerSec`), or the playtest debug key.
@@ -113,9 +115,11 @@ export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no su
 /** Why a climb was refused. */
 export type ClimbRejection = 'no ladder' | 'busy';
 /** `on the roof`: a drop up on a roof, mid-jump or on a ladder. */
-export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out' | CampRejection;
+export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out' | CampRejection | TicketRejection;
 /** Why a rider cannot make camp (stakes PR); `run active` and `not mounted` are shared with other commands. */
 export type CampRejection = 'moving' | 'already camped' | 'too close to the line' | 'train sees you';
+/** Why a `buyTicket` was refused. */
+export type TicketRejection = 'practice' | 'no such ticket' | 'run active' | 'not at camp' | 'cannot afford';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -140,11 +144,20 @@ export type SimEvent =
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
   /**
-   * The day ends: health ran out (`died`; `onRun` when a run was on, which also ends `died`), or the
-   * rider banked at the camp with no run on (`camp`, making camp: `bank.campEndsDay`, stakes PR).
+   * The day ends: `died` when health ran out (`health.scope: day`; `onRun` when a run was on, which
+   * also ends `died`), `camp` when the rider banked at the camp with no run on (making camp:
+   * `bank.campEndsDay`, stakes PR), `dusk` when the day's `life.trainsPerDay` runs have ended.
    */
-  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp'; onRun: boolean }
-  /** A new day at full health, at the spawn (after a death, or making camp there). */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp' | 'dusk'; onRun: boolean }
+  /**
+   * The outlaw's life ended (`life`): `died` under `permadeath`, `rodeOff` when the last day of a
+   * `life.days` life ended alive (making camp or dusk), or the outlaw bought `ticket` out of the
+   * territory at camp (its price already off the bank in `persistent`). `days` is the days the life saw and
+   * `persistent` the save as it ended; a new outlaw then starts at the spawn on day 1, full health,
+   * bank 0, wanted 0 and an empty saddlebag (lifetime earned carries on).
+   */
+  | { type: 'LifeEnded'; tick: number; player: PlayerId; cause: 'died' | 'rodeOff'; days: number; persistent: PersistentState; ticket?: string }
+  /** A new day at full health (after a death, back at the spawn; after making camp or dusk, where the rider is). */
   | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
@@ -283,6 +296,9 @@ export interface GuardState {
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
+
+/** Where a player's day stands, so a host can carry it across a page reload (`life.resumeOnReload`). */
+export interface DayState { day: number; health: number; trainsToday: number }
 
 /** The boarding meter: a marker sweeping back and forth over a track from 0 to 1. */
 export interface MeterState {
@@ -453,8 +469,10 @@ export interface PlayerState {
    * dying starts a new day at full health. With `run` each commit refills it, as before.
    */
   health: number;
-  /** The day number, from 1; dying ends the day (`DayEnded`) and starts the next. */
+  /** The day number, from 1; dying or dusk ends the day (`DayEnded`) and starts the next. */
   day: number;
+  /** Runs ended this day that count toward `life.trainsPerDay` (not cancels, retries or practice). */
+  trainsToday: number;
   /** Ticks before another collision can hurt, so one crash costs health once. */
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
@@ -556,6 +574,8 @@ export interface SimConfig {
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
     health: { max: number; scope: 'day' | 'run' };
+    /** One outlaw's life: `permadeath` makes dying end it; `trainsPerDay` runs make a day, `days` days a life (0: no limit). */
+    life: { mode: 'day' | 'permadeath'; trainsPerDay: number; days: number; tickets: readonly { id: string; name: string; price: number }[] };
     /**
      * Running into a train or blocked ground. On a run, from `minImpactTilesPerSec`; off a run (day
      * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.

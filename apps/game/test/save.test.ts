@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { addToLeaderboard, BACKUP_KEY_PREFIX, LEADERBOARD_SIZE, LocalStorageStore, SAVE_KEY, SAVE_VERSION, emptySave, parseSave, type KeyValueStorage, type LeaderboardEntry } from '../src/save';
+import { newLife, type LifeRecord } from '../src/life';
+import { addToLeaderboard, BACKUP_KEY_PREFIX, LEADERBOARD_SIZE, LocalStorageStore, SAVE_KEY, SAVE_VERSION, emptySave, parseSave, type KeyValueStorage, type LeaderboardEntry, type SaveData } from '../src/save';
 
 class MemoryStorage implements KeyValueStorage {
   readonly items = new Map<string, string>();
@@ -11,19 +12,24 @@ class MemoryStorage implements KeyValueStorage {
 const NOW = '2026-10-28T09:00:00.000Z';
 let ids = 0;
 const store = (m = new MemoryStorage()) => ({ m, s: new LocalStorageStore(m, () => NOW, () => `id${++ids}`) });
-/** The empty save with whatever id the store gave it. */
-const fresh = (id: string) => emptySave(id);
+/** The empty save with whatever ids the store gave it, and a new outlaw whose cash counts from 0. */
+const fresh = (d: SaveData) => {
+  expect(d.life).toMatchObject({ earnedAtStart: 0, robberies: 0, bestHaul: 0, maxWanted: 0, day: null, startedAt: NOW });
+  expect(d.life.name).toMatch(/^\w+ \w+$/);
+  return emptySave(d.saveId, d.life);
+};
+const LIFE: LifeRecord = newLife('life1', 'seed1', 0, NOW);
 const entry = (score: number, date = NOW): LeaderboardEntry => ({ score, seed: 's', configHash: 'h', preset: 'alpha-default', variants: {}, date, gameVersion: '0.2.5', outcome: 'extracted', trainId: 'mail-1', mapId: 'alpha-flats', wantedLevel: 0 });
 
 describe('LocalStorageStore', () => {
   it('starts empty, saves and loads back under the versioned key', async () => {
     const { m, s } = store();
     const first = await s.load();
-    expect(first).toEqual({ data: fresh(first.data.saveId) });
+    expect(first).toEqual({ data: fresh(first.data) });
     expect(first.data.saveId).toMatch(/^id\d+$/);
     // The new save is written at once, so the next load keeps its id.
     expect((await s.load()).data.saveId).toBe(first.data.saveId);
-    const data = { version: SAVE_VERSION, saveId: 'abc', persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)] };
+    const data: SaveData = { version: SAVE_VERSION, saveId: 'abc', persistent: { wantedLevel: 2, bank: 340, lifetimeEarned: 900 }, leaderboard: [entry(340)], life: { ...LIFE, robberies: 2, day: { day: 3, health: 40, trainsToday: 1 } }, posters: [], endings: ['slip-away'] };
     await s.save(data);
     expect(JSON.parse(m.getItem(SAVE_KEY)!).version).toBe(SAVE_VERSION);
     expect(await s.load()).toEqual({ data });
@@ -34,7 +40,9 @@ describe('LocalStorageStore', () => {
     m.setItem(SAVE_KEY, JSON.stringify({ wantedLevel: 1, bank: 50, lifetimeEarned: 75 }));
     const r = await s.load();
     expect(r.problem).toBeUndefined();
-    expect(r.data).toEqual({ version: 1, saveId: r.data.saveId, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [] });
+    expect(r.data).toEqual({ version: 2, saveId: r.data.saveId, persistent: { wantedLevel: 1, bank: 50, lifetimeEarned: 75 }, leaderboard: [], life: r.data.life, posters: [], endings: [] });
+    // The old save becomes the first outlaw's life, which counts every dollar already earned.
+    expect(r.data.life.earnedAtStart).toBe(0);
     // A save without an id gets one, kept from then on.
     expect(r.data.saveId).not.toBe('');
     expect((await s.load()).data.saveId).toBe(r.data.saveId);
@@ -53,7 +61,7 @@ describe('LocalStorageStore', () => {
     m.setItem(SAVE_KEY, text);
     const r = await s.load();
     expect(r.problem).toBe('corrupt');
-    expect(r.data).toEqual(fresh(r.data.saveId));
+    expect(r.data).toEqual(fresh(r.data));
     expect(r.backupKey).toBe(`${BACKUP_KEY_PREFIX}${NOW}`);
     expect(m.getItem(r.backupKey!)).toBe(text);
     // The reset save is written, so the next load is clean and keeps the new id.
@@ -77,12 +85,13 @@ describe('LocalStorageStore', () => {
 
   it('reset backs up the old save and starts fresh', async () => {
     const { m, s } = store();
-    await s.save({ version: 1, saveId: 'old', persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [] });
+    await s.save({ version: 2, saveId: 'old', persistent: { wantedLevel: 4, bank: 10, lifetimeEarned: 10 }, leaderboard: [], life: LIFE, posters: [], endings: [] });
     const key = await s.reset();
     expect(key).toBe(`${BACKUP_KEY_PREFIX}${NOW}`);
     expect(JSON.parse(m.getItem(key!)!).persistent.wantedLevel).toBe(4);
     const after = (await s.load()).data;
-    expect(after).toEqual(fresh(after.saveId));
+    expect(after).toEqual(fresh(after));
+    expect(after.life.id).not.toBe(LIFE.id);
     // A reset starts a new save: a new id.
     expect(after.saveId).not.toBe('old');
     // Nothing saved yet: nothing to back up.
@@ -92,8 +101,35 @@ describe('LocalStorageStore', () => {
   it('acts as empty when storage throws (blocked site data)', async () => {
     const broken: KeyValueStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); }, removeItem: () => {} };
     const s = new LocalStorageStore(broken, () => NOW, () => 'x');
-    expect(await s.load()).toEqual({ data: emptySave('x') });
-    await expect(s.save(emptySave('x'))).resolves.toBeUndefined();
+    expect(await s.load()).toEqual({ data: emptySave('x', newLife('x', 'x', 0, NOW)) });
+    await expect(s.save(emptySave('x', LIFE))).resolves.toBeUndefined();
+  });
+});
+
+describe('save version 2 (roguelite life)', () => {
+  it('migrates a version 1 save into a first life and keeps it from then on', async () => {
+    const { m, s } = store();
+    m.setItem(SAVE_KEY, JSON.stringify({ version: 1, saveId: 'v1', persistent: { wantedLevel: 2, bank: 80, lifetimeEarned: 300 }, leaderboard: [entry(80)] }));
+    const r = await s.load();
+    expect(r.problem).toBeUndefined();
+    expect(r.data).toMatchObject({ version: 2, saveId: 'v1', persistent: { wantedLevel: 2, bank: 80, lifetimeEarned: 300 }, leaderboard: [entry(80)], posters: [], endings: [] });
+    expect((await s.load()).data.life).toEqual(r.data.life);
+  });
+
+  it('a broken life starts a new outlaw without losing the rest; bad posters are dropped', async () => {
+    const { m, s } = store();
+    const poster = { lifeId: 'l0', name: 'Ada Kincaid', nickname: 'Dusty', face: LIFE.face, ending: 'died', reward: 120, cash: 120, robberies: 1, bestHaul: 120, days: 2, maxWanted: 1, cause: 'rode into a rock', place: 'near Town 1', endedAt: NOW, seed: 's', startedAt: NOW, preset: 'roguelite', gameVersion: '0.2.5' };
+    m.setItem(SAVE_KEY, JSON.stringify({ version: 2, saveId: 'v2', persistent: { wantedLevel: 0, bank: 5, lifetimeEarned: 5 }, leaderboard: [], life: { id: 7 }, posters: [poster, { lifeId: 3 }] }));
+    const r = await s.load();
+    expect(r.problem).toBeUndefined();
+    expect(r.data.persistent.bank).toBe(5);
+    expect(r.data.posters).toEqual([poster]);
+    expect(r.data.life.id).toMatch(/^id\d+$/);
+  });
+
+  it('a life without a valid day resumes nothing', () => {
+    const r = parseSave(JSON.stringify({ version: 2, saveId: 's', persistent: { wantedLevel: 0, bank: 0, lifetimeEarned: 0 }, leaderboard: [], life: { ...LIFE, day: { day: 'x' } }, posters: [] }));
+    expect('data' in r && r.data.life).toEqual({ ...LIFE, day: null });
   });
 });
 

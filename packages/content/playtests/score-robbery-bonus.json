@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "score-robbery-bonus",
+  "title": "Score a life by robberies too",
+  "question": "From the life PR: the life score is the cash banked. Does adding $100 per robbery change how you play (more small hits, fewer big ones), and is that better?",
+  "pr": 73,
+  "base": {
+    "map": "line",
+    "preset": "roguelite"
+  },
+  "setups": [
+    {
+      "id": "cash",
+      "name": "Cash only"
+    },
+    {
+      "id": "bonus",
+      "name": "+100 per robbery",
+      "set": {
+        "score.perRobbery": 100
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootCarried"
+  ]
+}

@@ -20,7 +20,7 @@ export function replayText(text: string): ReplayReport {
   const map = loadMapDef(mapId);
   const warnings = headerWarnings(h, { config, gameVersion: gameVersion(), mapHash: mapHash(map), tickRateHz: config.values.sim.tickRateHz });
   if (!h.mapId) warnings.push(`log names no map, using ${DEFAULT_MAP}`);
-  const sim = createSim({ config, map, seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart });
+  const sim = createSim({ config, map, seed: h.seed, playerIds: h.playerIds, persistent: h.persistentAtStart, ...(h.dayAtStart ? { dayAtStart: h.dayAtStart } : {}) });
   const notes = log.lines.flatMap((l) => (l.k === 'note' ? [{ t: l.t, text: l.text }] : []));
   return { ...replayCommandLog(log, sim), warnings, notes };
 }
