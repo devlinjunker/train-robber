@@ -458,6 +458,7 @@ async function main() {
       ['Wanted', r.wantedLevel === undefined ? '–' : r.practice ? `${r.wantedLevel} (practice: nothing saved)` : `${r.wantedLevel} at start, ${r.wantedAfter ?? '–'} after`],
       ['Bank after', r.practice ? '– (practice)' : money(r.bankAfter)], ['Lifetime earned after', r.practice ? '– (practice)' : money(r.lifetimeAfter)],
       ['Save', r.saveId ? `${r.saveId}${r.day !== undefined ? `, day ${r.day}` : ''}` : '–'], ['Resumes', r.resumedFrom ?? '–'],
+      ['Life', r.life ? `${r.life.name} (${r.life.id.slice(0, 6)}), score ${money(r.life.score)} after this run${r.life.ended ? r.life.ended === 'died' ? ', died' : ', rode off' : ''}` : '–'],
       ['Time left', duration(r.countdownLeftSec)], ['Heat at end', String(r.heatAtEnd ?? '–')],
       ['Jumps (perfect / good / fail)', `${r.boardingAttempts} (${r.boarding.perfect} / ${r.boarding.good} / ${r.boarding.fail})`], ['Furthest', r.furthestPhase],
       ['Commit to aboard', duration(r.commitToAboardSec)], ['Damage taken', String(r.damageTaken)],

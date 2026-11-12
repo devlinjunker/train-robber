@@ -91,6 +91,39 @@ export const GameSchema = z.object({
      */
     scope: z.enum(['day', 'run']),
   }).strict(),
+  /**
+   * One outlaw's life (roguelite, 2026-11-12): train < day < life. A life is the save's current
+   * outlaw from their first dawn until it ends; then their wanted poster goes on the wall and a new
+   * outlaw starts with bank 0 and wanted 0. Practice runs (`wanted.forceLevel`) never touch the life.
+   */
+  life: z.object({
+    /** `day` (as before): dying only ends the day. `permadeath`: dying ends the outlaw's life (preset `roguelite`). */
+    mode: z.enum(['day', 'permadeath']),
+    /** A stand-in day end before the day clock: once this many runs have ended (not cancelled, retried or practice), dusk ends the day and the next starts at full health. 0 (default): days end by making camp or dying. */
+    trainsPerDay: z.number().int().min(0),
+    /** Days a life lasts: when the last one ends alive (making camp, or dusk), the outlaw rides off with a poster of their own. 0: no end but death. */
+    days: z.number().int().min(0),
+    /** Each new outlaw gets a new map seed (host). False keeps the same seed for every life, for A/B testing. */
+    seedPerLife: z.boolean(),
+    /** With `permadeath`, the day number, health and trains this day survive a page reload (host), so a reload is not a free heal. */
+    resumeOnReload: z.boolean(),
+  }).strict(),
+  /** The life score on the poster and the top lives (host): banked cash x `cashWeight`, plus `perRobbery` per robbery that took loot, plus `perDay` per day begun. */
+  score: z.object({
+    /** Points per dollar banked during the life. */
+    cashWeight: z.number().min(0),
+    /** Points per robbery that got loot off the train. */
+    perRobbery: z.number().min(0),
+    /** Points per day the outlaw saw. */
+    perDay: z.number().min(0),
+  }).strict(),
+  /** The wanted poster when a life ends (client). */
+  poster: z.object({
+    /** Show the poster when a life ends; the wall of past posters is always there. */
+    show: z.boolean(),
+    /** Which list of names and nicknames the outlaw's seeded name comes from. */
+    nameSet: z.enum(['western']),
+  }).strict(),
   /** Running into a train or blocked ground (water and the map edge never hurt). */
   collision: z.object({
     /** Health lost by a crash into a train car at fullImpactTilesPerSec or harder, as a fraction of max (collisionDamage variant group: 0 turns it off). */

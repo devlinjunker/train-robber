@@ -1,4 +1,4 @@
-import { createApp, createCarScene, createGameClient, showFatal } from '@train-robber/client';
+import { createApp, createCarScene, createGameClient, createPosterPanel, fullName, showFatal } from '@train-robber/client';
 import { commandLogWriter, createSim, eventLogWriter, mapHash, type LogKind, type RunHeader, type SimEvent } from '@train-robber/sim';
 import pkg from '../package.json';
 import { download, IndexedDbLogSink } from './logSink';
@@ -12,7 +12,8 @@ import { createRunTracker, type RunRecord } from './runTracker';
 import { getTester } from './tester';
 import { installLogDrop, replaySourceFromUrl } from './logDrop';
 import { bootReplay } from './replay';
-import { addToLeaderboard, LocalStorageStore, type KeyValueStorage, type LoadResult, type SaveData } from './save';
+import { addToLeaderboard, LocalStorageStore, newSaveId, type KeyValueStorage, type LoadResult, type SaveData } from './save';
+import { addPoster, lifeCash, lifeEvent, lifeScore, newLife, posterFor } from './life';
 import { installLeaveNotes, leaveNotesEnabled, type LeaveNotes } from './leaveNotes';
 
 const MAX_CATCHUP = 5;
@@ -46,7 +47,7 @@ async function resetSaveFromUrl(store: LocalStorageStore): Promise<boolean> {
   if (q.get('resetSave') !== '1') return false;
   q.delete('resetSave');
   history.replaceState(null, '', `${location.pathname}${q.size ? `?${q}` : ''}${location.hash}`);
-  if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0 and clears the local leaderboard.')) return false;
+  if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0, clears the local leaderboard and the poster wall, and starts a new outlaw.')) return false;
   await store.reset();
   return true;
 }
@@ -71,27 +72,36 @@ async function boot() {
     showFatal(app, `Bad setup in the URL: ${(e as Error).message}`);
     throw e;
   }
-  // ?map=gen builds the map from the run seed, so the seed in the debug panel and the log replays it.
-  const mapId = mapIdFromUrl();
-  let map: MapDef, scenery: SceneryDef | null;
-  try {
-    ({ map, scenery } = await sessionMap(mapId, setup.seed, setup.config));
-  } catch (e) {
-    showFatal(app, (e as Error).message);
-    throw e;
-  }
-  const { config, seed } = setup;
-  // The save (phase 2 M5): wanted level, bank, lifetime earned and the local leaderboard.
+  const { config } = setup;
+  // The save (phase 2 M5): wanted level, bank, lifetime earned and the local leaderboard; since the
+  // roguelite life also the outlaw riding now and the poster wall.
   const store = new LocalStorageStore(saveStorage());
   const wasReset = await resetSaveFromUrl(store);
   const loaded: LoadResult = await store.load();
   let save: SaveData = loaded.data;
+  // Practice (wanted.forceLevel) never touches the life. With permadeath the outlaw's life is played
+  // on its own seed (a ?seed= in the URL still wins), and a reload resumes their day (life.resumeOnReload).
+  const lifeCfg = config.values.life;
+  const practice = config.values.wanted.forceLevel != null;
+  const lifeMatters = lifeCfg.mode === 'permadeath' && !practice;
+  const urlSeed = new URLSearchParams(location.search).get('seed') || null;
+  const seed = !urlSeed && lifeMatters ? save.life.seed : setup.seed;
+  const dayAtStart = lifeMatters && lifeCfg.resumeOnReload && save.life.day ? save.life.day : undefined;
+  // ?map=gen builds the map from the run seed, so the seed in the debug panel and the log replays it.
+  const mapId = mapIdFromUrl();
+  let map: MapDef, scenery: SceneryDef | null;
+  try {
+    ({ map, scenery } = await sessionMap(mapId, seed, config));
+  } catch (e) {
+    showFatal(app, (e as Error).message);
+    throw e;
+  }
   const tickRateHz = config.values.sim.tickRateHz;
   const STEP_MS = 1000 / tickRateHz;
   const startedAt = new Date().toISOString();
   const header: RunHeader = {
     gameVersion: pkg.version, configHash: config.hash, preset: config.preset, variants: config.variants, overrides: config.overrides,
-    seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { ...save.persistent }, startedAt,
+    seed, mapId: map.id, mapHash: mapHash(map), tickRateHz, playerIds: [1], persistentAtStart: { ...save.persistent }, ...(dayAtStart ? { dayAtStart: { ...dayAtStart } } : {}), startedAt,
     config: config.values, url: location.search, ...(tag.exp ? { exp: tag.exp } : {}), ...(tag.setup ? { setup: tag.setup } : {}), ...(tag.pr ? { pr: tag.pr } : {}),
   };
   const session = `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
@@ -105,13 +115,20 @@ async function boot() {
     session, tester: getTester(), gameVersion: header.gameVersion, configHash: header.configHash, preset: header.preset, variants: header.variants, overrides: header.overrides,
     seed, mapId: header.mapId, url: location.search, tickRateHz, saveId: save.saveId, ...tag,
   });
-  const saveRun = (run: RunRecord | null) => { if (run) sink.saveRun?.(run); };
+  // Each run record names the outlaw it was played by and their score so far (the life it ended, if it did).
+  // A run that ended a life this tick is filed under that life, with its poster's score.
+  let endedLife: NonNullable<RunRecord['life']> | null = null;
+  const scoreNow = () => lifeScore(lifeCash(save.life, sim.state.persistent.lifetimeEarned), save.life.robberies, sim.state.players[0]!.day, config.values.score);
+  const saveRun = (run: RunRecord | null) => {
+    if (run) sink.saveRun?.(practice ? run : { ...run, life: endedLife ?? { id: save.life.id, name: fullName(save.life), score: scoreNow() } });
+  };
 
-  const sim = createSim({ config, map, seed, playerIds: header.playerIds, persistent: header.persistentAtStart });
+  const sim = createSim({ config, map, seed, playerIds: header.playerIds, persistent: header.persistentAtStart, ...(dayAtStart ? { dayAtStart } : {}) });
   let simTick = 0;
   // Dev server only: the sim on window for poking at state from the console.
   if (import.meta.env.DEV) (window as unknown as { trainRobber: unknown }).trainRobber = { sim, config };
   const endLogs = () => {
+    saveDay();
     saveRun(tracker.abandon(simTick, new Date().toISOString()));
     const h = sim.hash();
     cmdLog.end(simTick, h); evLog.end(simTick, h);
@@ -142,6 +159,12 @@ async function boot() {
   button.style.cssText = 'position:fixed;top:8px;right:8px;font:12px monospace;padding:4px 8px;z-index:1';
   button.addEventListener('click', (e) => { exportLogs(); client.releaseKeys(); (e.currentTarget as HTMLButtonElement).blur(); });
   document.body.appendChild(button);
+  const postersButton = document.createElement('button');
+  postersButton.textContent = 'Posters';
+  postersButton.title = 'The poster wall: every past outlaw and the top lives';
+  postersButton.style.cssText = 'position:fixed;top:8px;right:196px;font:12px monospace;padding:4px 8px;z-index:1';
+  postersButton.addEventListener('click', (e) => { (e.currentTarget as HTMLButtonElement).blur(); client.releaseKeys(); openWall(); });
+  document.body.appendChild(postersButton);
   const history = document.createElement('a');
   history.textContent = 'Playtests';
   history.href = 'playtests.html';
@@ -154,7 +177,7 @@ async function boot() {
 
   // The client draws the sim and turns keys into commands; this loop only steps the sim at a fixed rate.
   const resetSave = () => {
-    if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0 and clears the local leaderboard. The page reloads.')) return;
+    if (!confirm('Reset save? This sets wanted level, bank and lifetime earned back to 0, clears the local leaderboard and the poster wall, and starts a new outlaw. The page reloads.')) return;
     // Nothing more is saved from this page: the reload starts from the empty save.
     saving = false;
     void store.reset().then(() => location.reload());
@@ -166,13 +189,63 @@ async function boot() {
   if (loaded.problem) {
     client.notify(`Your save ${loaded.problem === 'newer' ? 'is from a newer version of the game' : 'could not be read'}: it was backed up (${loaded.backupKey}) and reset`, 'bad', 8000);
   } else if (wasReset) client.notify('Save reset: wanted level, bank and leaderboard are back to 0', 'info', 4000);
+  else if (lifeMatters) client.notify(save.life.day ? `${fullName(save.life)} rides on: day ${save.life.day.day}` : `A new outlaw rides: ${fullName(save.life)}`, 'info', 3500);
+
+  // The poster when a life ends, and the wall of past posters. The sim waits while either is open.
+  const posters = createPosterPanel({ maxWantedLevel: config.values.wanted.maxLevel });
+  let paused = false;
+  const resume = () => { paused = false; client.releaseKeys(); last = performance.now(); acc = 0; };
+  // Set once a life has ended: leaving its poster (or the wall opened from it) starts the next outlaw.
+  let rideAgain: (() => void) | null = null;
+  const openWall = () => {
+    paused = true;
+    posters.showWall(save.posters, practice ? null : { name: fullName(save.life), reward: scoreNow(), day: sim.state.players[0]!.day }, () => {
+      const next = rideAgain;
+      rideAgain = null;
+      if (next) next(); else resume();
+    });
+  };
+  /** Keep where the outlaw's day stands, so a reload resumes it (practice never saves). */
+  const saveDay = () => {
+    if (!saving || practice) return;
+    const p = sim.state.players[0]!;
+    save = { ...save, life: { ...save.life, day: { day: p.day, health: p.health, trainsToday: p.trainsToday } } };
+    void store.save(save);
+  };
+  let posterUp: (() => void) | null = null;
+  const lifeEnded = (e: Extract<SimEvent, { type: 'LifeEnded' }>, events: readonly SimEvent[]) => {
+    const how = e.cause === 'died' ? client.describeDeath(events) : { cause: '', place: client.describePlace() };
+    const now = new Date().toISOString();
+    const poster = posterFor(save.life, e, how, config.values.score, { endedAt: now, preset: config.preset, gameVersion: header.gameVersion });
+    endedLife = { id: save.life.id, name: fullName(save.life), score: poster.reward, ended: e.cause };
+    // The next outlaw: a new seed per life (life.seedPerLife), cash counted from lifetime earned now.
+    const next = newLife(newSaveId(), lifeCfg.seedPerLife ? newSaveId() : save.life.seed, e.persistent.lifetimeEarned, now);
+    save = { ...save, posters: addPoster(save.posters, poster), life: next, persistent: { ...sim.state.persistent } };
+    if (saving) void store.save(save);
+    if (!config.values.poster.show) { client.notify(`${poster.name} ${e.cause === 'died' ? 'is dead' : 'rode off alive'}. A new outlaw rides: ${fullName(next)}`, 'info', 4000); return; }
+    // A new seed needs a new map: reload into the next outlaw's life. The same seed rides on here.
+    rideAgain = () => { if (!urlSeed && next.seed !== seed) location.reload(); else { resume(); client.notify(`A new outlaw rides: ${fullName(next)}`, 'info', 3000); } };
+    posterUp = () => {
+      paused = true;
+      const rank = save.posters.filter((p) => p.reward > poster.reward).length + 1;
+      posters.show(poster, {
+        rank, lives: save.posters.length, bestReward: Math.max(...save.posters.map((p) => p.reward)),
+        onRideAgain: () => { const go = rideAgain; rideAgain = null; go?.(); },
+        onWall: openWall,
+      });
+    };
+  };
 
   // Save at each run end (PersistentChanged). Practice runs (wanted.forceLevel) save nothing (G9).
   let saving = true;
   let runInfo = { trainId: '', wantedLevel: 0 };
   let banked: { score: number; outcome: string } | null = null;
   const persist = (events: readonly SimEvent[]) => {
+    let dayChanged = false;
     for (const e of events) {
+      if (!practice) save = { ...save, life: lifeEvent(save.life, e) };
+      if (e.type === 'LifeEnded') lifeEnded(e, events);
+      if (e.type === 'DayStarted' || e.type === 'DamageDealt' || e.type === 'PersistentChanged' || e.type === 'LifeEnded') dayChanged = true;
       if (e.type === 'RunStarted') runInfo = { trainId: e.trainId, wantedLevel: e.wantedLevel };
       else if (e.type === 'RunEnded') banked = e.practice ? null : { score: e.cashOut, outcome: e.outcome };
       // Stakes PR: loot banks later, at a camp or town; the haul (maybe several robberies) is the score.
@@ -190,13 +263,15 @@ async function boot() {
         void store.save(save);
       }
     }
+    if (dayChanged) saveDay();
   };
   let acc = 0, last = performance.now(), fps = 0, tickMs = 0;
   app.ticker.add(() => {
     const now = performance.now();
     acc += now - last; last = now;
     let steps = 0;
-    while (acc >= STEP_MS && steps < MAX_CATCHUP) {
+    if (paused) acc = 0;
+    while (!paused && acc >= STEP_MS && steps < MAX_CATCHUP) {
       const inputs = [{ player: 1, commands: client.poll() }];
       cmdLog.step(simTick, inputs);
       const t0 = performance.now();
@@ -208,9 +283,11 @@ async function boot() {
       if (res.events.length) {
         persist(res.events);
         for (const run of tracker.events(res.events, new Date().toISOString())) saveRun(run);
+        endedLife = null;
         if (res.events.some((e) => e.type === 'RunStarted')) leave?.runStarted();
       }
       client.afterTick(res.events);
+      if (posterUp) { posterUp(); posterUp = null; }
       acc -= STEP_MS; steps++;
     }
     if (steps === MAX_CATCHUP) acc = 0;

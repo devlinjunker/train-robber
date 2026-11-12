@@ -139,11 +139,19 @@ export type SimEvent =
   /** Every heat gain, after clamping to `heat.maxHeat`: `heat` is the new value, `delta` what was actually added. */
   | { type: 'HeatChanged'; tick: number; heat: number; delta: number; cause: HeatCause }
   /**
-   * The day ends: health ran out (`died`; `onRun` when a run was on, which also ends `died`), or the
-   * rider banked at the camp with no run on (`camp`, making camp: `bank.campEndsDay`, stakes PR).
+   * The day ends: `died` when health ran out (`health.scope: day`; `onRun` when a run was on, which
+   * also ends `died`), `camp` when the rider banked at the camp with no run on (making camp:
+   * `bank.campEndsDay`, stakes PR), `dusk` when the day's `life.trainsPerDay` runs have ended.
    */
-  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp'; onRun: boolean }
-  /** A new day at full health, at the spawn (after a death, or making camp there). */
+  | { type: 'DayEnded'; tick: number; player: PlayerId; day: number; cause: 'died' | 'camp' | 'dusk'; onRun: boolean }
+  /**
+   * The outlaw's life ended (`life`): `died` under `permadeath`, `rodeOff` when the last day of a
+   * `life.days` life ended alive (making camp or dusk). `days` is the days the life saw and
+   * `persistent` the save as it ended; a new outlaw then starts at the spawn on day 1, full health,
+   * bank 0, wanted 0 and an empty saddlebag (lifetime earned carries on).
+   */
+  | { type: 'LifeEnded'; tick: number; player: PlayerId; cause: 'died' | 'rodeOff'; days: number; persistent: PersistentState }
+  /** A new day at full health (after a death, back at the spawn; after making camp or dusk, where the rider is). */
   | { type: 'DayStarted'; tick: number; player: PlayerId; day: number; health: number }
   /**
    * `retry` marks a quick retry, which ends the run as a cancel. `countdownLeftSec` is the time
@@ -283,6 +291,9 @@ export interface GuardState {
 }
 
 export interface PersistentState { wantedLevel: number; bank: number; lifetimeEarned: number }
+
+/** Where a player's day stands, so a host can carry it across a page reload (`life.resumeOnReload`). */
+export interface DayState { day: number; health: number; trainsToday: number }
 
 /** The boarding meter: a marker sweeping back and forth over a track from 0 to 1. */
 export interface MeterState {
@@ -453,8 +464,10 @@ export interface PlayerState {
    * dying starts a new day at full health. With `run` each commit refills it, as before.
    */
   health: number;
-  /** The day number, from 1; dying ends the day (`DayEnded`) and starts the next. */
+  /** The day number, from 1; dying or dusk ends the day (`DayEnded`) and starts the next. */
   day: number;
+  /** Runs ended this day that count toward `life.trainsPerDay` (not cancels, retries or practice). */
+  trainsToday: number;
   /** Ticks before another collision can hurt, so one crash costs health once. */
   hitCooldownTicks: number;
   /** What the last hit cost; inside the cooldown only a harder hit costs more, and only the difference. */
@@ -549,6 +562,8 @@ export interface SimConfig {
     };
     /** `scope`: `day` keeps one health bar until you die, `run` refills it at every commit. */
     health: { max: number; scope: 'day' | 'run' };
+    /** One outlaw's life: `permadeath` makes dying end it; `trainsPerDay` runs make a day, `days` days a life (0: no limit). */
+    life: { mode: 'day' | 'permadeath'; trainsPerDay: number; days: number };
     /**
      * Running into a train or blocked ground. On a run, from `minImpactTilesPerSec`; off a run (day
      * scope only), only from `offRunMinImpactTilesPerSec`, with no scrapes.

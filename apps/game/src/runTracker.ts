@@ -97,6 +97,11 @@ export interface RunRecord extends SessionMeta {
   practice?: boolean;
   /** The run this one picked up after an in-place cancel (Esc on the horse, then recommitting to the same train): its record id. */
   resumedFrom?: string;
+  /**
+   * The outlaw whose life the run was played in (roguelite life), added by the host: the life's id
+   * and name, its score after the run, and how the life ended if this run ended it. Missing on older records.
+   */
+  life?: { id: string; name: string; score: number; ended?: 'died' | 'rodeOff' };
 }
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];

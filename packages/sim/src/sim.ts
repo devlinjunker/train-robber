@@ -1,13 +1,13 @@
 import { seedRng } from './rng';
 import { hashState } from './hash';
-import type { GameState, InputFrame, PersistentState, PlayerId, SimConfig, SimEvent, TickResult } from './types';
+import type { DayState, GameState, InputFrame, PersistentState, PlayerId, SimConfig, SimEvent, TickResult } from './types';
 import { prepareMap, type SimMap, type WorldMap } from './world/map';
 import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './world/trains';
 import { ride } from './world/riding';
 import type { CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
-import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, makeCamp, debugHeat, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
+import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, makeCamp, debugHeat, quickRetry, reject, runEndSystem, duskSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
 import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
@@ -21,6 +21,8 @@ export interface SimOptions {
   seed: string;
   playerIds: PlayerId[];
   persistent?: PersistentState;
+  /** The day the first player starts in (a resumed life); absent: day 1 at full health. */
+  dayAtStart?: DayState;
 }
 
 export interface Sim {
@@ -58,12 +60,20 @@ export function createSim(opts: SimOptions): Sim {
     world: { trains: [], horses: opts.playerIds.map((_, i) => ({ id: i + 1, x: spawn.x, y: spawn.y, hx: 0, hy: -1, speed: 0, cruiseTarget: 0, stunTicks: 0, boostTicks: 0, boostCooldownTicks: 0, mode: 'physical' })) },
     players: opts.playerIds.map((id, i) => ({
       id, horseId: i + 1, move: { x: 0, y: 0 }, steer: { x: 0, y: 0 }, interactHeld: false, commitTimer: null, commitHold: null, resumeRuns: [],
-      health: opts.config.values.health.max, day: 1, hitCooldownTicks: 0, lastHitDamage: 0, saddlebag: emptySaddlebag(),
+      ...startDay(opts.config, i === 0 ? opts.dayAtStart : undefined), hitCooldownTicks: 0, lastHitDamage: 0, saddlebag: emptySaddlebag(),
       placement: { frame: 'world', x: spawn.x, y: spawn.y, layer: 'ground' },
     })),
   };
   spawnInitialTrains(state, map, opts.config);
   return wrap(state, opts.config, map);
+}
+
+/** A player's starting day: day 1 at full health, or a resumed one with health kept within 1 to max. */
+function startDay(config: SimConfig, d: DayState | undefined): DayState {
+  const max = config.values.health.max;
+  if (!d) return { day: 1, health: max, trainsToday: 0 };
+  const whole = (v: number, lo: number) => (Number.isFinite(v) ? Math.max(lo, Math.floor(v)) : lo);
+  return { day: whole(d.day, 1), health: Math.min(max, Math.max(1, Number.isFinite(d.health) ? d.health : max)), trainsToday: whole(d.trainsToday, 0) };
 }
 
 export function restoreSim(state: GameState, config: SimConfig, simMap: SimMap): Sim {
@@ -170,6 +180,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       runEndSystem(ctx);
       // 12. Banking: a rider inside a camp or town banks the saddlebag (stakes PR).
       for (const p of bankSystem(ctx)) makeCamp(ctx, p);
+      // 13. Dusk after the day's trains (`life.trainsPerDay`).
+      duskSystem(ctx);
       state.tick += 1;
       return { tick: state.tick, events };
     },

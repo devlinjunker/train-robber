@@ -88,7 +88,7 @@ export function summarize(runs: readonly RunRecord[]): SetupSummary[] {
 
 const CSV_COLUMNS = [
   'startedAt', 'tester', 'preset', 'variants', 'seed', 'mapId', 'trainId', 'runNumber', 'outcome', 'durationSec',
-  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'stashed', 'stashFate', 'bankedAt', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
+  'boardingAttempts', 'perfect', 'good', 'fail', 'furthestPhase', 'commitToAboardSec', 'damageTaken', 'countdownLeftSec', 'heatAtEnd', 'lootValue', 'lootItems', 'cashOut', 'lootLeftValue', 'lootLeftItems', 'exp', 'setup', 'pr', 'lootLost', 'wantedLevel', 'wantedAfter', 'bankAfter', 'practice', 'saveId', 'day', 'resumedFrom', 'stashed', 'stashFate', 'bankedAt', 'lifeId', 'lifeScore', 'rejections', 'notes', 'gameVersion', 'configHash', 'url', 'session',
 ] as const;
 
 function csvCell(v: unknown): string {
@@ -103,7 +103,7 @@ export function toCsv(runs: readonly RunRecord[]): string {
       rejections: Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(' | '),
       notes: r.notes.map((n) => n.text).join(' | '), countdownLeftSec: r.countdownLeftSec, heatAtEnd: r.heatAtEnd, lootValue: r.lootValue, lootItems: r.lootItems,
       cashOut: r.cashOut, lootLeftValue: r.lootLeftValue, lootLeftItems: r.lootLeftItems, exp: r.exp, setup: r.setup, pr: r.pr, lootLost: r.lootLost, wantedLevel: r.wantedLevel, wantedAfter: r.wantedAfter, bankAfter: r.bankAfter, practice: r.practice, saveId: r.saveId, day: r.day, resumedFrom: r.resumedFrom,
-      stashed: r.stashed, stashFate: r.stashFate, bankedAt: r.bankedAt,
+      stashed: r.stashed, stashFate: r.stashFate, bankedAt: r.bankedAt, lifeId: r.life?.id, lifeScore: r.life?.score,
     };
     return CSV_COLUMNS.map((c) => csvCell(flat[c])).join(',');
   });

@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "life-permadeath",
+  "title": "One outlaw's life (permadeath)",
+  "question": "From the life PR: with permadeath, three trains a day and a three-day life, does a death feel fair, do you start another life straight away, and does the poster make you care? Against today's endless days.",
+  "base": { "map": "line" },
+  "setups": [
+    {
+      "id": "today",
+      "name": "Today: death ends the day"
+    },
+    {
+      "id": "life",
+      "name": "Roguelite life",
+      "preset": "roguelite"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "damage",
+    "wanted"
+  ]
+}

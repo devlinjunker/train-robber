@@ -1,6 +1,6 @@
 // Command and event logs as NDJSON. Pure string building and parsing: the host
 // owns the sinks (IndexedDB, files), and the sim never does I/O.
-import type { InputFrame, PersistentState, PlayerId, SimEvent } from './types';
+import type { DayState, InputFrame, PersistentState, PlayerId, SimEvent } from './types';
 
 export const LOG_VERSION = 1;
 
@@ -20,6 +20,8 @@ export interface RunHeader {
   tickRateHz: number;
   playerIds: PlayerId[];
   persistentAtStart: PersistentState;
+  /** The day the session resumed (a life carried across a reload, `life.resumeOnReload`); absent: day 1 at full health. */
+  dayAtStart?: DayState;
   /** Wall clock, written by the host. The sim never reads time. */
   startedAt: string;
   /**

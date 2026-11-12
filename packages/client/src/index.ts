@@ -8,3 +8,4 @@ export * from './clock';
 export * from './audio';
 export * from './carScene';
 export * from './summary';
+export * from './poster';

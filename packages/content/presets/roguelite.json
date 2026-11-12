@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "roguelite",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "life": { "mode": "permadeath", "trainsPerDay": 0, "days": 5 } }
+}

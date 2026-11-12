@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
-import { loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
+import { emptySaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -208,15 +208,12 @@ export function remount(state: GameState, p: PlayerState, x: number, y: number, 
  * the spawn). With `health.scope: run` the next commit would refill it anyway; the day still counts.
  * Saved runs from in-place cancels belong to the day that ended.
  */
-function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean, cause: 'died' | 'camp' = 'died'): void {
+function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean): void {
   const tick = ctx.state.tick;
   // Whatever was riding in the saddlebag is lost with you (stakes PR).
-  if (cause === 'died') loseSaddlebag(ctx, p);
-  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause, onRun });
-  p.day += 1;
-  p.health = ctx.config.values.health.max;
-  p.hitCooldownTicks = 0;
-  p.lastHitDamage = 0;
+  loseSaddlebag(ctx, p);
+  ctx.emit({ type: 'DayEnded', tick, player: p.id, day: p.day, cause: 'died', onRun });
+  startDay(ctx, p, p.day + 1);
   p.resumeRuns = [];
   p.commitHold = null;
   p.commitTimer = null;
@@ -229,7 +226,67 @@ function newDay(ctx: RunCtx, p: PlayerState, onRun: boolean, cause: 'died' | 'ca
  */
 export function makeCamp(ctx: RunCtx, p: PlayerState): void {
   if (ctx.state.run) return;
-  newDay(ctx, p, false, 'camp');
+  endDayAlive(ctx, p, 'camp');
+}
+
+/** Day `day` begins: full health, no hit cooldown, no trains yet. */
+function startDay(ctx: RunCtx, p: PlayerState, day: number): void {
+  p.day = day;
+  p.health = ctx.config.values.health.max;
+  p.hitCooldownTicks = 0;
+  p.lastHitDamage = 0;
+  p.trainsToday = 0;
+}
+
+/** Dying ends the life rather than the day: `life.mode: permadeath`, outside practice. */
+const permadeath = (ctx: RunCtx): boolean => ctx.config.values.life.mode === 'permadeath' && !isPractice(ctx.config);
+
+/**
+ * The outlaw's life is over (dead, or rode off after the last day): `LifeEnded` with the save as it
+ * stood, then a new outlaw at the spawn on day 1 with bank 0 and wanted 0. Lifetime earned is the
+ * player's total over every life, so it carries on (the host scores a life by how much it rose).
+ */
+function endLife(ctx: RunCtx, p: PlayerState, cause: 'died' | 'rodeOff'): void {
+  const { state } = ctx;
+  ctx.emit({ type: 'LifeEnded', tick: state.tick, player: p.id, cause, days: p.day, persistent: { ...state.persistent } });
+  state.persistent = { ...state.persistent, wantedLevel: 0, bank: 0 };
+  p.saddlebag = emptySaddlebag();
+  resetToSpawn(ctx, p);
+  startDay(ctx, p, 1);
+  p.resumeRuns = [];
+  p.commitHold = null;
+  p.commitTimer = null;
+  ctx.emit({ type: 'DayStarted', tick: state.tick, player: p.id, day: p.day, health: p.health });
+}
+
+/**
+ * Tick system 12, dusk (`life.trainsPerDay` above 0): with no run on, a player whose day has held
+ * its trains sees the day end. The next day starts at full health where the rider is, or, after the
+ * last day of a `life.days` life, the outlaw rides off alive and a new one starts.
+ */
+export function duskSystem(ctx: RunCtx): void {
+  const life = ctx.config.values.life;
+  if (!(life.trainsPerDay > 0) || ctx.state.run) return;
+  for (const p of ctx.state.players) {
+    if (p.trainsToday < life.trainsPerDay) continue;
+    return endDayAlive(ctx, p, 'dusk');
+  }
+}
+
+/**
+ * A day the outlaw lived through ends (`camp`: making camp; `dusk` after the day's trains; a day
+ * clock later calls this too): `DayEnded`, then either the next day at full health
+ * where the rider is, or, after the last day of a `life.days` life, the outlaw rides off alive.
+ */
+export function endDayAlive(ctx: RunCtx, p: PlayerState, cause: 'camp' | 'dusk'): void {
+  ctx.emit({ type: 'DayEnded', tick: ctx.state.tick, player: p.id, day: p.day, cause, onRun: !!ctx.state.run?.players[p.id] });
+  const life = ctx.config.values.life;
+  if (life.days > 0 && p.day >= life.days && !isPractice(ctx.config)) return endLife(ctx, p, 'rodeOff');
+  startDay(ctx, p, p.day + 1);
+  p.resumeRuns = [];
+  p.commitHold = null;
+  p.commitTimer = null;
+  ctx.emit({ type: 'DayStarted', tick: ctx.state.tick, player: p.id, day: p.day, health: p.health });
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
@@ -271,6 +328,8 @@ export function endRun(ctx: RunCtx, p: PlayerState, outcome: RunOutcome, retry: 
   // Every outcome reports the persistent state, changed or not, so the host saves at each run end.
   state.persistent = after;
   ctx.emit({ type: 'PersistentChanged', tick: state.tick, outcome, before, after: { ...after }, ...(practice ? { practice: true as const } : {}) });
+  // A run that played out counts toward the day's trains (dusk); cancels, retries, deaths and practice don't.
+  if (!practice && outcome !== 'cancelled' && outcome !== 'died') p.trainsToday += 1;
   unpinTrain(state, run.trainId);
   // Saved runs only survive an in-place cancel, which puts them back after this.
   for (const q of state.players) q.resumeRuns = [];
@@ -705,7 +764,11 @@ export function runEndSystem(ctx: RunCtx): void {
     const onRun = !!run?.players[p.id];
     if (onRun) endRun(ctx, p, 'died', false);
     resetToSpawn(ctx, p);
-    newDay(ctx, p, onRun);
+    if (permadeath(ctx)) {
+      loseSaddlebag(ctx, p);
+      ctx.emit({ type: 'DayEnded', tick: ctx.state.tick, player: p.id, day: p.day, cause: 'died', onRun });
+      endLife(ctx, p, 'died');
+    } else newDay(ctx, p, onRun);
     return;
   }
   if (!run) return;
