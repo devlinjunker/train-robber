@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mount-loss-readable",
+  "title": "Seeing what a good mount cost",
+  "question": "From PR #81 (issue #79): after a good mount the summary now waits 2.5 s, LOST LOOT names what fell and what you kept, and the summary lists it. Can you tell what you lost now? Which loss do you keep: one random item or 30% of the value?",
+  "pr": 81,
+  "setups": [
+    {
+      "id": "random",
+      "name": "Random item"
+    },
+    {
+      "id": "share",
+      "name": "30% of value",
+      "preset": "spill-share"
+    }
+  ],
+  "numbers": [
+    "lootLost",
+    "banked",
+    "mounts",
+    "outcomes"
+  ],
+  "base": {
+    "map": "alpha-flats"
+  }
+}

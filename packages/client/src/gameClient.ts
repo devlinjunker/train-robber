@@ -25,7 +25,7 @@ import { createMinimap } from './minimap';
 import { guardsInWorld, sightCones } from './guards';
 import { climbPose, jumpLanding } from './roof';
 import { CAR_HEIGHT } from './iso/worldScene';
-import { createSummaryPanel, createSummaryTracker, type BestRun } from './summary';
+import { createSummaryPanel, createSummaryTracker, type BestRun, type RunSummaryView } from './summary';
 
 /** Pixels per tile in the top-down debug view at zoom 1 (as before M4, so zoom values mean the same there). */
 export type ViewMode = 'iso' | 'topdown';
@@ -62,8 +62,6 @@ export const HOOFBEAT_TILES = 25;
 const HOOF_RHYTHM = [0.09, 0.09, 0.27];
 /** Hoofbeat volume while you ride, against 1 for the called horse right beside you. */
 export const RIDE_HOOF_VOLUME = 0.3;
-/** How long "LOST LOOT" floats over the rider after a good mount spills loot. */
-export const LOST_LOOT_SEC = 2;
 
 
 /** Numbers only the host knows, for the debug readout. */
@@ -312,7 +310,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
   let queued: Command[] = [];
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
-  const summaryTracker = createSummaryTracker();
+  const summaryTracker = createSummaryTracker((id) => items[id]?.name ?? id);
+  // A finished summary waits `hud.summaryDelaySec` so the mount, LOST LOOT and banked notices can be read first (issue #79).
+  const summaryDelayMs = config.values.hud.summaryDelaySec * 1000;
+  const lostLootSec = config.values.hud.lostLootSec;
+  let pendingSummary: { view: RunSummaryView; at: number } | null = null;
   const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
     tickRateHz, maxWantedLevel: wantedCfg.maxLevel, quickRetry: config.values.playtest.quickRetry,
     onRetry: () => { queued.push({ type: 'quickRetry' }); }, bestRuns: opts.bestRuns,
@@ -336,7 +338,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   // Items lost to the last throw off, for its notice.
   let lostOnThrow: string[] = [], lostValue = 0;
   // The last good mount's spill, for the "LOST LOOT" floater over the rider.
-  let spilled: { detail: string; at: number; title?: string } | null = null;
+  let spilled: { detail: string; at: number; title?: string; what?: string } | null = null;
   // The loot total in the top right after getting off the train with loot (`hud.lootTotalSec`), and the item count it shows.
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0, caughtBanked = 0;
   const lootTotalSec = config.values.hud.lootTotalSec;
@@ -362,6 +364,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'RunStarted') {
       switchedAt = performance.now();
       summary?.hide();
+      pendingSummary = null;
       if (e.resumed) show('Back on the train you left: clock and meter carried over', 'info', 2000);
       else if (e.practice) show(`Practice run at wanted level ${e.wantedLevel}: nothing is saved`, 'info', 2500);
     }
@@ -375,7 +378,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const why = e.endOfLine || lastClockTo === 'end' ? 'The train reached the end of the line' : lastClockTo ? `The train pulled into ${placeName(lastClockTo).toLowerCase().replace(/^t/, 'T')}` : "Time's up";
       show(`${why}: run expired${wantedOnExpiry ? `, wanted level ${wantedOnExpiry > 0 ? '+' : ''}${wantedOnExpiry}${e.practice ? ' (practice: not saved)' : ''}` : ''}`, 'bad', 3500);
     } else if (e.type === 'RunEnded' && e.outcome === 'extracted') {
-      show(`Extracted! $${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}`, 'good', 3500);
+      // A good mount's spill comes in the same tick: keep it in the notice and under LOST LOOT, so the loss is readable (issue #79).
+      const justSpilled = spilled && spilled.what && performance.now() - spilled.at < 100 ? spilled : null;
+      const banked = `$${e.cashOut} ${e.practice ? '(practice: not banked)' : 'banked'}`;
+      show(justSpilled ? `Extracted: ${banked}. Lost ${justSpilled.what} on the landing` : `Extracted! ${banked}`, justSpilled ? 'warn' : 'good', justSpilled ? 4500 : 3500);
+      if (justSpilled) spilled = { ...justSpilled, detail: `${justSpilled.detail}\nkept $${e.cashOut}` };
       if (e.cashOut > 0) lootTotal = { title: `LOOT: $${e.cashOut}`, detail: `extracted with ${carriedCount} item${carriedCount === 1 ? '' : 's'}`, at: performance.now() };
     }
     else if (e.type === 'RunEnded' && e.outcome === 'cashedOut') {
@@ -409,9 +416,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       landing = { result: e.result, at: performance.now() };
       show(`mount ${e.attempt}: ${e.result === 'perfect' ? 'PERFECT - clean getaway' : 'good - you lose some loot'}`, e.result === 'perfect' ? 'good' : 'warn', 2500);
     } else if (e.type === 'LootSpilled') {
-      const what = e.items.length ? `${e.items.map(itemName).join(', ')} ($${e.value})` : `$${e.value}`;
+      const what = e.items.length ? `${e.items.map(itemName).join(', ')} ($${e.value})` : `${Math.round(config.values.extraction.spillShare * 100)}% of your loot ($${e.value})`;
       show(`Spilled ${what}`, 'warn', 2500);
-      spilled = { detail: `-${what}`, at: performance.now() };
+      spilled = { detail: `-${what}`, what, at: performance.now() };
     }
     else if (e.type === 'PlayerSpotted') show('Spotted! A guard saw you', 'warn', 2000);
     else if (e.type === 'GuardLostTrack') show('A guard lost you and is searching', 'good', 2000);
@@ -488,11 +495,15 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       for (const e of events) {
         noticeFor(e);
         const done = summaryTracker.event(e);
-        if (done) summary?.show(done);
+        if (done && summary) {
+          if (summaryDelayMs > 0) pendingSummary = { view: done, at: performance.now() + summaryDelayMs };
+          else summary.show(done);
+        }
       }
     },
     render(alpha, host) {
       const now = performance.now();
+      if (pendingSummary && now >= pendingSummary.at) { summary?.show(pendingSummary.view); pendingSummary = null; }
       const dt = app.ticker.deltaMS / 1000;
       const s = sim.state;
       const horseState = s.world.horses[0]!;
@@ -736,8 +747,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         stumble: stumbling && run ? run.stumbleTicks / Math.max(1, b.landing.stumbleTicks) : null,
         search: searching ? Math.min(1, searching.ticks / searchTicks) : null,
         overtime: meter ? overtimeText : null,
-        lostLoot: lostLootTextOn && spilled && ridden && (now - spilled.at) / 1000 < LOST_LOOT_SEC
-          ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: LOST_LOOT_SEC, ...(spilled.title ? { title: spilled.title } : {}) }
+        lostLoot: lostLootTextOn && spilled && ridden && (now - spilled.at) / 1000 < lostLootSec
+          ? { ...project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0), detail: spilled.detail, ageSec: (now - spilled.at) / 1000, sec: lostLootSec, ...(spilled.title ? { title: spilled.title } : {}) }
           : null,
       });
       if (minimap.root.visible) {

@@ -233,6 +233,14 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
     }
     case 'damage': return (avgOf(rs, (r) => r.damageTaken) ?? 0).toFixed(0);
     case 'whistles': { const w = avgOf(rs, (r) => r.whistles); return w == null ? '–' : w.toFixed(1); }
+    case 'mounts': {
+      // Only runs that record mount results (issue #79); shares are of all their mount jumps.
+      const ms = rs.flatMap((r) => (r.mounts ? [r.mounts] : []));
+      const total = ms.reduce((n, m) => n + m.perfect + m.good + m.fail, 0);
+      if (!ms.length) return '–';
+      const share = (k: 'perfect' | 'good' | 'fail') => pct(total ? ms.reduce((n, m) => n + m[k], 0) / total : 0);
+      return `${(total / ms.length).toFixed(1)} (${share('perfect')} / ${share('good')} / ${share('fail')})`;
+    }
   }
 }
 
@@ -240,7 +248,7 @@ export function experimentNumber(n: ExperimentNumber, rs: readonly RunRecord[]):
 export const NUMBER_LABELS: Record<ExperimentNumber, string> = {
   outcomes: 'Ended', length: 'Avg length', lootCarried: 'Avg carried', banked: 'Avg banked', lootLeft: 'Avg left on train', lootLost: 'Avg lost on the way', wanted: 'Wanted (start → after)',
   timeLeft: 'Avg time left', heat: 'Avg heat', aboard: 'Got aboard', toBoard: 'Median to board', jumps: 'Jumps (P / G / F)',
-  damage: 'Avg damage', whistles: 'Avg whistles',
+  damage: 'Avg damage', whistles: 'Avg whistles', mounts: 'Mounts (P / G / F)',
 };
 export { EXPERIMENT_NUMBERS };
 

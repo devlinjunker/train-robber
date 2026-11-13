@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SimEvent } from '@train-robber/sim';
 import { createRunTracker, type SessionMeta } from '../src/runTracker';
-import { compareVersions, issueMarkdown, notesMarkdown, runVersion, summarize, toCsv } from '../src/playtestStats';
+import { compareVersions, experimentNumber, issueMarkdown, notesMarkdown, runVersion, summarize, toCsv } from '../src/playtestStats';
 
 const meta: SessionMeta = {
   session: 's1', tester: 'dev', gameVersion: '0.0.0', configHash: 'h', preset: 'alpha-default',
@@ -170,5 +170,21 @@ describe('playtest versions and notes export', () => {
   });
   it('a single version gets no subheadings', () => {
     expect(notesMarkdown([newer])).not.toContain('###');
+  });
+});
+
+describe('mount results (issue #79)', () => {
+  it('records mount jumps by meter result and the experiment number shares them out', () => {
+    const t = createRunTracker(meta);
+    t.events([ev({ type: 'RunStarted', tick: 0, player: 1, runNumber: 1, trainId: 'mail-express-1', countdownSec: 150, wantedLevel: 0 })], 'T0');
+    t.events([
+      ev({ type: 'MountAttempt', tick: 10, player: 1, result: 'fail', attempt: 1, meter: 0.1 }),
+      ev({ type: 'MountAttempt', tick: 20, player: 1, result: 'good', attempt: 2, meter: 0.5 }),
+    ], 'T1');
+    const [rec] = t.events([ev({ type: 'RunEnded', tick: 30, player: 1, outcome: 'extracted', durationTicks: 30, boardingAttempts: 1, retry: false, countdownLeftSec: 100, heat: 0, cashOut: 10 })], 'T2');
+    expect(rec).toMatchObject({ mountAttempts: 2, mounts: { perfect: 0, good: 1, fail: 1 } });
+    expect(experimentNumber('mounts', [rec!])).toBe('2.0 (0% / 50% / 50%)');
+    // Older records without results show a dash.
+    expect(experimentNumber('mounts', [{ ...rec!, mounts: undefined }])).toBe('–');
   });
 });

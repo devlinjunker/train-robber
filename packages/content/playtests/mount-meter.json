@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mount-meter",
+  "title": "Mount meter width",
+  "question": "From PR #81 (issue #79): the jump-to-horse meter is wider and slower now (perfect 8%, good 25%, 2.4 s sweep; was 3%, 15%, 1.85 s). Can you land a perfect mount often enough, without it feeling free?",
+  "pr": 81,
+  "setups": [
+    {
+      "id": "wide",
+      "name": "Wider meter (new)"
+    },
+    {
+      "id": "tight",
+      "name": "Old tight meter",
+      "preset": "mount-meter-tight"
+    }
+  ],
+  "numbers": [
+    "mounts",
+    "lootLost",
+    "banked",
+    "outcomes"
+  ],
+  "base": {
+    "map": "alpha-flats"
+  }
+}
