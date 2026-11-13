@@ -52,7 +52,7 @@ function viewStats(view: View, rs: readonly RunRecord[]): [string, string][] {
     const bank = rs.find((r) => r.bankAfter !== undefined && !r.practice)?.bankAfter;
     return [...head, ['Ended', n('outcomes')], ['Avg length', n('length')], ['Avg carried', n('lootCarried')], ['Avg banked', n('banked')], ['Avg left on train', n('lootLeft')], ['Avg lost', n('lootLost')], ['Avg time left', n('timeLeft')], ['Avg heat', n('heat')], ['Wanted (start → after)', n('wanted')], ['Bank now', money(bank)]];
   }
-  if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
+  if (view === 'boarding') return [...head, ['Got aboard', n('aboard')], ['Jumps (P / G / F)', n('jumps')], ['Mounts (P / G / F)', n('mounts')], ['Median to board', n('toBoard')], ['Avg damage', n('damage')], ['Ended', n('outcomes')]];
   const pull = sessionPull(rs);
   return [...head, ['Testers', count((r) => r.tester || '?')], ['Sessions', String(pull.sessions)], ['Versions', count(runVersion)], ['Maps', count((r) => r.mapId)], ['Notes', String(rs.reduce((k, r) => k + r.notes.length, 0))]];
 }
@@ -461,7 +461,7 @@ async function main() {
       ['Time left', duration(r.countdownLeftSec)], ['Heat at end', String(r.heatAtEnd ?? '–')],
       ['Jumps (perfect / good / fail)', `${r.boardingAttempts} (${r.boarding.perfect} / ${r.boarding.good} / ${r.boarding.fail})`], ['Furthest', r.furthestPhase],
       ['Commit to aboard', duration(r.commitToAboardSec)], ['Damage taken', String(r.damageTaken)],
-      ['Whistles', String(r.whistles ?? '–')], ['Mount jumps', String(r.mountAttempts ?? '–')],
+      ['Whistles', String(r.whistles ?? '–')], ['Mount jumps', r.mounts ? `${r.mountAttempts} (${r.mounts.perfect} / ${r.mounts.good} / ${r.mounts.fail})` : String(r.mountAttempts ?? '–')],
       ['Refused commands', Object.entries(r.rejections ?? {}).map(([k, n]) => `${k} ×${n}`).join(', ') || '–'],
     ];
     const notes = r.notes.length

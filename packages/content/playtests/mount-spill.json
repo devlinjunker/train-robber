@@ -25,5 +25,10 @@
     "lootCarried",
     "banked",
     "whistles"
-  ]
+  ],
+  "base": {
+    "map": "line"
+  },
+  "status": "done",
+  "conclusion": "It's hard to tell what you lost when the summary screen pops up right when you jump off. I also think it's hard to make a perfect landing with the current jump to horse meter. Losing the heaviest item is punishing... but maybe we should try to make it more clear. I think Random or 30% of value is appropriate, but we need to make it more clear."
 }

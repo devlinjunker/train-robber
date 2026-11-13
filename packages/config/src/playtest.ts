@@ -24,6 +24,7 @@ export const EXPERIMENT_NUMBERS = {
   jumps: 'Average jumps and perfect / good / fail',
   damage: 'Average damage taken',
   whistles: 'Average whistles',
+  mounts: 'Average mount jumps and perfect / good / fail',
 } as const;
 export type ExperimentNumber = keyof typeof EXPERIMENT_NUMBERS;
 const numberId = z.enum(Object.keys(EXPERIMENT_NUMBERS) as [ExperimentNumber, ...ExperimentNumber[]]);

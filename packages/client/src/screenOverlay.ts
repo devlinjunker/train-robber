@@ -106,9 +106,9 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const cueLabel = new Text({ text: '', style: style(16) });
   cueLabel.anchor.set(0.5);
   const searchBar = new Graphics();
-  const lost = new Text({ text: 'LOST LOOT', style: style(26, GOOD_COLOUR) });
+  const lost = new Text({ text: 'LOST LOOT', style: style(30, GOOD_COLOUR) });
   lost.anchor.set(0.5, 1);
-  const lostDetail = new Text({ text: '', style: style(15, GOOD_COLOUR) });
+  const lostDetail = new Text({ text: '', style: { ...style(17, GOOD_COLOUR), align: 'center' as const } });
   lostDetail.anchor.set(0.5, 0);
   const overtime = new Text({ text: '', style: style(22, 0xff3b30) });
   overtime.anchor.set(0.5, 1);

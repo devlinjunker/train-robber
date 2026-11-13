@@ -147,7 +147,7 @@ export const GameSchema = z.object({
     mountRangeTiles: positive,
     /** The player must be this close to a side door on the horse's side to mount (and for the grace window, G18). */
     doorReachTiles: positive,
-    /** The mount meter: one back and forth, and perfect and good zone widths (G24: 3% and 15% at 1.85 s). */
+    /** The mount meter: one back and forth, and perfect and good zone widths (G24 was 3% and 15% at 1.85 s; widened to 8% and 25% at 2.4 s after issue #79, preset mount-meter-tight keeps the old one). */
     meter: z.object({
       /** One full back and forth of the mount meter. */
       sweepPeriodSec: positive,
@@ -320,6 +320,10 @@ export const GameSchema = z.object({
     showTrainNames: z.boolean(),
     /** How long the loot total shows in the top right after you get off the train with loot (Devlin, PR #36). */
     lootTotalSec: z.number().min(0),
+    /** Seconds the end-of-run summary waits after the run ends, so the landing, LOST LOOT and banked notices can be read first (issue #79); 0 shows it at once. */
+    summaryDelaySec: z.number().min(0),
+    /** How long the LOST LOOT text stays over the rider after a good mount spill or a throw off (issue #79; was 2 s). */
+    lostLootSec: z.number().min(0),
   }).strict(),
   /**
    * Placeholder sound levels (client only; U still mutes). Volumes scale each sound's normal level

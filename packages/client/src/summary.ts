@@ -12,8 +12,10 @@ export interface RunSummaryView {
   heat: number;
   /** What the outcome banked (or, in practice, would have banked). */
   banked: number;
-  /** Loot value lost on the way: thrown off, falls and mount spills. */
+  /** Loot value lost on the way: thrown off and falls (a mount spill is in `spill`). */
   lost: number;
+  /** What a good mount spilled, by name, and its value; null after a clean mount or none (issue #79). */
+  spill: { what: string; value: number } | null;
   /** Items picked up during the run. */
   picked: number;
   before: PersistentState;
@@ -48,8 +50,9 @@ const money = (v: number) => `$${Math.round(v)}`;
 const stars = (level: number, max: number) => '★'.repeat(level) + '☆'.repeat(Math.max(0, max - level));
 
 /** Follows the events and builds a summary when a run ends (quick retries get none). */
-export function createSummaryTracker() {
+export function createSummaryTracker(itemName: (id: string) => string = (id) => id) {
   let lost = 0, picked = 0, wantedLevel = 0, practice = false;
+  let spill: RunSummaryView['spill'] = null;
   let ended: Extract<SimEvent, { type: 'RunEnded' }> | null = null;
   return {
     /** Returns the summary when this event completes one. */
@@ -57,8 +60,13 @@ export function createSummaryTracker() {
       if (e.type === 'RunStarted') {
         // A resumed run keeps its losses so far; a fresh one starts from zero.
         if (!e.resumed) { lost = 0; picked = 0; }
+        spill = null;
         wantedLevel = e.wantedLevel; practice = !!e.practice;
-      } else if (e.type === 'LootLost' || e.type === 'LootSpilled') lost += e.value;
+      } else if (e.type === 'LootLost') lost += e.value;
+      else if (e.type === 'LootSpilled') {
+        const what = e.items.length ? e.items.map(itemName).join(', ') : e.rule === 'share' ? 'a share of your loot' : 'some loot';
+        spill = { what: spill ? `${spill.what}, ${what}` : what, value: (spill?.value ?? 0) + e.value };
+      }
       else if (e.type === 'LootPickedUp') picked++;
       else if (e.type === 'RunEnded') ended = e;
       else if (e.type === 'PersistentChanged' && ended) {
@@ -66,7 +74,7 @@ export function createSummaryTracker() {
         ended = null;
         if (r.retry) return null;
         return {
-          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, banked: r.cashOut, lost, picked,
+          outcome: r.outcome, durationTicks: r.durationTicks, heat: r.heat, banked: r.cashOut, lost, spill, picked,
           before: e.before, after: e.after, wantedLevel, practice: practice || !!e.practice, endOfLine: !!r.endOfLine,
         };
       }
@@ -116,7 +124,13 @@ export function createSummaryPanel(opts: SummaryPanelOptions, parent: HTMLElemen
           : `${v.before.wantedLevel} → ${v.after.wantedLevel} <span class="up">${dWanted > 0 ? '+' : ''}${dWanted}</span>`;
       const lootText = v.banked > 0 ? (v.practice ? `${money(v.banked)} <span class="muted">(practice: not banked)</span>` : money(v.banked))
         : v.outcome === 'extracted' || v.outcome === 'cashedOut' ? '$0' : '$0 <span class="muted">(loot lost)</span>';
+      const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
       const rows: [string, string][] = [
+        // A good mount's spill: what you carried off the train, then what fell (issue #79).
+        ...(v.spill ? [
+          ['Carried off the train', money(v.banked + v.spill.value)],
+          ['Lost on the landing', `<span class="up">-${money(v.spill.value)}</span><br><span class="muted">${esc(v.spill.what)}</span>`],
+        ] as [string, string][] : []),
         ['Loot banked', lootText],
         ...(v.lost > 0 ? [['Lost on the way', money(v.lost)] as [string, string]] : []),
         ['Items picked up', String(v.picked)],

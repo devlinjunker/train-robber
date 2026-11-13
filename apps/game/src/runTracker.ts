@@ -72,6 +72,8 @@ export interface RunRecord extends SessionMeta {
   /** Whistles and mount jumps made; missing on records from before extraction. */
   whistles?: number;
   mountAttempts?: number;
+  /** Mount jumps by meter result; missing on records from before issue #79. */
+  mounts?: Record<BoardingResult, number>;
   /** Dollar value and count of the loot still in the train when the run ended; missing on records from before M6a. */
   lootLeftValue?: number;
   lootLeftItems?: number;
@@ -93,7 +95,7 @@ export interface RunRecord extends SessionMeta {
 
 const PHASE_ORDER: readonly RunPhase[] = ['idle', 'approach', 'boarding', 'aboard', 'extracting', 'ended'];
 
-interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: number; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
+interface Open { runNumber: number; trainId: string; startTick: number; startedAt: string; boarding: Record<BoardingResult, number>; furthest: RunPhase; damage: number; aboardTick: number | null; rejections: Record<string, number>; notes: RunNote[]; countdownLeftSec: number | null; heat: number; lootValue: number; lootItems: number; cashOut: number; whistles: number; mounts: Record<BoardingResult, number>; lootLost: number; wantedLevel: number; day?: number; practice: boolean; resumedFrom?: string; lootLeftValue?: number; lootLeftItems?: number }
 
 export interface RunTracker {
   /**
@@ -125,7 +127,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
     furthestPhase: o.furthest, damageTaken: o.damage,
     commitToAboardSec: o.aboardTick === null ? null : Math.round(((o.aboardTick - o.startTick) / meta.tickRateHz) * 10) / 10,
     rejections: { ...o.rejections }, notes: [...o.notes], countdownLeftSec: o.countdownLeftSec, heatAtEnd: o.heat,
-    lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts,
+    lootValue: o.lootValue, lootItems: o.lootItems, cashOut: o.cashOut, whistles: o.whistles, mountAttempts: o.mounts.perfect + o.mounts.good + o.mounts.fail, mounts: { ...o.mounts },
     ...(o.lootLeftValue === undefined ? {} : { lootLeftValue: o.lootLeftValue, lootLeftItems: o.lootLeftItems }),
     lootLost: o.lootLost, wantedLevel: o.wantedLevel, ...(o.day !== undefined ? { day: o.day } : {}), practice: o.practice, ...(o.resumedFrom ? { resumedFrom: o.resumedFrom } : {}),
   });
@@ -149,7 +151,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
           continue;
         }
         if (ev.type === 'RunStarted') {
-          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: 0, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
+          open = { runNumber: ev.runNumber, trainId: ev.trainId, startTick: ev.tick, startedAt: now, boarding: { perfect: 0, good: 0, fail: 0 }, furthest: 'approach', damage: 0, aboardTick: null, rejections: {}, notes: [], countdownLeftSec: ev.countdownSec, heat: 0, lootValue: 0, lootItems: 0, cashOut: 0, whistles: 0, mounts: { perfect: 0, good: 0, fail: 0 }, lootLost: 0, wantedLevel: ev.wantedLevel ?? 0, ...(ev.day !== undefined ? { day: ev.day } : {}), practice: !!ev.practice,
             ...(ev.resumed && cancelledOn.has(ev.trainId) ? { resumedFrom: cancelledOn.get(ev.trainId)! } : {}) };
           ended.push(build(open, 'abandoned', 0, now));
         } else if (!open) continue;
@@ -166,7 +168,7 @@ export function createRunTracker(meta: SessionMeta): RunTracker {
         // Thrown off or a fall: the items are gone (M5 wires these into the run's loot).
         else if (ev.type === 'LootLost') { open.lootValue -= ev.value; open.lootItems--; open.lootLost += ev.value; }
         else if (ev.type === 'HorseWhistled' || ev.type === 'HorseSideChanged') open.whistles++;
-        else if (ev.type === 'MountAttempt') open.mounts++;
+        else if (ev.type === 'MountAttempt') open.mounts[ev.result]++;
         else if (ev.type === 'RunEnded') {
           open.countdownLeftSec = ev.countdownLeftSec; open.heat = ev.heat; open.cashOut = ev.cashOut;
           if (ev.lootLeftValue !== undefined) { open.lootLeftValue = ev.lootLeftValue; open.lootLeftItems = ev.lootLeftItems; }

@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "mount-meter-tight",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": { "extraction": { "meter": { "sweepPeriodSec": 1.85, "zoneWidths": [0.03, 0.15] } } }
+}

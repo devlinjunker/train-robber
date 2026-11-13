@@ -1244,6 +1244,8 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Seen-from-outside test setup (Devlin's PR #36 playtest answers, 2026-10-28) | off; on, the first guard stands on its car's left ledge 2 tiles from the front looking back, the second on that car's rear platform looking forward (preset `roof-edge-test`: 2 mail cars, 2 guards, ladders on every car, all-mail trains) | `playtest.edgeGuards` |
 | Falling off alerts guards (Devlin's PR #36 playtest, 2026-10-27) | a fall off a roof alerts the guards in that car and 1 car either side: an unaware one turns suspicious, and each walks out to the ledge where you went over and looks for at least 8 s | `outside.roof.fallAlert.enabled`, `cars`, `checkSec` |
 | Loot total on getting away (Devlin's PR #36 playtest, 2026-10-27) | extracting or cashing out shows LOOT: $total and the item count in the top right for 4 s | `hud.lootTotalSec` |
+| Readable mount loss (Devlin's mount-spill experiment, issue #79, 2026-11-12) | the end-of-run summary waits 2.5 s; after a good mount LOST LOOT names what fell and what you kept for 3.5 s, the notice says it, and the summary lists Carried off the train and Lost on the landing | `hud.summaryDelaySec`, `hud.lostLootSec` |
+| Mount meter (issue #79; G24 was 3% / 15% at 1.85 s) | perfect 8%, good 25% of the track, 2.4 s sweep; preset `mount-meter-tight` keeps the old meter | `extraction.meter.*` |
 
 ### Phase 2 checklist
 
