@@ -138,8 +138,8 @@ function comeDown(ctx: RoofCtx, p: PlayerState, rp: PlayerRunState, g: TrainGrid
   rp.search = null;
   const on = space === Space.Coupling ? 'coupling' : space === Space.Ledge ? 'ledge' : 'platform';
   ctx.emit({ type: 'RoofLanded', tick: ctx.state.tick, player: p.id, car: at.car, on, jumped });
-  // A short jump is a fall onto the car below: its guards come to check (Devlin, PR #61).
-  if (jumped) alertGuardsToLanding(ctx, at.car, at.x, y);
+  // A short jump, or walking off a roof end, drops you onto the car below: its guards come to check (Devlin, PR #61).
+  alertGuardsToLanding(ctx, at.car, at.x, y);
   return null;
 }
 

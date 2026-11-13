@@ -431,7 +431,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     else if (e.type === 'RoofLanded' && e.on === 'roof') { if (e.jumped) show('Clean jump', 'good', 1200); }
     else if (e.type === 'RoofLanded') {
       const fa = config.values.outside.roof.fallAlert;
-      const heard = e.jumped && fa.enabled && fa.landedCar ? '. The guards in this car heard you land' : '';
+      const heard = fa.enabled && fa.landedCar ? '. The guards in this car heard you land' : '';
       show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}${heard}${e.jumped ? '. Run (Shift) to clear the gap' : ''}`, 'warn', 2500);
     }
     else if (e.type === 'RoofSlipped') show('Slipping! Push away from the edge to lean into the curve', 'bad', 1500);

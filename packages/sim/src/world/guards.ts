@@ -765,7 +765,7 @@ export function alertGuardsToFall(ctx: GuardCtx, p: PlayerState): void {
 }
 
 /**
- * A short jump that comes down below the roofs (Devlin, PR #61): with `outside.roof.fallAlert` on and
+ * A drop off a roof onto a platform, the coupling or a ledge, by a short jump or by walking off a roof end (Devlin, PR #61): with `outside.roof.fallAlert` on and
  * `landedCar`, every guard in car `car` not already alert turns suspicious and comes to check the
  * landing spot (`x`, `y` in that car), for at least `fallAlert.checkSec`.
  */

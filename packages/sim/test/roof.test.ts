@@ -365,6 +365,17 @@ describe("Devlin's PR #36 playtest notes", () => {
     }
   });
 
+  it('walking off a roof end onto the platform alerts every guard in that car too (Devlin, PR #61)', () => {
+    for (const landedCar of [true, false]) {
+      const cfg = roofConfig({ guards: 1, roof: { fallAlert: { ...ROOF.fallAlert, landedCar } } });
+      const sim = at(cfg, 0.5, 2.5, 'roof');
+      Object.assign(S(sim).run!.guards[0]!, { car: 1, x: 14.5, y: 1.5, fx: 1, fy: 0, post: { car: 1, x: 14.5, y: 1.5, fx: 1, fy: 0 }, patrol: null });
+      const ev = steps(sim, 12, { type: 'move', x: 64, y: 0 });
+      expect(ofType(ev, 'RoofLanded')).toEqual([expect.objectContaining({ car: 1, on: 'platform', jumped: false })]);
+      expect(S(sim).run!.guards[0]!.state).toBe(landedCar ? 'suspicious' : 'unaware');
+    }
+  });
+
   it('falling off a roof alerts the guards nearby, who head for where you went over; off, they never notice', () => {
     for (const enabled of [true, false]) {
       const cfg = roofConfig({ guards: 1, roof: { fallAlert: { ...ROOF.fallAlert, enabled } } });
