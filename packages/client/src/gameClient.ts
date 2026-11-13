@@ -895,7 +895,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const prompt = [switchPrompt, cashHint, phase === 'idle' ? campHint : ''].filter(Boolean).join('  ·  ');
       const bag = player.saddlebag;
       const saddlebag = bankAtCamp && bag.value > 0
-        ? { text: `SADDLEBAG $${bag.value}  ·  ${!campHere ? 'make camp to bank it' : campWhy === 'too close to the line' ? `too close to the line (${Math.floor(campHere.distance)}/${Math.ceil(campHere.need)})` : campWhy === 'train sees you' ? 'the train can see you' : campWhy === 'bad ground' ? 'too wet to camp' : 'safe to camp'}` }
+        ? { text: `SADDLEBAG $${bag.value}  ·  ${!campHere ? 'make camp to bank it' : campWhy === 'too close to the line' ? `too close to the line (${Math.floor(campHere.distance)}/${Math.ceil(campHere.need)})` : campWhy === 'train sees you' ? 'the train can see you' : campWhy === 'bad ground' ? 'too wet to camp' : campWhy === 'already camped' ? 'camped here' : !campWhy || campWhy === 'moving' ? 'safe to camp' : 'make camp to bank it'}` }
         : null;
       const weight = carriedWeight(config, carried);
       const carry = run ? {
