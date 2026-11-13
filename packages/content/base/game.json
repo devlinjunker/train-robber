@@ -38,7 +38,7 @@
       "guardJump": { "enabled": true, "shortShare": 0.25 },
       "dropStumbleSec": 0.6,
       "jump": { "airSec": 0.5, "pushTiles": 0.75, "liftTiles": 0.6 },
-      "fallAlert": { "enabled": true, "cars": 1, "checkSec": 8 },
+      "fallAlert": { "enabled": true, "cars": 1, "checkSec": 8, "landedCar": true },
       "slip": { "enabled": true, "thresholdTilesPerSec2": 0.9, "slideTilesPerSec": 3, "leanSec": 0.3, "cooldownSec": 1, "guards": true, "guardCatchSec": 0.8 },
       "hatch": { "cars": "prize", "climbSec": 1.5, "reachTiles": 1 }
     }

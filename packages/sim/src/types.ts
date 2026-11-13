@@ -697,7 +697,7 @@ export interface RoofConfig {
   guardJump: { enabled: boolean; shortShare: number };
   dropStumbleTicks: number;
   jump: { airTicks: number; pushTiles: number; liftTiles: number };
-  fallAlert: { enabled: boolean; cars: number; checkTicks: number };
+  fallAlert: { enabled: boolean; cars: number; checkTicks: number; landedCar: boolean };
   slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number; guards: boolean; guardCatchTicks: number };
   /** Roof hatches (core loop PR): which cars have one, how long going through takes, and E's reach. */
   hatch: { cars: 'prize' | 'all' | 'none'; climbTicks: number; reachTiles: number };

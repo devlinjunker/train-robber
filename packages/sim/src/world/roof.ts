@@ -6,7 +6,7 @@
 // it. Climbing, jumps and slips live in the run's player state, so a snapshot resumes mid-jump.
 import type { CarEnd, FallCause, GameState, LootState, PlayerRunState, PlayerState, SimConfig, SimEvent, TrainState } from '../types';
 import { carFrame, parseCarFrame } from './frames';
-import { fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
+import { alertGuardsToLanding, fromTrain, gridCell, gridWalkable, onRoof, roofCarAt, Space, toTrain, trainGrid, trainLadders, type Ladder, type TrainGrid } from './guards';
 import { carriedSpeedScale, isPrize } from './loot';
 import type { WorldMap } from './map';
 import { curvePull } from './curve';
@@ -196,6 +196,8 @@ function comeDown(ctx: RoofCtx, p: PlayerState, rp: PlayerRunState, g: TrainGrid
   rp.search = null;
   const on = space === Space.Coupling ? 'coupling' : space === Space.Ledge ? 'ledge' : 'platform';
   ctx.emit({ type: 'RoofLanded', tick: ctx.state.tick, player: p.id, car: at.car, on, jumped });
+  // A short jump, or walking off a roof end, drops you onto the car below: its guards come to check (Devlin, PR #61).
+  alertGuardsToLanding(ctx, at.car, at.x, y);
   return null;
 }
 

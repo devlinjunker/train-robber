@@ -790,6 +790,23 @@ export function hearDistraction(ctx: GuardCtx, grid: TrainGrid, lx: number, y: n
   return heard;
 }
 
+/**
+ * A drop off a roof onto a platform, the coupling or a ledge, by a short jump or by walking off a roof end (Devlin, PR #61): with `outside.roof.fallAlert` on and
+ * `landedCar`, every guard in car `car` not already alert turns suspicious and comes to check the
+ * landing spot (`x`, `y` in that car), for at least `fallAlert.checkSec`.
+ */
+export function alertGuardsToLanding(ctx: GuardCtx, car: number, x: number, y: number): void {
+  const fa = ctx.config.values.outside.roof.fallAlert;
+  const run = ctx.state.run;
+  if (!fa.enabled || !fa.landedCar || !run) return;
+  for (const g of run.guards) {
+    if (g.state === 'alert' || g.car !== car) continue;
+    if (g.state === 'unaware') setState(ctx, g, 'suspicious', 'noise');
+    g.lastKnown = { car, x, y, roof: false };
+    g.calmTicks = -fa.checkTicks;
+  }
+}
+
 export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerState } | null {
   const { state, config } = ctx;
   const run = state.run;

@@ -81,7 +81,7 @@ export const ROOF: Values['outside']['roof'] = {
   enabled: true, ladderEnds: 'both', ladderCarShare: 1, ladderRow: 1, ladderReachTiles: 1, climbTicks: 60, speedTilesPerTick: 5 / 60,
   noise: { walkRadiusTiles: 3, runRadiusTiles: 6, crouchRadiusTiles: 1.5, landRadiusTiles: 6, landTicks: 15 },
   edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0 }, dropStumbleTicks: 36,
-  jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480 },
+  jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480, landedCar: true },
   slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60, guards: true, guardCatchTicks: 48 },
   // Hatches off, as before the core loop PR; hatch tests switch them on.
   hatch: { cars: 'none', climbTicks: 90, reachTiles: 1 },
