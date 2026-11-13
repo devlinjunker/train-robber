@@ -133,6 +133,8 @@ export interface HorseIntent {
   tx: number; ty: number; speed: number;
   /** Off screen: ignore rocks and water (no collision, no wading), so the horse cannot get stuck where nobody sees it. */
   passThrough?: boolean;
+  /** Its speed on slow ground (mud) as a share of top speed, in place of `horse.slowZoneSpeedScale`. */
+  slowScale?: number;
 }
 
 /** One tick of AI throttle: accelerate or brake toward `target`, under the ground's cap. */
@@ -183,7 +185,7 @@ export function ride(
     if (!stunned) {
       const top = boosting ? cfg.maxSpeed * cfg.boost.topSpeedScale : cfg.maxSpeed;
       const ground = terrainAt(map, h.x, h.y);
-      const cap = intent?.passThrough ? top : ground === Terrain.Slow ? top * cfg.slowZoneSpeedScale
+      const cap = intent?.passThrough ? top : ground === Terrain.Slow ? top * (intent?.slowScale ?? cfg.slowZoneSpeedScale)
         : ground === Terrain.Water ? top * cfg.waterSpeedScale : top;
       // Mud reins the horse in at its braking rate; water drags it down to wading speed at once.
       if (ground === Terrain.Water && h.speed > cap) h.speed = cap;

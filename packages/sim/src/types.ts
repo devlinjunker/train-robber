@@ -157,6 +157,8 @@ export type SimEvent =
   | { type: 'HorseSideChanged'; tick: number; player: PlayerId; from: TrainSide; to: TrainSide }
   /** The horse cannot reach the player's car (no way round the terrain, or stuck); it keeps trying. */
   | { type: 'HorseBlocked'; tick: number; player: PlayerId; reason: 'no path' | 'stuck' }
+  /** The alongside horse fell `extraction.paceResetTiles` behind (rocks, a bend): it is coming again, with a fresh pace window when back. */
+  | { type: 'HorseFellBehind'; tick: number; player: PlayerId }
   /** Space beside the alongside horse; `meter` is the sampled position, 0 to 1. */
   | { type: 'MountAttempt'; tick: number; player: PlayerId; result: BoardingResult; attempt: number; meter: number }
   /** A good mount spilled loot (mountSpill): the items lost, and the value lost with them. */
@@ -367,10 +369,12 @@ export interface HorseCall {
   /** Closest it has got to its target since it last made progress, and the ticks since then. */
   bestDistance: number;
   stuckTicks: number;
-  /** Coarse path cells (row-major index on the `extraction.pathCellTiles` grid) toward the target; empty to ride straight there. */
+  /** Path tiles (row * map cols + column) toward the target; empty to ride straight there. */
   path: number[];
   /** Ticks until the path is planned again. */
   replanTicks: number;
+  /** Stuck, with `extraction.unstick: reroute`: backing off toward (x, y) for `ticks` more, before planning a new way. */
+  backOff: { x: number; y: number; ticks: number } | null;
   /** Mount jumps made this run. */
   mountAttempts: number;
 }
@@ -543,14 +547,20 @@ export interface SimConfig {
       mountSpill: MountSpill;
       /** Share of carried value a good mount loses under `mountSpill: share`. */
       spillShare: number;
-      /** Size of the coarse grid the horse paths around blocked and water tiles on. */
-      pathCellTiles: number;
       /** No progress toward its target for this long and the horse counts as stuck. */
       stuckTicks: number;
       /** Farther than this from its lane point (off screen), the riderless horse ignores rocks and water; 0 never. */
       passThroughBeyondTiles: number;
       /** How long a good mount stuns the horse. */
       goodMountStunTicks: number;
+      /** The pace window counts down only while the horse is this close to its lane point and keeping up. */
+      paceClockRangeTiles: number;
+      /** Alongside, falling this far behind its lane point makes it `approaching` again, with a fresh window when back. */
+      paceResetTiles: number;
+      /** The called horse's top speed on mud, as a share of its top speed. */
+      mudSpeedScale: number;
+      /** A stuck horse backs off and plans a new way (`reroute`), or keeps pushing (`off`). */
+      unstick: 'reroute' | 'off';
     };
     countdown: { enabled: boolean; startsAt: 'commit' | 'boarding'; scale: number; graceTicks: number; lineClock?: 'town' | 'fixed' };
     heat: {

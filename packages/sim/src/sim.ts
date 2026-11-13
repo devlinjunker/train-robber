@@ -4,7 +4,7 @@ import type { GameState, InputFrame, PersistentState, PlayerId, SimConfig, SimEv
 import { prepareMap, type SimMap, type WorldMap } from './world/map';
 import { advanceTrains, allCarPoses, trainSpeed, spawnInitialTrains } from './world/trains';
 import { ride } from './world/riding';
-import type { CarPose } from './world/cars';
+import { couplingBoxes, type CarPose } from './world/cars';
 import { createWorldModel, walkAboard, type WorldModel } from './world/separate';
 import { lootSystem } from './world/loot';
 import { autoCommitSystem, autoSwitchSystem, boardingSystem, boost, cancelRun, cashOut, crouch, collisionSystem, debugHeat, quickRetry, reject, runEndSystem, startRun, switchTrain, throwOff, ledgeRockSystem, type RunCtx } from './run';
@@ -139,7 +139,9 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
       // The horse runs into a car's end platforms as well as its body.
       const platform = config.values.outside.platformDepthTiles;
       const bodies = allCarPoses(state, map, config);
-      const solid = platform > 0 ? bodies.map((c) => ({ ...c, halfLength: c.halfLength + platform })) : bodies;
+      const ends = platform > 0 ? bodies.map((c) => ({ ...c, halfLength: c.halfLength + platform })) : bodies;
+      // The coupling gaps between cars are closed too, so a horse cannot be caught in one on a bend (issue #60).
+      const solid = [...ends, ...couplingBoxes(ends)];
       collisionSystem(ctx, ride(state.players, state.world.horses, map, config, solid, speedOf, horseIntent(ctx)));
       // 3b. The commit prompt's timer and close range commit an idle rider with no key; with
       // `commit.autoSwitch`, a run moves to another train the rider is clearly closer to.

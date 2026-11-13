@@ -8,10 +8,10 @@ import { distanceToBox } from './world/collide';
 import { carriedValue } from './world/loot';
 import { terrainAt, type WorldMap } from './world/map';
 import { laneTarget, mountCheck, playerSide } from './world/mount';
-import { avoids, cellCentre, cellOf, findPath, lineClear, pathGrid } from './world/path';
-import type { HorseIntent } from './world/riding';
+import { avoids, findTilePath, lineClear } from './world/path';
+import { HORSE_RADIUS, type HorseIntent } from './world/riding';
 import { carPosesOf, onMapRange, routeOf, trainLengthOf, trainSpeed } from './world/trains';
-import { carSpacing } from './world/cars';
+import { carSpacing, couplingBoxes, type CarPose } from './world/cars';
 import { trackAt } from './world/track';
 import { endRun, horseOf, reject, setPhase, type RunCtx } from './run';
 import { WORLD_FRAME, parseCarFrame } from './world/frames';
@@ -23,9 +23,77 @@ const LEAD_TILES = 4;
 /** Along-track gap (tiles) per tile/s of extra speed while closing on the lane point. */
 const CLOSE_GAIN = 0.8;
 /** How often the path is planned again, ticks. */
-const REPLAN_TICKS = 30;
+const REPLAN_TICKS = 15;
+/** The horse steers for the farthest path tile it can ride straight to, looking this many tiles along the path. */
+const PATH_LOOK = 12;
+/** Alongside, no progress for this long (and not level with the player) stops the pace window (issue #82). */
+const PACE_STALL_TICKS = 30;
+/** Stuck under `unstick: reroute`: back off this far, for at most this long, then plan again. */
+const BACK_OFF_TILES = 4;
+const BACK_OFF_TICKS = 60;
+/** Speed caps for turns: aiming more than about 45 degrees off the heading, and more than about 70. */
+const TURN_SPEED = 8;
+const SHARP_TURN_SPEED = 4;
 /** Getting this much closer counts as progress, for the stuck check. */
 const PROGRESS_TILES = 0.5;
+
+/** How far ahead the horse looks for rocks, water and cars, at least, tiles; more at speed (FEEL_SEC of travel). */
+const FEEL_TILES = 2.5;
+const FEEL_SEC = 0.5;
+/** cos and sin of 15 degrees: the feelers fan out in 15 degree steps, up to 105 degrees each way. */
+const C15 = 0.9659258262890683, S15 = 0.25881904510252074;
+const FEELERS = 7;
+
+/** True when a horse centred at (x, y) would touch terrain it paths round, or come closer to a car than `minCar` allows. */
+function hits(map: WorldMap, boxes: readonly CarPose[], x: number, y: number, px: number, py: number, carFloor: number): boolean {
+  // The middle and both flanks, so it does not clip a rock with its side.
+  if (avoids(terrainAt(map, x, y)) || avoids(terrainAt(map, x + px, y + py)) || avoids(terrainAt(map, x - px, y - py))) return true;
+  for (const b of boxes) if (distanceToBox(x, y, b) < carFloor) return true;
+  return false;
+}
+
+/** True when the horse can ride `len` tiles from (x, y) along unit (dx, dy) without touching rocks, water or a car. */
+function feelerClear(map: WorldMap, boxes: readonly CarPose[], x: number, y: number, dx: number, dy: number, len: number): boolean {
+  const px = -dy * HORSE_RADIUS, py = dx * HORSE_RADIUS;
+  // Already against a car (pressed by a bend): only a feeler that would push in closer than now counts as blocked.
+  let near = Infinity;
+  for (const b of boxes) near = Math.min(near, distanceToBox(x, y, b));
+  const carFloor = Math.min(HORSE_RADIUS + 0.15, near - 0.01);
+  for (let t = 0.5; t <= len + 1e-9; t += 0.5) if (hits(map, boxes, x + dx * t, y + dy * t, px, py, carFloor)) return false;
+  return true;
+}
+
+/**
+ * Steer round what is just ahead (issue #60): when the straight line toward (tx, ty) would run into
+ * rocks, water or a car within a short look-ahead, turn the aim by the smallest 15 degree step,
+ * either way, that is clear. Unchanged when the way is clear or nothing near is.
+ */
+export function avoidAhead(map: WorldMap, boxes: readonly CarPose[], h: HorseState, tx: number, ty: number): { tx: number; ty: number } {
+  let dx = tx - h.x, dy = ty - h.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist < 1e-6) return { tx, ty };
+  dx /= dist; dy /= dist;
+  const len = Math.min(dist, Math.max(FEEL_TILES, h.speed * FEEL_SEC));
+  const near = boxes.filter((b) => Math.abs(b.x - h.x) < b.halfLength + b.halfWidth + len + 2 && Math.abs(b.y - h.y) < b.halfLength + b.halfWidth + len + 2);
+  if (feelerClear(map, near, h.x, h.y, dx, dy, len)) return { tx, ty };
+  // Fan out both ways; rotations by repeated multiplication, so no trig in the sim.
+  let ax = dx, ay = dy, bx = dx, by = dy;
+  for (let k = 1; k <= FEELERS; k++) {
+    [ax, ay] = [ax * C15 - ay * S15, ax * S15 + ay * C15];
+    [bx, by] = [bx * C15 + by * S15, -bx * S15 + by * C15];
+    if (feelerClear(map, near, h.x, h.y, ax, ay, len)) return { tx: h.x + ax * dist, ty: h.y + ay * dist };
+    if (feelerClear(map, near, h.x, h.y, bx, by, len)) return { tx: h.x + bx * dist, ty: h.y + by * dist };
+  }
+  return { tx, ty };
+}
+
+/** True when a horse-wide corridor from (x0, y0) to (x1, y1) crosses no tile the horse paths round. */
+function wideClear(map: WorldMap, x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0, dy = y1 - y0, n = Math.sqrt(dx * dx + dy * dy);
+  if (n < 1e-6) return !avoids(terrainAt(map, x0, y0));
+  const px = (-dy / n) * (HORSE_RADIUS + 0.1), py = (dx / n) * (HORSE_RADIUS + 0.1);
+  return lineClear(map, x0, y0, x1, y1) && lineClear(map, x0 + px, y0 + py, x1 + px, y1 + py) && lineClear(map, x0 - px, y0 - py, x1 - px, y1 - py);
+}
 
 const next01 = (ctx: RunCtx, stream: 'horse' | 'misc') => nextU32(ctx.state.rng, stream) / 4294967296;
 
@@ -91,7 +159,7 @@ export function whistle(ctx: RunCtx, p: PlayerState): void {
   if (call.state === 'approaching' || call.state === 'alongside') {
     if (side === call.side) return reject(ctx, p.id, 'whistle', 'horse coming');
     ctx.emit({ type: 'HorseSideChanged', tick: state.tick, player: p.id, from: call.side, to: side });
-    Object.assign(call, { side, state: 'approaching', ticks: 0, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0 });
+    Object.assign(call, { side, state: 'approaching', ticks: 0, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0, backOff: null });
     call.whistles += 1;
     setPhase(ctx, p.id, 'extracting');
     return;
@@ -104,7 +172,7 @@ export function whistle(ctx: RunCtx, p: PlayerState): void {
   const trainV = trainSpeed(config, state.world.trains.find((t) => t.id === run.trainId)!.type);
   Object.assign(h, { x: start.x, y: start.y, hx: start.hx, hy: start.hy, speed: trainV, cruiseTarget: trainV, stunTicks: 0, mode: 'physical' as const });
   call.whistles += 1;
-  Object.assign(call, { state: 'approaching', side, ticks: 0, whistleTick: state.tick, delaySec, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0 });
+  Object.assign(call, { state: 'approaching', side, ticks: 0, whistleTick: state.tick, delaySec, blocked: null, bestDistance: 1e9, stuckTicks: 0, path: [], replanTicks: 0, backOff: null });
   ctx.emit({ type: 'HorseWhistled', tick: state.tick, player: p.id, side, delaySec: Math.round(delaySec * 1000) / 1000, distanceTiles: Math.round(start.distance * 10) / 10, whistle: call.whistles });
   setPhase(ctx, p.id, 'extracting');
 }
@@ -149,11 +217,20 @@ export function horseIntent(ctx: RunCtx): (p: PlayerState, h: HorseState) => Hor
     const lane = laneTarget(state, map, config, p, call.side);
     if (!lane) return null;
     // Far from the player's car (off screen at the run zoom) it rides straight through rocks and
-    // water, so it can only get stuck where the player can see it (Devlin, M4 playtest).
+    // water, so it can only get stuck where the player can see it (Devlin, M4 playtest). On screen
+    // it never does (issue #82).
     const far = config.values.extraction.passThroughBeyondTiles;
     const through = far > 0 && Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2) > far;
     const steer = steerFor(ctx, h, call, cars, lane, trainV, max, through);
-    return steer && through ? { ...steer, passThrough: true } : steer;
+    if (!steer) return null;
+    if (through) return { ...steer, passThrough: true };
+    // On screen it looks ahead and steers round rocks, water and the cars (couplings too) (issue #60),
+    // and slows for a tight turn so it does not swing wide into them (issue #82).
+    const aim = avoidAhead(map, [...cars, ...couplingBoxes(cars)], h, steer.tx, steer.ty);
+    const dx = aim.tx - h.x, dy = aim.ty - h.y, n = Math.sqrt(dx * dx + dy * dy);
+    const dot = n > 1e-6 ? (h.hx * dx + h.hy * dy) / n : 1;
+    const cap = dot < 0.35 ? SHARP_TURN_SPEED : dot < 0.7 ? TURN_SPEED : Infinity;
+    return { ...aim, speed: Math.min(steer.speed, cap), slowScale: config.values.extraction.mudSpeedScale };
   };
 }
 
@@ -173,15 +250,24 @@ function steerFor(
     const s = (behind ? call.side === 'left' : call.side !== 'left') ? 1 : -1;
     return { tx: bx + last.uy * out * s, ty: by - last.ux * out * s, speed: behind ? trainV : Math.max(0, trainV - 4) };
   }
-  // Round terrain: steer for the next cell of the planned path (not while passing through).
-  const g = pathGrid(map, config.values.extraction.pathCellTiles);
-  while (!through && call.path.length > 1) {
-    const c = cellCentre(g, call.path[0]!);
-    if (Math.sqrt((c.x - h.x) ** 2 + (c.y - h.y) ** 2) > g.cell) break;
-    call.path.shift();
-  }
-  if (!through && call.path.length > 1) {
-    const c = cellCentre(g, call.path[0]!);
+  // Stuck: back off toward a clear spot before planning a new way (`extraction.unstick: reroute`).
+  if (!through && call.backOff) return { tx: call.backOff.x, ty: call.backOff.y, speed: SHARP_TURN_SPEED + 2 };
+  // Round terrain and the train: steer for the farthest tile of the planned path it can ride
+  // straight to (not while passing through).
+  if (!through && call.path.length > 0) {
+    const cols = map.cols;
+    const at = (i: number) => ({ x: (call.path[i]! % cols) + 0.5, y: Math.floor(call.path[i]! / cols) + 0.5 });
+    while (call.path.length > 1) {
+      const c = at(0);
+      if ((c.x - h.x) ** 2 + (c.y - h.y) ** 2 > 1) break;
+      call.path.shift();
+    }
+    let pick = 0;
+    for (let i = Math.min(call.path.length - 1, PATH_LOOK); i > 0; i--) {
+      const c = at(i);
+      if (wideClear(map, h.x, h.y, c.x, c.y)) { pick = i; break; }
+    }
+    const c = at(pick);
     return { tx: c.x, ty: c.y, speed: max };
   }
   // Still behind the player's car: ride up the lane car by car, so it follows the train round
@@ -258,6 +344,79 @@ function resolveMount(ctx: RunCtx, p: PlayerState, h: HorseState): void {
   p.commitHold = trainId;
 }
 
+/** A clear spot about BACK_OFF_TILES from the horse, preferring straight back from its heading; null when none is. */
+function backOffPoint(map: WorldMap, boxes: readonly CarPose[], h: HorseState): { x: number; y: number } | null {
+  // Straight back first, then fanning out toward the sides in 15 degree steps (no trig in the sim).
+  let ax = -h.hx, ay = -h.hy, bx = ax, by = ay;
+  if (feelerClear(map, boxes, h.x, h.y, ax, ay, BACK_OFF_TILES)) return { x: h.x + ax * BACK_OFF_TILES, y: h.y + ay * BACK_OFF_TILES };
+  for (let k = 1; k <= 11; k++) {
+    [ax, ay] = [ax * C15 - ay * S15, ax * S15 + ay * C15];
+    [bx, by] = [bx * C15 + by * S15, -bx * S15 + by * C15];
+    if (feelerClear(map, boxes, h.x, h.y, ax, ay, BACK_OFF_TILES)) return { x: h.x + ax * BACK_OFF_TILES, y: h.y + ay * BACK_OFF_TILES };
+    if (feelerClear(map, boxes, h.x, h.y, bx, by, BACK_OFF_TILES)) return { x: h.x + bx * BACK_OFF_TILES, y: h.y + by * BACK_OFF_TILES };
+  }
+  return null;
+}
+
+/**
+ * While the horse comes or paces: the stuck check, the blocked notice (which asks the player to
+ * whistle from the other side), path planning round terrain and the train, and with
+ * `extraction.unstick: reroute`, backing off a few tiles to plan a new way when stuck. Off screen
+ * it passes through terrain, so there is nothing to watch there.
+ */
+function trackProgress(ctx: RunCtx, p: PlayerState, h: HorseState, lane: { x: number; y: number }, d: number): void {
+  const { state, map, config } = ctx;
+  const ex = config.values.extraction;
+  const call = state.run!.horse;
+  const through = ex.passThroughBeyondTiles > 0 && d > ex.passThroughBeyondTiles;
+  if (through) {
+    call.stuckTicks = 0; call.bestDistance = d; call.path = []; call.replanTicks = 0; call.blocked = null; call.backOff = null;
+    return;
+  }
+  const cars = carPosesOf(state, map, config, state.run!.trainId);
+  if (call.backOff && --call.backOff.ticks <= 0 || call.backOff && (call.backOff.x - h.x) ** 2 + (call.backOff.y - h.y) ** 2 < 1) {
+    // Backed off: give it a fresh go along a new path.
+    call.backOff = null; call.stuckTicks = 0; call.bestDistance = d; call.replanTicks = 0;
+  }
+  if (d <= ex.alongsideRangeTiles) {
+    // Keeping up beside the car: nothing to be stuck on.
+    call.stuckTicks = 0; call.bestDistance = d;
+    if (call.blocked === 'stuck') call.blocked = null;
+  // Stuck: no progress toward the lane for `extraction.stuckSec`.
+  } else if (d < call.bestDistance - PROGRESS_TILES) {
+    call.bestDistance = d; call.stuckTicks = 0;
+    if (call.blocked === 'stuck') call.blocked = null;
+  } else if (!call.backOff && ++call.stuckTicks >= ex.stuckTicks) {
+    if (call.blocked === null) {
+      call.blocked = 'stuck';
+      ctx.emit({ type: 'HorseBlocked', tick: state.tick, player: p.id, reason: 'stuck' });
+    }
+    if (ex.unstick === 'reroute') {
+      const to = backOffPoint(map, [...cars, ...couplingBoxes(cars)], h);
+      if (to) { call.backOff = { ...to, ticks: BACK_OFF_TICKS }; call.path = []; }
+      call.stuckTicks = 0;
+    }
+  }
+  if (call.backOff || --call.replanTicks > 0) return;
+  call.replanTicks = REPLAN_TICKS;
+  // Ride straight when the way is clear and it is making headway; else plan round.
+  if (call.stuckTicks < REPLAN_TICKS && wideClear(map, h.x, h.y, lane.x, lane.y)) {
+    call.path = [];
+    if (call.blocked === 'no path') call.blocked = null;
+    return;
+  }
+  // Round the train as well as the terrain: tiles the cars (and couplings) cover now are shut.
+  const boxes = [...cars, ...couplingBoxes(cars)];
+  const shut = (x: number, y: number) => boxes.some((b) => distanceToBox(x, y, b) < HORSE_RADIUS + 0.2);
+  // A tight window first; a wide one when the way round is longer (a long rock wall).
+  const path = findTilePath(map, h.x, h.y, lane.x, lane.y, shut) ?? findTilePath(map, h.x, h.y, lane.x, lane.y, shut, 48, 160);
+  call.path = path ?? [];
+  if (!path) {
+    if (call.blocked === null) ctx.emit({ type: 'HorseBlocked', tick: state.tick, player: p.id, reason: 'no path' });
+    call.blocked ??= 'no path';
+  } else if (call.blocked === 'no path') call.blocked = null;
+}
+
 /**
  * Tick system 6, extraction: whistles, the horse's states and timers, path planning and the
  * blocked notice, then the mount meter and mount jumps for `jumps` sent aboard.
@@ -276,52 +435,29 @@ export function extractionSystem(ctx: RunCtx, whistles: ReadonlySet<PlayerId>, j
     if (call.state === 'leaving') {
       call.ticks -= 1;
       if (call.ticks <= 0) { call.state = 'away'; h.mode = 'away'; h.speed = 0; h.cruiseTarget = 0; }
-    } else if (call.state === 'approaching') {
+    } else if (call.state === 'approaching' || call.state === 'alongside') {
       const lane = laneTarget(state, map, config, p, call.side);
       if (lane) {
         const d = Math.sqrt((lane.x - h.x) ** 2 + (lane.y - h.y) ** 2);
-        // Off screen it passes through terrain (horseIntent), so it is never stuck or blocked there.
-        const through = ex.passThroughBeyondTiles > 0 && d > ex.passThroughBeyondTiles;
-        if (through) {
-          call.stuckTicks = 0; call.path = []; call.replanTicks = 0;
-          call.bestDistance = d;
-          call.blocked = null;
-        // Stuck: no progress toward the lane for `extraction.stuckSec`. It keeps trying either way.
-        } else if (d < call.bestDistance - PROGRESS_TILES) {
-          call.bestDistance = d; call.stuckTicks = 0;
-          if (call.blocked === 'stuck') call.blocked = null;
-        } else if (++call.stuckTicks >= ex.stuckTicks && call.blocked === null) {
-          call.blocked = 'stuck';
-          ctx.emit({ type: 'HorseBlocked', tick: state.tick, player: p.id, reason: 'stuck' });
-        }
-        if (!through && --call.replanTicks <= 0) {
-          call.replanTicks = REPLAN_TICKS;
-          if (lineClear(map, h.x, h.y, lane.x, lane.y)) {
-            call.path = [];
-            if (call.blocked === 'no path') call.blocked = null;
-          } else {
-            const g = pathGrid(map, ex.pathCellTiles);
-            const path = findPath(g, cellOf(g, h.x, h.y), cellOf(g, lane.x, lane.y));
-            call.path = path ?? [];
-            if (!path && call.blocked === null) {
-              call.blocked = 'no path';
-              ctx.emit({ type: 'HorseBlocked', tick: state.tick, player: p.id, reason: 'no path' });
-            } else if (path && call.blocked === 'no path') call.blocked = null;
+        trackProgress(ctx, p, h, lane, d);
+        if (call.state === 'approaching') {
+          const cars = carPosesOf(state, map, config, run.trainId);
+          if (d <= ex.alongsideRangeTiles && horseSide(cars, h) === call.side) {
+            Object.assign(call, { state: 'alongside', ticks: ex.paceWindowTicks, blocked: null, path: [] });
+            ctx.emit({ type: 'HorseArrived', tick: state.tick, player: p.id, side: call.side, paceWindowSec: ex.paceWindowTicks / config.values.sim.tickRateHz });
           }
+        // Fallen well behind (rocks, a bend): it is coming again, and gets a fresh window when back (issue #82).
+        } else if (d > ex.paceResetTiles) {
+          Object.assign(call, { state: 'approaching', ticks: 0, bestDistance: d, stuckTicks: 0 });
+          ctx.emit({ type: 'HorseFellBehind', tick: state.tick, player: p.id });
+        // The pace window runs only while the horse keeps up beside the car: close, and level with
+        // the player or still gaining, so rocks or the train holding it back do not use it up (issues #60, #82).
+        } else if (d <= ex.paceClockRangeTiles && (d <= ex.alongsideRangeTiles || call.stuckTicks < PACE_STALL_TICKS) && --call.ticks <= 0) {
+          // The pace window is over: it drops back and leaves; whistle again after the cooldown.
+          Object.assign(call, { state: 'leaving', ticks: ex.dropBackTicks, cooldownTicks: ex.rewhistleCooldownTicks, blocked: null, path: [], backOff: null });
+          ctx.emit({ type: 'HorseDeparted', tick: state.tick, player: p.id, cooldownSec: ex.rewhistleCooldownTicks / config.values.sim.tickRateHz });
+          setPhase(ctx, p.id, 'aboard');
         }
-        const cars = carPosesOf(state, map, config, run.trainId);
-        if (d <= ex.alongsideRangeTiles && horseSide(cars, h) === call.side) {
-          Object.assign(call, { state: 'alongside', ticks: ex.paceWindowTicks, blocked: null, path: [] });
-          ctx.emit({ type: 'HorseArrived', tick: state.tick, player: p.id, side: call.side, paceWindowSec: ex.paceWindowTicks / config.values.sim.tickRateHz });
-        }
-      }
-    } else if (call.state === 'alongside') {
-      call.ticks -= 1;
-      if (call.ticks <= 0) {
-        // The pace window is over: it drops back and leaves; whistle again after the cooldown.
-        Object.assign(call, { state: 'leaving', ticks: ex.dropBackTicks, cooldownTicks: ex.rewhistleCooldownTicks });
-        ctx.emit({ type: 'HorseDeparted', tick: state.tick, player: p.id, cooldownSec: ex.rewhistleCooldownTicks / config.values.sim.tickRateHz });
-        setPhase(ctx, p.id, 'aboard');
       }
     }
     // The mount meter sweeps while a mount is possible; Space samples it.
