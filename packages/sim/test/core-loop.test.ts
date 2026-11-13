@@ -154,6 +154,18 @@ describe('distraction rocks', () => {
     expect(ofType(third, 'CommandRejected')[0]?.reason).toBe('no rocks left');
   });
 
+  it('lands on a clicked point, or at its range on the way to one past it', () => {
+    const sim = aboardAt(cfg, 3, 2.5);
+    const near = ofType(step(sim, { type: 'throw', x: 6, y: 3.5 }), 'DistractionThrown')[0]!;
+    expect(near.car).toBe(1);
+    expect(near.x).toBeCloseTo(6, 0);
+    expect(near.y).toBeCloseTo(3.5, 0);
+    // Standing still is fine with a point to throw at.
+    const far = ofType(step(sim, { type: 'throw', x: 15, y: 2.5 }), 'DistractionThrown')[0]!;
+    expect(far.x).toBeLessThanOrEqual(3 + 6 + 1e-6);
+    expect(far.x).toBeGreaterThan(8.5);
+  });
+
   it('is refused standing still and with throwing off', () => {
     const sim = aboardAt(cfg, 3, 2.5);
     expect(ofType(step(sim, { type: 'throw' }), 'CommandRejected')[0]?.reason).toBe('standing still');

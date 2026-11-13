@@ -1,5 +1,6 @@
 // Distractions (core loop PR, Devlin 2026-11-10: a single-player way to get at a guarded prize).
-// G aboard throws a rock the way you are moving; guards near where it lands go to look there.
+// A click aboard throws a rock at the point under the mouse (or, with no point, the way you are
+// moving); guards near where it lands go to look there.
 import type { GameState, PlayerState, SimConfig, SimEvent } from '../types';
 import { parseCarFrame } from './frames';
 import { fromTrain, gridCell, hearDistraction, toTrain, trainGrid, type TrainGrid } from './guards';
@@ -39,10 +40,23 @@ export function rocksLeft(config: SimConfig, used: number): number {
 }
 
 /**
- * G, `throw`: throw a rock the way the player is moving (car frame, like walking). Refused off a
- * run or the train, on a roof, mid-climb or jump, standing still, or with no rocks left.
+ * Where a rock thrown by a player standing at car-frame (px, py) of car `car` toward car-frame
+ * point (tx, ty) of the same car lands, in train coordinates: at the point, or `rangeTiles` along
+ * the way, short of any wall. Null when the point is where they stand.
  */
-export function throwRock(ctx: ThrowCtx, p: PlayerState, reject: (why: ThrowRejection) => void): void {
+export function aimLanding(config: SimConfig, cars: readonly string[], car: number, px: number, py: number, tx: number, ty: number): { lx: number; y: number } | null {
+  const g = trainGrid(config, cars);
+  const dx = tx - px, dy = ty - py, d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1e-6) return null;
+  return throwLanding(g, toTrain(g, car, px), py, dx / d, dy / d, Math.min(d, config.values.verbs.throw.rangeTiles));
+}
+
+/**
+ * A click, `throw`: throw a rock at the target point (car frame of the player's car), or with none
+ * the way the player is moving. Refused off a run or the train, on a roof, mid-climb or jump, with
+ * no direction, or with no rocks left.
+ */
+export function throwRock(ctx: ThrowCtx, p: PlayerState, reject: (why: ThrowRejection) => void, target?: { x: number; y: number }): void {
   const { state, config } = ctx;
   const run = state.run;
   const rp = run?.players[p.id];
@@ -53,12 +67,16 @@ export function throwRock(ctx: ThrowCtx, p: PlayerState, reject: (why: ThrowReje
   if (p.placement.layer === 'roof') return reject('on the roof');
   if (rp.climb || rp.air) return reject('busy');
   if (rocksLeft(config, rp.throwsUsed) <= 0) return reject('no rocks left');
-  const mx = -axis(p.move.x), my = axis(p.move.y);
-  const n = Math.sqrt(mx * mx + my * my);
-  if (n === 0) return reject('standing still');
   const train = state.world.trains.find((q) => q.id === f.trainId)!;
   const g = trainGrid(config, train.cars);
-  const land = throwLanding(g, toTrain(g, f.car, p.placement.x), p.placement.y, mx / n, my / n, t.rangeTiles);
+  let land: { lx: number; y: number } | null;
+  if (target && Number.isFinite(target.x) && Number.isFinite(target.y)) land = aimLanding(config, train.cars, f.car, p.placement.x, p.placement.y, target.x, target.y);
+  else {
+    const mx = -axis(p.move.x), my = axis(p.move.y);
+    const n = Math.sqrt(mx * mx + my * my);
+    land = n === 0 ? null : throwLanding(g, toTrain(g, f.car, p.placement.x), p.placement.y, mx / n, my / n, t.rangeTiles);
+  }
+  if (!land) return reject('standing still');
   rp.throwsUsed += 1;
   const heard = hearDistraction(ctx, g, land.lx, land.y, t.noiseRadiusTiles, t.checkTicks);
   const at = fromTrain(g, land.lx);

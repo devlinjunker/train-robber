@@ -67,10 +67,12 @@ export type Command =
    */
   | { type: 'climb' }
   /**
-   * G aboard (core loop PR): throw a distraction rock the way you are moving, up to
-   * `verbs.throw.rangeTiles`; guards near where it lands go to look. `verbs.throw.perRun` per run.
+   * A click aboard (core loop PR, Devlin's PR #68 playtest: point and click, ahead of combat): throw
+   * a distraction rock at (x, y) in the frame of the player's car, landing there or
+   * `verbs.throw.rangeTiles` along the way, short of any wall. Without a point it goes the way you
+   * are moving. Guards near where it lands go to look. `verbs.throw.perRun` per run.
    */
-  | { type: 'throw' };
+  | { type: 'throw'; x?: number; y?: number };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 

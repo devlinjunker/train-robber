@@ -40,6 +40,15 @@ export function carToWorld(car: CarPose, x: number, y: number, out: Vec2 = { x: 
   return out;
 }
 
+/** A world point in a car's frame: the inverse of `carToWorld`. */
+export function worldToCar(car: CarPose, wx: number, wy: number, out: Vec2 = { x: 0, y: 0 }): Vec2 {
+  const dx = wx - car.x, dy = wy - car.y;
+  const along = dx * car.ux + dy * car.uy, left = dx * car.uy - dy * car.ux;
+  out.x = car.halfLength - along;
+  out.y = car.halfWidth - left;
+  return out;
+}
+
 /**
  * True when (x, y) in car `car`'s frame of a train lies on a cell that does not block movement,
  * past the car's walls included: its platforms, ledges and coupling, and on into the next car.

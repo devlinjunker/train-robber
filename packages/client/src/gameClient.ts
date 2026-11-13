@@ -3,7 +3,7 @@
 import { Application, Container, Text } from 'pixi.js';
 import {
   boardingCheck, boardingResistanceActive, doorsClosed, carCatalog, carToWorld, carriedValue, carriedWeight, carryRefusal, carriedSpeedScale, commitTarget, switchTarget, distanceToTrain, drainRate, nearestLoot, searchNoiseTiles, searchTicksForLoot,
-  HORSE_RADIUS, hatchInReach, hatchSpot, rocksLeft, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
+  HORSE_RADIUS, aimLanding, fromTrain, hatchInReach, hatchSpot, rocksLeft, worldToCar, ladderInReach, trainLadders, trainSpeed, meterPosition, meterZones, mountCheck, noiseRadius, isSearching, lineOfSight, parseCarFrame, playerSpace, runPhase, spaceAt, Space, terrainAt, Terrain, toTrain, trainGrid,
   isPractice, runWantedLevel,
   type Command, type Sim, type SimEvent, type TrainState,
 } from '@train-robber/sim';
@@ -311,6 +311,14 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const wantedCfg = config.values.wanted;
   // Commands the client adds itself (the summary's Quick retry button), sent with the next poll.
   let queued: Command[] = [];
+  // The mouse on the canvas, and a click waiting to throw a rock there (core loop PR, Devlin's
+  // PR #68 playtest: point and click, ahead of combat).
+  let mouse: { x: number; y: number } | null = null, clicked = false;
+  if (!replay) {
+    app.canvas.addEventListener('pointermove', (e) => { mouse = { x: e.offsetX, y: e.offsetY }; });
+    app.canvas.addEventListener('pointerleave', () => { mouse = null; });
+    app.canvas.addEventListener('pointerdown', (e) => { if (e.button === 0) { mouse = { x: e.offsetX, y: e.offsetY }; clicked = true; } });
+  }
   // The end-of-run summary (phase 2 M5); not while watching a log, and ?summary=off hides it.
   const summaryTracker = createSummaryTracker();
   const summary = replay || params.get('summary') === 'off' ? null : createSummaryPanel({
@@ -460,7 +468,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   const controls = replay ? `replay  ·  ${opts.replayControls}  ·  Q/Z zoom  ·  V view  ·  O map  ·  M minimap  ·  B zones  ·  \` debug` : [
     horseCfg.steering === 'screen' ? 'arrows steer, W/S throttle' : 'A/D steer, W/S throttle',
     ...(horseCfg.boost.enabled ? ['Shift boost'] : []), crouchMode === 'hold' ? 'C hold to crouch aboard' : 'C crouch aboard',
-    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders and hatches', 'Space jump on roofs'] : []), ...(config.values.verbs.throw.perRun > 0 ? ['G throw a rock (while moving)'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
+    'E commit', 'E hold to search', ...(roofCfg.enabled ? ['E climb at ladders and hatches', 'Space jump on roofs'] : []), ...(config.values.verbs.throw.perRun > 0 ? ['Click: throw a rock where you point'] : []), 'X drop', 'I inventory', 'Tab switch train', 'Space jump', 'F whistle', ...(config.values.cashOut.enabled ? ['F cash out (thrown off)'] : []), 'Esc cancel', ...(config.values.playtest.quickRetry ? ['R quick retry'] : []),
     ...(config.values.playtest.debugHeatStep > 0 ? ['H heat, Shift+H alarm (debug)'] : []),
     'Q/Z zoom', 'V view', 'O map', 'M minimap', 'B zones', '` debug', 'N note', 'L logs', 'U mute',
   ].join('  ·  ');
@@ -657,6 +665,24 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       }) : [];
       const rockPose = thrownAt && runTrain ? cars.find((c) => c.trainId === runTrain.id && c.index === thrownAt!.car) : undefined;
       const rock = thrownAt && rockPose ? { ...carToWorld(rockPose, thrownAt.x, thrownAt.y), age: (now - thrownAt.at) / 1000 } : null;
+      // Aiming a rock: inside a car with rocks left, the point under the mouse, and where a rock thrown
+      // there would land (capped at its range, short of walls). A click throws it.
+      let aim: { x: number; y: number; atMouse: boolean } | null = null;
+      const throwCfg = config.values.verbs.throw;
+      const myCar = frame && runTrain && frame.trainId === runTrain.id ? cars.find((c) => c.trainId === runTrain.id && c.index === frame.car) : undefined;
+      if (mouse && myCar && run && phase === 'aboard' && !onRoofNow && !climbing && !run.air && throwCfg.perRun > 0 && rocksLeft(config, run.throwsUsed ?? 0) > 0) {
+        const m = mouse as { x: number; y: number };
+        const ground = iso ? screenToWorld(m.x, m.y, camera) : { x: (m.x - W / 2) / (TOPDOWN_PX * shownZoom) + cam.x, y: (m.y - H / 2) / (TOPDOWN_PX * shownZoom) + cam.y };
+        const target = worldToCar(myCar, ground.x, ground.y);
+        const land = aimLanding(config, runTrain!.cars, frame!.car, placement.x, placement.y, target.x, target.y);
+        if (land) {
+          const g = trainGrid(config, runTrain!.cars), at = fromTrain(g, land.lx);
+          const pose = cars.find((c) => c.trainId === runTrain!.id && c.index === at.car);
+          if (pose) aim = { ...carToWorld(pose, at.x, land.y), atMouse: Math.hypot(target.x - placement.x, target.y - placement.y) <= throwCfg.rangeTiles + 1e-6 };
+          if (clicked) queued.push({ type: 'throw', x: Math.round(target.x * 100) / 100, y: Math.round(target.y * 100) / 100 });
+        }
+      }
+      clicked = false;
       if (iso) {
         // Aboard, the world view stays: the player's car is drawn open and they walk inside it.
         isoWorld.update({
@@ -667,7 +693,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
           guards: guardViews.filter((v) => inOpenCar(v.car) || outsideIds.has(v.id)),
-          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise, hatches, rock,
+          cones: showCones ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => inOpenCar(g.car) || outsideIds.has(g.id)), cars, runTrain!.id, faintCones) : null, noise, hatches, rock, aim,
           throughGuards: guardViews.filter((v) => seenIds.has(v.id)),
           throughCones: showCones && seenIds.size > 0 ? sightCones(config, runTrain!.cars, guardPoses.filter((g) => seenIds.has(g.id)), cars, runTrain!.id, faintCones) : null,
           boosting: horseState.boostTicks > 0,
