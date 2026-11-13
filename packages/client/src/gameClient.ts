@@ -111,9 +111,36 @@ export interface GameClientOptions {
   debugActions?: readonly { label: string; run(): void }[];
 }
 
+/**
+ * How long the last few seconds of frames took, for the debug panel: the usual frame, the worst
+ * one, and how many ran long enough to see (a stutter). What a tester on a slower PC can read out.
+ */
+export class FrameTimes {
+  private readonly ms: number[] = [];
+  private at = 0;
+  constructor(private readonly keep = 300) {}
+  add(ms: number): void {
+    if (this.ms.length < this.keep) this.ms.push(ms); else this.ms[this.at] = ms;
+    this.at = (this.at + 1) % this.keep;
+  }
+  /** Median and worst frame in milliseconds, and how many frames took over `longMs`. */
+  stats(longMs = 33): { median: number; worst: number; long: number; frames: number } {
+    const sorted = [...this.ms].sort((a, b) => a - b);
+    return { median: sorted[sorted.length >> 1] ?? 0, worst: sorted[sorted.length - 1] ?? 0, long: sorted.filter((v) => v > longMs).length, frames: sorted.length };
+  }
+  text(): string {
+    const s = this.stats();
+    return `frames (last ${s.frames}): usual ${s.median.toFixed(1)} ms  worst ${s.worst.toFixed(0)} ms  over 33 ms: ${s.long}`;
+  }
+}
+
 export async function createApp(): Promise<Application> {
   const app = new Application();
-  await app.init({ resizeTo: window, background: '#1e2a1c', antialias: true });
+  // ?renderScale=0.5 draws at half the pixels each way and stretches the picture to the window: a
+  // setting to try on a slow graphics card (and what the perf harness uses to keep drawing cheap).
+  const scale = Number(new URLSearchParams(location.search).get('renderScale'));
+  const resolution = scale > 0 ? Math.min(2, Math.max(0.1, scale)) : 1;
+  await app.init({ resizeTo: window, background: '#1e2a1c', antialias: true, resolution, autoDensity: true });
   document.body.appendChild(app.canvas);
   return app;
 }
@@ -125,6 +152,7 @@ export function showFatal(app: Application, message: string): void {
 
 export function createGameClient(app: Application, opts: GameClientOptions): GameClient {
   const { sim, map, config } = opts;
+  const frameTimes = new FrameTimes();
   const params = new URLSearchParams(opts.search ?? location.search);
   const runZoomParam = Number(params.get('runZoom'));
   const runZoom = (mode: ViewMode) => clampZoom(runZoomParam > 0 ? runZoomParam : RUN_ZOOM[mode]);
@@ -498,6 +526,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     render(alpha, host) {
       const now = performance.now();
       const dt = app.ticker.deltaMS / 1000;
+      frameTimes.add(app.ticker.elapsedMS);
       const s = sim.state;
       const horseState = s.world.horses[0]!;
       const player = s.players[0]!;
@@ -649,7 +678,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         isoWorld.update({
           closedTrains,
           loot: aboardCar ? lootLeft.filter((l) => l.car === aboardCar.index) : [], searching: searching?.loot ?? null, inReach: reachLoot?.id ?? null,
-          cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000,
+          cars, horse, riderless, stunned: horseState.stunTicks > 0, hitAge, stumbling, crouched, perfectAge, check, trainId: readTrain, rangeTiles: b.rangeTiles, timeSec: now / 1000, frameMs: app.ticker.elapsedMS,
           aboard: aboardCar && aboardAt ? { trainId: aboardCar.trainId, index: aboardCar.index, ...aboardAt, roof: onRoofNow, climb: climbing?.progress ?? null, lift } : null, focus,
           slipping: !!run?.slip, jumpCue,
           horseSpeed: horseState.speed, inMud,
@@ -896,6 +925,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         lootTotal: lootTotal && (now - lootTotal.at) / 1000 < lootTotalSec ? { title: lootTotal.title, detail: lootTotal.detail } : null,
         debug: !showDebug ? null : [
           `tick ${s.tick}  tick time ${host.tickMs.toFixed(3)} ms  fps ${host.fps.toFixed(0)}`,
+          frameTimes.text(),
           `seed ${host.seed}  config ${config.hash}  state ${sim.hash()}`,
           `preset ${config.preset}  ${variantText}`,
           `map ${map.id} ${map.size.cols}x${map.size.rows}${/^(gen|line):/.test(map.source.file) ? `  (${map.source.file})` : ''}  route ${routeText}`,

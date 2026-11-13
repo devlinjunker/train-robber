@@ -54,4 +54,39 @@ describe('a streamed line', () => {
       expect(st.stats.built).toBeGreaterThan(Math.ceil(cols / 64) * Math.ceil(rows / 64));
     }, 60_000);
   }
+
+  it('made ready ahead of the view in small steps reads the same tiles and heights', () => {
+    const s = resolveMapGen(defaults, { line: { lengthTiles: 700, widthTiles: 200 }, mix: { themes: ['mesas'] } });
+    const plain = generateLine('stream-mesas', s, { whole: false }), ahead = generateLine('stream-mesas', s, { whole: false });
+    const pt = mapTiles(plain.map, plain.scenery), at = mapTiles(ahead.map, ahead.scenery);
+    const pf = createHeightField(plain.map, pt), af = createHeightField(ahead.map, at);
+    const { cols, rows } = plain.map.size;
+    // A whole map decoded at once has nothing to make ready.
+    expect(mapTiles(generateLine('stream-mesas', s).map, null).prefetch({ x0: 0, y0: 0, x1: 64, y1: 64 }, () => false)).toBe(true);
+    let calls = 0, worst = 0, bad = 0;
+    for (let x0 = 0; x0 < cols; x0 += 96) {
+      const box = { x0, y0: 0, x1: Math.min(cols, x0 + 96), y1: rows };
+      // A few steps a call, as a frame's budget allows, until both say they are ready.
+      for (;;) {
+        let left = 3;
+        const more = () => left-- > 0;
+        calls++;
+        if (at.prefetch({ x0: box.x0 - 64, y0: box.y0, x1: box.x1 + 64, y1: box.y1 }, more) && af.prefetch(box, more)) break;
+        if (calls > 100_000) throw new Error('prefetch never finished');
+      }
+      // Ready: reading the box builds no more chunks.
+      const built = at.stats.built;
+      for (let y = 0; y < rows; y += 3) {
+        for (let x = box.x0; x < box.x1; x += 3) {
+          if (at.zone(x, y) !== pt.zone(x, y) || at.level(x, y) !== pt.level(x, y) || af.plateauOf(x, y) < 0 !== pf.plateauOf(x, y) < 0) bad++;
+          const a = af.corners(x, y), b = pf.corners(x, y);
+          for (let k = 0; k < 4; k++) worst = Math.max(worst, Math.abs(a[k]! - b[k]!));
+        }
+      }
+      expect(at.stats.built).toBe(built);
+    }
+    expect(calls).toBeGreaterThan(50);
+    expect(bad).toBe(0);
+    expect(worst).toBe(0);
+  }, 60_000);
 });

@@ -8,7 +8,7 @@
 // outline, and sorts like the ground; each cliff face segment sorts by its own depth, so the
 // horse in front of a cliff draws over it and the horse behind is hidden by it.
 import { Container, Graphics } from 'pixi.js';
-import { cullSorted, LazyChunks, REGION_TILES, type BuildBudget, type Chunk, type LazyUnit, type TileBox } from './cells';
+import { cullSorted, LazyChunks, REGION_TILES, type BuildBudget, type BuildSteps, type Chunk, type LazyUnit, type TileBox } from './cells';
 import { CHUNK_TILES } from '@train-robber/config';
 import type { MapDef } from '@train-robber/config';
 import { facesViewer, mix, shade } from './draw';
@@ -185,7 +185,8 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
   const at = (v: { x: number; y: number }, z: number) => [isoX(v.x, v.y), isoY(v.x, v.y, z)];
   const { cols, rows } = map.size;
 
-  const drawPlateau = (plateau: Plateau, k: number) => {
+  /** Draws one mesa into `pieces`, stopping between handfuls of tiles and cliff runs (cells.ts BuildSteps). */
+  const drawPlateau = function* (plateau: Plateau, k: number): Generator<void, void, void> {
     const loops = plateauOutlines(cols, rows, k, plateau, field);
     const outer = loops.filter((l) => area(l) > 0);
     // The top: each tile near the plateau, clipped to its outline, sorted like the ground.
@@ -196,7 +197,10 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
         if (x + dx >= 0 && y + dy >= 0 && x + dx < cols && y + dy < rows) near.add((y + dy) * cols + x + dx);
       }
     }
+    yield;
+    let done = 0;
     for (const i of near) {
+      if (++done % 12 === 0) yield;
       const x = i % cols, y = (i - x) / cols;
       const p = piece(x + y - 0.005, x + 0.5, y + 0.5, plateau.topZ(x + 0.5, y + 0.5));
       // Each mesa's top leans toward a strata colour of its own.
@@ -261,11 +265,13 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
       };
       for (let j = 0; j < n; j++) {
         const s = segs[(i0 + j) % n]!;
+        if (j % 24 === 23) yield;
         if (!s.show) { flush(); continue; }
         if (run.length && run[0]!.key !== s.key) flush();
         run.push(s);
       }
       flush();
+      yield;
     }
   };
 
@@ -281,9 +287,10 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
     const lift = Math.ceil(top) + 3;
     return {
       box: { x0: x0 - lift, y0: y0 - lift, x1: x1 + 2, y1: y1 + 2 },
-      build: (): Chunk[] => {
+      // One mesa at a time draws into `pieces` (LazyChunks finishes a unit before starting the next).
+      *build(): BuildSteps {
         pieces = new Map();
-        drawPlateau(plateau, k);
+        yield* drawPlateau(plateau, k);
         return [...pieces.values()];
       },
     };
@@ -330,7 +337,13 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
   });
   if (!lazyDraw) lazy.buildAll();
   let list: Piece[] = [];
-  const refresh = () => { list = (lazy.chunks as Piece[]).slice().sort((a, b) => a.g.zIndex - b.g.zIndex); };
+  // Sorted again only when pieces were built or dropped: a cull runs every frame while regions build.
+  let listOf: readonly Chunk[] | null = null;
+  const refresh = () => {
+    if (lazy.chunks === listOf) return;
+    listOf = lazy.chunks;
+    list = (lazy.chunks as Piece[]).slice().sort((a, b) => a.g.zIndex - b.g.zIndex);
+  };
   refresh();
   const inside = (pts: number[], px: number, py: number) => {
     let c = false;
@@ -365,7 +378,9 @@ export function createMesas(map: MapDef, field: HeightField, objects: Container,
       return false;
     },
     cut(hole, depth) {
-      for (const p of new Set([...liveCut, ...maskedNow])) {
+      // Nothing to cut and nothing cut: the usual frame.
+      if (!hole && maskedNow.size === 0) return;
+      for (const p of hole ? new Set([...liveCut, ...maskedNow]) : [...maskedNow]) {
         // A dropped boulder piece (its region went far away) takes its hole with it.
         if (p.g.destroyed) { p.mask?.destroy(); p.mask = null; maskedNow.delete(p); continue; }
         const want = hole !== null && p.g.zIndex > depth && p.g.parent !== null

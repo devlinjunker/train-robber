@@ -12,7 +12,7 @@ import { createSceneryLayers } from './scenery';
 import { mapTiles, type MapTiles } from '../tiles';
 import { createGroundCover } from './groundCover';
 import { createRocks } from './rocks';
-import { DepthBands, freshlyBuilt, regionSize, type Chunk, type TileBox } from './cells';
+import { BuildPacer, DepthBands, regionSize, setWarmUp, type Chunk, type TileBox } from './cells';
 import { Overdraw, type Mover } from './overdraw';
 import { createHeightField, createHeightLayer } from './height';
 import { createMud } from './mud';
@@ -80,11 +80,14 @@ const CULL_SNAP = 12, CULL_MARGIN = 6;
  * faster (riding fast at 0.25x, worst repack 67 ms with 48 and one at a time, 27 ms with 16 and two).
  */
 const LAND_BAND_DEPTH = 16, LAND_BANDS_PER_FRAME = 2;
+/**
+ * How far past the culled view a streamed map's chunks, and the heights over them, are made ready
+ * ahead of time. Regions are built up to 24 tiles past the view (cells.ts LazyChunks), are 48
+ * tiles across and read a dozen tiles round themselves, so heights are ready 96 tiles out; working
+ * those out reads tiles a few further still, so the chunks are ready a chunk beyond that.
+ */
+const CHUNK_PREFETCH_TILES = 160, HEIGHT_PREFETCH_TILES = 96;
 const overlapsBox = (a: TileBox, b: TileBox) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
-/** On big maps, how long a frame may spend building regions that are near the view but not on it yet. */
-const BUILD_MS_PER_FRAME = 4;
-/** Milliseconds a frame may spend triangulating freshly built pieces ahead of drawing them. */
-const WARM_MS_PER_FRAME = 2;
 const HIDDEN_HEIGHTS = [0.6, 1.6], CUTOUT_RADIUS = 2.55;
 /**
  * Seeing the gap to the train (Devlin, 2026-10-12, in place of a line and a number): within
@@ -118,6 +121,8 @@ export interface WorldSceneInput {
   trainId: string | null;
   rangeTiles: number;
   timeSec: number;
+  /** How long the last frame took, in milliseconds (the ticker's elapsedMS): paces building ahead of the view. */
+  frameMs?: number;
   /**
    * The car the player is aboard, drawn open, and the player's world position in it. Up on its roof
    * (`roof`) or on a ladder (`climb`, 0 at the foot to 1 at the top) the car stays closed and the
@@ -354,6 +359,8 @@ function drawHorse(g: Graphics, h: ActorPose, flash: number | null, muddiness: n
 export function createWorldScene(map: MapDef, content: SceneContent, scenery: SceneryDef | null = null, groundCover: number | null = null, warmUp: ((ctx: GraphicsContext) => void) | null = null): WorldScene {
   const root = new Container();
   root.label = 'iso-world';
+  // Regions built ahead of the view are triangulated before they join it (cells.ts setWarmUp).
+  setWarmUp(warmUp ? (g) => warmUp(g.context) : null);
   // What moves (the horse, the player, cars) sorts in `objects`. Static pieces that sort with
   // them (hills, mesas, boulders, trees) sort once in `land`, drawn under it, with copies over
   // the movers where they cover them (see overdraw.ts).
@@ -395,7 +402,9 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
   const mesas = createMesas(map, field, land, () => rocks.chunks, objects, lazyDraw, sortedHooks);
   const mud = createMud();
   const towns = drawTowns(map, field.raised ? (x, y) => field.surfaceZ(x, y) : undefined);
-  root.addChild(terrain, mapOverlay, mud.prints, shadows, floors, towns, land, objects, zoneOverlay, markers, mesas.masks);
+  // The edge glow lies under the cars' platforms and ledges; cones, rings and the open car's floor over them.
+  const glowG = new Graphics();
+  root.addChild(terrain, mapOverlay, mud.prints, shadows, glowG, floors, towns, land, objects, zoneOverlay, markers, mesas.masks);
   overdraw = new Overdraw(objects, mesas.masks);
   overdraw.add([...heights.chunks, ...rocks.chunks, ...mesas.chunks].map((c) => c.g));
   if (sceneryLayers) overdraw.add(sceneryLayers.trees);
@@ -439,30 +448,45 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     if (g.context !== ctx) { g.context = ctx; g.position.set(0, 0); }
     ctx.clear();
   };
-  // Car slice drawings by template, slice, colour, door state and angle (to SLICE_ANGLE_STEP),
-  // drawn round the slice centre. Ones unused for a while go once there are too many.
-  const sliceCache = new Map<string, { ctx: GraphicsContext; frame: number }>();
+  // Drawings that only turn with their car (slices, ladders, platforms, interior boxes), cached
+  // by shape and angle (to SLICE_ANGLE_STEP) and drawn round the origin: the piece showing one is
+  // moved to its place, so nothing is triangulated or uploaded again. Ones unused for a while go
+  // once there are too many.
+  const drawCache = new Map<string, { ctx: GraphicsContext; frame: number }>();
   let frameNo = 0;
-  const sliceContext = (template: string, s: CarSlice, colour: number, doors: DoorSpan[], shut: boolean): GraphicsContext => {
-    const step = SLICE_ANGLE_STEP, k = Math.round(Math.atan2(s.box.uy, s.box.ux) / step);
-    const key = `${template}|${s.along0}|${s.along1}|${s.box.halfWidth}|${colour}|${shut ? 1 : 0}|${k}`;
-    let e = sliceCache.get(key);
+  const angleStep = (ux: number, uy: number) => Math.round(Math.atan2(uy, ux) / SLICE_ANGLE_STEP);
+  const cached = (key: string, draw: (ctx: GraphicsContext) => void): GraphicsContext => {
+    let e = drawCache.get(key);
     if (!e) {
       const ctx = new GraphicsContext();
-      const box: Box = { ...s.box, x: 0, y: 0, ux: Math.cos(k * step), uy: Math.sin(k * step) };
-      drawSliceBody(ctx, s, box, colour, doors, shut);
-      sliceCache.set(key, e = { ctx, frame: frameNo });
-      if (sliceCache.size > SLICE_CACHE_MAX) {
-        for (const [k2, v] of sliceCache) if (frameNo - v.frame > 2) { v.ctx.destroy(); sliceCache.delete(k2); }
+      draw(ctx);
+      drawCache.set(key, e = { ctx, frame: frameNo });
+      if (drawCache.size > SLICE_CACHE_MAX) {
+        for (const [k2, v] of drawCache) if (frameNo - v.frame > 2) { v.ctx.destroy(); drawCache.delete(k2); }
       }
     }
     e.frame = frameNo;
     return e.ctx;
   };
+  const sliceContext = (template: string, s: CarSlice, colour: number, doors: DoorSpan[], shut: boolean): GraphicsContext => {
+    const k = angleStep(s.box.ux, s.box.uy);
+    return cached(`${template}|${s.along0}|${s.along1}|${s.box.halfWidth}|${colour}|${shut ? 1 : 0}|${k}`, (ctx) => {
+      const box: Box = { ...s.box, x: 0, y: 0, ux: Math.cos(k * SLICE_ANGLE_STEP), uy: Math.sin(k * SLICE_ANGLE_STEP) };
+      drawSliceBody(ctx, s, box, colour, doors, shut);
+    });
+  };
+  /** A car at the origin, turned to its angle step: what the cached drawings are drawn against. */
+  const atOrigin = (car: CarPose, k: number): CarPose => ({ ...car, x: 0, y: 0, ux: Math.cos(k * SLICE_ANGLE_STEP), uy: Math.sin(k * SLICE_ANGLE_STEP) });
+  // Each car's platforms, ledges and coupling: its own piece under the cars, showing a cached drawing.
+  const outsides = new Container();
+  const outsidePool: Graphics[] = [];
+  let usedOutsides = 0;
+  root.addChildAt(outsides, root.getChildIndex(floors));
   let used = 0;
   let lastFadeSec = 0;
 
   let culledView: TileBox | null = null, building = false;
+  const pacer = new BuildPacer();
   const blockedZone = map.zoneLegend.indexOf('blocked');
   const obstacleTiles: ObstacleTiles = {
     blocked: (x, y) => x >= 0 && y >= 0 && x < tiles.cols && y < tiles.rows && tiles.zone(x, y) === blockedZone,
@@ -475,6 +499,10 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
     obstacleAt: (x, y, reach) => obstacleNear(obstacleTiles, x, y, reach),
     update(input) {
       frameNo++;
+      // How long this frame may spend building (and triangulating) regions near the view but not on
+      // it yet. Builds stop and pick up again between rows of tiles (cells.ts BuildSteps), so a frame
+      // overshoots this by a fraction of a millisecond, not by a whole region.
+      const buildMs = pacer.next(input.frameMs ?? 1000 / 60);
       // Re-cull only once the view leaves the last culled box, or zooming in leaves it far too big.
       const iv = input.cullView ?? input.view, slack = 2 * (CULL_SNAP + CULL_MARGIN);
       const recull = !culledView || iv.x0 < culledView.x0 || iv.y0 < culledView.y0 || iv.x1 > culledView.x1 || iv.y1 > culledView.y1
@@ -485,30 +513,26 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         // Regions near the view but off screen build a few milliseconds' worth a frame; the ones on screen build at once.
         // Only what is on screen now must be built at once; the rest of a zoom's target waits for budget.
         const sv = input.view, must = { x0: sv.x0 - CULL_MARGIN, y0: sv.y0 - CULL_MARGIN, x1: sv.x1 + CULL_MARGIN, y1: sv.y1 + CULL_MARGIN };
-        const budget = { until: performance.now() + BUILD_MS_PER_FRAME, must };
+        const budget = { until: performance.now() + buildMs, must };
         // A view that jumped (the first frame, a switch far away) or is zooming gets its land at once; a sliding
         // one gets it a few bands a frame (DepthBands.flush below), well inside the cull margin.
         const jumped = !culledView || !overlapsBox(culledView, iv) || !!input.zooming;
         culledView = view;
         land.deferred = !jumped;
-        building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean);
+        // First the map's chunks and the heights over them, a strip at a time, well ahead of the regions
+        // that read them: a chunk generated whole the first time a region asks for a tile is one long frame.
+        const more = () => performance.now() < budget.until;
+        const ahead = (m: number) => ({ x0: view.x0 - m, y0: view.y0 - m, x1: view.x1 + m, y1: view.y1 + m });
+        const ready = jumped || (tiles.prefetch(ahead(CHUNK_PREFETCH_TILES), more) && field.prefetch(ahead(HEIGHT_PREFETCH_TILES), more));
+        building = [cullTerrain(view, budget), cover?.cull(view, budget), sceneryLayers?.cull(view, budget), rocks.cull(view, budget), heights.cull(view, budget), mesas.cull(view, budget)].some(Boolean) || !ready;
         if (jumped) land.flush();
         land.deferred = true;
-        overdraw.refresh();
       }
-      if (land.flush(LAND_BANDS_PER_FRAME)) overdraw.refresh();
+      land.flush(LAND_BANDS_PER_FRAME);
       // Far out, grass, scrub, bushes and flowers can go (?farDetail=).
       const detail = !(input.zoom !== undefined && input.zoom <= FAR_DETAIL_ZOOM);
       if (cover) cover.layer.visible = detail;
       if (sceneryLayers) sceneryLayers.cover.visible = detail;
-      // Triangulate freshly built pieces while the frame's budget lasts, before they come into view.
-      if (warmUp && freshlyBuilt.length) {
-        const until = performance.now() + WARM_MS_PER_FRAME;
-        while (freshlyBuilt.length && performance.now() < until) {
-          const g = freshlyBuilt.pop()!;
-          if (!g.destroyed) warmUp(g.context);
-        }
-      } else freshlyBuilt.length = 0;
       // Trees in front of the horse (or you aboard) fade so you stay in view.
       const seen = input.aboard ? { x: input.aboard.x, y: input.aboard.y, z: 1 } : input.horse ? { x: input.horse.x, y: input.horse.y, z: 1 } : null;
       sceneryLayers?.fade(seen, Math.min(0.1, Math.max(0, input.timeSec - lastFadeSec)));
@@ -520,6 +544,8 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       dust.update({ horse: input.horse, boosting: !!input.boosting, speed: input.horseSpeed, timeSec: input.timeSec, groundZ: horseZ });
       shadows.clear();
       floors.clear();
+      glowG.clear();
+      usedOutsides = 0;
       // Who to keep in sight: the player aboard, or the horse by its nose, middle and tail.
       const actor = input.aboard ?? input.horse;
       const keep: [number, number][] = [];
@@ -551,7 +577,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       }
       const glow = gap && gapCar && gap.distance <= GAP_GLOW_TILES ? 1 - gap.distance / GAP_GLOW_TILES : 0;
       const glowColour = gap && gap.distance <= GAP_DANGER_TILES ? GAP_DANGER_COLOUR : GAP_GLOW_COLOUR;
-      if (gap && gapCar && glow > 0) drawGapGlow(floors, gapCar, gap, glow, glowColour);
+      if (gap && gapCar && glow > 0) drawGapGlow(glowG, gapCar, gap, glow, glowColour);
       const v = input.view, margin = (car: CarPose) => car.halfLength + CAR_HEIGHT + 2;
       input.cars.forEach((car, i) => {
         // Cars off screen are not drawn at all: big-country has several trains.
@@ -564,15 +590,25 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         const shadow = boxCorners({ ...car, x: car.x + 0.5, y: car.y + 0.5, halfWidth: car.halfWidth + 0.4, z0: 0, z1: 0 });
         shadows.poly(isoPoly(shadow)).fill({ color: 0x000000, alpha: 0.22 });
         // Platforms, ledges and the coupling to the next car of the same train.
-        if (content.outside) drawCarOutside(floors, car, content.outside, input.cars[i + 1]?.trainId === car.trainId);
+        const turn = angleStep(car.ux, car.uy), carX = isoX(car.x, car.y), carY = isoY(car.x, car.y);
+        if (content.outside) {
+          const dims = content.outside, coupled = input.cars[i + 1]?.trainId === car.trainId;
+          let g = outsidePool[usedOutsides];
+          if (!g) { g = new Graphics(); outsidePool.push(g); outsides.addChild(g); }
+          usedOutsides++;
+          g.visible = true;
+          g.context = cached(`outside|${car.halfLength}|${car.halfWidth}|${coupled ? 1 : 0}|${turn}`, (ctx) => drawCarOutside(ctx as unknown as Graphics, atOrigin(car, turn), dims, coupled));
+          g.position.set(carX, carY);
+        }
         // Ladders up each end (sneaking PR 3), each sorting on its own so the car hides the far one.
         const rc = content.roof;
         if (rc?.enabled && (content.outside?.platformDepthTiles ?? 0) > 0) {
           for (const end of ['front', 'rear'] as const) {
             if (rc.ladderEnds !== 'both' && rc.ladderEnds !== end) continue;
             if (rc.hasLadder && !rc.hasLadder(car.trainId, car.index, end)) continue;
-            const g = piece();
-            drawLadder(g, car, end, rc.ladderRow, CAR_HEIGHT);
+            const g = piece(false, false);
+            g.context = cached(`ladder|${car.halfLength}|${car.halfWidth}|${end}|${rc.ladderRow}|${turn}`, (ctx) => drawLadder(ctx as unknown as Graphics, atOrigin(car, turn), end, rc.ladderRow, CAR_HEIGHT));
+            g.position.set(carX, carY);
             const a = end === 'front' ? car.halfLength + 0.1 : -car.halfLength - 0.1;
             g.zIndex = depthOf(car.x + car.ux * a, car.y + car.uy * a);
           }
@@ -583,6 +619,12 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
           drawInterior(floors, () => piece(), {
             car, template: carTemplate(content.catalog, car.template), cellTypes: content.cellTypes, items: content.items,
             loot: input.loot, searching: input.searching, inReach: input.inReach, timeSec: input.timeSec,
+          }, (b, boxColour) => {
+            // Every cell of the same shape and colour shows one cached box, moved to its place.
+            const g = piece(false, false);
+            g.context = cached(`box|${b.halfLength}|${b.halfWidth}|${b.z1}|${boxColour}|${turn}`, (ctx) => drawBox(ctx as unknown as Graphics, { ...b, x: 0, y: 0, ux: Math.cos(turn * SLICE_ANGLE_STEP), uy: Math.sin(turn * SLICE_ANGLE_STEP) }, boxColour));
+            g.position.set(isoX(b.x, b.y), isoY(b.x, b.y));
+            return g;
           });
           return;
         }
@@ -616,6 +658,7 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
         }
       });
       for (let i = used; i < slicePool.length; i++) slicePool[i]!.visible = false;
+      for (let i = usedOutsides; i < outsidePool.length; i++) outsidePool[i]!.visible = false;
 
       // The player aboard, walking in the open car.
       playerG.clear();
@@ -696,11 +739,14 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
 
       // Debug zones: the boarding range around every entry point (B toggles).
       zoneOverlay.clear();
-      for (const car of input.cars) {
-        if (input.closedTrains?.has(car.trainId)) continue;
-        for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+      // Only while it shows (B): an ellipse per door of every car on the map is not free.
+      if (zoneOverlay.visible) {
+        for (const car of input.cars) {
+          if (input.closedTrains?.has(car.trainId)) continue;
+          for (const ep of carEntryPoints(car, content.catalog)) groundEllipse(zoneOverlay, ep.x, ep.y, input.rangeTiles);
+        }
+        zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
       }
-      zoneOverlay.stroke({ width: 2, color: 0xffffff, alpha: 0.45 });
 
       markers.clear();
       // Roofs: the committed train flashes gold just after a commit or switch (no lasting

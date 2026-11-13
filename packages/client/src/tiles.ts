@@ -27,6 +27,11 @@ export interface MapTiles {
   readonly stats: { built: number; held: number };
   /** Hear about each chunk the first time it is read (streamed only), e.g. to paint the minimap. */
   onChunk(fn: (c: MapChunk) => void): void;
+  /**
+   * Get the chunks under a box of tiles ready ahead of their first read, nearest its middle first,
+   * a little at a time for as long as `keepGoing` says (streamed only): true once they all are.
+   */
+  prefetch(box: TileBoxLike, keepGoing: () => boolean): boolean;
 }
 
 /** Tiles of a whole decoded map. */
@@ -60,6 +65,7 @@ class WholeTiles implements MapTiles {
     return { ...this.scenery, items: out };
   }
   onChunk(): void {}
+  prefetch(): boolean { return true; }
 }
 
 /**
@@ -164,6 +170,20 @@ class StreamedTiles implements MapTiles {
     return { ...this.scenery, items: out };
   }
   onChunk(fn: (c: MapChunk) => void): void { this.listeners.push(fn); }
+  prefetch(box: TileBoxLike, keepGoing: () => boolean): boolean {
+    const T = this.T, mx = (box.x0 + box.x1) / 2 / T - 0.5, my = (box.y0 + box.y1) / 2 / T - 0.5;
+    const cx0 = Math.max(0, Math.floor(box.x0 / T)), cx1 = Math.min(Math.ceil(this.cols / T) - 1, Math.floor(box.x1 / T));
+    const cy0 = Math.max(0, Math.floor(box.y0 / T)), cy1 = Math.min(Math.ceil(this.rows / T) - 1, Math.floor(box.y1 / T));
+    const todo: [number, number][] = [];
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (!this.held.has(cy * 100_003 + cx)) todo.push([cx, cy]);
+    todo.sort((a, b) => Math.hypot(a[0] - mx, a[1] - my) - Math.hypot(b[0] - mx, b[1] - my));
+    for (const [cx, cy] of todo) {
+      if (this.terrain.prepare && !this.terrain.prepare(cx, cy, keepGoing)) return false;
+      if (!keepGoing()) return false;
+      this.get(cx, cy);
+    }
+    return true;
+  }
 }
 
 /** How many chunks a streamed map holds at once: about a screen and a half each way at the widest zoom. */

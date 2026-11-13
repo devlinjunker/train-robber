@@ -17,6 +17,34 @@ const withoutChunks = (m: MapDef & { terrain?: unknown }): MapDef => { const o =
 const short = resolveMapGen(defaults, { line: { lengthTiles: 1000, widthTiles: 300 } });
 
 describe('line chunks', () => {
+  for (const [name, s] of [['east', short], ['west', resolveMapGen(defaults, { line: { lengthTiles: 1000, widthTiles: 300, direction: 'west' } })]] as const) {
+    it(`prepared a strip of rows at a time are the chunks built at once (${name})`, () => {
+      const atOnce = generateLine(`prepare-${name}`, s, { whole: false }).map.terrain!;
+      const stepped = generateLine(`prepare-${name}`, s, { whole: false }).map.terrain!;
+      const { cols, rows } = generateLine(`prepare-${name}`, s, { whole: false }).map.size, T = CHUNK_TILES;
+      let calls = 0;
+      // Every chunk of the map, the east and south edge ones cut part way included.
+      for (let cy = 0; cy * T < rows; cy++) {
+        for (let cx = 0; cx * T < cols; cx += 3) {
+          // One strip a call: `keepGoing` says yes once, then no.
+          let n = 0;
+          for (let left = 1; !stepped.prepare!(cx, cy, () => left-- > 0); left = 1) { calls++; if (++n > 100) throw new Error('prepare never finished'); }
+          expect(stepped.prepare!(cx, cy, () => false)).toBe(true);
+          const a = atOnce.chunk(cx, cy), b = stepped.chunk(cx, cy);
+          expect(Buffer.from(b.zones).equals(Buffer.from(a.zones))).toBe(true);
+          expect(Buffer.from(b.heights).equals(Buffer.from(a.heights))).toBe(true);
+          expect(b.scenery).toEqual(a.scenery);
+        }
+      }
+      // It really did take several calls a chunk.
+      expect(calls).toBeGreaterThan(20);
+      // A chunk asked for part way through its preparing is built at once, the same.
+      const again = generateLine(`prepare-${name}`, s, { whole: false }).map.terrain!;
+      expect(again.prepare!(1, 1, (() => { let left = 2; return () => left-- > 0; })())).toBe(false);
+      expect(again.chunk(1, 1).scenery).toEqual(atOnce.chunk(1, 1).scenery);
+      expect(Buffer.from(again.chunk(1, 1).zones).equals(Buffer.from(atOnce.chunk(1, 1).zones))).toBe(true);
+    }, 60_000);
+  }
   for (const [name, s] of [['east', short], ['west', resolveMapGen(defaults, { line: { lengthTiles: 1000, widthTiles: 300, direction: 'west' } })], ['water', resolveMapGen(defaults, { line: { lengthTiles: 1000, widthTiles: 300 }, mix: { themes: ['water'] } })]] as const) {
     it(`built one at a time in any order give the whole map's tiles and scenery (${name})`, () => {
       const whole = generateLine(`chunks-${name}`, s);
