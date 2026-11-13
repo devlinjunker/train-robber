@@ -49,6 +49,12 @@ export function sliceSpans(halfLength: number, sliceTiles: number): [number, num
  * as hidden. `sliceTiles` 0 judges the car whole.
  */
 export function carHides(car: Footprint, height: number, x: number, y: number, zs: readonly number[], sliceTiles = 0): boolean {
+  // A tile of height reaches a tile each of x and y up the screen (about 1.42 tiles), so a car
+  // further than that from the point cannot cover it: most cars on the map, every frame.
+  let top = 0;
+  for (const z of zs) top = Math.max(top, z);
+  const reach = car.halfLength + car.halfWidth + 1.5 * (height + top) + 1;
+  if (Math.abs(x - car.x) > reach || Math.abs(y - car.y) > reach) return false;
   const d = depthOf(x, y);
   const spans: [number, number][] = sliceTiles > 0 ? sliceSpans(car.halfLength, sliceTiles) : [[-car.halfLength, car.halfLength]];
   for (const [a0, a1] of spans) {

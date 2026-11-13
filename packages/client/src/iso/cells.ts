@@ -111,15 +111,27 @@ export function sortedAcross(map: { size: { cols: number; rows: number } }, regi
   return region < Math.max(map.size.cols, map.size.rows) ? 2 * region : 32;
 }
 
-/** A piece of a layer that is built when it comes near the view: `box` is the tiles its drawing can reach. */
-export interface LazyUnit { box: TileBox; build(): Chunk[] }
+/**
+ * A build that can stop part way: it yields between small steps (a row of tiles, a handful of
+ * items) and returns its chunks when done, so a region near the view is built a few milliseconds
+ * a frame instead of in one long frame (the open line's stutter on a slower PC, 2026-11-13).
+ */
+export type BuildSteps = Generator<void, Chunk[], void>;
 
 /**
- * Graphics built since the scene last warmed them up: Pixi triangulates a Graphics the first
- * time it is drawn, and a fresh region's pieces all coming into view in one frame made that
- * frame stutter, so the scene triangulates them a few at a time first (worldScene warmUp).
+ * A piece of a layer that is built when it comes near the view: `box` is the tiles its drawing
+ * can reach. `build` gives its chunks at once, or in steps (BuildSteps).
  */
-export const freshlyBuilt: Graphics[] = [];
+export interface LazyUnit { box: TileBox; build(): Chunk[] | BuildSteps }
+
+/**
+ * Triangulates a Graphics ahead of its first draw (the renderer's updateGpuContext), set by the
+ * scene. Pixi does this the first time a Graphics is drawn, and a fresh region's pieces all
+ * coming into view in one frame made that frame stutter, so regions built ahead of the view are
+ * warmed, within the frame's budget, before they join it.
+ */
+let warm: ((g: Graphics) => void) | null = null;
+export function setWarmUp(fn: ((g: Graphics) => void) | null): void { warm = fn; }
 
 /**
  * A deadline (performance.now() ms) shared by every layer's building in one frame, and the box
@@ -127,17 +139,50 @@ export const freshlyBuilt: Graphics[] = [];
  */
 export interface BuildBudget { until: number; must?: TileBox }
 
+/**
+ * How long each frame may spend building ahead of the view, paced to the frame rate: the most at
+ * a steady frame rate, cut back at once when a frame runs late (so building never keeps a slower
+ * PC a frame behind), and never below what keeps regions arriving before the view does. In
+ * milliseconds of building per second of play, so a 144 Hz screen gets the same share as a 60 Hz one.
+ */
+export const BUILD_MS_PER_SEC = { most: 240, least: 100 };
+/** The longest any one frame may spend, however slow the frame rate. */
+const BUILD_MS_MAX = 4;
+
+export class BuildPacer {
+  private readonly recent: number[] = [];
+  /** 0 (the least building) to 1 (the most). */
+  private level = 1;
+  /** Note how long the last frame took (ms from the frame before); gives this frame's budget in ms. */
+  next(frameMs: number): number {
+    this.recent.push(Math.min(50, Math.max(4, frameMs)));
+    if (this.recent.length > 90) this.recent.shift();
+    // The screen's refresh period: the shortest frame of the last second or so.
+    let period = Infinity;
+    for (const v of this.recent) period = Math.min(period, v);
+    this.level = frameMs > period * 1.5 ? Math.max(0, this.level - 0.5) : Math.min(1, this.level + 0.05);
+    const perFrame = (BUILD_MS_PER_SEC.least + (BUILD_MS_PER_SEC.most - BUILD_MS_PER_SEC.least) * this.level) * period / 1000;
+    return Math.min(BUILD_MS_MAX, perFrame);
+  }
+}
+
 const overlaps = (a: TileBox, b: TileBox) => a.x1 >= b.x0 && a.x0 <= b.x1 && a.y1 >= b.y0 && a.y0 <= b.y1;
 const grow = (b: TileBox, m: number): TileBox => ({ x0: b.x0 - m, y0: b.y0 - m, x1: b.x1 + m, y1: b.y1 + m });
 
+/** A unit part way through its build: its steps, then (once `chunks` is set) its warm-up. */
+interface Building { unit: LazyUnit; steps: BuildSteps | null; chunks: Chunk[] | null; warmed: number }
+
 /**
  * Units of drawing built on demand: those overlapping the view are built at once, those within
- * `prefetch` tiles of it while the frame's budget lasts (nearest first), and built ones further
- * than `drop` tiles away are destroyed. `onBuild` and `onDrop` hear about chunks coming and going.
+ * `prefetch` tiles of it while the frame's budget lasts (nearest first, one unit at a time, a
+ * stepped build picking up next frame where it stopped), and built ones further than `drop` tiles
+ * away are destroyed. `onBuild` and `onDrop` hear about chunks coming and going.
  */
 export class LazyChunks {
   private readonly built = new Map<LazyUnit, Chunk[]>();
   private list: Chunk[] = [];
+  /** The unit being built over several frames, if any: it finishes before another starts, since a layer's builders may share scratch state. */
+  private current: Building | null = null;
   constructor(
     private readonly units: readonly LazyUnit[],
     private readonly hooks: { onBuild?(chunks: Chunk[]): void; onDrop?(chunks: Chunk[]): void } = {},
@@ -150,45 +195,82 @@ export class LazyChunks {
 
   /** Build every unit now (small maps, and tests). */
   buildAll(): this {
-    for (const u of this.units) if (!this.built.has(u)) this.add(u);
+    for (const u of this.units) if (!this.built.has(u)) this.finish(u, Infinity);
+    this.list = [...this.built.values()].flat();
     return this;
   }
 
   /** Build and drop for this view; true while units near it are still waiting for budget. */
   update(view: TileBox, budget: BuildBudget = { until: Infinity }): boolean {
     let changed = false;
+    const far = grow(view, this.drop);
     for (const [u, chunks] of this.built) {
-      if (overlaps(u.box, grow(view, this.drop))) continue;
+      if (overlaps(u.box, far)) continue;
       this.built.delete(u);
       this.hooks.onDrop?.(chunks);
       for (const c of chunks) { c.g.parent?.removeChild(c.g); c.g.destroy({ context: true }); }
       changed = true;
     }
+    // A half-built unit left far behind is given up: nothing of it was shown or announced.
+    if (this.current && !overlaps(this.current.unit.box, far)) {
+      for (const c of this.current.chunks ?? []) { c.g.parent?.removeChild(c.g); c.g.destroy({ context: true }); }
+      this.current = null;
+    }
     const near = grow(view, this.prefetch), cx = (view.x0 + view.x1) / 2, cy = (view.y0 + view.y1) / 2;
+    const must = budget.must ?? view;
     const todo = this.units.filter((u) => !this.built.has(u) && overlaps(u.box, near));
     const dist = (u: LazyUnit) => Math.max(0, u.box.x0 - cx, cx - u.box.x1) + Math.max(0, u.box.y0 - cy, cy - u.box.y1);
-    todo.sort((a, b) => dist(a) - dist(b));
+    // What is on screen first, then the unit already under way, then the nearest.
+    const rank = (u: LazyUnit) => (overlaps(u.box, must) ? 0 : u === this.current?.unit ? 1 : 2);
+    todo.sort((a, b) => rank(a) - rank(b) || dist(a) - dist(b));
     let waiting = false;
     for (const u of todo) {
-      if (!overlaps(u.box, budget.must ?? view) && performance.now() > budget.until) { waiting = true; continue; }
-      this.add(u, false);
-      changed = true;
+      if (this.built.has(u)) continue;
+      const now = overlaps(u.box, must);
+      if (!now && performance.now() > budget.until) { waiting = true; break; }
+      // Another unit under way finishes first, at once when this one cannot wait.
+      if (this.current && this.current.unit !== u && !this.finish(this.current.unit, now ? Infinity : budget.until)) { waiting = true; break; }
+      if (this.finish(u, now ? Infinity : budget.until)) changed = true; else { waiting = true; break; }
     }
     if (changed) this.list = [...this.built.values()].flat();
     return waiting;
   }
 
-  private add(u: LazyUnit, refresh = true): void {
-    const chunks = u.build();
-    for (const c of chunks) freshlyBuilt.push(c.g);
+  /** Build `u` (or carry on building it) until done or `until`; true when it is built. */
+  private finish(u: LazyUnit, until: number): boolean {
+    let b = this.current?.unit === u ? this.current : null;
+    if (!b) {
+      const made = u.build();
+      b = Array.isArray(made) ? { unit: u, steps: null, chunks: made, warmed: 0 } : { unit: u, steps: made, chunks: null, warmed: 0 };
+      if (b.steps) this.current = b;
+    }
+    while (b.steps) {
+      const r = b.steps.next();
+      if (r.done) { b.chunks = r.value; b.steps = null; break; }
+      if (performance.now() > until) return false;
+    }
+    // Built ahead of the view: triangulate its pieces now, so their first frame on screen is an ordinary one.
+    // (A unit needed at once skips this; the renderer does it as it draws them.)
+    const chunks = b.chunks!;
+    if (warm && until !== Infinity) {
+      for (; b.warmed < chunks.length; b.warmed++) {
+        if (performance.now() > until) { this.current = b; return false; }
+        warm(chunks[b.warmed]!.g);
+      }
+    }
+    if (this.current === b) this.current = null;
     this.built.set(u, chunks);
     this.hooks.onBuild?.(chunks);
-    if (refresh) this.list = [...this.built.values()].flat();
+    return true;
   }
 }
 
+/**
+ * A stepped builder for region units: `build` is a generator that yields as it goes, e.g. after
+ * each row of tiles.
+ */
 /** One unit per region of `size` tiles over the map, each reaching `reach` tiles past its region. */
-export function regionUnits(map: { size: { cols: number; rows: number } }, size: number, reach: number, build: (region: TileBox, index: number) => Chunk[]): LazyUnit[] {
+export function regionUnits(map: { size: { cols: number; rows: number } }, size: number, reach: number, build: (region: TileBox, index: number) => Chunk[] | BuildSteps): LazyUnit[] {
   const { cols, rows } = map.size, out: LazyUnit[] = [];
   for (let y0 = 0, i = 0; y0 < rows; y0 += size) {
     for (let x0 = 0; x0 < cols; x0 += size, i++) {

@@ -164,6 +164,13 @@ export interface MapChunk {
 export interface MapChunks {
   readonly tiles: number;
   chunk(cx: number, cy: number): MapChunk;
+  /**
+   * Build a chunk ahead of its first use, a strip of rows at a time, for as long as `keepGoing`
+   * says: true once `chunk(cx, cy)` has it ready, false to be called again later. The chunk is
+   * tile for tile the one `chunk` would build at once. Optional: without it chunks are built on
+   * first use.
+   */
+  prepare?(cx: number, cy: number, keepGoing: () => boolean): boolean;
 }
 
 /** A map whose tiles may come from chunks. */

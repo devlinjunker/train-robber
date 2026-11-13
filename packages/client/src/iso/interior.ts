@@ -40,8 +40,13 @@ export interface InteriorInput {
   timeSec: number;
 }
 
-/** Draws into `floor` (flat, under everything) and into sortable pieces from `piece`. */
-export function drawInterior(floor: Graphics, piece: () => Graphics, input: InteriorInput): void {
+/**
+ * Draws into `floor` (flat, under everything) and into sortable pieces from `piece`. `boxPiece`
+ * gives the piece for a cell's box already drawn (the world scene shares one cached drawing
+ * between every cell of the same shape, since a car has dozens of wall cells and redrawing them
+ * all every frame aboard was a good share of the frame); without it each box is drawn afresh.
+ */
+export function drawInterior(floor: Graphics, piece: () => Graphics, input: InteriorInput, boxPiece?: (b: Box, colour: number) => Graphics): void {
   const { car, template: t, cellTypes } = input;
   const cellBox = (c: number, r: number, half: number, z1: number): Box => {
     const at = carToWorld(car, c + 0.5, r + 0.5);
@@ -59,8 +64,9 @@ export function drawInterior(floor: Graphics, piece: () => Graphics, input: Inte
       }
       // Barrels are narrower than a cell; everything else fills it.
       const b = cellBox(c, r, type.id === 'barrel' ? 0.36 : 0.5, h);
-      const g = piece();
-      drawBox(g, b, colour);
+      let g: Graphics;
+      if (boxPiece) g = boxPiece(b, colour);
+      else { g = piece(); drawBox(g, b, colour); }
       g.zIndex = depthOf(b.x, b.y);
     }
   }

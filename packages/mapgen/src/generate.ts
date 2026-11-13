@@ -121,6 +121,9 @@ type LineChunk = MapChunk & { order: number[] };
  * The chunks of an open line, built on demand from its plan and kept in a small cache (oldest
  * dropped first). `direction: west` builds the mirrored window of the east line.
  */
+/** Rows of a chunk built per step of `prepare`. */
+const PREPARE_ROWS = 8;
+
 class LineChunks implements MapChunks {
   readonly tiles = CHUNK_TILES;
   private cache = new Map<number, LineChunk>();
@@ -138,7 +141,55 @@ class LineChunks implements MapChunks {
     return made;
   }
 
+  /** Chunks part way through `prepare`, with the rows built so far. */
+  private readonly partial = new Map<number, { chunk: LineChunk; rows: number }>();
+
+  /**
+   * The chunk built a strip of rows at a time (a window gives the same tiles whatever window they
+   * are built in), so a client can spread it over frames ahead of first use: the 64 x 64 window
+   * built at once is tens of milliseconds, a visible hitch while riding.
+   */
+  prepare(cx: number, cy: number, keepGoing: () => boolean): boolean {
+    const key = cy * 100_003 + cx;
+    if (this.cache.has(key)) return true;
+    const T = this.tiles, { cols, rows } = this.plan;
+    const x0 = cx * T, y0 = cy * T;
+    const w = Math.min(T, cols - x0), h = Math.min(T, rows - y0);
+    if (cx < 0 || cy < 0 || w <= 0 || h <= 0) { this.chunk(cx, cy); return true; }
+    let p = this.partial.get(key);
+    if (!p) {
+      // A few half-built chunks at most: one left behind by a turn of the view is dropped.
+      if (this.partial.size >= 8) this.partial.delete(this.partial.keys().next().value!);
+      p = { chunk: { cx, cy, zones: new Uint8Array(T * T).fill(ZONE_INDEX.blocked), heights: new Uint8Array(T * T), scenery: { kind: [], x: [], y: [], size: [] }, order: [] }, rows: 0 };
+      this.partial.set(key, p);
+    }
+    const ex0 = this.west ? cols - x0 - w : x0, c = p.chunk;
+    while (p.rows < h) {
+      if (!keepGoing()) return false;
+      const sh = Math.min(PREPARE_ROWS, h - p.rows);
+      const win = buildWindow(this.plan, ex0, y0 + p.rows, w, sh);
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < w; x++) {
+          const from = y * w + (this.west ? w - 1 - x : x), to = (p.rows + y) * T + x;
+          c.zones[to] = win.zones[from]!; c.heights[to] = win.heights[from]!;
+        }
+      }
+      const it = win.items, sc = c.scenery;
+      for (let i = 0; i < it.kind.length; i++) {
+        sc.kind.push(it.kind[i]!); sc.x.push(this.west ? r4(cols - it.x[i]!) : it.x[i]!); sc.y.push(it.y[i]!); sc.size.push(it.size[i]!);
+        c.order.push(it.order[i]!);
+      }
+      p.rows += sh;
+    }
+    this.partial.delete(key);
+    this.built++;
+    this.cache.set(key, c);
+    if (this.cache.size > this.keep) this.cache.delete(this.cache.keys().next().value!);
+    return true;
+  }
+
   private build(cx: number, cy: number): LineChunk {
+    this.partial.delete(cy * 100_003 + cx);
     const T = this.tiles, { cols, rows } = this.plan;
     const zones = new Uint8Array(T * T).fill(ZONE_INDEX.blocked), heights = new Uint8Array(T * T);
     const out: LineChunk = { cx, cy, zones, heights, scenery: { kind: [], x: [], y: [], size: [] }, order: [] };

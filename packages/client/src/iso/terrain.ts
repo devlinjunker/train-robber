@@ -6,7 +6,7 @@ import { Container, Graphics } from 'pixi.js';
 import { trackPieces, type MapDef, type Zone } from '@train-robber/config';
 import { mapTiles, type MapTiles } from '../tiles';
 import { isoPoly, shade, oval } from './draw';
-import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type BuildSteps, type Chunk, type TileBox } from './cells';
 import { isoX, isoY, TILE_H, TILE_W } from '../projection';
 
 export const GROUND = 0xc6a673;
@@ -78,7 +78,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
   ground.poly(isoPoly([[0, 0], [cols, 0], [cols, rows], [0, rows]])).fill(GROUND);
   const zoneLayer = new Container(), spotLayer = new Container(), puddleLayer = new Container();
 
-  const buildRegion = (r: TileBox): Chunk[] => {
+  const buildRegion = function* (r: TileBox): BuildSteps {
     // Zones: one parallelogram per horizontal run of the same non-open zone, in cells so cells off
     // screen cull (runs break at cell edges), one colour at a time.
     const zones = new Cells(CELL);
@@ -92,6 +92,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
           if (ZONE_COLOURS[map.zoneLegend[z]!] === colour) zones.at(x, y).poly(isoPoly([[x, y], [end, y], [end, y + 1], [x, y + 1]]));
           x = end;
         }
+        yield;
       }
       zones.each((g) => g.fill(colour));
     }
@@ -105,6 +106,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
           if (!spot || spot.k !== k) continue;
           tufts.at(spot.x, spot.y).poly(spotPoly(spot));
         }
+        yield;
       }
       tufts.each((g) => g.fill(colour));
     }
@@ -120,6 +122,7 @@ export function drawTerrain(map: MapDef, scenery: Container | null = null, raise
         oval(g, isoX(p.x, p.y), isoY(p.x, p.y), p.s * TILE_W * 0.7, p.s * TILE_H * 0.7);
         if (p.glint) glints.push([g, p.x, p.y, p.s]);
       }
+      yield;
     }
     puddles.each((g) => g.fill(shade(MUD_COLOUR, 0.8)));
     for (const [g, cx, cy, s] of glints) oval(g, isoX(cx, cy) - s * 8, isoY(cx, cy) - s * 3, s * 9, s * 2.5);

@@ -18,7 +18,7 @@ export interface Mover { zIndex: number; minX: number; minY: number; maxX: numbe
 
 type Style = { color: number; alpha: number };
 interface Shape { pts: number[]; closed: boolean; fill: Style | null; stroke: (Style & { width: number }) | null; minX: number; minY: number; maxX: number; maxY: number }
-interface Static { g: Graphics; shapes: Shape[] | null; minX: number; minY: number; maxX: number; maxY: number; order: number; seen: number }
+interface Static { g: Graphics; shapes: Shape[] | null; minX: number; minY: number; maxX: number; maxY: number; order: number; seen: number; cells: number[] }
 
 /** Shapes and their styles from a Graphics made of polygons and polylines. */
 function shapesOf(g: Graphics): Shape[] {
@@ -82,57 +82,60 @@ const GRID = 256;
 const cellKey = (cx: number, cy: number) => cy * 65_536 + cx;
 
 export class Overdraw {
-  private readonly statics: Static[] = [];
-  private live: Static[] = [];
-  /** The live pieces by GRID-pixel cell of screen, so each mover only looks at pieces near it. */
-  private grid = new Map<number, Static[]>();
+  private readonly statics = new Map<Graphics, Static>();
+  /**
+   * Every static piece by GRID-pixel cell of screen, so each mover only looks at pieces near it.
+   * Pieces are filed once, when they are built, and whether one is on stage is asked as it is
+   * found: filing the pieces on stage again after every cull took 5 to 30 ms on the open line.
+   */
+  private readonly grid = new Map<number, Static[]>();
   private stamp = 0;
+  private added = 0;
   private readonly pool: { g: Graphics; mask: Graphics; masked: boolean }[] = [];
 
   /** Copies go in `objects`; masks for copies of holed pieces go in `masks`. */
   constructor(private readonly objects: Container, private readonly masks: Container) {}
 
-  /** Static pieces to copy where they cover a mover. */
+  /** Static pieces to copy where they cover a mover, in the order they should stack at the same depth. */
   add(gs: readonly Graphics[]): void {
     for (const g of gs) {
       const b = g.getLocalBounds();
-      this.statics.push({ g, shapes: null, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, order: 0, seen: 0 });
+      const s: Static = { g, shapes: null, minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY, order: this.added++, seen: 0, cells: [] };
+      this.statics.set(g, s);
+      for (let cy = Math.floor(s.minY / GRID); cy <= Math.floor(s.maxY / GRID); cy++) {
+        for (let cx = Math.floor(s.minX / GRID); cx <= Math.floor(s.maxX / GRID); cx++) {
+          const k = cellKey(cx, cy), list = this.grid.get(k);
+          if (list) list.push(s); else this.grid.set(k, [s]);
+          s.cells.push(k);
+        }
+      }
     }
   }
 
   /** Forget static pieces (dropped when their region went far from the view). */
   remove(gs: readonly Graphics[]): void {
-    const gone = new Set(gs);
-    for (let i = this.statics.length - 1; i >= 0; i--) if (gone.has(this.statics[i]!.g)) this.statics.splice(i, 1);
-    this.live = this.live.filter((s) => !gone.has(s.g));
-    this.index();
+    const gone = new Set<Static>(), cells = new Set<number>();
+    for (const g of gs) {
+      const s = this.statics.get(g);
+      if (!s) continue;
+      this.statics.delete(g);
+      gone.add(s);
+      for (const k of s.cells) cells.add(k);
+    }
+    for (const k of cells) {
+      const left = this.grid.get(k)!.filter((s) => !gone.has(s));
+      if (left.length) this.grid.set(k, left); else this.grid.delete(k);
+    }
   }
 
-  /** Note which static pieces are on screen; call after culling. */
-  refresh(): void {
-    this.live = this.statics.filter((s) => s.g.parent && s.g.visible);
-    this.index();
-  }
-
-  private index(): void {
-    this.grid.clear();
-    this.live.forEach((s, i) => {
-      s.order = i;
-      for (let cy = Math.floor(s.minY / GRID); cy <= Math.floor(s.maxY / GRID); cy++) {
-        for (let cx = Math.floor(s.minX / GRID); cx <= Math.floor(s.maxX / GRID); cx++) {
-          const k = cellKey(cx, cy), list = this.grid.get(k);
-          if (list) list.push(s); else this.grid.set(k, [s]);
-        }
-      }
-    });
-  }
-
-  /** Live pieces whose cells meet a mover's box, in their order in `live`. */
+  /** Pieces on stage whose cells meet a mover's box, in the order they were added. */
   private near(m: Mover): Static[] {
     const out: Static[] = [], stamp = ++this.stamp;
     for (let cy = Math.floor(m.minY / GRID); cy <= Math.floor(m.maxY / GRID); cy++) {
       for (let cx = Math.floor(m.minX / GRID); cx <= Math.floor(m.maxX / GRID); cx++) {
-        for (const s of this.grid.get(cellKey(cx, cy)) ?? []) if (s.seen !== stamp) { s.seen = stamp; out.push(s); }
+        const list = this.grid.get(cellKey(cx, cy));
+        if (!list) continue;
+        for (const s of list) if (s.seen !== stamp && s.g.parent && s.g.visible) { s.seen = stamp; out.push(s); }
       }
     }
     return out.sort((a, b) => a.order - b.order);

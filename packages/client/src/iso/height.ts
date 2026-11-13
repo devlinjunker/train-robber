@@ -9,7 +9,7 @@ import type { Container } from 'pixi.js';
 import { CHUNK_TILES, decodeElevation, type MapDef, type Zone } from '@train-robber/config';
 import { facesViewer, isoPoly, mix, shade, oval } from './draw';
 import { GROUND, hash, mudPuddle, MUD_COLOUR, sandSpot, SPOT_COLOURS, spotPoly, ZONE_COLOURS } from './terrain';
-import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type BuildSteps, type Chunk, type TileBox } from './cells';
 import { FOREST_FLOOR } from './scenery';
 import { mapTiles, type MapTiles, type TileBoxLike } from '../tiles';
 import { isoX, isoY } from '../projection';
@@ -38,6 +38,11 @@ export interface HeightField {
   plateau(k: number): Plateau;
   /** Every plateau with a tile in a box of tiles [x0, x1) x [y0, y1). */
   plateausIn(box: TileBoxLike): number[];
+  /**
+   * Work out the heights under a box of tiles ahead of their first read, a little at a time for
+   * as long as `keepGoing` says: true once they all are. Only a streamed map has anything to do.
+   */
+  prefetch(box: TileBoxLike, keepGoing: () => boolean): boolean;
 }
 
 /** One mesa: tiles joined by steps of at most one level, rising by a cliff from everything around them. */
@@ -211,6 +216,7 @@ export function createHeightField(map: Pick<MapDef, 'size' | 'elevation' | 'zone
       const k = plateauOf(Math.floor(x), Math.floor(y));
       return k < 0 ? groundZ(x, y) : plateaus[k]!.topZ(x, y);
     },
+    prefetch: () => true,
   };
 }
 
@@ -282,13 +288,16 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
   if (!field.raised) return { chunks: [], cull: () => false };
   const { cols, rows } = map.size;
   // Scree: ground near a mesa turns from grass to broken rock toward the cliff foot (scree in build).
-  const build = (r: TileBox): Chunk[] => {
+  const build = function* (r: TileBox): BuildSteps {
     const cells = new SortedCells('ground', sortedAcross(map, region));
     // Plateau labels over the region and SCREE_TILES round it, read once: scree and hidden look
     // at dozens of neighbours per tile.
     const M = SCREE_TILES, mx0 = r.x0 - M, my0 = r.y0 - M, MW = r.x1 - r.x0 + 2 * M, MH = r.y1 - r.y0 + 2 * M;
     const label = new Int32Array(MW * MH);
-    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) label[y * MW + x] = field.plateauOf(mx0 + x, my0 + y);
+    for (let y = 0; y < MH; y++) {
+      for (let x = 0; x < MW; x++) label[y * MW + x] = field.plateauOf(mx0 + x, my0 + y);
+      if (y % 8 === 7) yield;
+    }
     const labelAt = (x: number, y: number) => label[(y - my0) * MW + (x - mx0)]!;
     const scree = (x: number, y: number) => {
       if (labelAt(x, y) >= 0) return 1;
@@ -346,6 +355,7 @@ export function createHeightLayer(map: MapDef, field: HeightField, objects: Cont
           g.stroke({ width: 1.5, color: shade(CLIFF_COLOUR, kf * 0.75) });
         }
       }
+      yield;
     }
     return cells.chunks();
   };
@@ -404,6 +414,8 @@ class Lru<V> {
     if (v !== undefined) { this.m.delete(k); this.m.set(k, v); this.lastK = k; this.lastV = v; }
     return v;
   }
+  /** Whether `k` is held, without counting as a use. */
+  has(k: number): boolean { return this.m.has(k); }
   set(k: number, v: V): void {
     this.m.set(k, v);
     this.lastK = k; this.lastV = v;
@@ -585,12 +597,14 @@ function streamedHeightField(tiles: MapTiles): HeightField {
   // Corner heights per chunk: from the ground of the chunk and four tiles round it.
   const cornerCache = new Lru<Float32Array>(128);
   const M = 4;
-  const chunkCorners = (cx: number, cy: number): Float32Array => {
-    const have = cornerCache.get(key(cx, cy));
-    if (have) return have;
+  /** A chunk's corners worked out in steps (a few rows of tiles each), so `prefetch` can spread one over frames. */
+  const cornerSteps = function* (cx: number, cy: number): Generator<void, Float32Array, void> {
     const x0 = cx * T - M, y0 = cy * T - M, W = T + 2 * M;
     const g = new Float32Array(W * W).fill(NaN);
-    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) if (inMap(x0 + x, y0 + y)) g[y * W + x] = groundAt(x0 + x, y0 + y);
+    for (let y = 0; y < W; y++) {
+      for (let x = 0; x < W; x++) if (inMap(x0 + x, y0 + y)) g[y * W + x] = groundAt(x0 + x, y0 + y);
+      if (y % 8 === 7) yield;
+    }
     const gl = (x: number, y: number) => (inMap(x, y) ? g[(y - y0) * W + (x - x0)]! : -1);
     // Corners of the chunk's tiles and two more round them, as tileCorners does.
     const R = 2, CW = T + 2 * R + 1, cX0 = cx * T - R, cY0 = cy * T - R;
@@ -613,6 +627,7 @@ function streamedHeightField(tiles: MapTiles): HeightField {
           corner[(ty * CW + tx) * 4 + k] = (sum / n) * LEVEL_TILES;
         }
       }
+      if (ty % 8 === 7) yield;
     }
     const cornerAt = (x: number, y: number, k: number) => corner[((y - cY0) * CW + (x - cX0)) * 4 + k]!;
     // Vertices from (cx T - 2, cy T - 2) to two past the chunk's far edge, smoothed as smoothCorners does.
@@ -633,6 +648,7 @@ function streamedHeightField(tiles: MapTiles): HeightField {
         const tx = Math.min(vx, cols - 1), ty = Math.min(vy, rows - 1);
         v[j * VW + i] = cornerAt(tx, ty, vx > tx ? (vy > ty ? 2 : 1) : vy > ty ? 3 : 0);
       }
+      if (j % 16 === 15) yield;
     }
     for (let pass = 0; pass < 2; pass++) {
       const next = v.slice();
@@ -649,6 +665,7 @@ function streamedHeightField(tiles: MapTiles): HeightField {
           }
           next[at] = sum / n;
         }
+        if (j % 16 === 15) yield;
       }
       v = next;
     }
@@ -666,6 +683,16 @@ function streamedHeightField(tiles: MapTiles): HeightField {
     }
     cornerCache.set(key(cx, cy), out);
     return out;
+  };
+  /** Chunks whose corners `prefetch` has started. */
+  const cornerBuilds = new Map<number, Generator<void, Float32Array, void>>();
+  const chunkCorners = (cx: number, cy: number): Float32Array => {
+    const k = key(cx, cy), have = cornerCache.get(k);
+    if (have) return have;
+    // Needed now: finish the build `prefetch` started, or do it all at once.
+    const steps = cornerBuilds.get(k) ?? cornerSteps(cx, cy);
+    cornerBuilds.delete(k);
+    for (;;) { const r = steps.next(); if (r.done) return r.value; }
   };
   const cornersAt = (x: number, y: number): [Float32Array, number] => {
     const cx = Math.floor(x / T), cy = Math.floor(y / T);
@@ -703,6 +730,25 @@ function streamedHeightField(tiles: MapTiles): HeightField {
     surfaceZ(x, y) {
       const k = plateauOf(Math.floor(x), Math.floor(y));
       return k < 0 ? groundZ(x, y) : plateaus[k]!.topZ(x, y);
+    },
+    prefetch(box, keepGoing) {
+      for (let cy = Math.max(0, Math.floor(box.y0 / T)); cy * T < Math.min(rows, box.y1); cy++) {
+        for (let cx = Math.max(0, Math.floor(box.x0 / T)); cx * T < Math.min(cols, box.x1); cx++) {
+          const k = key(cx, cy);
+          if (cornerCache.has(k)) continue;
+          let steps = cornerBuilds.get(k);
+          if (!steps) {
+            // A few half-done chunks at most: one left behind by a turn of the view is dropped.
+            if (cornerBuilds.size >= 8) cornerBuilds.delete(cornerBuilds.keys().next().value!);
+            cornerBuilds.set(k, steps = cornerSteps(cx, cy));
+          }
+          for (;;) {
+            if (!keepGoing()) return false;
+            if (steps.next().done) { cornerBuilds.delete(k); break; }
+          }
+        }
+      }
+      return true;
     },
   };
 }

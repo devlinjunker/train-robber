@@ -3,7 +3,7 @@
 import { Container, Graphics } from 'pixi.js';
 import { decodeZones, SOLID_SCENERY, type MapDef, type SceneryDef, type SceneryKind } from '@train-robber/config';
 import { drawBox, groundEllipse, isoPoly, shade, oval } from './draw';
-import { addChunks, Cells, inRegion, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { addChunks, Cells, inRegion, LazyChunks, regionUnits, type BuildBudget, type BuildSteps, type Chunk, type TileBox } from './cells';
 import { depthOf, isoX, isoY, TILE_H } from '../projection';
 import type { MapTiles } from '../tiles';
 
@@ -226,22 +226,27 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
   type Tree = Chunk & { bounds: { x: number; y: number; width: number; height: number } };
   const isTree = new WeakSet<Chunk>();
   /** One region's flat scenery, cover and trees from `local` (the items in the region and LONE_TILES * 2 round it). */
-  const buildRegion = (r: TileBox, local: SceneryDef, inRegion: (i: number) => boolean, forestAt: (x: number, y: number) => boolean, lone: (i: number) => boolean, cover?: readonly number[], treeItems?: readonly number[]): Chunk[] => {
+  const buildRegion = function* (r: TileBox, local: SceneryDef, inRegion: (i: number) => boolean, forestAt: (x: number, y: number) => boolean, lone: (i: number) => boolean, cover?: readonly number[], treeItems?: readonly number[]): BuildSteps {
     const lx = local.items.x, ly = local.items.y, lk = local.items.kind;
     let coverList = cover, treeList = treeItems;
     if (!coverList || !treeList) {
       const c: number[] = [], t: number[] = [];
-      for (let i = 0; i < lk.length; i++) {
+      for (let i = 0, n = 0; i < lk.length; i++) {
         if (!inRegion(i)) continue;
         (SOLID_SCENERY.has(local.kindLegend[lk[i]!]!) || groundAt(lx[i]!, ly[i]!) >= RAISED_Z ? t : c).push(i);
+        if (++n % 32 === 0) yield;
       }
       coverList = c; treeList = t;
     }
+    yield;
     const flatChunks = drawSceneryFlat(scenery, forestAt, r);
+    yield;
     const coverChunks = drawSceneryCover(local, coverList);
+    yield;
+    const treeChunks = drawTrees(local, treeList, groundAt, lone).map((t): Tree => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
+    // The ground layers get their pieces only once the whole region is drawn.
     addChunks(flatLayer, flatChunks);
     addChunks(coverLayer, coverChunks);
-    const treeChunks = drawTrees(local, treeList, groundAt, lone).map((t): Tree => ({ ...t, bounds: t.g.getLocalBounds().rectangle.clone() }));
     for (const t of treeChunks) isTree.add(t);
     return [...flatChunks, ...coverChunks, ...treeChunks];
   };
@@ -270,10 +275,10 @@ export function createSceneryLayers(map: MapDef, scenery: SceneryDef, objects: C
   if (tiles?.streamed) {
     // Streamed: each region reads its items (and those round it, for lone trees) from the chunks.
     const m = LONE_TILES * 2;
-    lazy = new LazyChunks(regionUnits(map, region, 12, (r) => {
+    lazy = new LazyChunks(regionUnits(map, region, 12, function* (r): BuildSteps {
       const local = tiles.sceneryIn({ x0: r.x0 - m, y0: r.y0 - m, x1: r.x1 + m, y1: r.y1 + m }) ?? { ...scenery, items: { kind: [], x: [], y: [], size: [] } };
       const { x: lx, y: ly } = local.items;
-      return buildRegion(r, local, (i) => lx[i]! >= r.x0 && lx[i]! < r.x1 && ly[i]! >= r.y0 && ly[i]! < r.y1, (x, y) => tiles.forest(x, y), loneOf(local.items, local.kindLegend));
+      return yield* buildRegion(r, local, (i) => lx[i]! >= r.x0 && lx[i]! < r.x1 && ly[i]! >= r.y0 && ly[i]! < r.y1, (x, y) => tiles.forest(x, y), loneOf(local.items, local.kindLegend));
     }), hooks);
   } else {
     lazy = wholeLazy();

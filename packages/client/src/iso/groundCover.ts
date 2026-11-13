@@ -3,7 +3,7 @@
 import { Container, Graphics } from 'pixi.js';
 import type { MapDef } from '@train-robber/config';
 import { mapTiles, type MapTiles } from '../tiles';
-import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { addChunks, Cells, cullChunks, LazyChunks, regionUnits, type BuildBudget, type BuildSteps, type Chunk, type TileBox } from './cells';
 import { groundEllipse, shade, oval } from './draw';
 import { isoX, isoY } from '../projection';
 import { GROUND } from './terrain';
@@ -148,12 +148,13 @@ export function createGroundCover(map: MapDef, seed: number, region = Math.max(m
   layer.label = 'iso-ground-cover';
   // One map-wide stream after the patches when built whole, as before; a stream per region otherwise, so a region looks the same each time it is rebuilt.
   const wholeStream = whole ? (() => { const r = rng(seed); placePatches(map, r); return r; })() : null;
-  const build = (reg: TileBox, index: number): Chunk[] => {
+  const build = function* (reg: TileBox, index: number): BuildSteps {
     const r = wholeStream ?? rng((seed ^ Math.imul(index + 1, 0x9e3779b1)) >>> 0);
     const cells = new Cells(CELL);
     // The region's cover tiles and the row and column before it, which the clump test reads.
     const box = { x0: Math.max(0, reg.x0 - 1), y0: Math.max(0, reg.y0 - 1), x1: reg.x1, y1: reg.y1 };
     const local = wholeOk ? null : coverTiles(map, tiles, box, near!);
+    yield;
     const bw = box.x1 - box.x0;
     const ok = wholeOk ? (x: number, y: number) => wholeOk[y * cols + x] === 1 : (x: number, y: number) => local![(y - box.y0) * bw + (x - box.x0)] === 1;
     // Row by row; the items are small enough that strict back-to-front order doesn't show.
@@ -172,6 +173,7 @@ export function createGroundCover(map: MapDef, seed: number, region = Math.max(m
           else drawGrass(cells.at(x, y), x, y, size, r);
         }
       }
+      yield;
     }
     const chunks = cells.chunks();
     addChunks(layer, chunks);

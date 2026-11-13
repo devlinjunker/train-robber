@@ -4,7 +4,7 @@
 // against the horse and cars. A strip runs along x + y = const, a horizontal band on screen, so
 // strips off the top or bottom of the screen are hidden each frame.
 import type { Container, Graphics } from 'pixi.js';
-import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type Chunk, type TileBox } from './cells';
+import { cullSorted, LazyChunks, regionUnits, SortedCells, sortedAcross, type BuildBudget, type BuildSteps, type Chunk, type TileBox } from './cells';
 import { decodeZones, type MapDef } from '@train-robber/config';
 import type { MapTiles } from '../tiles';
 import { facesViewer, isoPoly, shade } from './draw';
@@ -16,6 +16,8 @@ export const ROCK_COLOUR = 0x8b857a;
 /** Tallest boulder, in tiles: the strip culling margin. */
 export const ROCK_MAX_HEIGHT = 1.9;
 const CELL = 2;
+/** Rows of tiles placed per step of a region's build (whole boulder cells). */
+const ROCK_STRIP = 8;
 /** Corners around a boulder's base. */
 const SIDES = 7;
 
@@ -111,12 +113,19 @@ export function createRocks(map: MapDef, objects: Container, field?: HeightField
   const order = (a: Boulder, c: Boulder) => Math.floor(depthOf(a.x, a.y)) - Math.floor(depthOf(c.x, c.y)) || a.x - a.y - (c.x - c.y);
   if (tiles?.streamed) {
     // Streamed: each region places its own boulders from the tiles in it (regions are a whole number of cells).
-    const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, (r) => {
+    const lazy = new LazyChunks(regionUnits(map, region, ROCK_MAX_HEIGHT + 4, function* (r): BuildSteps {
       const cells = new SortedCells('rocks', sortedAcross(map, region), 2);
-      const placed = placeBouldersIn(map, (x, y) => tiles.zone(x, y), skipAt, lifted, r).sort(order);
-      for (const b of placed) {
+      // Placed in strips of rows (whole boulder cells), so the build can stop between them; the sort puts them back in order.
+      const placed: Boulder[] = [];
+      for (let y0 = r.y0; y0 < r.y1; y0 += ROCK_STRIP) {
+        placed.push(...placeBouldersIn(map, (x, y) => tiles.zone(x, y), skipAt, lifted, { ...r, y0, y1: Math.min(r.y1, y0 + ROCK_STRIP) }));
+        yield;
+      }
+      placed.sort(order);
+      for (const [i, b] of placed.entries()) {
         const z = field?.surfaceZ(b.x, b.y) ?? 0;
         drawBoulder(cells.at(Math.floor(depthOf(b.x, b.y)) + 0.5, b.x, b.y, z + b.h), b, z);
+        if (i % 16 === 15) yield;
       }
       return cells.chunks();
     }), hooks);
