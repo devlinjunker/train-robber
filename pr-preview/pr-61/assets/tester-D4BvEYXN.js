@@ -571,7 +571,7 @@ export const GameSchema = z.object({
         cars: z.number().int().min(0),
         /** Guards search where you fell for at least this long. */
         checkSec: z.number().min(0),
-        /** A short jump that comes down on a platform, the coupling or a ledge alerts every guard in the car you land on (Devlin, PR #61). Off with \`enabled\` too. */
+        /** Dropping off a roof onto a platform, the coupling or a ledge (a short jump, or walking off a roof end) alerts every guard in the car you land on (Devlin, PR #61). Off with \`enabled\` too. */
         landedCar: z.boolean(),
       }).strict(),
       /**
