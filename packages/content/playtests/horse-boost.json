@@ -21,5 +21,7 @@
     "jumps",
     "damage",
     "outcomes"
-  ]
+  ],
+  "status": "done",
+  "conclusion": "The boost is good, I have also tested the speed and cooldown and I think the numbers we have here are good."
 }
