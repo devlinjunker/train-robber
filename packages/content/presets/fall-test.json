@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "fall-test",
+  "extends": "alpha-default",
+  "variants": {
+    "trainMix": "all-mail"
+  },
+  "values": {
+    "outside": { "roof": { "ladderCarShare": 1 } }
+  }
+}
