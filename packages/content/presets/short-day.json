@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "short-day",
+  "extends": "alpha-default",
+  "variants": {},
+  "values": {
+    "day": {
+      "clock": true,
+      "lengthSec": 240,
+      "duskSec": 60,
+      "nightGraceSec": 30
+    }
+  }
+}

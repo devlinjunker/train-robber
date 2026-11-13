@@ -209,7 +209,7 @@ async function boot() {
   const saveDay = () => {
     if (!saving || practice) return;
     const p = sim.state.players[0]!;
-    save = { ...save, life: { ...save.life, day: { day: p.day, health: p.health, trainsToday: p.trainsToday } } };
+    save = { ...save, life: { ...save.life, day: { day: p.day, health: p.health, trainsToday: p.trainsToday, dayTicks: p.dayTicks } } };
     void store.save(save);
   };
   let posterUp: (() => void) | null = null;
@@ -245,7 +245,7 @@ async function boot() {
     for (const e of events) {
       if (!practice) save = { ...save, life: lifeEvent(save.life, e) };
       if (e.type === 'LifeEnded') lifeEnded(e, events);
-      if (e.type === 'DayStarted' || e.type === 'DamageDealt' || e.type === 'PersistentChanged' || e.type === 'LifeEnded') dayChanged = true;
+      if (e.type === 'DayStarted' || e.type === 'DamageDealt' || e.type === 'PersistentChanged' || e.type === 'LifeEnded' || e.type === 'DuskStarted' || e.type === 'Nightfall') dayChanged = true;
       if (e.type === 'RunStarted') runInfo = { trainId: e.trainId, wantedLevel: e.wantedLevel };
       else if (e.type === 'RunEnded') banked = e.practice ? null : { score: e.cashOut, outcome: e.outcome };
       // Stakes PR: loot banks later, at a camp or town; the haul (maybe several robberies) is the score.
@@ -271,7 +271,9 @@ async function boot() {
     acc += now - last; last = now;
     let steps = 0;
     if (paused) acc = 0;
-    while (!paused && acc >= STEP_MS && steps < MAX_CATCHUP) {
+    // The after-camp time-lapse holds the sim still while the sun runs to the next dawn.
+    if (client.busy()) acc = 0;
+    while (!paused && !client.busy() && acc >= STEP_MS && steps < MAX_CATCHUP) {
       const inputs = [{ player: 1, commands: client.poll() }];
       cmdLog.step(simTick, inputs);
       const t0 = performance.now();

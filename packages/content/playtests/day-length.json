@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "day-length",
+  "title": "How long a day of daylight lasts",
+  "question": "From the day clock PR: the day is a budget of daylight for a few trains. Which length makes picking trains and choosing when to stop feel like real choices, without rushing the robbery or leaving you waiting?",
+  "pr": 74,
+  "base": {
+    "map": "line",
+    "preset": "roguelite"
+  },
+  "setups": [
+    {
+      "id": "short",
+      "name": "8 minutes",
+      "set": {
+        "day.lengthSec": 480,
+        "day.duskSec": 90
+      }
+    },
+    {
+      "id": "default",
+      "name": "12 minutes (default)"
+    },
+    {
+      "id": "long",
+      "name": "16 minutes",
+      "set": {
+        "day.lengthSec": 960,
+        "day.duskSec": 150
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLost",
+    "length",
+    "damage"
+  ]
+}
