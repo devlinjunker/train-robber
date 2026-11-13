@@ -122,7 +122,9 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       },
       countdown: { enabled: true, startsAt: 'commit', scale: 1, graceTicks: 180 },
       heat: { maxHeat: 100, heatDrainFactor: 1, sources: { shotFired: 2, alarmRaised: 15, playerSpotted: 5, actorKilled: 8, lootTaken: 1, timeAboardPerTick: 0 }, boardingResistanceAt: null },
-      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1 },
+      wanted: { maxLevel: 5, guardBonus: [0, 1, 1, 2, 2, 3], forceLevel: null, perThrowOff: 1, lootBonusPerLevel: 0 },
+      // Banking at run end, as before the stakes PR; bank tests turn `atCamp` on.
+      bank: { atCamp: false, campHoldTicks: 180, campStopSpeedTilesPerSec: 1, campLeaveTiles: 10, campDistanceTiles: 40, campDistancePerWantedTiles: 10, coverDistanceScale: 0.5, coverRadiusTiles: 3, coverMinTiles: 6, campGroundRadiusTiles: 2, trainSightTiles: 40, crashSpillShare: 0.25, crashSpillMinImpactTilesPerSec: 6 },
       outcomePolicy: {
         died: { bankRunLoot: false, wantedDelta: 0, bankLossFraction: 0, reset: [] },
         cancelled: { bankRunLoot: false, wantedDelta: 0 },
@@ -142,7 +144,7 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
         guardCatch: 'heat-only', patrolSpeedTilesPerTick: 1.5 / 60, patrolPauseTicks: 90, chaseSpeedTilesPerTick: 5 / 60,
         turnRateCosPerTick: Math.cos(guardRad), turnRateSinPerTick: Math.sin(guardRad),
         sight: { rangeTiles: 7, ledgeRangeTiles: 7, coneCos: Math.cos((40 * Math.PI) / 180), crouchCoverMin: 0.4 }, noise: { walkRadiusTiles: 1.5, runRadiusTiles: 5, crouchRadiusTiles: 0.3, searchRadiusTiles: 3, stumbleRadiusTiles: 5 },
-        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, fellLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
+        alertAfterTicks: 60, calmTicks: 240, alertCalmTicks: 360, loseSightTicks: 180, catchRangeTiles: 0.8, thrownOffLootShare: 0.5, thrownOffDamageFraction: 0.25, fellLootShare: 0.5, suspiciousStepOutside: false, suspiciousApproach: false,
       },
       // Cars end to end with no ledges, as before platforms; outside tests set their own.
       outside: NO_OUTSIDE,

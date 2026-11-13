@@ -359,6 +359,8 @@ export const GameSchema = z.object({
     forceLevel: z.number().int().min(0).nullable().optional(),
     /** Wanted levels each guard throw-off adds at the end of the run, whatever the outcome (Devlin, PR #46 playtest). */
     perThrowOff: z.number().int().min(0),
+    /** Each wanted level the run was robbed at raises its loot by this share: 0.25 is x1.5 at two stars (stakes PR). */
+    lootBonusPerLevel: z.number().min(0),
   }).strict().refine((w) => w.forceLevel == null || w.forceLevel <= w.maxLevel, { message: 'forceLevel must not be above maxLevel', path: ['forceLevel'] }),
   outcomePolicy: z.object({
     /** Dying (health 0). */
@@ -415,6 +417,42 @@ export const GameSchema = z.object({
    * cannot board it again: cash out or Tab to another train. A shut train cannot be boarded,
    * committed or switched to for `doorsReopenSec` (0: for the rest of the session).
    */
+  /**
+   * Making camp (stakes PR, Devlin 2026-11-12). With `atCamp`, a run that would bank its loot
+   * (extracted, cashed out, caught) puts it in your saddlebag instead. Hold C on a stopped horse with
+   * no run on for `campHoldSec` to make camp where you are: it banks the saddlebag and ends the day.
+   * You must be `campDistanceTiles` plus `campDistancePerWantedTiles` per wanted level off the line
+   * (times `coverDistanceScale` in cover), and the train you robbed must not see you. Until you camp,
+   * dying loses the saddlebag and each hard crash spills `crashSpillShare` of it. Off: loot banks at the run's end.
+   */
+  bank: z.object({
+    /** Loot banks only when you make camp; off, it banks the moment the run ends. */
+    atCamp: z.boolean(),
+    /** How long C is held on a stopped horse to make camp. */
+    campHoldSec: z.number().min(0),
+    /** The horse counts as stopped for camping at this speed or slower. */
+    campStopSpeedTilesPerSec: z.number().min(0),
+    /** Riding this far from where you made camp breaks camp. */
+    campLeaveTiles: positive,
+    /** How far off the line (any track) you must be to make camp at wanted level 0. */
+    campDistanceTiles: z.number().min(0),
+    /** Extra distance off the line per wanted level (a bounty will replace this later). */
+    campDistancePerWantedTiles: z.number().min(0),
+    /** In cover the distance needed is scaled by this. */
+    coverDistanceScale: fraction,
+    /** Cover: blocked tiles (timber, rocks, canyon walls, mesas) counted within this radius... */
+    coverRadiusTiles: z.number().int().min(1),
+    /** ...at least this many of them. */
+    coverMinTiles: z.number().int().min(1),
+    /** Camp needs firm ground: no water, deep water or mud within this radius (0 checks only the tile you stand on). */
+    campGroundRadiusTiles: z.number().int().min(0),
+    /** The train you robbed sees you within this distance (not in cover), and you cannot make camp. */
+    trainSightTiles: z.number().min(0),
+    /** Share of the saddlebag's value (and items, rounded up) each hard riding crash spills. */
+    crashSpillShare: fraction,
+    /** Only a crash this hard or harder (speed lost, tiles/s) spills the saddlebag; softer knocks keep it. */
+    crashSpillMinImpactTilesPerSec: z.number().min(0),
+  }).strict(),
   cashOut: z.object({
     /** F on the horse during a run cashes out. */
     enabled: z.boolean(),
@@ -640,6 +678,8 @@ export const GameSchema = z.object({
     catchRangeTiles: positive,
     /** Share of carried items lost when a guard throws the player off, rounded up, picked at random (0 keeps everything). */
     thrownOffLootShare: z.number().min(0).max(1),
+    /** Share of max health a guard throw-off costs (stakes PR); falls and failed jumps use `boarding.failure.damageFraction`. */
+    thrownOffDamageFraction: fraction,
     /** The share of carried loot lost in a fall: a rock off a ledge, a bad roof jump or a slip. */
     fellLootShare: z.number().min(0).max(1),
     /** A suspicious guard whose sighting or sound was outside the car (platform, coupling, ledge) walks out to look there. */

@@ -115,6 +115,7 @@ export class InputMapper {
   private lastSteer = { x: 0, y: 0 };
   private eDown = false;
   private cDown = false;
+  private campDown = false;
 
   /** Commands for one tick. Intents are only sent when they change, which keeps the log small. */
   commands(snap: InputSnapshot, ctx: MapContext): Command[] {
@@ -160,6 +161,12 @@ export class InputMapper {
       if (!this.cDown && (cHeld || snap.actions.includes('crouch'))) { this.cDown = true; out.push({ type: 'crouch', on: true }); }
       if (this.cDown && !cHeld) { this.cDown = false; out.push({ type: 'crouch', on: false }); }
     } else this.cDown = false;
+    // C held on the horse makes camp (stakes PR): the press and the release, like E.
+    if (!ctx.aboard) {
+      const cHeld = k.has('KeyC');
+      if (!this.campDown && (cHeld || snap.actions.includes('crouch'))) { this.campDown = true; out.push({ type: 'camp', held: true }); }
+      if (this.campDown && !cHeld) { this.campDown = false; out.push({ type: 'camp', held: false }); }
+    } else if (this.campDown) { this.campDown = false; out.push({ type: 'camp', held: false }); }
     for (const a of snap.actions) {
       if (a === 'commit') continue;
       if (a === 'jump') out.push({ type: 'jump' });

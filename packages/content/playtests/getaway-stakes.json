@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "getaway-stakes",
+  "title": "Does the getaway matter now",
+  "question": "From PR #72 (the stakes PR): loot rides in your saddlebag until camp or a town, throw-offs cost 35% health, and wanted pays a loot bonus. Does getting away feel like it matters, compared with banking on F?",
+  "pr": 72,
+  "setups": [
+    {
+      "id": "stakes",
+      "name": "Stakes (new default)"
+    },
+    {
+      "id": "before",
+      "name": "Before: bank on F, 15% throws, no bonus",
+      "set": {
+        "bank.atCamp": false,
+        "ai.thrownOffDamageFraction": 0.15,
+        "wanted.lootBonusPerLevel": 0
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLost",
+    "wanted"
+  ],
+  "status": "open"
+}

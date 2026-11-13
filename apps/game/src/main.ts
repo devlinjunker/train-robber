@@ -175,6 +175,8 @@ async function boot() {
     for (const e of events) {
       if (e.type === 'RunStarted') runInfo = { trainId: e.trainId, wantedLevel: e.wantedLevel };
       else if (e.type === 'RunEnded') banked = e.practice ? null : { score: e.cashOut, outcome: e.outcome };
+      // Stakes PR: loot banks later, at a camp or town; the haul (maybe several robberies) is the score.
+      else if (e.type === 'LootBanked') banked = e.practice ? null : { score: e.value, outcome: 'banked' };
       else if (e.type === 'PersistentChanged' && !e.practice && saving) {
         let leaderboard = save.leaderboard;
         if (banked) {

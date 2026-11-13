@@ -2,7 +2,7 @@
 // and the horse boost.
 import { describe, it, expect } from 'vitest';
 import {
-  canSee, createSim, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
+  canSee, createSim, makeCamp, entryPointWorld, gridWalkable, guardCount, isSearching, lineOfSight, noiseRadius, toTrain, trainGrid,
   type Command, type GameState, type GuardState, type Sim, type SimConfig, type SimEvent,
 } from '../src';
 import { asciiCar, TEST_CARS, TEST_MAIL_TRAIN, testConfig, testMap } from './fixtures';
@@ -561,5 +561,59 @@ describe('horse boost', () => {
     const cfg = guardConfig();
     const sim = aboardAt(cfg, 5.5, 2.5);
     expect(ofType(step(sim, { type: 'boost' }), 'CommandRejected')[0]).toMatchObject({ reason: 'not mounted' });
+  });
+});
+
+// Stakes PR: loot banks at a place (camp or town), a guard's throw costs more health, and wanted pays.
+describe('stakes: the saddlebag, throw-off health, wanted bonus', () => {
+  const withBank = (cfg: SimConfig, bank: Partial<Values['bank']> = {}, wanted: Partial<Values['wanted']> = {}): SimConfig =>
+    ({ ...cfg, values: { ...cfg.values, bank: { ...cfg.values.bank, atCamp: true, ...bank }, wanted: { ...cfg.values.wanted, ...wanted } } });
+  const thrown = (cfg: SimConfig) => {
+    const sim = aboardAt(cfg, 5.5, 2.5);
+    S(sim).persistent = { wantedLevel: 2, bank: 10, lifetimeEarned: 10 };
+    S(sim).run!.players[1]!.carried = ['letter', 'letter'];
+    placeGuard(sim, 12.5, 2.5, -1, 0);
+    return sim;
+  };
+  it('a guard throw-off costs ai.thrownOffDamageFraction of health, not the failed-jump damage', () => {
+    const cfg = withBank(guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0, thrownOffDamageFraction: 0.4 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } }));
+    const sim = thrown(cfg);
+    const hit = ofType(steps(sim, 60 * 6), 'DamageDealt').find((e) => e.cause === 'thrownOff');
+    expect(hit).toMatchObject({ amount: 40, health: 60 });
+  });
+  it('caught puts what the guard left in the saddlebag, with the wanted bonus, and banks nothing until you make camp', () => {
+    const cfg = withBank(guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] } }), {}, { lootBonusPerLevel: 0.5 });
+    const sim = thrown(cfg);
+    const ev = steps(sim, 60 * 6);
+    const value = 2 * cfg.values.items.letter!.value;
+    // Two stars at x1.5 each: 1 + 0.5 x 2 = 2.
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'caught', cashOut: 0, stashed: value * 2, lootMultiplier: 2 });
+    expect(ofType(ev, 'PersistentChanged')[0]).toMatchObject({ outcome: 'caught', after: { wantedLevel: 3, bank: 10, lifetimeEarned: 10 } });
+    const p = S(sim).players[0]!;
+    expect(p.saddlebag).toEqual({ value: value * 2, items: 2, runs: 1 });
+    expect(p.robbedTrain).toBe(S(sim).world.trains[0]!.id);
+    // Make camp where you are: makeCamp banks it and ends the day.
+    const bank: SimEvent[] = [];
+    const ctx = { state: S(sim), map: sim.map, config: cfg, world: sim.world, emit: (e: SimEvent) => void bank.push(e) };
+    makeCamp(ctx, p);
+    expect(ofType(bank, 'LootBanked')[0]).toMatchObject({ value: value * 2, items: 2, runs: 1, place: 'camp' });
+    expect(ofType(bank, 'DayEnded')[0]).toMatchObject({ cause: 'camp' });
+    expect(ofType(bank, 'PersistentChanged')[0]).toMatchObject({ outcome: 'banked', before: { bank: 10, lifetimeEarned: 10 }, after: { wantedLevel: 3, bank: 10 + value * 2, lifetimeEarned: 10 + value * 2 } });
+    expect(p.saddlebag.value).toBe(0);
+  });
+  it('F cash out stashes too; dying loses the saddlebag', () => {
+    const cfg = withBank(guardConfig({ ai: { guardCatch: 'thrown-off', thrownOffLootShare: 0 }, train: { layouts: ['watch-car'] }, cashOut: { closeDoorsOnThrownOff: false } }));
+    const sim = thrown(cfg);
+    steps(sim, 60 * 6);
+    const ev = step(sim, { type: 'cashOut' });
+    expect(ofType(ev, 'RunEnded')[0]).toMatchObject({ outcome: 'cashedOut', cashOut: 0 });
+    const p = S(sim).players[0]!;
+    expect(p.saddlebag.value).toBeGreaterThan(0);
+    const value = p.saddlebag.value;
+    p.health = 0;
+    const died = step(sim);
+    expect(ofType(died, 'SaddlebagLost')[0]).toMatchObject({ value, items: 2, cause: 'died' });
+    expect(ofType(died, 'LootBanked')).toHaveLength(0);
+    expect(S(sim).persistent.bank).toBe(10);
   });
 });
