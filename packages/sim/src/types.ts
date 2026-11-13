@@ -115,7 +115,7 @@ export type ClimbRejection = 'no ladder' | 'busy';
 /** `on the roof`: a drop up on a roof, mid-jump or on a ladder. */
 export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out' | CampRejection;
 /** Why a rider cannot make camp (stakes PR); `run active` and `not mounted` are shared with other commands. */
-export type CampRejection = 'moving' | 'already camped' | 'too close to the line' | 'train sees you';
+export type CampRejection = 'moving' | 'already camped' | 'bad ground' | 'too close to the line' | 'train sees you';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -603,7 +603,7 @@ export interface SimConfig {
     /** Making camp (stakes PR): see `Saddlebag` and rules/bank.ts. */
     bank: {
       atCamp: boolean; campHoldTicks: number; campStopSpeedTilesPerSec: number; campLeaveTiles: number;
-      campDistanceTiles: number; campDistancePerWantedTiles: number; coverDistanceScale: number; coverRadiusTiles: number; coverMinTiles: number;
+      campDistanceTiles: number; campDistancePerWantedTiles: number; coverDistanceScale: number; coverRadiusTiles: number; coverMinTiles: number; campGroundRadiusTiles: number;
       trainSightTiles: number; crashSpillShare: number; crashSpillMinImpactTilesPerSec: number;
     };
     outcomePolicy: {

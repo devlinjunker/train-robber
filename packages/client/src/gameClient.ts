@@ -359,6 +359,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     if (e.type === 'CommandRejected' && e.command === 'camp') {
       const v = campView(sim.state, sim.map, config, sim.state.players[0]!);
       show(e.reason === 'too close to the line' ? `Too close to the line to camp: ${Math.floor(v.distance)} of ${Math.ceil(v.need)} tiles${v.cover ? '' : ' (cover lets you camp closer)'}`
+        : e.reason === 'bad ground' ? 'Too wet to camp here: find dry ground away from water and mud'
         : e.reason === 'train sees you' ? 'The train you robbed can see you: get out of its sight or into cover'
           : e.reason === 'moving' ? 'Stop the horse to make camp' : e.reason === 'already camped' ? 'You are already camped here: ride off to break camp'
             : e.reason === 'run active' ? 'Not with a train committed: Esc first' : e.reason === 'not mounted' ? 'Make camp from the horse' : 'Making camp is turned off', 'warn', 2500);
@@ -884,12 +885,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         ? `Making camp... ${Math.round((player.campHoldTicks / Math.max(1, config.values.bank.campHoldTicks)) * 100)}%`
         : campWhy === 'too close to the line' ? `Too close to the line to camp (${Math.floor(campHere.distance)} of ${Math.ceil(campHere.need)} tiles${campHere.cover ? ', in cover' : ''})`
           : campWhy === 'train sees you' ? 'The train you robbed can see you'
+            : campWhy === 'bad ground' ? 'Too wet to camp here: find dry ground'
             : campWhy === 'moving' ? 'Safe to camp here: stop and hold C' : campWhy ? '' : 'Safe to camp: hold C';
       const switchPrompt = candidate && phase !== 'idle' && !commitAsk ? `${basePrompt}  ·  Tab: switch to the outlined train` : basePrompt;
       const prompt = [switchPrompt, cashHint, phase === 'idle' ? campHint : ''].filter(Boolean).join('  ·  ');
       const bag = player.saddlebag;
       const saddlebag = bankAtCamp && bag.value > 0
-        ? { text: `SADDLEBAG $${bag.value}  ·  ${!campHere ? 'make camp to bank it' : campWhy === 'too close to the line' ? `too close to the line (${Math.floor(campHere.distance)}/${Math.ceil(campHere.need)})` : campWhy === 'train sees you' ? 'the train can see you' : 'safe to camp'}` }
+        ? { text: `SADDLEBAG $${bag.value}  ·  ${!campHere ? 'make camp to bank it' : campWhy === 'too close to the line' ? `too close to the line (${Math.floor(campHere.distance)}/${Math.ceil(campHere.need)})` : campWhy === 'train sees you' ? 'the train can see you' : campWhy === 'bad ground' ? 'too wet to camp' : 'safe to camp'}` }
         : null;
       const weight = carriedWeight(config, carried);
       const carry = run ? {

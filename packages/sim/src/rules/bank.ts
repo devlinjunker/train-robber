@@ -1,7 +1,7 @@
 // Making camp (stakes PR): loot got off a train rides in the saddlebag all day, and banks only when
 // you make camp. You make camp where you are, holding C on a stopped horse with no run on, once you
-// are far enough off the line (farther the more you are wanted, closer in cover) and the train you
-// robbed cannot see you. Making camp banks the saddlebag and ends the day. Until then dying loses
+// are far enough off the line (farther the more you are wanted, closer in cover), on firm ground (no
+// water or mud close by) and the train you robbed cannot see you. Making camp banks the saddlebag and ends the day. Until then dying loses
 // the saddlebag and each hard riding crash spills a share of it.
 import type { GameState, PlayerState, SimConfig, SimEvent } from '../types';
 import { Terrain, terrainAt, type WorldMap } from '../world/map';
@@ -16,7 +16,7 @@ interface BankCtx {
 }
 
 /** Why a rider cannot make camp here and now. */
-export type CampRefusal = 'run active' | 'not mounted' | 'moving' | 'already camped' | 'too close to the line' | 'train sees you';
+export type CampRefusal = 'run active' | 'not mounted' | 'moving' | 'already camped' | 'bad ground' | 'too close to the line' | 'train sees you';
 
 export const emptySaddlebag = () => ({ value: 0, items: 0, runs: 0 });
 
@@ -28,6 +28,28 @@ export function stash(p: PlayerState, value: number, items: number): void {
 
 const horseOf = (state: GameState, p: PlayerState) => state.world.horses.find((h) => h.id === p.horseId);
 const mounted = (state: GameState, p: PlayerState) => p.placement.frame === 'world' && horseOf(state, p)?.mode === 'physical';
+
+/**
+ * Where the rider is: the horse while mounted. The player's placement is not moved while riding (it
+ * stays where they mounted), so camping reads the horse.
+ */
+export function riderPos(state: GameState, p: PlayerState): { x: number; y: number } {
+  const h = horseOf(state, p);
+  return h && p.placement.frame === 'world' && h.mode === 'physical' ? { x: h.x, y: h.y } : { x: p.placement.x, y: p.placement.y };
+}
+
+/** Firm ground to camp on: no water, deep water or mud within `bank.campGroundRadiusTiles`. */
+export function campGround(map: WorldMap, config: SimConfig, x: number, y: number): boolean {
+  const r = config.values.bank.campGroundRadiusTiles;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      if (dx * dx + dy * dy > r * r) continue;
+      const t = terrainAt(map, x + dx, y + dy);
+      if (t === Terrain.Water || t === Terrain.Deep || t === Terrain.Slow) return false;
+    }
+  }
+  return true;
+}
 
 /** Distance from (x, y) to the nearest track of any route, in tiles (from the route samples). */
 export function distanceToLine(map: WorldMap, x: number, y: number): number {
@@ -66,17 +88,17 @@ export function campDistance(config: SimConfig, wantedLevel: number, cover: bool
 }
 
 /** What the HUD shows about camping here: the distance off the line, the distance needed, cover, and whether the robbed train sees you. */
-export function campView(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState): { distance: number; need: number; cover: boolean; seen: boolean } {
-  const { x, y } = p.placement;
+export function campView(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState): { distance: number; need: number; cover: boolean; seen: boolean; ground: boolean } {
+  const { x, y } = riderPos(state, p);
   const cover = inCover(map, config, x, y);
-  return { distance: distanceToLine(map, x, y), need: campDistance(config, runWantedLevel(state, config), cover), cover, seen: trainSees(state, map, config, p, cover) };
+  return { distance: distanceToLine(map, x, y), need: campDistance(config, runWantedLevel(state, config), cover), cover, seen: trainSees(state, map, config, x, y, p, cover), ground: campGround(map, config, x, y) };
 }
 
 /** The train you last robbed sees you: one of its cars within `bank.trainSightTiles`, unless you are in cover. */
-function trainSees(state: GameState, map: WorldMap, config: SimConfig, p: PlayerState, cover: boolean): boolean {
+function trainSees(state: GameState, map: WorldMap, config: SimConfig, x: number, y: number, p: PlayerState, cover: boolean): boolean {
   if (cover || !p.robbedTrain || !state.world.trains.some((t) => t.id === p.robbedTrain)) return false;
   const r2 = config.values.bank.trainSightTiles ** 2;
-  return carPosesOf(state, map, config, p.robbedTrain).some((c) => (c.x - p.placement.x) ** 2 + (c.y - p.placement.y) ** 2 <= r2);
+  return carPosesOf(state, map, config, p.robbedTrain).some((c) => (c.x - x) ** 2 + (c.y - y) ** 2 <= r2);
 }
 
 /** Whether `p` can make camp here and now: null, or why not. */
@@ -84,10 +106,12 @@ export function campCheck(state: GameState, map: WorldMap, config: SimConfig, p:
   if (state.run) return 'run active';
   if (!mounted(state, p)) return 'not mounted';
   if (p.campedAt) return 'already camped';
-  if ((horseOf(state, p)?.speed ?? 0) > config.values.bank.campStopSpeedTilesPerSec) return 'moving';
+  // The place first, then the stop: a moving rider is told whether this spot would do.
   const v = campView(state, map, config, p);
   if (v.distance < v.need) return 'too close to the line';
+  if (!v.ground) return 'bad ground';
   if (v.seen) return 'train sees you';
+  if ((horseOf(state, p)?.speed ?? 0) > config.values.bank.campStopSpeedTilesPerSec) return 'moving';
   return null;
 }
 
@@ -102,7 +126,8 @@ export function campSystem(ctx: BankCtx): PlayerState[] {
   const b = config.values.bank;
   const done: PlayerState[] = [];
   for (const p of state.players) {
-    if (p.campedAt && (state.run || (p.placement.x - p.campedAt.x) ** 2 + (p.placement.y - p.campedAt.y) ** 2 > b.campLeaveTiles ** 2)) p.campedAt = null;
+    const at = riderPos(state, p);
+    if (p.campedAt && (state.run || (at.x - p.campedAt.x) ** 2 + (at.y - p.campedAt.y) ** 2 > b.campLeaveTiles ** 2)) p.campedAt = null;
     if (!p.campHeld || !b.atCamp) { p.campHoldTicks = 0; continue; }
     if (campCheck(state, map, config, p)) { p.campHoldTicks = 0; continue; }
     p.campHoldTicks += 1;

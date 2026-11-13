@@ -1,6 +1,6 @@
 // Stakes PR: the saddlebag, making camp where you are, and crash spills.
 import { describe, it, expect } from 'vitest';
-import { campDistance, createSim, distanceToLine, prepareMap, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
+import { campCheck, campDistance, campView, createSim, distanceToLine, prepareMap, type Command, type GameState, type Sim, type SimConfig, type SimEvent } from '../src';
 import { testConfig, testMap } from './fixtures';
 
 type Values = SimConfig['values'];
@@ -70,6 +70,29 @@ describe('making camp', () => {
     step(sim, { type: 'camp', held: false });
     at(sim, MID.x, MID.y, 5);
     expect(ofType(step(sim, { type: 'camp', held: true }), 'CommandRejected')[0]).toMatchObject({ reason: 'moving' });
+  });
+
+  it('reads where the horse is, not where the rider mounted (Devlin, PR #72: safe to camp next to the track)', () => {
+    const cfg = cfgWith();
+    const sim = make(cfg);
+    at(sim, MID.x, MID.y);
+    // Ride to the track: only the horse moves.
+    Object.assign(S(sim).world.horses[0]!, { x: MID.x, y: 69 });
+    expect(campView(S(sim), sim.map, cfg, S(sim).players[0]!).distance).toBeLessThan(2);
+    expect(ofType(step(sim, { type: 'camp', held: true }), 'CommandRejected')[0]).toMatchObject({ reason: 'too close to the line' });
+    // Riding near the line says too close, not "stop to camp".
+    step(sim, { type: 'camp', held: false });
+    Object.assign(S(sim).world.horses[0]!, { x: MID.x, y: 64, speed: 6, cruiseTarget: 6 });
+    expect(campCheck(S(sim), sim.map, cfg, S(sim).players[0]!)).toBe('too close to the line');
+  });
+
+  it('needs dry ground: no water or mud within campGroundRadiusTiles', () => {
+    const wet = make(cfgWith({ campGroundRadiusTiles: 2 }), undefined, (c, r) => (c === MID.x + 2 && r === MID.y ? 'water' : 'open'));
+    at(wet, MID.x, MID.y);
+    expect(ofType(step(wet, { type: 'camp', held: true }), 'CommandRejected')[0]).toMatchObject({ reason: 'bad ground' });
+    const dry = make(cfgWith({ campGroundRadiusTiles: 1 }), undefined, (c, r) => (c === MID.x + 2 && r === MID.y ? 'water' : 'open'));
+    at(dry, MID.x, MID.y);
+    expect(ofType(hold(dry, 31), 'DayEnded')).toHaveLength(1);
   });
 
   it('the distance grows with the wanted level; cover lets you camp closer', () => {

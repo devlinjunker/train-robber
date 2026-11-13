@@ -110,6 +110,6 @@
     "cashedOut": { "bankRunLoot": true, "wantedDelta": 0 },
     "caught": { "bankRunLoot": true, "wantedDelta": 0 }
   },
-  "bank": { "atCamp": true, "campHoldSec": 3, "campStopSpeedTilesPerSec": 1, "campLeaveTiles": 10, "campDistanceTiles": 40, "campDistancePerWantedTiles": 10, "coverDistanceScale": 0.5, "coverRadiusTiles": 3, "coverMinTiles": 6, "trainSightTiles": 40, "crashSpillShare": 0.25, "crashSpillMinImpactTilesPerSec": 6 },
+  "bank": { "atCamp": true, "campHoldSec": 3, "campStopSpeedTilesPerSec": 1, "campLeaveTiles": 10, "campDistanceTiles": 60, "campDistancePerWantedTiles": 10, "coverDistanceScale": 0.5, "coverRadiusTiles": 3, "coverMinTiles": 6, "campGroundRadiusTiles": 2, "trainSightTiles": 40, "crashSpillShare": 0.25, "crashSpillMinImpactTilesPerSec": 6 },
   "cashOut": { "enabled": true, "closeDoors": true, "closeDoorsOnThrownOff": true, "shutDoorsEndRun": true, "doorsReopenSec": 0 }
 }

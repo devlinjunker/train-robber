@@ -444,6 +444,8 @@ export const GameSchema = z.object({
     coverRadiusTiles: z.number().int().min(1),
     /** ...at least this many of them. */
     coverMinTiles: z.number().int().min(1),
+    /** Camp needs firm ground: no water, deep water or mud within this radius (0 checks only the tile you stand on). */
+    campGroundRadiusTiles: z.number().int().min(0),
     /** The train you robbed sees you within this distance (not in cover), and you cannot make camp. */
     trainSightTiles: z.number().min(0),
     /** Share of the saddlebag's value (and items, rounded up) each hard riding crash spills. */

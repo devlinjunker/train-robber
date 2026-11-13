@@ -2,7 +2,7 @@
 // Phase 1 has one player per run, so the run's phase is that player's phase.
 import { nextInt, runSeed, seedRng } from './rng';
 import { applyOutcome, isPractice, lootMultiplier, runWantedLevel } from './rules/outcome';
-import { bankSaddlebag, loseSaddlebag, spillSaddlebag, stash } from './rules/bank';
+import { bankSaddlebag, loseSaddlebag, riderPos, spillSaddlebag, stash } from './rules/bank';
 import { countdownExpired, HEAT_SOURCES, lineClock, lineClockSec, raiseHeat, raiseHeatFor, runCountdownSec } from './rules/heat';
 import type { Command, FallCause, GameState, HeatSource, HorseState, PlayerId, PlayerState, RejectReason, ResumeRun, RunOutcome, RunPhase, RunState, SimConfig, SimEvent, TrainState } from './types';
 import { advanceMeter, boardingCheck, commitCheck, doorsClosed, commitTarget, distanceToTrain, meterResult, rollMeterZones, sideOf, switchCheck, switchTarget } from './world/boarding';
@@ -232,7 +232,7 @@ export function makeCamp(ctx: RunCtx, p: PlayerState): void {
   if (ctx.state.run) return;
   bankSaddlebag(ctx, p);
   newDay(ctx, p, false, 'camp');
-  p.campedAt = { x: p.placement.x, y: p.placement.y };
+  p.campedAt = riderPos(ctx.state, p);
 }
 
 /** Cancel's reset: mounted and stopped at playerSpawn, facing up the screen toward the track. */
