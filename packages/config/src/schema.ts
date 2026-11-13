@@ -145,6 +145,8 @@ export const GameSchema = z.object({
     dawnHour: z.number().min(0).max(24),
     /** The clock's hour at nightfall (24 h), after dawnHour. */
     nightfallHour: z.number().min(0).max(30),
+    /** Client: after making camp, the sun runs through dusk and night to dawn over this many seconds while the game waits. 0: no time-lapse. */
+    campTimelapseSec: z.number().min(0),
     /** The last train at dusk: richer and better guarded, tied to the loot multiplier and heat, not the wanted level. */
     lastTrain: z.object({
       /** Mark one at dusk. */

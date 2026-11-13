@@ -16,6 +16,7 @@ import { createWorldScene } from './iso/worldScene';
 import { nearestOnCar } from './iso/occlusion';
 import { createScreenOverlay, type DistanceCue, type MeterView, type TownPointer, type TrainPointer } from './screenOverlay';
 import { createHud, type NoticeKind } from './hud';
+import { timelapseView } from './camp';
 import { collisionNotice, dayLabel, sunView, deathCause, mapTitle, flashOn, GOOD_COLOUR, HIT_COLOUR, HIT_FLASH_SEC, landingCue, LANDING_CUE_SEC, SCRAPE_FLASH_SEC, SWITCH_FLASH_SEC, type TrainFocus } from './cues';
 import { createWorldView } from './topdown/worldView';
 import { createAudioBus } from './audio';
@@ -96,6 +97,8 @@ export interface GameClient {
   describeDeath(events: readonly SimEvent[]): { cause: string; place: string };
   /** Where the rider is, in poster words ("near Town 2", "on Alpha Flats"). */
   describePlace(): string;
+  /** True while the after-camp time-lapse plays: the host holds the sim still until it ends. */
+  busy(): boolean;
 }
 
 export interface GameClientOptions {
@@ -377,6 +380,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
   let lootTotal: { title: string; detail: string; at: number } | null = null, carriedCount = 0;
   let caughtTook: Extract<SimEvent, { type: 'RunEnded' }> | null = null;
   let dayEndedBy: 'died' | 'camp' | 'dusk' | 'nightfall' | 'life' = 'died';
+  // After making camp with the day clock on: the sun runs through dusk and night to dawn (`day.campTimelapseSec`).
+  let timelapse: { at: number; from: number } | null = null;
+  const timelapseMs = (dayClockOn(config) ? config.values.day.campTimelapseSec : 0) * 1000;
   // Stakes PR: a bank place's name on screen, and what a run's end did with the loot.
   const bonusText = (m: number) => m > 1 ? ` (x${Math.round(m * 100) / 100} wanted bonus)` : '';
   const tookText = (e: Extract<SimEvent, { type: 'RunEnded' }>) => e.stashed > 0
@@ -454,7 +460,10 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     // G8 day clock: dusk brings out the day's last train; nightfall ends the trains for the day.
     else if (e.type === 'DuskStarted') show(e.lastTrain ? 'Dusk: the last train of the day is out, marked LAST TRAIN. Richer, better guarded' : 'Dusk: the light is going', 'warn', 4000);
     else if (e.type === 'Nightfall') show(e.onRun ? 'Nightfall: finish this robbery, then make camp' : `Nightfall: no more trains. Make camp within ${Math.round(e.graceSec)} s or lose part of your saddlebag`, 'warn', 4500);
-    else if (e.type === 'DayEnded') dayEndedBy = e.cause;
+    else if (e.type === 'DayEnded') {
+      dayEndedBy = e.cause;
+      if (e.cause === 'camp' && timelapseMs > 0 && !replay) timelapse = { at: performance.now(), from: dayClock(config, sim.state.players[0]!).minutes };
+    }
     // A life that ended gets the host's poster or notice instead.
     else if (e.type === 'LifeEnded') dayEndedBy = 'life';
     else if (e.type === 'DayStarted') {
@@ -557,6 +566,7 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       return { cause: hit ? deathCause(hit, hit.cause === 'collision' && hit.against === 'obstacle' ? obstacleHit() : undefined) : 'died on the line', place: describePlace() };
     },
     describePlace: () => describePlace(),
+    busy: () => timelapse !== null && performance.now() - timelapse.at < timelapseMs,
     reset() {
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
       interp.push(sim.state, sim.cars(), roofCfg.climbTicks);
@@ -804,7 +814,18 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const inGrace = !!s.run && s.run.clockRunning && s.run.countdownSec <= 0 && s.run.graceTicks > 0;
       const graceSec = config.values.countdown.graceTicks / tickRateHz;
       const overtimeText = inGrace ? `OUT OF TIME: jump now! ${(Math.max(0, graceMax - s.run!.graceTicks) / tickRateHz).toFixed(1)} s` : null;
+      // Making camp: the camp builds up beside the horse while C is held, and stays while you are camped.
+      const campHold = config.values.bank.campHoldTicks;
+      const campAt = player.campedAt ?? (player.campHoldTicks > 0 && ridden ? { x: ridden.x, y: ridden.y } : null);
+      let campDraw: { x: number; y: number; progress: number; scale: number; t: number } | null = null;
+      if (campAt) {
+        const z = iso ? isoWorld.groundZ(campAt.x, campAt.y) : 0;
+        const a = project(campAt.x, campAt.y, z), b = project(campAt.x + 1, campAt.y, z);
+        const scale = Math.max(6, Math.hypot(b.x - a.x, b.y - a.y));
+        campDraw = { x: a.x + 2.2 * scale, y: a.y, progress: player.campedAt ? 1 : player.campHoldTicks / Math.max(1, campHold), scale, t: now / 1000 };
+      }
       overlay.update({
+        camp: campDraw,
         width: W, height: H,
         // The meter's anchor: the horse while riding, you aboard for the mount meter.
         horse: ridden ? project(ridden.x, ridden.y, iso ? 2.2 + isoWorld.groundZ(ridden.x, ridden.y) : 0)
@@ -960,6 +981,9 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
             : { state: 'ready' as const, share: 1, text: 'Shift boost ready' };
       const debugBarDisplay = showDebug && debugBar.childElementCount > 0 ? 'flex' : 'none';
       if (debugBar.style.display !== debugBarDisplay) debugBar.style.display = debugBarDisplay;
+      const lapse = timelapse;
+      const timelapseNow = lapse && timelapseMs > 0 ? Math.min(1, (now - lapse.at) / timelapseMs) : null;
+      if (timelapseNow === 1) timelapse = null;
       hud.update({
         phase,
         boost: boostView,
@@ -975,7 +999,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
         notice: now < noticeUntil ? notice : '',
         noticeKind,
         controls,
-        sun: dayClockOn(config) ? sunView(dayClock(config, player), config.values.day.duskSec, !!s.run?.players[player.id]) : null,
+        sun: !dayClockOn(config) ? null : timelapseNow !== null ? timelapseView(lapse!.from, config.values.day.dawnHour, config.values.day.nightfallHour, timelapseNow)
+          : sunView(dayClock(config, player), config.values.day.duskSec, !!s.run?.players[player.id]),
         clock: rs && config.values.countdown.enabled ? { sec: rs.countdownSec, total: rs.countdownTotalSec, rate, ...(rs.clockTo !== undefined ? { to: placeName(rs.clockTo) } : {}) } : null,
         heat: rs ? { now: rs.heat, max: config.values.heat.maxHeat } : null,
         wanted: { level: runWantedLevel(s, config), max: wantedCfg.maxLevel, practice: isPractice(config) },

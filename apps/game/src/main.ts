@@ -271,7 +271,9 @@ async function boot() {
     acc += now - last; last = now;
     let steps = 0;
     if (paused) acc = 0;
-    while (!paused && acc >= STEP_MS && steps < MAX_CATCHUP) {
+    // The after-camp time-lapse holds the sim still while the sun runs to the next dawn.
+    if (client.busy()) acc = 0;
+    while (!paused && !client.busy() && acc >= STEP_MS && steps < MAX_CATCHUP) {
       const inputs = [{ player: 1, commands: client.poll() }];
       cmdLog.step(simTick, inputs);
       const t0 = performance.now();

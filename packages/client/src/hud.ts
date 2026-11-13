@@ -61,7 +61,7 @@ export interface HudState {
 
 const CSS = `
 .tr-hud { position: fixed; inset: 0; pointer-events: none; font: 14px/1.35 ui-monospace, Menlo, Consolas, monospace; color: #fff; }
-.tr-hud .daylight { position: absolute; inset: 0; opacity: 0; transition: background-color 2s linear; }
+.tr-hud .daylight { position: absolute; inset: 0; opacity: 0; transition: background-color 0.6s linear; }
 .tr-hud .daylight.dusk { background: #ff7a2a; mix-blend-mode: multiply; }
 .tr-hud .daylight.night { background: #10204a; mix-blend-mode: multiply; }
 .tr-hud .sun { display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,.55); padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; }

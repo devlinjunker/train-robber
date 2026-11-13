@@ -2,6 +2,7 @@
 // and speed readout above the horse, and edge arrows with distances to trains and the next town.
 import { Container, Graphics, Text } from 'pixi.js';
 import type { BoardingCheck } from '@train-robber/sim';
+import { drawCamp } from './camp';
 import { COMMITTED_COLOUR, GOOD_COLOUR, landingCue, LANDING_CUE_SEC, speedLabel, SWITCH_CANDIDATE_COLOUR } from './cues';
 
 /**
@@ -84,6 +85,8 @@ export interface ScreenOverlayInput {
   lostLoot?: { x: number; y: number; detail: string; ageSec: number; sec: number; title?: string } | null;
   /** The grace text ("OUT OF TIME: jump now! 2.1 s") over the mount meter while grace holds expiry, or null. */
   overtime?: string | null;
+  /** The camp building up while C is held (progress below 1) or made (1): its screen spot on the ground, pixels per tile, and seconds for the fire's flicker. */
+  camp?: { x: number; y: number; progress: number; scale: number; t: number } | null;
 }
 
 const style = (size: number, fill = 0xffffff) => ({ fill, fontSize: size, fontFamily: 'monospace', fontWeight: 'bold' as const, stroke: { color: 0x000000, width: 4 } });
@@ -92,6 +95,7 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   const root = new Container();
   root.label = 'screen-overlay';
   const meter = new Graphics();
+  const camp = new Graphics();
   const speed = new Text({ text: '', style: style(18) });
   speed.anchor.set(0.5, 0);
   const arrows = new Graphics();
@@ -112,11 +116,13 @@ export function createScreenOverlay(): { root: Container; update(input: ScreenOv
   lostDetail.anchor.set(0.5, 0);
   const overtime = new Text({ text: '', style: style(22, 0xff3b30) });
   overtime.anchor.set(0.5, 1);
-  root.addChild(cueLine, cueLabel, arrows, meter, speed, overtime, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
+  root.addChild(camp, cueLine, cueLabel, arrows, meter, speed, overtime, stumbleBar, searchBar, banner, bannerDetail, lost, lostDetail);
 
   return {
     root,
     update(input) {
+      camp.clear();
+      if (input.camp) drawCamp(camp, input.camp.x, input.camp.y, input.camp.progress, input.camp.scale, input.camp.t);
       drawDistanceCue(cueLine, cueLabel, input.distanceCue ?? null);
       meter.clear();
       speed.visible = false;
