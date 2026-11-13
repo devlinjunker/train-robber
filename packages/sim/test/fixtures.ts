@@ -83,6 +83,8 @@ export const ROOF: Values['outside']['roof'] = {
   edgeSeenTiles: 1.5, crouchEdgeSeenTiles: 0.5, guardSightTiles: 30, guardsClimb: true, guardJump: { enabled: true, shortShare: 0 }, dropStumbleTicks: 36,
   jump: { airTicks: 30, pushTiles: 0.75, liftTiles: 0.6 }, fallAlert: { enabled: true, cars: 1, checkTicks: 480, landedCar: true },
   slip: { enabled: true, thresholdTilesPerSec2: 2, slideTilesPerTick: 3 / 60, leanTicks: 18, cooldownTicks: 60, guards: true, guardCatchTicks: 48 },
+  // Hatches off, as before the core loop PR; hatch tests switch them on.
+  hatch: { cars: 'none', climbTicks: 90, reachTiles: 1 },
 };
 /** The roof switched off, as before sneaking PR 3. */
 export const ROOF_OFF: Values['outside']['roof'] = { ...ROOF, enabled: false };
@@ -148,9 +150,10 @@ export function testConfig(horse: Partial<Horse> = {}, hash = 'test0001', more: 
       outside: NO_OUTSIDE,
       trains: { blank: { route: 'main', speedTilesPerTick: 9 / 60, engine: 'engine', carType: 'blank-car', carCount: 3, requireSideDoors: 'off', countdown: { baseSec: 150 }, verbs: [] } },
       trainMix: { mode: 'map', mailTrain: 'blank', blankTrain: 'blank', trainCount: 3, blankShare: 0 },
-      carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5 },
-      verbs: { search: { searchTimeTicks: 72, hiddenSearchTimeTicks: 108, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false } },
-      loot: { densityScale: 1 },
+      carry: { limitEnabled: true, slowdownEnabled: true, maxWeight: 10, maxItems: 20, slowdownFromWeight: 6, minSpeedScale: 0.5, prizeSpeedScale: 1 },
+      verbs: { search: { searchTimeTicks: 72, hiddenSearchTimeTicks: 108, timeScale: 1, walkSpeedScale: 0.3, cancelRangeTiles: 1.5, reachTiles: 1.2, hiddenLoot: false }, throw: { perRun: 2, rangeTiles: 6, noiseRadiusTiles: 6, checkTicks: 360 } },
+      // The core loop PR's prize changes off, as before; prize tests switch them on.
+      loot: { densityScale: 1, prizePlacement: 'any', prize: { searchTimeScale: 1, searchNoiseTiles: 0 } },
       cellTypes: TEST_CELL_TYPES,
       items: TEST_ITEMS,
       lootTables: TEST_LOOT_TABLES,

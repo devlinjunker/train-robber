@@ -137,6 +137,12 @@ export interface WorldSceneInput {
   boosting?: boolean;
   /** How far the player's footsteps carry aboard (a ring on the floor, or on the roof with `roof`), or null when silent. */
   noise?: { x: number; y: number; r: number; running: boolean; roof?: boolean } | null;
+  /** Roof hatches on the run's train (core loop PR), in world space with their car's axis; `open` when that car is drawn open (seen from inside). */
+  hatches?: readonly { x: number; y: number; ux: number; uy: number; open: boolean }[];
+  /** Aiming a rock: where it would land; `atMouse` false when the mouse is past its range. */
+  aim?: { x: number; y: number; atMouse: boolean } | null;
+  /** Where the last distraction rock landed, and seconds since, while its ring lasts. */
+  rock?: { x: number; y: number; age: number } | null;
   /** The nearest point on the run's train to the horse, for the stretched hole and the edge glow; null hides both. */
   gap?: { trainId: string; index: number; x: number; y: number; distance: number } | null;
   /** The box of world tiles on screen: scenery outside it is not drawn. */
@@ -647,6 +653,27 @@ export function createWorldScene(map: MapDef, content: SceneContent, scenery: Sc
       // How far your footsteps carry: a guard inside the ring hears you (on the roof, drawn on it further down).
       const n = input.noise;
       if (n && !n.roof) groundEllipse(floors, n.x, n.y, n.r, 0.07).stroke({ width: 1.5, color: 0xffffff, alpha: n.running ? 0.45 : 0.2 });
+      // Roof hatches: a square of light on the floor under one, a dark trapdoor on the roof above.
+      for (const h of input.hatches ?? []) {
+        const sq = (half: number) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => [h.x + (a! * h.ux - b! * h.uy) * half, h.y + (a! * h.uy + b! * h.ux) * half] as const);
+        if (h.open) { floors.poly(isoPoly(sq(0.5), 0.04)).fill({ color: 0xfff1c0, alpha: 0.35 }).stroke({ width: 1, color: 0xfff1c0, alpha: 0.6 }); continue; }
+        const g = piece();
+        g.poly(isoPoly(sq(0.45), CAR_HEIGHT + 0.02)).fill(0x2a1c12).stroke({ width: 1.5, color: 0xd8c39a, alpha: 0.9 });
+        g.zIndex = depthOf(h.x, h.y) + ROOF_DEPTH_BIAS - 1;
+      }
+      // Aiming: a crosshair ring where a click would land the rock (dimmer when capped at its range).
+      if (input.aim) {
+        const a = input.aim;
+        groundEllipse(floors, a.x, a.y, 0.45, 0.06).stroke({ width: 2, color: 0xffd060, alpha: a.atMouse ? 0.95 : 0.5 });
+        groundEllipse(floors, a.x, a.y, 0.08, 0.06).fill({ color: 0xffd060, alpha: a.atMouse ? 0.95 : 0.5 });
+      }
+      // A thrown rock: a ring spreading out where it landed.
+      const rock = input.rock;
+      if (rock && rock.age < 1.2) {
+        const t = rock.age / 1.2;
+        groundEllipse(floors, rock.x, rock.y, 0.3 + 2.5 * t, 0.06).stroke({ width: 3, color: 0xffd060, alpha: 1 - 0.8 * t });
+        groundEllipse(floors, rock.x, rock.y, 0.15, 0.06).fill({ color: 0x8a8a8a, alpha: 1 - t * 0.5 });
+      }
       const guardsShown = input.guards ?? [];
       for (const v of guardsShown) {
         const g = piece();

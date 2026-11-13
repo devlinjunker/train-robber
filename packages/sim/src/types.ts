@@ -65,7 +65,14 @@ export type Command =
    * ladder, climb onto that car's roof; on a roof by a ladder at its end, climb down to the platform.
    * Climbing takes `outside.roof.climbSec`. Space on the roof is the gap jump (`jump`).
    */
-  | { type: 'climb' };
+  | { type: 'climb' }
+  /**
+   * A click aboard (core loop PR, Devlin's PR #68 playtest: point and click, ahead of combat): throw
+   * a distraction rock at (x, y) in the frame of the player's car, landing there or
+   * `verbs.throw.rangeTiles` along the way, short of any wall. Without a point it goes the way you
+   * are moving. Guards near where it lands go to look. `verbs.throw.perRun` per run.
+   */
+  | { type: 'throw'; x?: number; y?: number };
 
 export interface InputFrame { player: PlayerId; commands: Command[] }
 
@@ -105,7 +112,7 @@ export type SwitchRejection = 'no run' | 'aboard' | 'already committed' | 'no su
 /** Why a climb was refused. */
 export type ClimbRejection = 'no ladder' | 'busy';
 /** `on the roof`: a drop up on a roof, mid-jump or on a ladder. */
-export type RejectReason = JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
+export type RejectReason = 'no rocks left' | 'busy' | JumpRejection | MountRejection | WhistleRejection | CommitRejection | SwitchRejection | ClimbRejection | 'standing still' | 'on the roof' | 'disabled' | 'nothing to interact with' | 'nothing to drop' | 'not aboard' | 'not mounted' | 'cooling down' | 'nothing to cash out';
 /** Why a finished search did not take its item: either carry cap would break. */
 export type LootRefusal = 'too heavy' | 'too many items';
 
@@ -187,7 +194,10 @@ export type SimEvent =
   /** A trackside rock knocked the player off a ledge of car `car`: they land on the horse as if thrown off. */
   | { type: 'FellOff'; tick: number; player: PlayerId; car: number; cause: FallCause }
   /** The player finished climbing a ladder of car `car`'s `end`, onto its roof or down to its platform (sneaking PR 3). */
-  | { type: 'Climbed'; tick: number; player: PlayerId; car: number; end: CarEnd; to: 'roof' | 'deck' }
+  /** Up or down a ladder at a car end, or through a roof hatch (`end: 'hatch'`, core loop PR). */
+  | { type: 'Climbed'; tick: number; player: PlayerId; car: number; end: CarEnd | 'hatch'; to: 'roof' | 'deck' }
+  /** G: a rock thrown to distract the guards (core loop PR); `heard` guards turned to check where it landed (car frame). */
+  | { type: 'DistractionThrown'; tick: number; player: PlayerId; car: number; x: number; y: number; heard: number; left: number }
   /** Space on a roof: a jump of `distanceTiles` (speed x air time plus the push) from car `car`'s roof. */
   | { type: 'RoofJumped'; tick: number; player: PlayerId; car: number; distanceTiles: number }
   /**
@@ -285,8 +295,10 @@ export interface PlayerRunState {
   searchLatched: boolean;
   /** Crouching aboard (C): slower, quieter, hidden behind cover. Cleared on leaving the train. */
   crouched: boolean;
-  /** Climbing a ladder of car `car`'s `end` (sneaking PR 3): ticks left, then on the roof (`to: 'roof'`) or the platform. */
-  climb: { ticks: number; car: number; end: CarEnd; to: 'roof' | 'deck' } | null;
+  /** Climbing a ladder of car `car`'s `end` (sneaking PR 3), or its roof hatch (`end: 'hatch'`): ticks left, then on the roof (`to: 'roof'`) or the deck. */
+  climb: { ticks: number; car: number; end: CarEnd | 'hatch'; to: 'roof' | 'deck' } | null;
+  /** Distraction rocks thrown this run (G, `verbs.throw.perRun` each run). */
+  throwsUsed: number;
   /** In the air after a roof jump: ticks left, and the step per tick in the takeoff car's frame. */
   air: { ticks: number; vx: number; vy: number } | null;
   /** Slipping on a roof on a curve: sliding toward side `dir` (car-frame y) until leaned against for `outside.roof.slip.leanSec`. */
@@ -347,6 +359,8 @@ export interface RunState {
   guards: GuardState[];
   /** The riderless horse while the player is aboard (U4). */
   horse: HorseCall;
+  /** Cars of the committed train with a roof hatch (`outside.roof.hatch`), fixed at commit. */
+  hatchCars: number[];
 }
 
 /** The extraction horse's state, in the run so a snapshot resumes it mid-extraction. */
@@ -643,10 +657,10 @@ export interface SimConfig {
     };
     trains: Readonly<Record<string, TrainDef>>;
     trainMix: { mode: 'map' | 'all-mail' | 'mixed' | 'mostly-blank'; mailTrain: string; blankTrain: string; trainCount: number; blankShare: number };
-    carry: { limitEnabled: boolean; slowdownEnabled: boolean; maxWeight: number; maxItems: number; slowdownFromWeight: number; minSpeedScale: number };
-    verbs: { search: { searchTimeTicks: number; hiddenSearchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean } };
+    carry: { limitEnabled: boolean; slowdownEnabled: boolean; maxWeight: number; maxItems: number; slowdownFromWeight: number; minSpeedScale: number; prizeSpeedScale: number };
+    verbs: { search: { searchTimeTicks: number; hiddenSearchTimeTicks: number; timeScale: number; walkSpeedScale: number; cancelRangeTiles: number; reachTiles: number; hiddenLoot: boolean }; throw: { perRun: number; rangeTiles: number; noiseRadiusTiles: number; checkTicks: number } };
     /** Scales every train's loot density (a balance knob, like countdown.scale). */
-    loot: { densityScale: number };
+    loot: { densityScale: number; prizePlacement: 'any' | 'guarded'; prize: { searchTimeScale: number; searchNoiseTiles: number } };
     cellTypes: readonly CellTypeDef[];
     items: Readonly<Record<string, ItemDef>>;
     lootTables: Readonly<Record<string, LootTableDef>>;
@@ -685,6 +699,8 @@ export interface RoofConfig {
   jump: { airTicks: number; pushTiles: number; liftTiles: number };
   fallAlert: { enabled: boolean; cars: number; checkTicks: number; landedCar: boolean };
   slip: { enabled: boolean; thresholdTilesPerSec2: number; slideTilesPerTick: number; leanTicks: number; cooldownTicks: number; guards: boolean; guardCatchTicks: number };
+  /** Roof hatches (core loop PR): which cars have one, how long going through takes, and E's reach. */
+  hatch: { cars: 'prize' | 'all' | 'none'; climbTicks: number; reachTiles: number };
 }
 
 export interface TrainDef {

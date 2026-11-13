@@ -20,6 +20,7 @@ import { curvePull } from './curve';
 import { parseCarFrame } from './frames';
 import type { WorldMap } from './map';
 import { raiseHeatFor } from '../rules/heat';
+import { searchNoiseTiles } from './loot';
 
 const GEN: StreamName = 'gen';
 
@@ -429,13 +430,16 @@ const RUN_AXIS = 0.75;
  * How far the player's footsteps carry this tick (on a roof, `outside.roof.noise.*` instead, with
  * `thud` the landing of a jump and nothing while `airborne`): `ai.noise.walkRadiusTiles` walking,
  * `runRadiusTiles` running or `crouchRadiusTiles` crouched, times the `noise` of the cell they
- * stand on; 0 standing still. Searching loot (`searching`) makes `searchRadiusTiles` of noise,
+ * stand on; 0 standing still. Searching loot (`searching`) makes `searchRadiusTiles` of noise (or,
+ * passed as a number, that many tiles: `searchNoiseTiles`, further for a prize),
  * crouched or not, or the footsteps if they carry further (Devlin, 2026-10-20). Stumbling after a
  * good landing (`stumbling`) makes `stumbleRadiusTiles` of noise, moving or not.
  */
-export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number, crouched = false, searching = false, stumbling = false, thud = false, airborne = false): number {
+export function noiseRadius(config: SimConfig, g: TrainGrid, p: PlayerState, lx: number, crouched = false, searching: boolean | number = false, stumbling = false, thud = false, airborne = false): number {
   const cfg = config.values.ai.noise;
-  const search = Math.max(searching ? cfg.searchRadiusTiles : 0, stumbling ? cfg.stumbleRadiusTiles : 0);
+  // A number is how far this search carries (`searchNoiseTiles`: further for a prize).
+  const searchTiles = typeof searching === 'number' ? searching : searching ? cfg.searchRadiusTiles : 0;
+  const search = Math.max(searchTiles, stumbling ? cfg.stumbleRadiusTiles : 0);
   const mx = p.move.x / 127, my = p.move.y / 127;
   const n = airborne ? 0 : Math.sqrt(mx * mx + my * my);
   if (p.placement.layer === 'roof') {
@@ -765,6 +769,28 @@ export function alertGuardsToFall(ctx: GuardCtx, p: PlayerState): void {
 }
 
 /**
+ * A distraction lands at train point (lx, y) (core loop PR, `verbs.throw`): every guard below the
+ * roofs and not already alert within `radius` of it turns suspicious (if unaware) and goes to look
+ * there, searching for at least `checkTicks` before it can calm down. Returns how many heard it.
+ */
+export function hearDistraction(ctx: GuardCtx, grid: TrainGrid, lx: number, y: number, radius: number, checkTicks: number): number {
+  const run = ctx.state.run;
+  if (!run) return 0;
+  const at = fromTrain(grid, lx);
+  let heard = 0;
+  for (const g of run.guards) {
+    if (g.state === 'alert' || g.roof || g.climb || g.jump) continue;
+    const gx = toTrain(grid, g.car, g.x);
+    if ((gx - lx) ** 2 + (g.y - y) ** 2 > radius * radius) continue;
+    if (g.state === 'unaware') setState(ctx, g, 'suspicious', 'noise');
+    g.lastKnown = { car: at.car, x: at.x, y, roof: false };
+    g.calmTicks = -checkTicks;
+    heard += 1;
+  }
+  return heard;
+}
+
+/**
  * A drop off a roof onto a platform, the coupling or a ledge, by a short jump or by walking off a roof end (Devlin, PR #61): with `outside.roof.fallAlert` on and
  * `landedCar`, every guard in car `car` not already alert turns suspicious and comes to check the
  * landing spot (`x`, `y` in that car), for at least `fallAlert.checkSec`.
@@ -802,7 +828,7 @@ export function guardSystem(ctx: GuardCtx): { guard: GuardState; player: PlayerS
       const rp = run.players[p.id]!;
       target = {
         p, lx, y: p.placement.y, roof: p.placement.layer === 'roof', car: f.car, x: p.placement.x, crouched: rp.crouched, air: rp.air !== null,
-        noise: noiseRadius(config, grid, p, lx, rp.crouched, rp.search !== null, rp.stumbleTicks > 0, rp.thudTicks > 0, rp.air !== null),
+        noise: noiseRadius(config, grid, p, lx, rp.crouched, searchNoiseTiles(state, config, rp), rp.stumbleTicks > 0, rp.thudTicks > 0, rp.air !== null),
       };
       break;
     }

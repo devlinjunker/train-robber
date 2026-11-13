@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "loot-at-risk",
+  "title": "Loot lost when caught",
+  "question": "Core loop PR: escaping a guard means keeping your loot. Does losing all of it when thrown off make escapes matter, or is half better?",
+  "pr": 68,
+  "setups": [
+    {
+      "id": "all",
+      "name": "Lose all (default)"
+    },
+    {
+      "id": "half",
+      "name": "Lose half",
+      "set": {
+        "ai.thrownOffLootShare": 0.5
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "lootLost",
+    "banked",
+    "lootCarried"
+  ],
+  "status": "open"
+}

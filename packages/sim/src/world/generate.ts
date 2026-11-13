@@ -2,7 +2,7 @@
 // Both depend only on the seed and the run number (flag: "Run seeds"), never on how earlier
 // runs went, so the same seed and run number give the same cars and loot on any machine.
 import { nextInt, nextU32, runSeed, seedRng, type RngState, type StreamName } from '../rng';
-import type { GameState, LootState, SimConfig, TrainState } from '../types';
+import type { GameState, GuardState, LootState, SimConfig, TrainState } from '../types';
 import { carCatalog, carTemplate, type CarCatalog, type Side } from './cars';
 
 const next01 = (rng: RngState, s: StreamName) => nextU32(rng, s) / 4294967296;
@@ -93,9 +93,11 @@ interface Slot { car: number; x: number; y: number; tags: readonly string[]; hid
  * commit). Slots tagged hidden take part only with `verbs.search.hiddenLoot`. First the loot
  * table's prizes (`prizes.count` of them per train) go on slots that fit them, then
  * round(density × loot.densityScale × the remaining fitting slots) small items, capped at all of
- * them. An item fits a slot when one of its `slotTags` is among the slot's tags.
+ * them. An item fits a slot when one of its `slotTags` is among the slot's tags. With
+ * `loot.prizePlacement: guarded` and the run's `guards` given, prizes only go on slots in the cars
+ * with the most guards, else in any car with a guard, else anywhere they fit (core loop PR).
  */
-export function generateLoot(state: GameState, config: SimConfig, train: TrainState): LootState[] {
+export function generateLoot(state: GameState, config: SimConfig, train: TrainState, guards: readonly GuardState[] = []): LootState[] {
   const v = config.values;
   const def = v.trains[train.type]!;
   if (!def.loot) return [];
@@ -116,8 +118,18 @@ export function generateLoot(state: GameState, config: SimConfig, train: TrainSt
   if (table.prizes) {
     const [lo, hi] = table.prizes.count;
     const n = lo + nextInt(rng, 'gen', hi - lo + 1);
+    const perCar = new Map<number, number>();
+    for (const g of guards) perCar.set(g.car, (perCar.get(g.car) ?? 0) + 1);
+    const most = Math.max(0, ...perCar.values());
+    const guarded = v.loot.prizePlacement === 'guarded' && most > 0;
     for (let k = 0; k < n; k++) {
-      const cands = slots.filter((s) => !placed.has(s) && table.prizes!.items.some((e) => fits(e.item, s)));
+      const all = slots.filter((s) => !placed.has(s) && table.prizes!.items.some((e) => fits(e.item, s)));
+      let cands = all;
+      if (guarded) {
+        const best = all.filter((s) => perCar.get(s.car) === most);
+        const any = all.filter((s) => perCar.has(s.car));
+        cands = best.length ? best : any.length ? any : all;
+      }
       if (!cands.length) break;
       const s = cands[nextInt(rng, 'gen', cands.length)]!;
       placed.set(s, pickWeighted(rng, 'gen', table.prizes.items.filter((e) => fits(e.item, s))).item);

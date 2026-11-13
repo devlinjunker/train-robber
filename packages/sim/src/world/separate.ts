@@ -4,7 +4,7 @@
 import type { GameState, Placement, PlayerId, PlayerState, SimConfig } from '../types';
 import { carCatalog, carEntryPoints, carTemplate, type CarPose, type Side } from './cars';
 import { gridCell, gridWalkable, fromTrain, onRoof, Space, toTrain, trainGrid, type TrainGrid } from './guards';
-import { carrySpeedScale, carriedWeight } from './loot';
+import { carriedSpeedScale } from './loot';
 import { WORLD_FRAME, carFrame, parseCarFrame } from './frames';
 import { isSolid, terrainAt, type WorldMap } from './map';
 import { carPosesOf, trainSpeed } from './trains';
@@ -37,6 +37,15 @@ export function carToWorld(car: CarPose, x: number, y: number, out: Vec2 = { x: 
   const along = car.halfLength - x, left = car.halfWidth - y;
   out.x = car.x + car.ux * along + car.uy * left;
   out.y = car.y + car.uy * along - car.ux * left;
+  return out;
+}
+
+/** A world point in a car's frame: the inverse of `carToWorld`. */
+export function worldToCar(car: CarPose, wx: number, wy: number, out: Vec2 = { x: 0, y: 0 }): Vec2 {
+  const dx = wx - car.x, dy = wy - car.y;
+  const along = dx * car.ux + dy * car.uy, left = dx * car.uy - dy * car.ux;
+  out.x = car.halfLength - along;
+  out.y = car.halfWidth - left;
   return out;
 }
 
@@ -182,7 +191,7 @@ export function walkAboard(state: GameState, config: SimConfig): void {
       run.stumbleTicks -= 1;
     }
     if (run) {
-      speed *= carrySpeedScale(config, carriedWeight(config, run.carried));
+      speed *= carriedSpeedScale(config, run.carried);
       if (run.search) speed *= config.values.verbs.search.walkSpeedScale;
     }
     let mx = -axis(p.move.x), my = axis(p.move.y);

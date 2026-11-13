@@ -215,6 +215,19 @@ export const GameSchema = z.object({
   loot: z.object({
     /** Loot density is each train's loot.density x densityScale (U7): 2 fills twice as many slots. */
     densityScale: positive,
+    /**
+     * Where a train's prizes (strongbox, mail sack) go (core loop PR, Devlin 2026-11-10: good loot is
+     * too easy): `any` slot that fits, or `guarded`, a fitting slot in the car with the most guards
+     * (then any car with a guard, then anywhere). `guarded` places the guards before the loot.
+     */
+    prizePlacement: z.enum(['any', 'guarded']),
+    /** Searching a prize (an item of category `prize`) is slower and louder than other loot. */
+    prize: z.object({
+      /** A prize's search time is its own time times this (1 = as before; 2.7 makes the strongbox about 6 s). */
+      searchTimeScale: positive,
+      /** How far searching a prize carries, crouched or not (ai.noise.searchRadiusTiles when that is further). */
+      searchNoiseTiles: z.number().min(0),
+    }).strict(),
   }).strict(),
   trains: z.record(z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase id with dashes'), z.object({
     /** Shown on the HUD and the off-screen arrows. */
@@ -294,6 +307,8 @@ export const GameSchema = z.object({
     slowdownFromWeight: z.number().min(0),
     /** Walk speed at maxWeight, as a share of normal. */
     minSpeedScale: z.number().gt(0).max(1),
+    /** Carrying any prize (category `prize`) also scales walking by this, on top of the weight slowdown (1 = off). */
+    prizeSpeedScale: z.number().gt(0).max(1),
   }).strict().refine((c) => c.slowdownFromWeight <= c.maxWeight, { message: 'slowdown must start at or below the max', path: ['slowdownFromWeight'] }),
   verbs: z.object({
     /** Hold E on a loot slot for searchTimeSec (or the item's own searchTimeSec) x timeScale to take what is there. */
@@ -312,6 +327,21 @@ export const GameSchema = z.object({
       reachTiles: positive,
       /** Fill loot slots tagged hidden (on by default since the M2 playtest, so a stash can be missed). */
       hiddenLoot: z.boolean(),
+    }).strict(),
+    /**
+     * G aboard: throw a rock the way you are moving (core loop PR). It lands up to rangeTiles away,
+     * stopped by walls, and every guard not already alert within noiseRadiusTiles of where it lands
+     * turns suspicious and goes to look there for at least checkSec.
+     */
+    throw: z.object({
+      /** Rocks per run (0 turns throwing off). */
+      perRun: z.number().int().min(0),
+      /** How far a rock flies before it drops. */
+      rangeTiles: positive,
+      /** Guards this close to where it lands hear it. */
+      noiseRadiusTiles: z.number().min(0),
+      /** A guard that heard it searches there at least this long before it can calm down. */
+      checkSec: z.number().min(0),
     }).strict(),
   }).strict(),
   /** HUD options that presets may set. */
@@ -589,6 +619,18 @@ export const GameSchema = z.object({
         guards: z.boolean(),
         /** How long a slipping guard slides before catching themselves. */
         guardCatchSec: z.number().min(0),
+      }).strict(),
+      /**
+       * A roof hatch in the middle of a car (core loop PR): E on the roof over it drops you in,
+       * staggering for dropStumbleSec like any drop, and E under it inside climbs out. Guards use ladders only.
+       */
+      hatch: z.object({
+        /** Which cars have one: `prize`, the cars a prize was placed in at commit; `all`; or `none`. */
+        cars: z.enum(['prize', 'all', 'none']),
+        /** How long going through a hatch takes, either way. */
+        climbSec: z.number().min(0),
+        /** E works within this distance of the hatch. */
+        reachTiles: positive,
       }).strict(),
     }).strict(),
   }).strict(),

@@ -135,7 +135,7 @@ describe('run generation', () => {
       // 3 cars × 2 visible small slots × 0.6 density.
       expect(loot.length - prizes.length).toBe(4);
     }
-    const hidden = mailConfig({ layouts: ['mail-a'], caboose: undefined }, { verbs: { search: { ...cfg.values.verbs.search, hiddenLoot: true } } });
+    const hidden = mailConfig({ layouts: ['mail-a'], caboose: undefined }, { verbs: { ...cfg.values.verbs, search: { ...cfg.values.verbs.search, hiddenLoot: true } } });
     const seen = new Set<boolean>();
     for (let i = 0; i < 50; i++) {
       S(sim).rng = seedRng(`loot-${i}`);
@@ -196,7 +196,7 @@ describe('search', () => {
     const items = { ...base.values.items, strongbox: { ...base.values.items.strongbox!, searchTimeTicks: 132 } };
     const cfg = testConfig({}, 'srch0001', { items });
     expect([searchTicksFor(cfg, 'letter'), searchTicksFor(cfg, 'strongbox')]).toEqual([72, 132]);
-    const slow = testConfig({}, 'srch0002', { items, verbs: { search: { ...base.values.verbs.search, timeScale: 2.5 } } });
+    const slow = testConfig({}, 'srch0002', { items, verbs: { ...base.values.verbs, search: { ...base.values.verbs.search, timeScale: 2.5 } } });
     expect([searchTicksFor(slow, 'letter'), searchTicksFor(slow, 'strongbox')]).toEqual([180, 330]);
   });
 

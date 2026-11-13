@@ -12,6 +12,7 @@ import { alertGuardsToFall, guardSystem } from './world/guards';
 import { countdownSystem } from './rules/heat';
 import { extractionSystem, horseIntent } from './extraction';
 import { climb, roofJump, roofSystem } from './world/roof';
+import { throwRock } from './world/distract';
 
 export interface SimOptions {
   config: SimConfig;
@@ -117,6 +118,8 @@ function wrap(state: GameState, config: SimConfig, map: WorldMap): Sim {
             // On a roof, Space is the gap jump; anywhere else the boarding or mount jump.
             if (state.run && (state.run.phase === 'aboard' || state.run.phase === 'extracting') && p.placement.layer === 'roof') roofJump(ctx, p, (why) => reject(ctx, p.id, 'jump', why));
             else jumps.add(p.id);
+          } else if (c.type === 'throw') {
+            throwRock(ctx, p, (why) => reject(ctx, p.id, 'throw', why), c.x !== undefined && c.y !== undefined ? { x: c.x, y: c.y } : undefined);
           } else if (c.type === 'climb') {
             climb(ctx, p, (why) => reject(ctx, p.id, 'climb', why));
           } else if (c.type === 'debugHeat') {

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "loot-heat",
+  "title": "Heat per item taken",
+  "question": "Core loop PR: does more heat per item taken (heat.sources.lootTaken) make a big haul feel risky?",
+  "pr": 68,
+  "setups": [
+    {
+      "id": "one",
+      "name": "1 per item (default)"
+    },
+    {
+      "id": "two",
+      "name": "2 per item",
+      "set": {
+        "heat.sources.lootTaken": 2
+      }
+    },
+    {
+      "id": "three",
+      "name": "3 per item",
+      "set": {
+        "heat.sources.lootTaken": 3
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "heat",
+    "lootCarried",
+    "banked"
+  ],
+  "status": "open"
+}

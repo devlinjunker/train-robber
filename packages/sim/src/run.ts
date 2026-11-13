@@ -17,7 +17,7 @@ import { WORLD_FRAME, parseCarFrame, playerSpace, trainCars, walkerFits, type Wo
 import { atLineEnd, carPosesOf, onMapRange, pinTrain, routeOf, trainLengthOf, trainSpeed, unpinTrain } from './world/trains';
 import { carToWorld } from './world/separate';
 import { trackAt } from './world/track';
-import { freshRoofState } from './world/roof';
+import { freshRoofState, hatchCars } from './world/roof';
 
 export interface RunCtx {
   state: GameState;
@@ -106,7 +106,7 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   state.rng = seedRng(runSeed(state.seed, state.runCount));
   const rp = {
     meter: { phase: 0, zoneCentre: 0 }, boardingAttempts: 0, stumbleTicks: 0,
-    carried: [], search: null, searchLatched: false, crouched: false, ...freshRoofState(),
+    carried: [], search: null, searchLatched: false, crouched: false, throwsUsed: 0, ...freshRoofState(),
   };
   // A health bar per run refills at every commit; a day's bar carries on (Devlin, 2026-10-28).
   if (config.values.health.scope === 'run') p.health = config.values.health.max;
@@ -119,12 +119,11 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
   const countdownSec = towards ? towards.sec : runCountdownSec(config, train.type);
   // Run generation: the train's layouts were picked for this run number; fill its loot slots,
   // then place its guards on the layouts' guard spawns.
-  const loot = generateLoot(state, config, train);
-  const guards = generateGuards(state, config, train);
+  const { loot, guards } = generateRunContents(state, config, train);
   state.run = {
     runNumber: state.runCount, startedTick: state.tick, trainId: id, phase: 'approach',
     countdownSec, countdownTotalSec: countdownSec, clockRunning: cd.enabled && cd.startsAt === 'commit', ...(towards ? { clockTo: towards.to } : {}), graceTicks: 0, thrownOffs: 0,
-    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(),
+    heat: 0, pendingHeat: 0, players: { [p.id]: rp }, loot, nextLootId: loot.length, guards, horse: freshHorseCall(), hatchCars: hatchCars(config, train, loot),
   };
   // Back on a train left by an in-place cancel: the clock, heat, health and meter carry on.
   const resume = p.resumeRuns.find((r) => r.trainId === id);
@@ -143,6 +142,19 @@ export function startRun(ctx: RunCtx, p: PlayerState, trainId: string | undefine
     ...(isPractice(config) ? { practice: true as const } : {}),
   });
   ctx.emit({ type: 'RunPhaseChanged', tick: state.tick, player: p.id, from: 'idle', to: 'approach' });
+}
+
+/**
+ * A train's loot and guards for a run. Normally loot first, then guards (so old seeds keep their
+ * loot); with `loot.prizePlacement: guarded` the guards come first so prizes can go where they are.
+ */
+function generateRunContents(state: GameState, config: SimConfig, train: TrainState): { loot: RunState['loot']; guards: RunState['guards'] } {
+  if (config.values.loot.prizePlacement === 'guarded') {
+    const guards = generateGuards(state, config, train);
+    return { loot: generateLoot(state, config, train, guards), guards };
+  }
+  const loot = generateLoot(state, config, train);
+  return { loot, guards: generateGuards(state, config, train) };
 }
 
 /**
@@ -166,9 +178,11 @@ export function switchTrain(ctx: RunCtx, p: PlayerState, trainId: string | undef
   // Loot and guards come from the train's own layouts, so the new train gets its own; what the
   // player already carries (after being thrown off another train) stays with them.
   const train = state.world.trains.find((t) => t.id === id)!;
-  run.loot = generateLoot(state, config, train);
+  const made = generateRunContents(state, config, train);
+  run.loot = made.loot;
   run.nextLootId = run.loot.length;
-  run.guards = generateGuards(state, config, train);
+  run.guards = made.guards;
+  run.hatchCars = hatchCars(config, train, made.loot);
   ctx.emit({ type: 'TrainSwitched', tick: state.tick, player: p.id, from, to: id });
 }
 

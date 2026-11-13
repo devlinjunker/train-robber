@@ -15,7 +15,13 @@ export interface HudState {
   /** Health: always with `health.scope: day` (with the day number), else while a run is active, else null. */
   health: { now: number; max: number; day?: number } | null;
   /** What the player carries while a run is active: value, weight against the limit, items, and the walk speed it leaves. */
-  carry: { value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number } | null;
+  carry: {
+    value: number; weight: number; maxWeight: number; items: number; maxItems: number; limit: boolean; speed: number;
+    /** Distraction rocks left (G), or null with throwing off (core loop PR). */
+    rocks?: number | null;
+    /** A guard is after you while you carry something: what you would lose if caught (core loop PR). */
+    atRisk?: boolean;
+  } | null;
   /** The open inventory strip (I) along the bottom: a title and one entry per item, or null when it is closed. */
   inventory?: { title: string; items: readonly string[] } | null;
   /** True for a moment after a crash costs health: a red icon and the health bar flash. */
@@ -71,6 +77,8 @@ const CSS = `
 .tr-hud .inv-title { flex-basis: 100%; font-size: 12px; opacity: .85; text-shadow: 0 1px 2px #000; }
 .tr-hud .inv-item { background: rgba(0,0,0,.6); border: 1px solid #fff4; padding: 3px 10px; border-radius: 6px; white-space: nowrap; font-size: 13px; }
 .tr-hud .carry.slow { color: #ffb02e; }
+.tr-hud .carry.at-risk { color: #fff; background: rgba(170,20,20,.85); animation: tr-risk .35s ease-in-out infinite alternate; }
+@keyframes tr-risk { from { transform: translateX(-2px); } to { transform: translateX(2px); } }
 .tr-hud .loot-total { background: rgba(20,50,20,.85); border: 2px solid #6bff8a; padding: 6px 14px; border-radius: 8px; text-align: right; }
 .tr-hud .loot-total .lt-title { font-size: 18px; font-weight: 800; color: #6bff8a; }
 .tr-hud .loot-total .lt-detail { font-size: 13px; }
@@ -201,8 +209,10 @@ export function createHud(parent: HTMLElement = document.body): { update(s: HudS
         const c = s.carry;
         const cap = c.limit ? `/${c.maxWeight}` : '';
         const items = c.limit ? `${c.items}/${c.maxItems}` : `${c.items}`;
-        set(carryEl, `$${c.value}  weight ${c.weight.toFixed(1)}${cap}  items ${items}${c.speed < 1 ? `  speed ${Math.round(c.speed * 100)}%` : ''}`);
-        carryEl.classList.toggle('slow', c.speed < 1);
+        const rocks = c.rocks != null ? `  rocks ${c.rocks}` : '';
+        set(carryEl, `${c.atRisk ? 'AT RISK ' : 'CARRYING '}$${c.value}  weight ${c.weight.toFixed(1)}${cap}  items ${items}${c.speed < 1 ? `  speed ${Math.round(c.speed * 100)}%` : ''}${rocks}`);
+        carryEl.classList.toggle('slow', c.speed < 1 && !c.atRisk);
+        carryEl.classList.toggle('at-risk', !!c.atRisk);
       }
       lootEl.style.display = s.lootTotal ? '' : 'none';
       if (s.lootTotal) { set(lootTitle, s.lootTotal.title); set(lootDetail, s.lootTotal.detail); }

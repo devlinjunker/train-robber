@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "prize-stakes",
+  "title": "Harder prizes",
+  "question": "Core loop PR (Devlin, 2026-11-10: good loot is too easy): which of the prize changes make the strongbox and mail sack feel earned without being a chore? Guarded cars, a slow and loud search (about 6 s), or both plus being heavy to carry (0.7x speed, the default)?",
+  "pr": 68,
+  "setups": [
+    {
+      "id": "old",
+      "name": "Old prizes",
+      "set": {
+        "loot.prizePlacement": "any",
+        "loot.prize.searchTimeScale": 1,
+        "loot.prize.searchNoiseTiles": 0,
+        "carry.prizeSpeedScale": 1
+      }
+    },
+    {
+      "id": "guarded",
+      "name": "Guarded cars only",
+      "set": {
+        "loot.prizePlacement": "guarded",
+        "loot.prize.searchTimeScale": 1,
+        "loot.prize.searchNoiseTiles": 0,
+        "carry.prizeSpeedScale": 1
+      }
+    },
+    {
+      "id": "slow-loud",
+      "name": "Slow, loud search only",
+      "set": {
+        "loot.prizePlacement": "any",
+        "loot.prize.searchTimeScale": 2.7,
+        "loot.prize.searchNoiseTiles": 6,
+        "carry.prizeSpeedScale": 1
+      }
+    },
+    {
+      "id": "all",
+      "name": "All, plus heavy (default)"
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "banked",
+    "lootLeft",
+    "lootLost",
+    "length"
+  ],
+  "status": "open"
+}
