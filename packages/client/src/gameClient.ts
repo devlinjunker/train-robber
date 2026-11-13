@@ -429,7 +429,11 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     }
     else if (e.type === 'Climbed') show(e.to === 'roof' ? 'On the roof: guards inside cannot see you. Space jumps the gaps, E at a ladder climbs down' : 'Climbed down', 'info', e.to === 'roof' ? 3000 : 1200);
     else if (e.type === 'RoofLanded' && e.on === 'roof') { if (e.jumped) show('Clean jump', 'good', 1200); }
-    else if (e.type === 'RoofLanded') show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}${e.jumped ? '. Run (Shift) to clear the gap' : ''}`, 'warn', 2500);
+    else if (e.type === 'RoofLanded') {
+      const fa = config.values.outside.roof.fallAlert;
+      const heard = fa.enabled && fa.landedCar ? '. The guards in this car heard you land' : '';
+      show(`${e.jumped ? 'Short jump' : 'Off the end of the roof'}: you dropped onto the ${e.on}${heard}${e.jumped ? '. Run (Shift) to clear the gap' : ''}`, 'warn', 2500);
+    }
     else if (e.type === 'RoofSlipped') show('Slipping! Push away from the edge to lean into the curve', 'bad', 1500);
     else if (e.type === 'RoofRecovered') show('Caught your balance', 'good', 1200);
     else if (e.type === 'GuardClimbing' && e.to === 'roof') show('A guard is climbing up to check the roof!', 'warn', 2500);
