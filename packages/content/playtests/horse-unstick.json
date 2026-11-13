@@ -15,7 +15,9 @@
     {
       "id": "keep-trying",
       "name": "Keeps trying (old)",
-      "set": { "extraction.unstick": "off" }
+      "set": {
+        "extraction.unstick": "off"
+      }
     }
   ],
   "numbers": [
@@ -23,5 +25,7 @@
     "whistles",
     "length",
     "damage"
-  ]
+  ],
+  "status": "done",
+  "conclusion": "Riding through rocks on screen is no good (issue #82); off screen is fine. PR #62 now paths round on a tile grid, backs off when stuck and asks you to whistle from the other side."
 }

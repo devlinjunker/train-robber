@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "horse-pathing",
+  "title": "Called horse: pathing round rocks",
+  "question": "From PR #62 (issue #82): the called horse now paths round rocks and the train on a tile grid, slows for tight turns, backs off and tries again when stuck, and asks you to whistle from the other side. Does it reach you reliably? Compare backing off with keeping on pushing, and mud slowing it.",
+  "pr": 62,
+  "base": {
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "reroute",
+      "name": "Backs off when stuck"
+    },
+    {
+      "id": "push",
+      "name": "Keeps pushing",
+      "set": { "extraction.unstick": "off" }
+    },
+    {
+      "id": "mud-slows",
+      "name": "Mud slows it",
+      "set": { "extraction.mudSpeedScale": 0.5 }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "whistles",
+    "length",
+    "timeLeft"
+  ]
+}

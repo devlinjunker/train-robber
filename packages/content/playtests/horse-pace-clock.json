@@ -1,26 +1,30 @@
 {
   "schemaVersion": 1,
   "id": "horse-pace-clock",
-  "title": "Horse pace window: pause while held back",
-  "question": "From PR #62 (issue #60): the 10 s pace window now only counts down while the horse is within 5 tiles of you. Does it feel like a fair window to mount? Compare a tighter 3 tiles and the old clock that always ran.",
+  "title": "Horse pace window: pause and reset",
+  "question": "From PR #62 (issues #60, #82): the 10 s pace window only counts down while the horse is level with you or still gaining, and a horse that falls 10 tiles behind comes again with a fresh window. Does that feel fair? Compare resetting at 6 tiles, and never resetting.",
   "pr": 62,
   "base": {
     "map": "line"
   },
   "setups": [
     {
-      "id": "range-5",
-      "name": "Pauses beyond 5 tiles"
+      "id": "reset-10",
+      "name": "Resets at 10 tiles"
     },
     {
-      "id": "range-3",
-      "name": "Pauses beyond 3 tiles",
-      "set": { "extraction.paceClockRangeTiles": 3 }
+      "id": "reset-6",
+      "name": "Resets at 6 tiles",
+      "set": {
+        "extraction.paceResetTiles": 6
+      }
     },
     {
-      "id": "always",
-      "name": "Always counts (old)",
-      "set": { "extraction.paceClockRangeTiles": 1000 }
+      "id": "no-reset",
+      "name": "Never resets",
+      "set": {
+        "extraction.paceResetTiles": 1000
+      }
     }
   ],
   "numbers": [

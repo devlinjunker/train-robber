@@ -158,18 +158,20 @@ export const GameSchema = z.object({
     mountSpill: z.enum(['random', 'heaviest', 'share']),
     /** Under `share`, the share of carried value a good mount loses. */
     spillShare: fraction,
-    /** Cell size of the coarse grid the horse paths around blocked and water tiles on. */
-    pathCellTiles: z.number().int().positive(),
     /** No progress toward the player's car for this long and the HUD says the horse is blocked. */
     stuckSec: positive,
     /** Farther than this from the player's car (off screen at the run zoom), the riderless horse passes through rocks and water so it cannot get stuck; 0 turns that off. */
     passThroughBeyondTiles: z.number().min(0),
     /** A good mount stuns the horse this long (no steering, speed held), as a failed boarding jump does. */
     goodMountStunSec: z.number().min(0),
-    /** The pace window only counts down while the horse is within this of its lane point, so a horse held up by rocks or the train keeps its window (issue #60). */
+    /** The pace window only counts down while the horse is within this of its lane point and keeping up, so a horse held up by rocks or the train keeps its window (issues #60, #82). */
     paceClockRangeTiles: positive,
-    /** What a stuck horse does (issue #60): `passThrough` rides through rocks and water (and mud at full speed) for the rest of that call; `off` keeps trying where it is. */
-    unstick: z.enum(['passThrough', 'off']),
+    /** An alongside horse that falls this far behind its lane point is coming again: it gets a fresh pace window when it is back (issue #82). */
+    paceResetTiles: positive,
+    /** The called horse's top speed on mud, as a share (the ridden horse uses `horse.slowZoneSpeedScale`): 1 keeps it up with the train along a muddy road (issue #82). */
+    mudSpeedScale: z.number().gt(0).max(1),
+    /** What a stuck horse does on screen (issue #82): `reroute` backs off a few tiles and plans a new way round; `off` keeps pushing where it is. Either way the HUD asks you to whistle from the other side. */
+    unstick: z.enum(['reroute', 'off']),
   }).strict(),
   /**
    * Overrides for the procedural map generator (`?map=gen`), merged over base/map-gen.json and checked

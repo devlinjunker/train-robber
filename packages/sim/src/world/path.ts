@@ -1,51 +1,9 @@
-// Coarse-grid pathing for the riderless horse (U4): it paths around blocked and water tiles on a
-// grid of `extraction.pathCellTiles` square cells, and steers cell to cell. Cars are not on the
-// grid; the horse collides with them as it rides.
+// Pathing for the riderless horse (U4, issue #82): A* over whole tiles round blocked and water
+// tiles and the cars where they are now, in a window round the horse and its target.
 import { Terrain, terrainAt, type WorldMap } from './map';
 
 /** Terrain the horse paths around: anything but open and slow ground. */
 export const avoids = (t: Terrain): boolean => t !== Terrain.Open && t !== Terrain.Slow;
-
-/** `open` holds 1 for an open cell and 2 for a blocked one, 0 until the cell is first looked at (see pathCellOpen). */
-export interface PathGrid { cell: number; cols: number; rows: number; open: Uint8Array; map: WorldMap }
-
-const grids = new WeakMap<WorldMap, Map<number, PathGrid>>();
-
-/**
- * The coarse grid for a map: a cell is open when every tile in it is open or slow ground. One per
- * map and cell size; each cell is worked out the first time it is looked at, so a long generated
- * map never reads its far chunks.
- */
-export function pathGrid(map: WorldMap, cell: number): PathGrid {
-  let byCell = grids.get(map);
-  if (!byCell) grids.set(map, (byCell = new Map()));
-  const have = byCell.get(cell);
-  if (have) return have;
-  const cols = Math.ceil(map.cols / cell), rows = Math.ceil(map.rows / cell);
-  const g = { cell, cols, rows, open: new Uint8Array(cols * rows), map };
-  byCell.set(cell, g);
-  return g;
-}
-
-/** True when every tile in cell `i` is open or slow ground. */
-export function pathCellOpen(g: PathGrid, i: number): boolean {
-  const known = g.open[i]!;
-  if (known) return known === 1;
-  const { map, cell } = g;
-  const c = i % g.cols, r = (i - c) / g.cols;
-  let ok = true;
-  for (let y = r * cell; ok && y < Math.min(map.rows, (r + 1) * cell); y++) {
-    for (let x = c * cell; x < Math.min(map.cols, (c + 1) * cell); x++) if (avoids(terrainAt(map, x, y))) { ok = false; break; }
-  }
-  g.open[i] = ok ? 1 : 2;
-  return ok;
-}
-
-export const cellOf = (g: PathGrid, x: number, y: number): number =>
-  Math.max(0, Math.min(g.rows - 1, Math.floor(y / g.cell))) * g.cols + Math.max(0, Math.min(g.cols - 1, Math.floor(x / g.cell)));
-
-export const cellCentre = (g: PathGrid, i: number): { x: number; y: number } =>
-  ({ x: ((i % g.cols) + 0.5) * g.cell, y: (Math.floor(i / g.cols) + 0.5) * g.cell });
 
 /** True when the straight line between two points crosses no tile the horse paths around, sampled every half tile. */
 export function lineClear(map: WorldMap, x0: number, y0: number, x1: number, y1: number): boolean {
@@ -55,25 +13,61 @@ export function lineClear(map: WorldMap, x0: number, y0: number, x1: number, y1:
   return true;
 }
 
+/** Extra cost of a tile next to one the horse paths round, so paths keep a little clear of rocks (per 10 for a step). */
+const NEAR_COST = 6;
+/** Extra cost of slow ground (mud) per step, so paths go round it when that is not much longer. */
+const SLOW_COST = 3;
+
 /**
- * A* over the coarse grid, 8 neighbours (no corner cutting), octile costs, ties broken by the order
- * cells were found so it is deterministic. The start and goal cells count as open; `shut` closes
- * more (the cars where they are now). Returns the cells
- * after the start up to the goal, or null when no path exists.
+ * A* over whole tiles for the riderless horse (issue #82), inside a window `margin` tiles round
+ * the start and goal (at most `maxSide` tiles a side, so it stays cheap on a long line). A tile is
+ * open when its terrain is open or slow and `shut` (the cars where they are now) does not close
+ * it; a tile beside one that is not costs a little more, and mud more again. 8 neighbours with no
+ * corner cutting, ties broken by the order tiles were found, so it is deterministic. Returns the
+ * tile indices (row * map.cols + column) after the start up to the goal, or null when there is no
+ * way within the window.
  */
-export function findPath(g: PathGrid, start: number, goal: number, shut?: (i: number) => boolean): number[] | null {
+export function findTilePath(map: WorldMap, sx: number, sy: number, gx: number, gy: number, shut?: (x: number, y: number) => boolean, margin = 16, maxSide = 96): number[] | null {
+  const cx0 = Math.floor(sx), cy0 = Math.floor(sy), cx1 = Math.floor(gx), cy1 = Math.floor(gy);
+  const half = maxSide >> 1;
+  const mx = (cx0 + cx1) >> 1, my = (cy0 + cy1) >> 1;
+  const x0 = Math.max(0, Math.min(cx0, cx1) - margin, mx - half), x1 = Math.min(map.cols - 1, Math.max(cx0, cx1) + margin, mx + half);
+  const y0 = Math.max(0, Math.min(cy0, cy1) - margin, my - half), y1 = Math.min(map.rows - 1, Math.max(cy0, cy1) + margin, my + half);
+  const inWin = (x: number, y: number) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  if (!inWin(cx0, cy0) || !inWin(cx1, cy1)) return null;
+  const w = x1 - x0 + 1, hgt = y1 - y0 + 1, n = w * hgt;
+  // 0 unknown, 1 open, 2 open next to a closed tile, 3 closed.
+  const kind = new Uint8Array(n);
+  const closedAt = (x: number, y: number) => !inWin(x, y) || avoids(terrainAt(map, x + 0.5, y + 0.5)) || !!shut?.(x + 0.5, y + 0.5);
+  const kindOf = (i: number): number => {
+    let k = kind[i]!;
+    if (k) return k;
+    const x = x0 + (i % w), y = y0 + Math.floor(i / w);
+    if (closedAt(x, y)) k = 3;
+    else {
+      k = 1;
+      for (let dy = -1; dy <= 1 && k === 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && closedAt(x + dx, y + dy)) { k = 2; break; }
+    }
+    kind[i] = k;
+    return k;
+  };
+  const start = (cy0 - y0) * w + (cx0 - x0), goal = (cy1 - y0) * w + (cx1 - x0);
+  const toMap = (i: number) => (y0 + Math.floor(i / w)) * map.cols + x0 + (i % w);
   if (start === goal) return [];
-  const n = g.cols * g.rows;
-  const cost = new Float64Array(n).fill(Infinity);
-  const from = new Int32Array(n).fill(-1);
-  const closed = new Uint8Array(n);
-  const gx = goal % g.cols, gy = Math.floor(goal / g.cols);
+  const open = (i: number) => i === goal || i === start || kindOf(i) !== 3;
+  const stepCost = (i: number) => {
+    let c = kindOf(i) === 2 ? NEAR_COST : 0;
+    if (terrainAt(map, x0 + (i % w) + 0.5, y0 + Math.floor(i / w) + 0.5) === Terrain.Slow) c += SLOW_COST;
+    return c;
+  };
+  const gxw = cx1 - x0, gyw = cy1 - y0;
   const h = (i: number) => {
-    const dx = Math.abs((i % g.cols) - gx), dy = Math.abs(Math.floor(i / g.cols) - gy);
+    const dx = Math.abs((i % w) - gxw), dy = Math.abs(Math.floor(i / w) - gyw);
     return 10 * Math.max(dx, dy) + 4 * Math.min(dx, dy);
   };
-  const open = (i: number) => i === goal || i === start || (pathCellOpen(g, i) && !shut?.(i));
-  // Binary heap of [f, seq, cell].
+  const cost = new Float64Array(n).fill(Infinity);
+  const from = new Int32Array(n).fill(-1);
+  const done = new Uint8Array(n);
   const heap: [number, number, number][] = [];
   let seq = 0;
   const less = (a: [number, number, number], b: [number, number, number]) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
@@ -106,25 +100,25 @@ export function findPath(g: PathGrid, start: number, goal: number, shut?: (i: nu
   push([h(start), seq++, start]);
   while (heap.length) {
     const [, , cur] = pop();
-    if (closed[cur]) continue;
+    if (done[cur]) continue;
     if (cur === goal) break;
-    closed[cur] = 1;
-    const cx = cur % g.cols, cy = Math.floor(cur / g.cols);
+    done[cur] = 1;
+    const cx = cur % w, cy = Math.floor(cur / w);
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (!dx && !dy) continue;
         const x = cx + dx, y = cy + dy;
-        if (x < 0 || y < 0 || x >= g.cols || y >= g.rows) continue;
-        const ni = y * g.cols + x;
-        if (closed[ni] || !open(ni)) continue;
-        if (dx && dy && (!open(cy * g.cols + x) || !open(y * g.cols + cx))) continue;
-        const c = cost[cur]! + (dx && dy ? 14 : 10);
+        if (x < 0 || y < 0 || x >= w || y >= hgt) continue;
+        const ni = y * w + x;
+        if (done[ni] || !open(ni)) continue;
+        if (dx && dy && (!open(cy * w + x) || !open(y * w + cx))) continue;
+        const c = cost[cur]! + (dx && dy ? 14 : 10) + stepCost(ni);
         if (c < cost[ni]!) { cost[ni] = c; from[ni] = cur; push([c + h(ni), seq++, ni]); }
       }
     }
   }
   if (from[goal] === -1) return null;
   const out: number[] = [];
-  for (let i = goal; i !== start; i = from[i]!) out.push(i);
+  for (let i = goal; i !== start; i = from[i]!) out.push(toMap(i));
   return out.reverse();
 }

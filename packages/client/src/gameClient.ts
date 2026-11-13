@@ -405,7 +405,8 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
     } else if (e.type === 'HorseSideChanged') { audio.play('whistle'); show(`You whistle: your horse crosses to the ${sideName(e.to)} side`, 'info', 2000); }
     else if (e.type === 'HorseArrived') show(`Your horse is alongside on the ${sideName(e.side)}: get to a door and Space to jump`, 'good', 2500);
     else if (e.type === 'HorseDeparted') show(`Your horse drops back. F whistles again in ${e.cooldownSec.toFixed(0)} s`, 'warn', 2500);
-    else if (e.type === 'HorseBlocked') show(e.reason === 'no path' ? 'Your horse cannot find a way to you' : 'Your horse is stuck', 'bad', 2500);
+    else if (e.type === 'HorseBlocked') show(`${e.reason === 'no path' ? 'Your horse cannot find a way to you' : 'Your horse is stuck'}: cross to the other side of the car and whistle (F)`, 'bad', 4000);
+    else if (e.type === 'HorseFellBehind') show('Your horse fell behind: it gets a fresh pace window when it catches up', 'warn', 2500);
     else if (e.type === 'MountAttempt' && e.result === 'fail') show(`mount ${e.attempt}: fail - you slip back aboard`, 'bad', 2000);
     else if (e.type === 'MountAttempt' && e.result !== 'fail') {
       landing = { result: e.result, at: performance.now() };
@@ -784,12 +785,13 @@ export function createGameClient(app: Application, opts: GameClientOptions): Gam
       const horseLine: { text: string; kind: NoticeKind } | null = !call || riding || !aboardPhase ? null
         : call.state === 'alongside' && rs && rs.clockRunning && rs.countdownSec <= 10 && graceSec > 0
           ? { text: `Horse alongside (${sideName(call.side)}): ${(call.ticks / tickRateHz).toFixed(0)} s. At a door you get ${graceSec.toFixed(0)} s extra when time runs out`, kind: 'warn' }
-        : call.state === 'approaching' && call.blocked ? { text: `Horse ${call.blocked === 'no path' ? 'blocked: no way through' : 'stuck'}: F to try the other side`, kind: 'bad' }
+        : call.blocked ? { text: `Horse ${call.blocked === 'no path' ? 'blocked: no way through' : 'stuck'}: cross to the other side of the car and whistle (F)`, kind: 'bad' }
           : call.state === 'approaching' ? { text: `Horse coming (${sideName(call.side)})`, kind: 'info' }
             : call.state === 'alongside' ? { text: `Horse alongside (${sideName(call.side)}): ${(call.ticks / tickRateHz).toFixed(0)} s`, kind: 'good' }
               : (call.state === 'leaving' || call.state === 'away') && cdSec > 0 ? { text: `Horse dropping back: whistle in ${cdSec.toFixed(1)} s`, kind: 'warn' }
                 : null;
       const mountPrompt = !extracting || !call ? null
+        : call.blocked ? `Your horse is stuck on the ${sideName(call.side)} side  ·  cross the car and F to call it to the other side`
         : call.state === 'alongside' ? mount?.state === 'eligible' ? 'Space: jump onto your horse!'
           : mount?.state === 'horse too far' ? 'Wait for your horse to come level with the door'
             : `Get to a door on the ${sideName(call.side)} side`
