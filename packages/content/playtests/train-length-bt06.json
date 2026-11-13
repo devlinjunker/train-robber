@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "train-length-bt06",
+  "title": "Train Length",
+  "question": "What is a good length for a train?",
+  "base": {
+    "set": {
+      "trainMix.mode": "all-mail"
+    },
+    "map": "line"
+  },
+  "setups": [
+    {
+      "id": "a",
+      "name": "3 cars",
+      "set": {
+        "trains.mail-express.carCount": 3
+      }
+    },
+    {
+      "id": "b",
+      "name": "4 cars",
+      "set": {
+        "trains.mail-express.carCount": 4
+      }
+    },
+    {
+      "id": "c",
+      "name": "5 cars",
+      "set": {
+        "trains.mail-express.carCount": 5
+      }
+    },
+    {
+      "id": "d",
+      "name": "6 cars",
+      "set": {
+        "trains.mail-express.carCount": 6
+      }
+    }
+  ],
+  "numbers": [
+    "outcomes",
+    "length",
+    "lootCarried",
+    "banked",
+    "lootLeft",
+    "timeLeft"
+  ],
+  "status": "done",
+  "conclusion": "I think 6 cars is a good length for a train, we should make that the default going forward"
+}
