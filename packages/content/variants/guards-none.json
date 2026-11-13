@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "none",
+  "group": "guards",
+  "label": "No guards",
+  "help": "No train has guards, whatever the preset or wanted level says: for testing boarding, looting and the outside of the train on its own.",
+  "question": "Test the train without guards?",
+  "patch": { "ai": { "guardsEnabled": false } }
+}

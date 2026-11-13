@@ -592,6 +592,8 @@ export const GameSchema = z.object({
   }).strict(),
   /** Light guards (phase 2 M3): patrol, sight cone and noise, unaware to suspicious to alert; no combat yet. */
   ai: z.object({
+    /** guards variant group: false puts no guards on any train, for testing the train without them (on when absent). */
+    guardsEnabled: z.boolean().optional(),
     /** guardCatch variant group: `heat-only` guards only raise heat; `thrown-off` alert guards chase and throw the player off the train. */
     guardCatch: z.enum(['heat-only', 'thrown-off']),
     /** Walking a patrol route, and going back to it or to the post. */
@@ -669,6 +671,14 @@ export const PresetSchema = z.object({
   extends: id.optional(),
   /** Exactly one variant per group, counting the ones inherited through `extends`. */
   variants: z.record(z.string()),
+  /**
+   * Variant picks for one map only, by map id, e.g. `{ "alpha-flats": { "trainMix": "all-mail" } }`.
+   * They replace `variants` when the game runs that map; a group a preset further down the `extends`
+   * chain picks in its own `variants` is no longer replaced, and `?v=` on the URL always wins.
+   */
+  mapVariants: z.record(z.record(z.string())).optional(),
+  /** Config values for one map only, by map id, merged over `values` (and every preset's `values`) when the game runs that map; `?set=` still wins. */
+  mapValues: z.record(z.record(z.unknown())).optional(),
   /** Plain config values this preset sets, as a partial game.json tree (numbers are values, not variants). */
   values: z.record(z.unknown()).optional(),
 }).strict();

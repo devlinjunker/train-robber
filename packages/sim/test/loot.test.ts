@@ -308,6 +308,8 @@ describe('trainMix', () => {
   it('all-mail, mixed and mostly-blank turn the slots into mail and blank trains, keeping one mail train', () => {
     expect(types(mix('all-mail'))).toEqual(['mail', 'mail', 'mail', 'mail']);
     expect(types(mix('all-mail'), mixMap)).toEqual(['mail', 'mail']);
+    // ?set=trainMix.mode=all-mail on top of mixed keeps blankShare 0.5: still every train mail.
+    expect(types(mix('all-mail', 0.5))).toEqual(['mail', 'mail', 'mail', 'mail']);
     const mixed = types(mix('mixed', 0.5));
     expect(mixed.filter((t) => t === 'blank')).toHaveLength(2);
     expect(types(mix('mostly-blank', 1))).toEqual(expect.arrayContaining(['mail']));

@@ -51,7 +51,8 @@ describe('experiments in the browser', () => {
     expect([q.get('exp'), q.get('setup')]).toEqual(['towns-abcd', 'mid']);
     expect(decodeExperiment(q.get('xp')!)).toEqual(exp);
     const repo = new URLSearchParams(playQuery(exp, 'tight', { preset: 'medium-run' }, false));
-    expect([repo.get('preset'), repo.getAll('set'), repo.get('map'), repo.has('xp')]).toEqual(['medium-run', ['countdown.scale=2'], null, false]);
+    // A setup naming no map plays on alpha-flats, not the game's default open line.
+    expect([repo.get('preset'), repo.getAll('set'), repo.get('map'), repo.has('xp')]).toEqual(['medium-run', ['countdown.scale=2'], 'alpha-flats', false]);
     expect(() => playQuery(exp, 'nope', undefined, false)).toThrow(/no setup nope/);
     // A page opened from a PR link passes the PR on, so the runs are tagged with it.
     expect(new URLSearchParams(playQuery(exp, 'tight', undefined, false, 46)).get('pr')).toBe('46');

@@ -11,6 +11,7 @@ import {
 } from './playtestStats';
 import type { RunRecord } from './runTracker';
 import { getTester, setTester } from './tester';
+import { filtersFromQuery, filtersToQuery, viewToQuery } from './playtestFilters';
 import {
   ANSWER_FIELDS, loadStatus, saveStatus, classifyIncoming, decodeExperiment, emptyAnswers, loadAnswers, loadBases, loadOwn, mergeIncoming, newExperimentId, parseExperiment,
   linkedPr, loadDeleted, loadExcluded, playQuery, saveDeleted, undelete, saveExcluded, saveAnswers, saveBases, saveOwn, shareQuery, type Answers,
@@ -86,7 +87,9 @@ async function main() {
   const db = await openDb();
   let runs: RunRecord[] = [];
   let stored = new Set<string>();
-  const filters = new Map<string, string>();
+  // Filters start from the URL and are written back to it on every change (playtestFilters.ts).
+  const filters = filtersFromQuery(location.search);
+  const syncUrl = () => history.replaceState(null, '', `${location.pathname}${viewToQuery(filtersToQuery(location.search, filters, focus), view)}${location.hash}`);
   let moreOpen = false;
   let own = loadOwn();
   let bases = loadBases();
@@ -94,6 +97,8 @@ async function main() {
   let status = loadStatus();
   let view: View = 'robbery';
   try { const v = localStorage.getItem(VIEW_KEY); if (v && v in VIEWS) view = v as View; } catch { /* default view */ }
+  const urlView = new URLSearchParams(location.search).get('view');
+  if (urlView && urlView in VIEWS) view = urlView as View;
   const expanded = new Set<string>();
   // The PR a link from GitHub opened the page for (`?pr=N`): every card can send its results there,
   // and Play links pass it on so the runs are tagged with it. Kept until Unlink.
@@ -187,7 +192,7 @@ async function main() {
   // ---------- Filters ----------
 
   function renderFilters() {
-    const keys = ['version', 'tester', 'outcome', 'experiment', 'mapId', 'pr', 'practice', 'saveId', ...new Set(runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)))];
+    const keys = ['version', 'tester', 'outcome', 'experiment', 'mapId', 'pr', 'practice', 'saveId', ...new Set([...runs.flatMap((r) => Object.keys(r.variants).map((g) => `v:${g}`)), ...[...filters.keys()].filter((k) => k.startsWith('v:'))])];
     const box = $('filters');
     box.innerHTML = '';
     // Variant groups go in a More filters menu, so the row stays short however many groups there are.
@@ -195,12 +200,14 @@ async function main() {
     more.className = 'menu more';
     const moreBox = document.createElement('div');
     for (const k of keys) {
-      const values = [...new Set(runs.map((r) => filterValue(r, k)))].sort(k === 'version' ? compareVersions : undefined);
+      // A filter from the URL that no run has yet still shows as picked, so it is clear why the table is empty.
+      const picked = filters.get(k);
+      const values = [...new Set([...runs.map((r) => filterValue(r, k)), ...(picked ? [picked] : [])])].sort(k === 'version' ? compareVersions : undefined);
       // Version is always offered, so notes can be exported for one version; other filters only when they would split the runs.
       if (k !== 'version' && values.length < 2 && !filters.get(k)) continue;
       const sel = document.createElement('select');
       sel.innerHTML = `<option value="">all</option>` + values.map((v) => `<option value="${esc(v)}"${filters.get(k) === v ? ' selected' : ''}>${esc(k === 'experiment' ? findShown(v)?.exp.title ?? v : k === 'saveId' && v !== '–' ? v.slice(0, 6) : v)}</option>`).join('');
-      sel.addEventListener('change', () => { filters.set(k, sel.value); if (k.startsWith('v:')) renderFilters(); renderExperiments(); renderRuns(); });
+      sel.addEventListener('change', () => { filters.set(k, sel.value); syncUrl(); if (k.startsWith('v:')) renderFilters(); renderExperiments(); renderRuns(); });
       const label = document.createElement('label');
       label.append(k.startsWith('v:') ? k.slice(2) : k === 'mapId' ? 'map' : k === 'saveId' ? 'save' : k === 'pr' ? 'PR' : k, sel);
       (k.startsWith('v:') ? moreBox : box).append(label);
@@ -500,6 +507,7 @@ async function main() {
     if (!v) return;
     view = v;
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* remembered for this page only */ }
+    syncUrl();
     renderRuns();
   });
   $('runs').addEventListener('click', async (e) => {
@@ -513,7 +521,7 @@ async function main() {
       }
       return;
     }
-    if (el.dataset.save) { e.preventDefault(); filters.set('saveId', filters.get('saveId') === el.dataset.save ? ALL : el.dataset.save); renderFilters(); renderExperiments(); renderRuns(); return; }
+    if (el.dataset.save) { e.preventDefault(); filters.set('saveId', filters.get('saveId') === el.dataset.save ? ALL : el.dataset.save); syncUrl(); renderFilters(); renderExperiments(); renderRuns(); return; }
     if (el.dataset.goto) {
       e.preventDefault();
       expanded.add(el.dataset.goto);
@@ -765,6 +773,7 @@ async function main() {
     filters.set('experiment', ALL);
     const u = new URLSearchParams(location.search); u.delete('exp');
     history.replaceState(null, '', `${location.pathname}${u.toString() ? `?${u}` : ''}${location.hash}`);
+    syncUrl();
     renderFilters(); renderExperiments(); renderRuns();
   });
   await load();

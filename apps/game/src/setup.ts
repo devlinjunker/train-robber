@@ -11,6 +11,10 @@ import carTemplates from '@train-robber/content/base/car-templates.json';
 import schemaSource from '../../../packages/config/src/schema.ts?raw';
 
 const DEFAULT_PRESET = 'alpha-default';
+/** The map a URL without ?map= plays (map.ts re-exports it): the open line (Devlin, 2026-11-12). Experiments and PR links name alpha-flats to test one mechanic. */
+export const DEFAULT_MAP = 'line';
+/** The map before the line was the default: logs that name no map were played on it. */
+export const LEGACY_MAP = 'alpha-flats';
 
 const files = (mods: Record<string, unknown>): ContentFile[] =>
   Object.entries(mods).sort(([a], [b]) => a.localeCompare(b)).map(([file, data]) => ({ file, data: (data as { default: unknown }).default }));
@@ -39,7 +43,9 @@ export function setupFromUrl(search = location.search): Setup {
   const sets = q.getAll('set');
   const wanted = q.get('wanted');
   if (wanted !== null && wanted !== '') sets.push(`wanted.forceLevel=${wanted}`);
-  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, variants, overrides: overridesFromSet(sets) });
+  // The map matters to the preset's `mapVariants` (alpha-flats runs all mail trains by default).
+  const map = q.get('map') || DEFAULT_MAP;
+  const config = resolveConfig(content, { preset: q.get('preset') ?? DEFAULT_PRESET, map, variants, overrides: overridesFromSet(sets) });
   // Any string works as a seed; without one, the host picks a random one (the sim never does).
   const seed = q.get('seed') || Math.random().toString(36).slice(2, 10);
   return { config, seed };
@@ -147,7 +153,7 @@ export function diffReadable(sel: Parameters<typeof diffParts>[0]): { text: stri
 export const diffLabel = (sel: Parameters<typeof diffParts>[0]): string => diffParts(sel).join(', ') || 'default';
 
 /** Why a selection does not resolve to a config, or null when it does. */
-export function selectionError(sel: { preset: string; variants: Record<string, string>; overrides: Record<string, unknown> }): string | null {
+export function selectionError(sel: { preset: string; map?: string; variants: Record<string, string>; overrides: Record<string, unknown> }): string | null {
   try { resolveConfig(content, sel); return null; } catch (e) { return (e as Error).message; }
 }
 

@@ -3,7 +3,8 @@ import { DEFAULT_MAP, GENERATED_MAP_ID, LINE_MAP_ID, loadMap, loadScenery, mapId
 import { setupFromUrl } from '../src/setup';
 
 describe('map loading', () => {
-  it('reads ?map= and defaults to alpha-flats', () => {
+  it('reads ?map= and defaults to the open line', () => {
+    expect(DEFAULT_MAP).toBe(LINE_MAP_ID);
     expect(mapIdFromUrl('?map=other&seed=1')).toBe('other');
     expect(mapIdFromUrl('?seed=1')).toBe(DEFAULT_MAP);
     expect(mapIdFromUrl('?map=')).toBe(DEFAULT_MAP);

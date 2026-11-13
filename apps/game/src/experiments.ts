@@ -121,6 +121,9 @@ export function mergeIncoming(e: Experiment, own: readonly Experiment[], repoIds
   return { own: [...own, { ...e, id, title: `${e.title} (shared)`.slice(0, 80) }], id, kind };
 }
 
+/** Experiments test mechanics on the small loop unless they name a map (Devlin, 2026-11-12: the game itself opens on the line). */
+export const EXPERIMENT_DEFAULT_MAP = 'alpha-flats';
+
 /**
  * The game page's URL for one setup: preset, variants, `?set=` values and map, tagged with
  * `exp` and `setup`. `carry` adds the whole experiment (`xp`) so the link saves it for whoever
@@ -134,7 +137,7 @@ export function playQuery(e: Experiment, setupId: string, base: ExperimentBase |
   q.set('preset', sel.preset);
   for (const [g, id] of Object.entries(sel.variants).sort()) q.append('v', `${g}:${id}`);
   for (const s of setParams(sel.set)) q.append('set', s);
-  if (sel.map) q.set('map', sel.map);
+  q.set('map', sel.map ?? EXPERIMENT_DEFAULT_MAP);
   q.set('exp', e.id);
   q.set('setup', setupId);
   if (pr) q.set('pr', String(pr));

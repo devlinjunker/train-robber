@@ -1,4 +1,4 @@
-// Picks the map for a session from the URL (?map=alpha-flats) and validates it.
+// Picks the map for a session from the URL (?map=alpha-flats; the open line when absent) and validates it.
 // Maps are the built files in packages/content/base/maps; only the chosen one is fetched.
 // ?map=gen generates a loop from the run seed instead (packages/mapgen), and ?map=line an open line
 // across a long map, with the generator's settings from base/map-gen.json and any
@@ -6,8 +6,9 @@
 import { MapDefSchema, SceneryDefSchema, resolveMapGen, type MapDef, type ResolvedConfig, type SceneryDef } from '@train-robber/config';
 import { generateLine, generateMap, GENERATED_MAP_ID, LINE_MAP_ID } from '@train-robber/mapgen';
 import mapGenDefaults from '@train-robber/content/base/map-gen.json';
+import { DEFAULT_MAP, LEGACY_MAP } from './setup';
 
-export const DEFAULT_MAP = 'alpha-flats';
+export { DEFAULT_MAP, LEGACY_MAP };
 
 type Loader = () => Promise<unknown>;
 const builtMaps = import.meta.glob('../../../packages/content/base/maps/*.json', { import: 'default' }) as Record<string, Loader>;

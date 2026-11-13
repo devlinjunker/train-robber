@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "off",
+  "group": "timer",
+  "label": "No timer",
+  "help": "No run countdown, so a run never expires: for testing the train at your own pace.",
+  "question": "Test the train without the run timer?",
+  "patch": { "countdown": { "enabled": false } }
+}

@@ -8,14 +8,15 @@ import { checkInvariants } from '../bots';
 import { riderCommands } from '../golden';
 
 /** The map's own trains (trainMix `map`), not the default mixed trains. */
-const mapTrainsConfig = () => loadConfig({ preset: 'map-trains' });
+/** The map's own trains, with the preset's settings for that map (big-country keeps 3-car trains). */
+const mapTrainsConfig = (map?: string) => loadConfig({ preset: 'map-trains', ...(map ? { map } : {}) });
 type Config = ReturnType<typeof mapTrainsConfig>;
 /** The slowest train speed in tiles per tick, so a lap at it covers every train's route. */
 const slowest = (config: Config) => Math.min(...Object.values(config.values.trains).map((t) => t.speedTilesPerTick));
 const lapTicks = (map: MapDef, config: Config) => Math.ceil(Math.max(...map.routes.map((r) => r.length)) / slowest(config));
 
 /** Spawn mounted at playerSpawn, start the map's trains, and run a full lap of the longest route. */
-export function lapProblems(map: MapDef, seed: string, config = mapTrainsConfig()): string[] {
+export function lapProblems(map: MapDef, seed: string, config = mapTrainsConfig(map.id)): string[] {
   const out: string[] = [];
   const sim = createSim({ config, map, seed, playerIds: [1] });
   const h = sim.state.world.horses[0];
@@ -31,7 +32,7 @@ export function lapProblems(map: MapDef, seed: string, config = mapTrainsConfig(
 }
 
 /** Over a lap, every car of each train stays more than 12 tiles from every car of the others. */
-export function trainGapProblems(map: MapDef, seed: string, config = mapTrainsConfig()): string[] {
+export function trainGapProblems(map: MapDef, seed: string, config = mapTrainsConfig(map.id)): string[] {
   const out: string[] = [];
   const sim = createSim({ config, map, seed, playerIds: [1] });
   for (let t = 0, n = lapTicks(map, config); t < n && out.length < 10; t += 30) {
@@ -49,7 +50,7 @@ export function trainGapProblems(map: MapDef, seed: string, config = mapTrainsCo
  * start about a headway apart and leave past the end, the number running stays within what the
  * headway and its spread allow, and no two touch.
  */
-export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrainsConfig()): string[] {
+export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrainsConfig(map.id)): string[] {
   const out: string[] = [];
   if (!map.openLine) return ['not an open line'];
   const sim = createSim({ config, map, seed, playerIds: [1] });
@@ -88,7 +89,8 @@ export function lineTrafficProblems(map: MapDef, seed: string, config = mapTrain
  * other way (the script crashed into the train, or lost the horse) is retried, up to `maxRuns`.
  */
 export function lineRunProblems(map: MapDef, seed: string, seconds = 600, log?: (line: string) => void, maxRuns = 3): string[] {
-  const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map', guardCatch: 'heat-only' } });
+  // 3-car trains, as before the 6-car default: this checks the line plays through, and the bot's simple robbing did not extract from a 6-car train on line-0 in 600 s.
+  const config = loadConfig({ preset: 'alpha-default', variants: { trainMix: 'map', guardCatch: 'heat-only' }, overrides: { trains: { 'mail-express': { carCount: 3 } } } });
   const sim = createSim({ config, map, seed, playerIds: [1] });
   const s = sim.state as GameState;
   const h = s.world.horses[0]!;

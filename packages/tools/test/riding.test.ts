@@ -30,10 +30,11 @@ describe('riding on alpha-flats', () => {
     const sim = createSim({ config, map, seed: 's', playerIds: [1] });
     expect(sim.state.world.horses[0]).toMatchObject({ x: 200, y: 170, speed: 0 });
     const cars = sim.cars().map((c) => c.template);
-    expect(cars).toHaveLength(5);
+    // Engine, 6 mail cars (the default since 2026-11-12), caboose.
+    expect(cars).toHaveLength(8);
     expect(cars[0]).toBe('engine');
-    expect(cars[4]).toBe('caboose');
-    for (const id of cars.slice(1, 4)) expect(id).toMatch(/^mail-car-[a-e]$/);
+    expect(cars[7]).toBe('caboose');
+    for (const id of cars.slice(1, 7)) expect(id).toMatch(/^mail-car-[a-e]$/);
     const lapTicks = map.routes[0]!.length / config.values.trains['mail-express']!.speedTilesPerTick;
     expect(lapTicks / 60).toBeCloseTo(81.2, 1);
   });

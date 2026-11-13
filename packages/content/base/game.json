@@ -11,6 +11,7 @@
     "boost": { "enabled": true, "durationSec": 1.5, "topSpeedScale": 1.4, "cooldownSec": 6, "accelTilesPerSec2": 20 }
   },
   "ai": {
+    "guardsEnabled": true,
     "guardCatch": "heat-only",
     "patrolSpeedTilesPerSec": 1.5, "patrolPauseSec": 1.5, "chaseSpeedTilesPerSec": 4, "turnRateDegPerSec": 240,
     "sight": { "rangeTiles": 10, "ledgeRangeTiles": 30, "coneHalfAngleDeg": 55, "crouchCoverMin": 0.25 },
@@ -75,7 +76,7 @@
       "speedTilesPerSec": 9,
       "engine": "engine",
       "carType": "mail-car",
-      "carCount": 3,
+      "carCount": 6,
       "caboose": "caboose",
       "requireSideDoors": "both",
       "countdown": { "baseSec": 150 },
@@ -89,7 +90,7 @@
       "speedTilesPerSec": 9,
       "engine": "engine",
       "carType": "blank-car",
-      "carCount": 3,
+      "carCount": 6,
       "caboose": "caboose",
       "requireSideDoors": "both",
       "countdown": { "baseSec": 150 },

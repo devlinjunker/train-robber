@@ -35,6 +35,8 @@ export interface ContentSet {
 
 export interface Selection {
   preset: string;
+  /** The map the game runs, for the preset's `mapVariants` (none: the preset's own picks only). */
+  map?: string;
   /** Per-group variant choices that replace the preset's, e.g. from `?v=group:id`. */
   variants?: Record<string, string>;
   /** Run-time values merged last, as a partial game.json tree, e.g. from `?set=countdown.scale=4`. */
@@ -108,6 +110,11 @@ export function loadContent(content: ContentSet): LoadedContent {
     const p = parse(PresetSchema, f);
     if (presets.has(p.id)) throw new ConfigError(f.file, 'id', `duplicate preset ${p.id}`);
     presets.set(p.id, { ...p, file: f.file });
+    for (const [map, vs] of Object.entries(p.mapVariants ?? {})) {
+      for (const [group, id] of Object.entries(vs)) {
+        if (!variants.has(`${group}:${id}`)) throw new ConfigError(f.file, `mapVariants.${map}.${group}`, `unknown variant ${group}:${id}`);
+      }
+    }
   }
   const c = content.catalogs;
   const catalogs = {
@@ -123,7 +130,7 @@ export function loadContent(content: ContentSet): LoadedContent {
  * A preset with everything it inherits through `extends`: the variants and values of the
  * presets it builds on, oldest first, with its own replacing theirs.
  */
-function flattenPreset(loaded: LoadedContent, id: string): { preset: Preset & { file: string }; variants: Record<string, string>; values: unknown } {
+function flattenPreset(loaded: LoadedContent, id: string): { preset: Preset & { file: string }; variants: Record<string, string>; mapVariants: Record<string, Record<string, string>>; mapValues: Record<string, unknown>; values: unknown } {
   const chain: (Preset & { file: string })[] = [];
   for (let at: string | undefined = id, from = 'presets'; at !== undefined;) {
     const p = loaded.presets.get(at);
@@ -134,11 +141,17 @@ function flattenPreset(loaded: LoadedContent, id: string): { preset: Preset & { 
     at = p.extends;
   }
   let variants: Record<string, string> = {}, values: unknown = {};
+  let mapVariants: Record<string, Record<string, string>> = {};
+  const mapValues: Record<string, unknown> = {};
   for (const p of chain.reverse()) {
     variants = { ...variants, ...p.variants };
+    // A group this preset picks itself is no longer replaced by an older preset's map picks.
+    mapVariants = Object.fromEntries(Object.entries(mapVariants).map(([m, vs]) => [m, Object.fromEntries(Object.entries(vs).filter(([g]) => !(g in p.variants)))]));
+    for (const [m, vs] of Object.entries(p.mapVariants ?? {})) mapVariants[m] = { ...mapVariants[m], ...vs };
+    for (const [m, vs] of Object.entries(p.mapValues ?? {})) mapValues[m] = merge(mapValues[m] ?? {}, vs);
     if (p.values) values = merge(values, p.values);
   }
-  return { preset: chain[chain.length - 1]!, variants, values };
+  return { preset: chain[chain.length - 1]!, variants, mapVariants, mapValues, values };
 }
 
 /**
@@ -178,7 +191,7 @@ export function setEntries(overrides: Record<string, unknown>, prefix = ''): str
 export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedConfig {
   const flat = flattenPreset(loaded, sel.preset);
   const preset = flat.preset;
-  const chosen: Record<string, string> = { ...flat.variants, ...sel.variants };
+  const chosen: Record<string, string> = { ...flat.variants, ...(sel.map ? flat.mapVariants[sel.map] : undefined), ...sel.variants };
   for (const group of loaded.groups.keys()) {
     if (!(group in chosen)) throw new ConfigError(preset.file, `variants.${group}`, `no variant chosen for group ${group}`);
   }
@@ -198,6 +211,7 @@ export function resolveConfig(loaded: LoadedContent, sel: Selection): ResolvedCo
   }
   // Preset values, then run-time overrides, both after the variants (step 2).
   merged = merge(merged, flat.values);
+  if (sel.map && flat.mapValues[sel.map]) merged = merge(merged, flat.mapValues[sel.map]);
   const overrides = sel.overrides ?? {};
   merged = merge(merged, overrides);
 

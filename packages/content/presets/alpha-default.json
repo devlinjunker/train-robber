@@ -1,5 +1,9 @@
 {
   "schemaVersion": 1,
   "id": "alpha-default",
-  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast", "collisionDamage": "on", "trainSwitch": "key", "lootCarry": "limit-and-slowdown", "trainMix": "mixed", "guardCatch": "thrown-off", "handlingModel": "arcade-boost", "mountSpill": "random" }
+  "variants": { "boardingFailure": "time-and-damage", "steering": "heading", "throttleModel": "coast", "collisionDamage": "on", "trainSwitch": "key", "lootCarry": "limit-and-slowdown", "trainMix": "mixed", "guardCatch": "thrown-off", "handlingModel": "arcade-boost", "mountSpill": "random", "guards": "on", "timer": "on" },
+  "mapVariants": { "alpha-flats": { "trainMix": "all-mail" } },
+  "mapValues": {
+    "big-country": { "trains": { "mail-express": { "carCount": 3 }, "blank": { "carCount": 3 } } }
+  }
 }

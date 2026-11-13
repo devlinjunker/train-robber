@@ -727,7 +727,7 @@ The examples below show the file shapes.
 }
 ```
 
-A preset chooses exactly one variant per group, so two options from the same test can never be active together. Since phase 2 M1 a preset may also name a preset it builds on with `extends` (its variants and values apply first) and carry plain config values in `values`, a partial `game.json` tree, for example `medium-run`: `{ "extends": "alpha-default", "variants": {}, "values": { "countdown": { "scale": 4 }, "loot": { "densityScale": 4 } } }`.
+A preset chooses exactly one variant per group, so two options from the same test can never be active together. Since phase 2 M1 a preset may also name a preset it builds on with `extends` (its variants and values apply first) and carry plain config values in `values`, a partial `game.json` tree, for example `medium-run`: `{ "extends": "alpha-default", "variants": {}, "values": { "countdown": { "scale": 4 }, "loot": { "densityScale": 4 } } }`. A preset may also pick for one map only (Devlin, 2026-11-12): `mapVariants` (`{ "alpha-flats": { "trainMix": "all-mail" } }` in `alpha-default`, so the testing map has only mail trains) replaces its variant picks when the game runs that map, unless a preset further down the `extends` chain picks that group itself (so `map-trains` still gets the map's own trains) or the URL's `?v=` does; `mapValues` merges over `values` for that map (`?set=` still wins). The game passes `?map=` to the resolver; without one the game opens on the open line (`line`), while experiment Play links and PR test links name `alpha-flats` to test one mechanic (Devlin, 2026-11-12; a log naming no map replays on alpha-flats, the old default). Two variant groups switch whole systems off for such tests: `guards` (`on`, `none`: `ai.guardsEnabled` false puts no guards on any train) and `timer` (`on`, `off`: `countdown.enabled` false, so a run never expires on the clock); the resolved variants are what the log header records, so replays need no map rule. `tools validate` checks that every named map and variant exists.
 
 ### Variant groups
 
@@ -1098,7 +1098,7 @@ Mouse aim and fire arrive with combat in phase 3. A touchpad needs only the keys
 | Cruise target rate | 10 tiles/s² | `horse.cruiseTargetRateTilesPerSec2` |
 | Horse top speed on slow ground | 50% | `horse.slowZoneSpeedScale` |
 | Horse top speed in shallow water | 25%, reached at once | `horse.waterSpeedScale` |
-| Train | engine plus 3 cars, 9 tiles/s | `trains.blank` |
+| Train | engine plus 6 cars (3 until Devlin, 2026-11-12), 9 tiles/s | `trains.blank` |
 | Tick rate | 60 Hz | `sim.tickRateHz` |
 
 Landing results: a perfect landing arrives clean, a good landing arrives with a short stumble (a brief slowdown), and anything else is a failure.
@@ -1163,7 +1163,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 - **Searching.** Hold E for the search time; the player can slow-walk at 30% speed meanwhile. Releasing E, or moving more than 1.5 tiles from the loot spot, cancels and loses the progress.
 - **Carrying.** A hard max of 10 weight units, with slowdown from 6 units down to 50% speed at the max, and a separate cap of 20 items. Starting weights: letter 0.1, cash bundle 0.2, jewellery pouch 0.3, parcel 0.5, registered mail sack 4, strongbox 6.
 - **Heat hooks (M1 historical behavior, superseded by M6).** `heat.sources.timeAboardPerSec` and `no-time-aboard-heat` were removed in M6b. `heat.boardingResistanceAt` was an M1 hook; do not treat it as current behavior without confirming the live config and implementation.
-- **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`), and train names are hidden on the off-screen arrows by default (`hud.showTrainNames: false`, Devlin 2026-10-14; `?trainNames=on` shows them).
+- **Trains on the map.** Mail by default; blank trains can be mixed in as decoys (`trainMix`: `mixed` by default, `all-mail` on alpha-flats since 2026-11-12; `all-mail` makes no blank trains whatever `trainMix.blankShare` says), and train names are hidden on the off-screen arrows by default (`hud.showTrainNames: false`, Devlin 2026-10-14; `?trainNames=on` shows them).
 - **Grace window.** See U3.
 - **Saving.** One shared save; `wanted.forceLevel` runs save nothing; wanted level can come down by the `wanted.decay` rule from M6b, which gate experiment 6 picks (U11, G36, G46). A Reset save button in the debug overlay and `?resetSave=1` both confirm before wiping.
 - **Playtesting.** Free play with ready-made presets for the main questions, linked from the wiki Playtesting page, instead of an in-game variant panel. Each preset builds on `alpha-default` and ships in the PR of the milestone that adds its switch:
@@ -1171,7 +1171,7 @@ Phase 2 builds the mail/express train and the first full run. The live plan is t
 | Preset | Sets | Question | Milestone |
 | --- | --- | --- | --- |
 | `medium-run` | `countdown.scale` 4, `loot.densityScale` 4 | Short vs medium run (the phase gate) | M1 |
-| `long-train` | mail train 6 cars with side doors on at most 2 (`maxSideDoorCars`), `loot.densityScale` 0.7; run length is left to `countdown.scale` (Devlin 2026-10-14) | Does a longer train fill a medium run? | M2 |
+| `long-train` | mail train 6 cars (the default since 2026-11-12, so it now only limits doors and loot) with side doors on at most 2 (`maxSideDoorCars`), `loot.densityScale` 0.7; run length is left to `countdown.scale` (Devlin 2026-10-14) | Does a longer train fill a medium run? | M2 |
 | `slow-search` | every search time × 2.5 (`verbs.search.timeScale`), with `countdown.scale` 4 | Does slower looting fill a medium run? | M2 |
 | `no-carry-limit` | `lootCarry: unlimited` | Does carry weight make choices interesting? | M2 |
 | `doors-both-sides` | the mail train picks only layouts with side doors on both sides | Restricted doors vs doors everywhere | M2 |
@@ -1191,7 +1191,7 @@ Presets combine with `?v=` and `?set=` on the URL, so `?preset=long-train&v=guar
 | Mail countdown base | 150 s | `trains.mail-express.countdown.baseSec` |
 | Countdown multiplier | 1 (a medium-run preset sets 4) | `countdown.scale` |
 | Grace window | 3 s | `countdown.graceSec` |
-| Mail cars | 3 (a preset sets 6) | `trains.mail-express.carCount` |
+| Mail cars | 6 (Devlin, 2026-11-12: more fun and interesting than 3; big-country keeps 3 through `alpha-default`'s `mapValues`, since its four trains touch at the junctions with 6) | `trains.mail-express.carCount`, `trains.blank.carCount` |
 | Search time | 1.2 s by default; letters 0.8 s, mail sack and strongbox 2.2 s; the slow preset scales all by 2.5 (after the M2 playtest, Devlin 2026-10-14) | `verbs.search.searchTimeSec`, `items.<id>.searchTimeSec`, `verbs.search.timeScale` |
 | Hidden loot | On, so a stash can be missed (after the M2 playtest, Devlin 2026-10-14). Searching a stash takes 1.8 s and only reveals its item, which then lies there to be searched at its own time | `verbs.search.hiddenLoot`, `verbs.search.hiddenSearchTimeSec` |
 | Walk speed while searching | 30% | `verbs.search.walkSpeedScale` |

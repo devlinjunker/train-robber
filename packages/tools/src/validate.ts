@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { ExperimentSchema, MapDefSchema, SceneryDefSchema, overridesFromSet, resolveConfig, resolveMapGen, setParams, setupSelection, type LoadedContent, type ResolvedConfig } from '@train-robber/config';
 import { carCatalog, cellOpen, layoutPool, type PreparedCar } from '@train-robber/sim';
-import { CONTENT_DIR, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
+import { CONTENT_DIR, DEFAULT_MAP, REPO_ROOT, jsonFiles, loadContentDir, readJson } from './content';
 
 export interface ValidateResult { errors: string[]; resolved: { preset: string; variants: Record<string, string>; hash: string }[] }
 
@@ -88,6 +88,14 @@ export function validateContent(dir?: string): ValidateResult {
       });
     }
   }
+  // Each preset's map picks name a map that exists and resolve on it.
+  const mapIds = new Set([...GENERATED_MAPS, ...jsonFiles(join(dir ?? CONTENT_DIR, 'base/maps')).map((p) => basename(p, '.json'))]);
+  for (const preset of content.presets.values()) {
+    for (const map of new Set([...Object.keys(preset.mapVariants ?? {}), ...Object.keys(preset.mapValues ?? {})])) {
+      if (!mapIds.has(map)) { errors.push(`preset ${preset.id}: mapVariants or mapValues name unknown map ${map}`); continue; }
+      try { resolveConfig(content, { preset: preset.id, map }); } catch (e) { errors.push(`preset ${preset.id} on map ${map}: ${(e as Error).message}`); }
+    }
+  }
   // The procedural generator's defaults (?map=gen).
   const mapGen = join(dir ?? CONTENT_DIR, 'base/map-gen.json');
   if (existsSync(mapGen)) {
@@ -121,7 +129,7 @@ export function experimentErrors(content: LoadedContent, dir: string): string[] 
       const sel = setupSelection(exp.base, setup);
       if (sel.map && !maps.has(sel.map)) errors.push(`${rel} setup ${setup.id}: unknown map ${sel.map}`);
       try {
-        resolveConfig(content, { preset: sel.preset, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)) });
+        resolveConfig(content, { preset: sel.preset, map: sel.map ?? DEFAULT_MAP, variants: sel.variants, overrides: overridesFromSet(setParams(sel.set)) });
       } catch (e) {
         errors.push(`${rel} setup ${setup.id}: ${(e as Error).message}`);
       }

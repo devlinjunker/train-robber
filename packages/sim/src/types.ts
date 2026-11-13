@@ -597,6 +597,8 @@ export interface SimConfig {
     };
     /** Light guards (phase 2 M3): patrol, sight, noise and awareness; `guardCatch` is what an alert guard does. */
     ai: {
+      /** False: no guards on any train (guards variant `none`). On when absent. */
+      guardsEnabled?: boolean;
       guardCatch: GuardCatch;
       patrolSpeedTilesPerTick: number;
       patrolPauseTicks: number;
